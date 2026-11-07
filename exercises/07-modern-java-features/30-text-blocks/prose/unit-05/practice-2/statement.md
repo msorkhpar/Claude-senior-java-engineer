@@ -1,30 +1,16 @@
-Text blocks make SQL readable, and `formatted()` makes it easy to fill in. The
-page's warning: `formatted()` has no SQL escaping, so a value typed by a user
-must never be formatted into a query. Its safe version keeps a `?` placeholder
-and binds the value later with a `PreparedStatement`.
+The warehouse service exports stock levels as CSV every night, and a test compares the export
+with an expected file kept as a text block. The test passes on the Linux build agents and fails on
+the Windows one, with the message `line 1 differs` although the two texts look the same. A
+colleague's quick fix made the check ignore all white space, and a week later a row with a
+trailing space, which the partner's strict CSV parser rejects, went through unnoticed.
 
-Write `Sql.select(String table, List<String> columns, String filterColumn)`.
-It returns these three lines joined by `\n`, with no newline at the end:
+The partner's parser accepts lines ending with `\n` or `\r\n`, and a last row with or without a
+line break after it. Every other character counts.
 
-```text
-SELECT <columns>
-FROM <table>
-WHERE <filterColumn> = ?
-```
+Finish the two `TODO`s in `src/main/java/practice/ExportCheck.java`:
 
-- `<columns>` is the column names joined by `, `, or `*` when the list is
-  empty.
-- The value to filter by never appears: the query keeps the `?`.
-- Names are code, not data, so each one is checked: `table`, every column and
-  `filterColumn` must each be **one whole identifier**, a letter or `_`
-  followed by letters, digits or `_` (ASCII only; no `$`, no line break). Anything else throws
-  `IllegalArgumentException`.
+- `linesOf(text)`: the lines of a text;
+- `firstDifference(expected, actual)`: the number of the first line that differs, counting from 1,
+  or 0 when the texts match. A line that one text has and the other doesn't is a difference.
 
-| table, columns, filterColumn | answer |
-|---|---|
-| `users`, `[name, email]`, `id` | `SELECT name, email` / `FROM users` / `WHERE id = ?` |
-| `orders`, `[]`, `status` | `SELECT *` / `FROM orders` / `WHERE status = ?` |
-| `users; DROP TABLE users`, `[name]`, `id` | throws `IllegalArgumentException` |
-| `users`, `[name, "1=1 --"]`, `id` | throws `IllegalArgumentException` |
-
-(`/` separates the lines here.)
+About seven lines in total.

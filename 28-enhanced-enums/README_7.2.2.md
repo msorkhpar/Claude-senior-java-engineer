@@ -1,426 +1,357 @@
 # 7.2.2. Declaring Generic Enums
 
-## Concept Explanation
-
-Java enums cannot have type parameters -- `enum Setting<T> { ... }` is a compile-time error. This is a language rule: the
-grammar for enum declarations (JLS 8.9) has no type-parameter section. (JEP 301, "Enhanced Enums", proposed generic
-enums with per-constant type arguments, but it was withdrawn, so the rule still holds in Java 21.) However, senior Java engineers frequently need "enum-like" constructs where each constant carries its own
-type parameter (e.g., a configuration key where `MAX_RETRIES` is typed as `Integer` while `APP_NAME` is typed
-as `String`).
-
-Several well-established workaround patterns exist to simulate generic enums. These patterns trade off between type
-safety, convenience, and complexity. The most important ones are:
-
-1. **Interface-based pattern** -- define a generic interface, implement it with multiple records or classes.
-2. **Sealed interface with records** (Java 17+) -- the modern, type-safe approach using sealed hierarchies.
-3. **Enum with Class token** -- store a `Class<?>` in each constant for runtime type checking.
-4. **Static final instances** -- use a class with `public static final` fields that mimic enum constants.
-5. **Supplier-based lazy pattern** -- use `Supplier<?>` for deferred, type-varying value generation.
-
-**Real-world analogy**: Imagine a form builder where each field has a different value type: a text field holds a String,
-a number field holds an Integer, a checkbox holds a Boolean. A traditional enum can only represent "field types" but
-cannot carry the value type generically. The patterns described here let you build a type-safe form field registry.
-
-## Key Points to Remember
-
-1. **`enum Foo<T>` is illegal** -- the Java language specification forbids generic enum types.
-2. **It is a language-design decision, not a consequence of erasure** -- a generic class can already have
-   `static final` constants with different type arguments (see Q4's `TypedKey`); JEP 301 proposed the same for enums and
-   was withdrawn.
-3. **Sealed interfaces + records** is the preferred modern pattern (Java 17+) for type-safe "generic enum" behavior.
-4. **Class tokens** (`Class<T>`) provide runtime type checking but lack compile-time type parameter linkage between
-   constants.
-5. **Static final instances** give full generic support but lose `EnumSet`, `EnumMap`, `name()`, `ordinal()`, and switch
-   exhaustiveness.
-6. **Type-safe heterogeneous containers** (from Effective Java Item 33) work well with any of these patterns.
-7. Pattern matching in switch (Java 21) works with sealed hierarchies, providing exhaustiveness checking comparable to
-   enums.
-
-## Relevant Java 21 Features
-
-- **Sealed classes (JEP 409)**: The cornerstone of the modern "generic enum" pattern. A sealed interface restricts which
-  classes can implement it, creating a closed set of subtypes analogous to enum constants.
-- **Record patterns (JEP 440)**: Enable destructuring records in switch expressions, allowing concise handling of
-  sealed-type members.
-- **Pattern matching for switch (JEP 441)**: Provides exhaustive switch on sealed types, which is the key feature that
-  makes sealed interfaces a true alternative to enums.
-- **Type inference improvements**: Better `var` inference and diamond operator support make working with generic patterns
-  less verbose.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Forgetting to seal the interface**
-
-   ```java
-   // Problem: Any class can implement this -- no closed set of "constants"
-   interface Setting<T> { T defaultValue(); }
-   ```
-
-   **Fix**: Use `sealed interface Setting<T> permits ...` to restrict implementations.
-
-2. **Unchecked casts with Class tokens**
-
-   ```java
-   // Problem: Compiler warnings and potential ClassCastException
-   enum ConfigKey {
-       PORT(Integer.class, 8080);
-       private final Object defaultValue;
-       ConfigKey(Class<?> type, Object defaultValue) { this.defaultValue = defaultValue; }
-       @SuppressWarnings("unchecked")
-       public <T> T getDefault() { return (T) defaultValue; }
-   }
-   // String s = ConfigKey.PORT.getDefault(); // ClassCastException at runtime!
-   ```
-
-   **Fix**: Add a `cast()` method that uses `Class.cast()` and validate types at the call site.
-
-3. **Losing enum-specific features**
-
-   ```java
-   // Problem: Static final instances don't support EnumSet, valueOf(), ordinal()
-   class Key<T> {
-       public static final Key<Integer> PORT = new Key<>("port", Integer.class, 8080);
-       // No EnumSet.of(Key.PORT) -- not an enum!
-   }
-   ```
-
-   **Fix**: Accept the trade-off, or use a hybrid approach with an enum + companion generic wrapper.
-
-4. **Mutable sealed hierarchy members**
-
-   ```java
-   // Problem: Records are immutable, but if you use classes instead of records
-   // in a sealed hierarchy, you lose immutability guarantees
-   sealed interface Setting<T> permits MutableSetting { ... }
-   final class MutableSetting<T> implements Setting<T> {
-       private T value; // Mutable -- breaks assumptions
-   }
-   ```
-
-   **Fix**: Prefer records for sealed hierarchy members to guarantee immutability.
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer sealed interfaces + records** for new code targeting Java 17+. This gives compile-time type safety,
-   exhaustive switch support, immutability, and a natural `toString()`/`equals()`/`hashCode()`.
-2. **Provide a static `values()` method** on the sealed interface to mimic `Enum.values()`.
-3. **Use a type-safe heterogeneous container** (Map keyed by the generic setting type) for storing configuration values.
-4. **Cache instances** if using records -- since records support value-based equality, create singleton instances in
-   static fields if instantiation cost matters.
-5. **Document the pattern** -- generic enum workarounds are less familiar to junior developers. Add Javadoc explaining
-   the design decision.
-
-## Edge Cases and Their Handling
-
-1. **Null default values**: Some settings may legitimately default to `null`. Use `Optional<T>` as the default value type
-   or document the null contract clearly.
-2. **Parameterized types as type tokens**: `Class<List<String>>` cannot be expressed directly due to erasure. Use a
-   custom `TypeToken` or `TypeReference` pattern (as in Jackson or Guava).
-3. **Equality of sealed-interface instances**: Records provide value-based equality. If two `MaxRetries()` instances are
-   created, they are `.equals()` but not `==`. This differs from enum behavior where `==` is the standard comparison.
-4. **Serialization**: Records are serializable if they implement `Serializable`. Unlike enums, deserialization creates
-   new instances rather than returning the singleton.
-
-## Interview-specific Insights
-
-This topic is a favorite in senior-level interviews because it tests:
-
-- Deep understanding of the Java type system and type erasure
-- Ability to work around language limitations with design patterns
-- Knowledge of modern Java features (sealed classes, records, pattern matching)
-- Judgment about trade-offs between different approaches
-
-Expect follow-up questions about:
-
-- "Why can't enums be generic?" (the JLS does not allow it; JEP 301 tried to and was withdrawn)
-- "How would you design a type-safe configuration system?" (sealed interface + type-safe heterogeneous container)
-- "What are the trade-offs of each pattern?"
-
-## Interview Q&A Section
-
-**Q1: Why can't Java enums have type parameters?**
+A service keeps its settings in `enum Setting { PORT, HOST, TIMEOUT }` and reads them through
+`Object get(Setting)`, so every caller casts. A refactor changes `TIMEOUT` from a number of seconds
+to a `Duration`. Everything compiles, and the first request after the deploy fails in code nobody
+touched:
 
 ```text
-A1: Java enums cannot have type parameters because the language does not allow it:
-
-1. Language rule: the grammar for enum declarations (JLS 8.9) has no type-parameter
-   section, so `enum Setting<T>` does not compile. This is a deliberate simplification.
-
-2. Every constant has the enum's own type: Setting.MAX_RETRIES and Setting.APP_NAME are
-   both typed as plain Setting. Giving each constant its own type argument
-   (Setting<Integer>, Setting<String>) would need per-constant typing that the
-   language does not have.
-
-3. It was proposed and withdrawn: JEP 301 ("Enhanced Enums") proposed generic enums
-   and sharper typing of enum constants, but it was withdrawn, so Java 21 enums are
-   still not generic.
-
-4. Erasure is not the obstacle by itself: a generic class can already declare
-   static final instances with different type arguments (the TypedKey<T> pattern in Q4),
-   even though those type arguments are erased at run time.
-
-The practical impact is that any enum method returning a per-constant typed value
-must use Object and unsafe casts, or you must use workaround patterns.
+Exception in thread "main" java.lang.ClassCastException: class java.time.Duration cannot be cast to class java.lang.Integer (java.time.Duration and java.lang.Integer are in module java.base of loader 'bootstrap')
+	at Open.main(Open.java:14)
 ```
+
+The fix everyone reaches for is `enum Setting<T>`, so that `get(TIMEOUT)` returns a `Duration`
+and the compiler finds the stale cast. Despite this unit's title, Java has no generic enums.
+
+## An Enum Can't Declare a Type Parameter; JEP 301 Proposed It and Was Withdrawn
 
 ```java
-// ILLEGAL: enum Setting<T> { MAX_RETRIES(3), APP_NAME("MyApp"); }
-
-// Why? The declaration cannot take a type parameter, and every constant has the plain
-// type Setting, so the compiler cannot know that MAX_RETRIES.getValue() returns Integer
-// while APP_NAME.getValue() returns String.
-```
-
-**Q2: How do you implement a type-safe "generic enum" using sealed interfaces?**
-
-```text
-A2: The sealed interface pattern uses Java 17+ sealed interfaces combined with records
-to create a closed set of type-safe "constants". Each record acts as an enum constant
-with its own generic type parameter.
-
-Steps:
-1. Define a sealed generic interface with the common API.
-2. List all permitted implementations (your "constants").
-3. Implement each as a record with the appropriate type parameter.
-4. Optionally provide a static values() method returning all instances.
-5. Use pattern matching in switch for exhaustive handling.
-
-Advantages over traditional enums:
-- Full compile-time type safety per constant
-- Exhaustive switch support (Java 21)
-- Immutability (records)
-- Natural toString/equals/hashCode
-
-Disadvantages:
-- No ordinal(), name(), or valueOf()
-- No EnumSet/EnumMap support
-- Instances are value-equal, not identity-equal
-```
-
-```java
-sealed interface TypedSetting<T>
-        permits TypedSetting.MaxRetries, TypedSetting.AppName, TypedSetting.Debug {
-    
-    String key();
-    T defaultValue();
-    Class<T> valueType();
-    
-    record MaxRetries() implements TypedSetting<Integer> {
-        public String key() { return "max.retries"; }
-        public Integer defaultValue() { return 3; }
-        public Class<Integer> valueType() { return Integer.class; }
-    }
-    
-    record AppName() implements TypedSetting<String> {
-        public String key() { return "app.name"; }
-        public String defaultValue() { return "MyApp"; }
-        public Class<String> valueType() { return String.class; }
-    }
-    
-    record Debug() implements TypedSetting<Boolean> {
-        public String key() { return "debug"; }
-        public Boolean defaultValue() { return false; }
-        public Class<Boolean> valueType() { return Boolean.class; }
-    }
-    
-    static List<TypedSetting<?>> values() {
-        return List.of(new MaxRetries(), new AppName(), new Debug());
-    }
+enum Setting<T> {
+    PORT, HOST
 }
 ```
 
-**Q3: What is the "enum with Class token" pattern and when would you use it?**
-
 ```text
-A3: The "enum with Class token" pattern stores a Class<?> object in each enum constant
-to enable runtime type checking. The constant carries its expected type as metadata.
-
-When to use:
-- When you need enum features (EnumSet, valueOf, ordinal, switch)
-- When runtime type checking is acceptable (no compile-time guarantee)
-- When the API is internal and callers can be trusted to use correct types
-
-Limitations:
-- Requires @SuppressWarnings("unchecked") on generic methods
-- Type safety is enforced at runtime, not compile time
-- Cannot express parameterized types (List<String>.class doesn't exist)
-- Wrong usage causes ClassCastException at runtime, not compile error
-
-This pattern is a pragmatic middle ground: you keep enum ergonomics but add
-partial type awareness through the class token.
+Setting.java:1: error: enums cannot be generic
+enum Setting<T> {
+             ^
+1 error
 ```
+
+That is javac 21; javac 25 prints the same. JEP 301, "Enhanced Enums", proposed type parameters on
+enums, so that each constant could carry its own type argument (`PORT` a `Setting<Integer>`,
+`HOST` a `Setting<String>`). It was withdrawn and never shipped.
+
+Erasure is not the obstacle: a generic class can hold `static final` constants with different
+type arguments, which is the first replacement below. The enum declaration has no place for a type
+parameter, so every constant has the one type `Setting`, and nothing ties a constant to the type of
+its value. Unit 7.2.1 shows the usual result, an `Object` field and a cast at every call site. An
+enum may declare generic methods (unit 7.2.4), but those don't give a constant its own type either.
+
+## A Final Class With Typed Constants Lets the Compiler Check Every Key
+
+A class with a private constructor and `public static final` instances behaves like an enum's
+constant list. Make the class generic and each constant gets its own type argument:
 
 ```java
-enum ConfigKey {
-    MAX_CONNECTIONS("max.connections", Integer.class, 10),
-    SERVER_HOST("server.host", String.class, "localhost"),
-    ENABLE_SSL("enable.ssl", Boolean.class, false);
-    
-    private final String key;
-    private final Class<?> type;
-    private final Object defaultValue;
-    
-    ConfigKey(String key, Class<?> type, Object defaultValue) {
-        this.key = key;
-        this.type = type;
-        this.defaultValue = defaultValue;
-    }
-    
-    @SuppressWarnings("unchecked")
-    public <T> T cast(Object value) {
-        if (value == null) return (T) defaultValue;
-        if (!type.isInstance(value)) {
-            throw new ClassCastException("Expected " + type.getName());
-        }
-        return (T) value;
-    }
-}
-```
+import java.io.Serializable;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
-**Q4: How does the static-final-instances pattern work, and what are its trade-offs?**
+public final class Key<T> implements Serializable {
+    private static final List<Key<?>> ALL = new ArrayList<>();
 
-```text
-A4: The static-final-instances pattern simulates enums using a class with
-public static final fields. Each field is an instance of the class with its
-own generic type parameter.
+    public static final Key<Integer> PORT = new Key<>("port", Integer.class, 8080);
+    public static final Key<String> HOST = new Key<>("host", String.class, "127.0.0.1");
+    public static final Key<Duration> TIMEOUT = new Key<>("timeout", Duration.class, Duration.ofSeconds(5));
 
-How it works:
-- Define a generic class (e.g., TypedKey<T>)
-- Create public static final instances as "constants"
-- Maintain a static list of all instances for a values() method
-- Keep the constructor private so that no other instances can be created
-- Optionally override equals/hashCode (e.g., by name)
-
-Trade-offs:
-+ Full generic type safety per instance
-+ Can carry any type parameter, including parameterized types
-+ Works with any Java version (no sealed classes required)
-
-- No EnumSet or EnumMap support
-- No switch statement support (unless using if-else or pattern matching)
-- No ordinal() or name() (must implement manually)
-- Closed only while the constructor stays private: no compiler-checked closed set,
-  no exhaustive switch
-- Value equality only if you override equals (nothing like enum's guaranteed identity)
-- No serialization singleton guarantee
-```
-
-```java
-public final class TypedKey<T> {
-    private static final List<TypedKey<?>> ALL = new ArrayList<>();
-    
-    public static final TypedKey<Integer> PORT =
-        new TypedKey<>("port", Integer.class, 8080);
-    public static final TypedKey<String> HOST =
-        new TypedKey<>("host", String.class, "0.0.0.0");
-    public static final TypedKey<List<String>> ORIGINS =
-        new TypedKey<>("origins", null, List.of("*"));
-    
     private final String name;
     private final Class<T> type;
     private final T defaultValue;
-    
-    private TypedKey(String name, Class<T> type, T defaultValue) {
+
+    private Key(String name, Class<T> type, T defaultValue) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
         ALL.add(this);
     }
-    
-    public static List<TypedKey<?>> values() {
-        return Collections.unmodifiableList(ALL);
+
+    public String name() { return name; }
+    public Class<T> type() { return type; }
+    public T defaultValue() { return defaultValue; }
+    public static List<Key<?>> values() { return List.copyOf(ALL); }
+    @Override public String toString() { return name; }
+}
+```
+
+The store's methods take the key's `T`, so the value's type follows the key:
+
+```java
+import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
+
+public final class Config implements Serializable {
+    private final Map<Key<?>, Object> values = new HashMap<>();
+
+    public <T> void set(Key<T> key, T value) {
+        values.put(key, value);
+    }
+
+    public <T> T get(Key<T> key) {
+        Object value = values.get(key);
+        return value == null ? key.defaultValue() : key.type().cast(value);
     }
 }
 ```
 
-**Q5: What is a type-safe heterogeneous container and how does it relate to generic enums?**
-
-```text
-A5: A type-safe heterogeneous container (from Effective Java, Item 33) is a Map-like
-data structure where each key carries its own type parameter, and the container
-ensures that the value stored for each key matches the key's type.
-
-How it relates to generic enums:
-- Generic enum patterns define "keys" (settings, config keys) with per-key types.
-- The heterogeneous container is the natural "store" for values associated with
-  these keys.
-- Together they form a complete type-safe configuration system.
-
-Implementation:
-1. The "key" type has a generic parameter T and a Class<T> token.
-2. The container stores values as Object internally.
-3. On get(), the container uses the key's Class<T> to cast the value safely.
-4. On put(), the container can optionally validate the value type.
-
-This pattern eliminates unchecked casts at the call site -- the container handles
-all casting internally using the type token.
-```
+`int port = config.get(Key.PORT)` and `Duration timeout = config.get(Key.TIMEOUT)` need no cast.
+Pause before reading on: do these two lines fail at run time, or earlier?
 
 ```java
-class TypeSafeConfig {
-    private final Map<String, Object> store = new HashMap<>();
-    
-    public <T> void put(TypedSetting<T> setting, T value) {
-        Objects.requireNonNull(value);
-        store.put(setting.key(), value);
+config.set(Key.TIMEOUT, 30);
+String port = config.get(Key.PORT);
+```
+
+```text
+Wrong.java:3: error: method set in class Config cannot be applied to given types;
+        config.set(Key.TIMEOUT, 30);
+              ^
+  required: Key<T>,T
+  found:    Key<Duration>,int
+  reason: inference variable T has incompatible bounds
+    equality constraints: Duration
+    lower bounds: Integer
+  where T is a type-variable:
+    T extends Object declared in method <T>set(Key<T>,T)
+Wrong.java:4: error: incompatible types: inference variable T has incompatible bounds
+        String port = config.get(Key.PORT);
+                                ^
+    equality constraints: Integer
+    upper bounds: String,Object
+  where T is a type-variable:
+    T extends Object declared in method <T>get(Key<T>)
+2 errors
+```
+
+Both fail to compile; the second is the opening's mistake, now caught by javac. Only `Config`
+casts, through the `Class<T>` object, because its one map stores every value as `Object`. The
+private constructor keeps the set closed: no code outside `Key` can construct a fourth key.
+
+## The Class Must Rebuild values(), valueOf() and Serialization Itself
+
+For an enum, the compiler writes `values()` and `valueOf()`, `switch` accepts its constants, and
+serialization writes the constant's name and reads back the existing constant. A class gets none
+of that.
+
+### Spot the Problem: The Restored Config Runs on Defaults
+
+A node caches its `Config` by serializing it, and reads it back after a restart. Port 9090 was
+set; the restored config disagrees:
+
+```java
+Key<?> port = roundTrip(Key.PORT);                 // write to bytes, read back
+System.out.println("copy == Key.PORT: " + (port == Key.PORT));
+System.out.println("copy.equals(Key.PORT): " + port.equals(Key.PORT));
+Config config = new Config();
+config.set(Key.PORT, 9090);
+Config restored = roundTrip(config);
+System.out.println("restored port: " + restored.get(Key.PORT));
+```
+
+```text
+copy == Key.PORT: false
+copy.equals(Key.PORT): false
+restored port: 8080
+```
+
+Deserialization creates a new object. The restored map's keys are copies of `PORT`, and `Key`
+inherits identity `equals` from `Object`, so `get(Key.PORT)` misses and returns the default.
+Nothing throws; the node listens on the wrong port.
+
+Resolve by name, as enum serialization does. `readResolve` replaces the object the stream produced
+with the one it returns:
+
+```java
+@Serial
+private Object readResolve() throws ObjectStreamException {
+    for (Key<?> key : ALL) {
+        if (key.name.equals(name)) return key;
     }
-    
-    public <T> T get(TypedSetting<T> setting) {
-        Object raw = store.get(setting.key());
-        // Type-safe cast using the setting's type token (default when absent)
-        return raw == null ? setting.defaultValue() : setting.valueType().cast(raw);
+    throw new InvalidObjectException("no key named " + name);
+}
+```
+
+```text
+copy == Key.PORT: true
+copy.equals(Key.PORT): true
+restored port: 9090
+```
+
+Overriding `equals` and `hashCode` by name would fix the map lookup but not `==`, which every
+caller used while `Key` was an enum. Resolving fixes both.
+
+### The Registry Is Yours, and So Is Its Order
+
+`values()` reads the list each constructor appends to. Move `ALL` below the constants and the
+class still compiles but can't load, because the constants' initializers run first, while `ALL` is
+still `null`:
+
+```text
+Exception in thread "main" java.lang.ExceptionInInitializerError
+	at Main.main(Main.java:3)
+Caused by: java.lang.NullPointerException: Cannot invoke "java.util.List.add(Object)" because "Key.ALL" is null
+	at Key.<init>(Key.java:14)
+	at Key.<clinit>(Key.java:5)
+	... 1 more
+```
+
+`values()` returns an unmodifiable copy, so no caller can change which keys exist (an enum's
+`values()` returns a new array on every call for the same reason). Write `valueOf(String)` too, and
+follow the enum: throw `IllegalArgumentException` for an unknown name rather than return `null`.
+
+You can't rebuild `switch`. A case label is a constant expression, an enum constant or a pattern,
+and `Key.PORT` is none of them, so javac refuses `case Key.PORT ->`. The nearest is a guard,
+`case Key<?> k when k == Key.PORT ->`, and a switch of guards always needs a catch-all (`default`,
+or an unguarded `case Key<?> k`), so the compiler never tells you a key was left out. `EnumSet` and
+`EnumMap` require `E extends Enum<E>`; a `HashMap` takes their place.
+
+<!-- practice 1 -->
+
+## A Sealed Interface of Records Brings Back an Exhaustive switch, but Not Typed Cases
+
+A sealed interface lists its implementations, and each record implements it with its own type
+argument:
+
+```java
+import java.time.Duration;
+
+public sealed interface Setting<T> {
+    String key();
+    T parse(String raw);
+
+    record Port() implements Setting<Integer> {
+        public String key() { return "port"; }
+        public Integer parse(String raw) { return Integer.valueOf(raw); }
+    }
+
+    record Host() implements Setting<String> {
+        public String key() { return "host"; }
+        public String parse(String raw) { return raw.strip(); }
+    }
+
+    record Timeout() implements Setting<Duration> {
+        public String key() { return "timeout"; }
+        public Duration parse(String raw) { return Duration.parse(raw); }
     }
 }
-
-// Usage -- fully type-safe, no casts at the call site:
-var config = new TypeSafeConfig();
-config.put(new TypedSetting.MaxRetries(), 5);       // Only Integer accepted
-config.put(new TypedSetting.AppName(), "MyApp");     // Only String accepted
-Integer retries = config.get(new TypedSetting.MaxRetries()); // Returns Integer
 ```
 
-**Q6: How do you choose between the different generic enum patterns?**
-
-```text
-A6: Decision criteria:
-
-1. Sealed interface + records (Java 17+):
-   - Best when: You need compile-time type safety AND exhaustive switch.
-   - Avoid when: You need EnumSet/EnumMap performance or ordinal support.
-
-2. Enum with Class token:
-   - Best when: You need enum features (switch, EnumSet, valueOf) and
-     runtime type checking is acceptable.
-   - Avoid when: You need compile-time guarantee that callers use correct types.
-
-3. Static final instances:
-   - Best when: You need full generics including parameterized types
-     (e.g., TypedKey<List<String>>).
-   - Avoid when: You need a truly closed set of constants.
-
-4. Interface-based (unsealed):
-   - Best when: Extensibility is desired (anyone can add new settings).
-   - Avoid when: You need a closed, known set of constants.
-
-5. Supplier-based:
-   - Best when: Values are lazily generated and vary per invocation.
-   - Avoid when: You need stable, cacheable default values.
-
-In practice, most senior engineers choose sealed interface + records for new
-Java 17+ projects, and enum + Class token for libraries that must support
-older Java versions.
-```
+`Integer port = new Setting.Port().parse("9090")` is typed as before. A switch over the records
+with no `default` is checked for coverage:
 
 ```java
-// Decision tree in code:
-// Q: Do you need per-constant type parameters?
-//    No  -> Use a regular enum.
-//    Yes -> Q: Java 17+ available?
-//            Yes -> Use sealed interface + records.
-//            No  -> Q: Need enum features (EnumSet, switch)?
-//                    Yes -> Enum + Class token.
-//                    No  -> Static final instances.
+static String describe(Setting<?> setting) {
+    return switch (setting) {
+        case Setting.Port p -> "listen port";
+        case Setting.Host h -> "bind address";
+        case Setting.Timeout t -> "request timeout";
+    };
+}
 ```
+
+Add a fourth record, `Retries`, and this method stops compiling until someone decides what it
+means:
+
+```text
+Describe.java:3: error: the switch expression does not cover all possible input values
+        return switch (setting) {
+               ^
+1 error
+```
+
+A `default ->` branch added "for safety" turns that error off without a warning (even under
+`-Xlint:all`), and `Retries` silently gets whatever the default says. Leave it out on sealed types.
+
+A `case` doesn't narrow `T`. Inside `case Setting.Port p` the setting must be a
+`Setting<Integer>`, so a generic parse through a switch looks as if it should work:
+
+```java
+static <T> T parse(Setting<T> setting, String raw) {
+    return switch (setting) {
+        case Setting.Port p -> Integer.valueOf(raw);
+        case Setting.Host h -> raw.strip();
+        case Setting.Timeout t -> Duration.parse(raw);
+    };
+}
+```
+
+```text
+Parse.java:6: error: incompatible types: bad type in switch expression
+            case Setting.Port p -> Integer.valueOf(raw);
+                                                  ^
+    Integer cannot be converted to T
+  where T is a type-variable:
+    T extends Object declared in method <T>parse(Setting<T>,String)
+```
+
+javac does not narrow `T` to `Integer` inside the case (two more errors follow for the other
+cases). A `(T)` on each branch compiles with unchecked warnings, and then a body pasted into the
+wrong case, `case Setting.Port p -> (T) raw.strip()`, fails where the opening's cast failed, at the
+caller:
+
+```text
+Exception in thread "main" java.lang.ClassCastException: class java.lang.String cannot be cast to class java.lang.Integer (java.lang.String and java.lang.Integer are in module java.base of loader 'bootstrap')
+	at Cast.main(Cast.java:14)
+```
+
+Put typed behaviour in a method each record implements, as `parse` is above, and keep the switch
+for decisions whose result type every case shares.
+
+Records are values, not singletons: `new Setting.Port() == new Setting.Port()` is `false` and
+`equals` is `true`. Compare them with `equals` and key maps with `HashMap`. A serializable record
+comes back as an `equals` copy, so it needs no `readResolve`. `values()` is still hand-written, and
+nothing checks that list; `Setting.class.getPermittedSubclasses()` at least lists the record
+classes without going stale.
+
+<!-- practice 2 -->
+
+## Summary
+
+- **Java enums can't be generic.** javac says `enums cannot be generic`; JEP 301 proposed them and
+  was withdrawn. Every constant has the enum's one type.
+- **A final class with typed constants** (`Key<Integer> PORT`) makes a wrong value or a wrong
+  target type a compile error, and its private constructor keeps the set closed.
+- **That class rebuilds what the enum got for free.** Without `readResolve` a deserialized key is a
+  copy that misses every lookup; the registry is declared before the constants; there is no
+  `switch` on its constants and no `EnumMap`.
+- **A sealed interface of records** gets the exhaustive `switch` back, but a `case` does not
+  narrow `T`, so typed behaviour lives in each record's methods. Records compare by `equals`.
+
+## Reference
+
+**What each choice gives you (Java 21; each row ran in the programs behind this unit):**
+
+| | `enum` | final class, typed constants | sealed interface, records |
+|---|---|---|---|
+| Own type argument per constant | no (`enums cannot be generic`) | yes | yes |
+| Exhaustive `switch` expression | yes | no (`case Key.PORT` doesn't compile) | yes, over type patterns |
+| `values()` / `valueOf()` | generated | hand-written registry | hand-written; `getPermittedSubclasses()` lists the classes |
+| `EnumSet` / `EnumMap` | yes | no (bound `E extends Enum<E>`) | no |
+| Compare with `==` | yes | yes, if `readResolve` resolves | no, use `equals` |
+| After deserialization | the same constant | a new copy unless `readResolve` | if `Serializable`: a new copy, `equals` to the original |
+| Set closed by | the language | the private constructor | `sealed` |
+
+## Challenges
+
+1. An enum may implement a generic interface: `enum IntOption implements Option<Integer>` next
+   to `enum TextOption implements Option<String>`, both permitted by a sealed `Option<T>`. What
+   does that give back (`EnumMap`, serialization by name), and what does it cost when a setting
+   changes type?
+2. A typed key is sent to another service as JSON. Which of the designs makes the receiving
+   side's lookup simplest, and what replaces `readResolve` there?
+3. Your team has 40 settings in an `Object`-valued enum. Plan a migration to typed keys that ships
+   in steps, with the old and the new API side by side.
+
+## Design Note: Why a Constant With Its Own Type Fights the Enum
+
+An enum is one type with a fixed list of instances, and the platform relies on that: `EnumSet` is
+a bit vector and `EnumMap` an array, both indexed by ordinal, a `switch` expression checks coverage
+against the list, and serialization needs only a name. A constant with its own type argument splits
+that one type into several, `Setting<Integer>` and `Setting<String>`, and each of those services
+would have to say what it means for them. Java kept enums as they were and left typed keys to
+classes and sealed hierarchies.
 
 ## Code Examples
 

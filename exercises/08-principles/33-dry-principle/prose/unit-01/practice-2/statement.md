@@ -1,31 +1,13 @@
-The page's magic-number violation repeats the same rate in two calculations:
+This continues the parking permits of the previous practice: `Permits` now starts from its
+solution, and every permit also has a code printed on it. Residents read the code out to support on
+the phone, and support finds the car with `carWithPermit(...)`. Until now a code was compared the way
+a plate is, so `codeKey` simply returned `plateKey(code)`.
 
-```java
-public double calculateShippingCost(double weight) {
-    return weight * 0.15; // What is 0.15?
-}
-public double estimateDelivery(double weight) {
-    return weight * 0.15 + 5.0; // Same magic number!
-}
-```
+Support has a request. Codes are printed in a font where O and 0, and I and 1, look alike, and
+residents read them either way. Codes are never issued with the letters O or I, so in a code, an O
+always means 0 and an I always means 1. Plates are different: `LO-404-D` and `L0-404-D` are two
+cars, and both exist.
 
-Its fix names the rate once (`COST_PER_KG`) and has both calculations read it. Here the
-rates are the fields of `ShippingRates`, so each rate lives in exactly one place. Complete
-the two prices:
-
-- `shippingCost(weightKg)` is exactly `weightKg * costPerKg`, with no rounding. Any
-  negative weight, however small (`-0.001`), throws `IllegalArgumentException`;
-- `deliveryEstimate(weightKg)` is the shipping cost plus `baseDeliveryFee`, for every
-  weight: it reads the same `costPerKg`, and refuses a negative weight exactly as
-  `shippingCost` does. Reusing `shippingCost` gives both for free, where a repeated
-  formula is one more copy to keep in step.
-
-Examples, with `ShippingRates.standard()` (0.15 per kilogram, fee 5.0):
-
-- `shippingCost(10)` is `1.5` and `deliveryEstimate(10)` is `6.5`;
-- a zero weight costs `0.0` to ship, and its delivery estimate is the fee, `5.0`;
-- `shippingCost(0.01)` is `0.0015`, not rounded to cents;
-- with `new ShippingRates(0.40, 2.0)`, `shippingCost(10)` is `4.0` and
-  `deliveryEstimate(10)` is `6.0`;
-- `shippingCost(-1)`, `deliveryEstimate(-1)` and `deliveryEstimate(-0.001)` all throw
-  `IllegalArgumentException`.
+Finish the `TODO` in `src/main/java/practice/Permits.java`, `codeKey(...)`, and change anything else
+in the file you need to. When you're done, support finds the car from a code however the resident
+reads it out, and every car keeps its own permit. About two lines in total.

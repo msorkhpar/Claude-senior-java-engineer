@@ -18,288 +18,320 @@
       "text": "8.2.1. Definition and Purpose of KISS Principle"
     },
     {
+      "type": "para",
+      "text": "On a Friday afternoon the shop reprices its best-selling mug from 18.99 to 21.49. Half an hour later checkout still charges 18.99, although the price cache's time to live is five minutes. The cache class is sixty lines: per-SKU entries, LRU eviction, hit counters. The pricing team's requirement is one sentence: a price shown at checkout is never more than five minutes old."
+    },
+    {
+      "type": "para",
+      "text": "KISS (\"keep it simple\") asks for the simplest code that meets a stated requirement. The caches on this page are measured against that requirement written as a check, so \"simple\" means \"passes the check with the fewest moving parts\", not \"short\"."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "Expiry Counted From the Last Read Keeps a Popular Price Forever"
     },
     {
       "type": "para",
-      "text": "The KISS principle -- \"Keep It Simple, Stupid\" -- is a design philosophy that states most systems work best when they are kept simple rather than made complex. The phrase is usually credited to Lockheed engineer Kelly Johnson and was in use in the U.S. Navy by 1960; it has since become a cornerstone of software engineering. The core idea is that unnecessary complexity is the enemy of reliability, readability, and maintainability."
+      "text": "Read `price()` and decide which SKU goes stale: the one read once an hour, or the one read every minute?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.Instant;\nimport java.time.InstantSource;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.function.Function;\n\n/** The checkout's price cache: per-SKU entries, a time to live, LRU eviction, hit counting. */\npublic class PriceCache {\n    private record Entry(BigDecimal price, Instant touched) {}\n\n    private final Function<String, BigDecimal> source;\n    private final InstantSource clock;\n    private final Duration ttl;\n    private final int maxEntries;\n    private long hits, misses;\n\n    private final Map<String, Entry> entries;\n\n    public PriceCache(Function<String, BigDecimal> source, InstantSource clock, Duration ttl, int maxEntries) {\n        this.source = source;\n        this.clock = clock;\n        this.ttl = ttl;\n        this.maxEntries = maxEntries;\n        this.entries = new LinkedHashMap<>(16, 0.75f, true) {     // access order: least recently used first\n            @Override\n            protected boolean removeEldestEntry(Map.Entry<String, Entry> eldest) {\n                return size() > PriceCache.this.maxEntries;\n            }\n        };\n    }\n\n    public BigDecimal price(String sku) {\n        Instant now = clock.instant();\n        Entry e = entries.get(sku);\n        if (e != null && now.isBefore(e.touched().plus(ttl))) {\n            hits++;\n            entries.put(sku, new Entry(e.price(), now));          // keep hot entries alive\n            return e.price();\n        }\n        misses++;\n        BigDecimal price = source.apply(sku);\n        entries.put(sku, new Entry(price, now));\n        return price;\n    }\n\n    /** One line per cached SKU, for the admin page. */\n    public String report() {\n        StringBuilder out = new StringBuilder();\n        for (String sku : entries.keySet()) {\n            out.append(sku).append(' ').append(entries.get(sku).price()).append('\\n');\n        }\n        return out.toString();\n    }\n\n    public String stats() { return \"hits=\" + hits + \" misses=\" + misses + \" size=\" + entries.size(); }\n}"
     },
     {
       "type": "para",
-      "text": "In software development, KISS means choosing the simplest solution that adequately solves the problem. It does not mean writing naive or simplistic code; rather, it means avoiding over-engineering, premature abstraction, and unnecessary design patterns when a straightforward approach is sufficient."
+      "text": "The check drives any `sku -> price` function with a fake clock (an `InstantSource`, injected as in unit 7.3.2): the mug is repriced at minute 1, read every minute to minute 30, and must show 21.49 from minute 7 on."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static Instant now = Instant.parse(\"2026-03-02T09:00:00Z\");\nstatic final Map<String, BigDecimal> catalogue = new HashMap<>(Map.of(\n        \"MUG-01\", new BigDecimal(\"18.99\"), \"LAMP-07\", new BigDecimal(\"64.40\")));\n\nstatic void check(String name, Function<String, BigDecimal> checkout) {\n    now = Instant.parse(\"2026-03-02T09:00:00Z\");\n    catalogue.put(\"MUG-01\", new BigDecimal(\"18.99\"));\n    int late = 0;\n    BigDecimal shown = null;\n    for (int minute = 0; minute <= 30; minute++) {\n        if (minute == 1) catalogue.put(\"MUG-01\", new BigDecimal(\"21.49\"));\n        shown = checkout.apply(\"MUG-01\");\n        if (minute > 6 && !shown.equals(new BigDecimal(\"21.49\"))) late++;   // repriced more than 5 minutes ago\n        now = now.plus(Duration.ofMinutes(1));\n    }\n    System.out.printf(\"%-7s %-11s at minute 30 shows %s; old price after the 5-minute limit: %d times%n\",\n            late == 0 ? \"ok\" : \"FAILED\", name, shown, late);\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "InstantSource clock = () -> now;\nPriceCache cache = new PriceCache(catalogue::get, clock, Duration.ofMinutes(5), 10_000);\ncheck(\"PriceCache\", cache::price);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "FAILED  PriceCache  at minute 30 shows 18.99; old price after the 5-minute limit: 24 times"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Imagine you need to hang a picture on a wall. The KISS approach is to use a nail and a hammer. The over-engineered approach is to build a custom motorized rail system with remote-controlled positioning, auto-leveling sensors, and a mobile app -- all to hang a single picture. Both accomplish the goal, but one introduces massive unnecessary complexity that is harder to maintain, debug, and explain."
+      "text": "Each hit writes `now` back into the entry, so the five minutes count from the last read, not from the load. A SKU read at least every five minutes is never reloaded; the one read hourly always is. The bestseller keeps the old price until reads stop at night or the service restarts."
     },
     {
       "type": "para",
-      "text": "In Java, KISS violations commonly manifest as:"
+      "text": "Nobody asked for \"keep hot entries alive\". It is a different policy, sliding expiry, written in because general-purpose caches offer it, and it runs on every hit whether the requirement wants it or not."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "One Load Time for the Whole List Meets the Requirement"
+    },
+    {
+      "type": "para",
+      "text": "The catalogue has 3,000 SKUs, and the price-list query returns all of them in a few milliseconds. So there is no need for an entry per SKU: load the whole list, record when, and reload after five minutes."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.Instant;\nimport java.time.InstantSource;\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/** The whole price list, loaded in one call and reloaded once it is five minutes old. */\npublic class PriceList {\n    private static final Duration MAX_AGE = Duration.ofMinutes(5);\n\n    private final Supplier<Map<String, BigDecimal>> source;\n    private final InstantSource clock;\n    private Map<String, BigDecimal> prices;\n    private Instant loadedAt;\n\n    public PriceList(Supplier<Map<String, BigDecimal>> source, InstantSource clock) {\n        this.source = source;\n        this.clock = clock;\n    }\n\n    public BigDecimal price(String sku) {\n        Instant now = clock.instant();\n        if (prices == null || !now.isBefore(loadedAt.plus(MAX_AGE))) {\n            prices = Map.copyOf(source.get());\n            loadedAt = now;\n        }\n        return prices.get(sku);\n    }\n\n    /** One line per SKU, for the admin page. */\n    public String report() {\n        StringBuilder out = new StringBuilder();\n        for (String sku : prices.keySet()) {\n            out.append(sku).append(' ').append(prices.get(sku)).append('\\n');\n        }\n        return out.toString();\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "PriceList list = new PriceList(() -> new HashMap<>(catalogue), clock);   // a query returns a fresh map\ncheck(\"PriceList\", list::price);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ok      PriceList   at minute 30 shows 21.49; old price after the 5-minute limit: 0 times"
+    },
+    {
+      "type": "para",
+      "text": "`loadedAt` is written only when the list is loaded, so the age it measures is the age of the data. There is no eviction because 3,000 prices fit in memory, and no hit counter because nobody reads one."
+    },
+    {
+      "type": "para",
+      "text": "The class is single-threaded as written. Shared between request threads it needs one more choice of construct, which unit 8.2.2 makes; unit 8.2.3 counts the interleavings that choice removes."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Simpler Than the Requirement Is a Bug, Not KISS"
+    },
+    {
+      "type": "para",
+      "text": "A one-line memo is simpler still:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Map<String, BigDecimal> memo = new HashMap<>();\ncheck(\"memo\", sku -> memo.computeIfAbsent(sku, catalogue::get));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "FAILED  memo        at minute 30 shows 18.99; old price after the 5-minute limit: 24 times"
+    },
+    {
+      "type": "para",
+      "text": "`computeIfAbsent` calls the loader only when the key is absent, and nothing removes keys, so the first price loaded stays until the process restarts. Where `PriceCache` added a rule nobody asked for, the memo lacks the one rule that was asked for, and the check fails both."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "An Option Nobody Needed Changes What Other Code May Do"
+    },
+    {
+      "type": "para",
+      "text": "`PriceCache` also evicts the least recently used SKU beyond 10,000 entries. The catalogue has 3,000, so eviction never runs, and it looks harmless. The admin page calls `report()`; its test caches one SKU and passes. Production caches two:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "cache.price(\"MUG-01\");\nSystem.out.print(cache.report());\ncache.price(\"LAMP-07\");\nSystem.out.print(cache.report());"
+    },
+    {
+      "type": "para",
+      "text": "The program prints the exception and two of its frames:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "MUG-01 18.99\njava.util.ConcurrentModificationException\n    at java.base/java.util.LinkedHashMap$LinkedHashIterator.nextNode(LinkedHashMap.java:1023)\n    ...\n    at PriceCache.report(PriceCache.java:51)"
+    },
+    {
+      "type": "para",
+      "text": "The `true` in the `LinkedHashMap` constructor turns on access order, which LRU eviction needs. In an access-ordered map `get` moves the entry it finds to the end of the order, and the javadoc counts that as a structural modification. The loop's `entries.get(sku)` reorders the map under its own iterator, and the fail-fast iterator (unit 6.5.3) throws on the next step. An entry that is already last doesn't move, so with one entry the test passed."
+    },
+    {
+      "type": "para",
+      "text": "The same loop over `PriceList`'s map prints both lines, in no specified order:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "MUG-01 18.99\nLAMP-07 64.40"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Rule Engine for One Form Adds Failures the Plain Method Cannot Have"
+    },
+    {
+      "type": "para",
+      "text": "The signup form needs two checks: the email has an `@` after its first character, and the user is 18 or older. A developer who expects more forms writes a rule engine instead: rules keyed by the name of the record accessor they read, applied by reflection."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.function.Predicate;\n\n/** Checks any form object against rules keyed by the name of the accessor each rule reads. */\npublic final class FormRules {\n    public static List<String> violations(Object form, Map<String, Predicate<Object>> rules) {\n        List<String> failed = new ArrayList<>();\n        for (Map.Entry<String, Predicate<Object>> rule : rules.entrySet()) {\n            try {\n                Object value = form.getClass().getMethod(rule.getKey()).invoke(form);\n                if (!rule.getValue().test(value)) failed.add(rule.getKey());\n            } catch (ReflectiveOperationException e) {\n                throw new IllegalStateException(\"cannot read \" + rule.getKey(), e);\n            }\n        }\n        return failed;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Two years later signup is still the only form. Its rules for the engine, and the same two rules written out:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public record Signup(String email, int age) {}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static final Map<String, Predicate<Object>> SIGNUP_RULES = Map.of(\n        \"email\", v -> v instanceof String s && s.indexOf('@') > 0,\n        \"age\", v -> v instanceof Integer n && n >= 18);\n\nstatic List<String> violations(Signup s) {\n    List<String> failed = new ArrayList<>();\n    if (s.email().indexOf('@') <= 0) failed.add(\"email\");\n    if (s.age() < 18) failed.add(\"age\");\n    return failed;\n}"
+    },
+    {
+      "type": "para",
+      "text": "Both are given `new Signup(\"jane.example.com\", 16)`. Ten runs of the same program, counted:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "      5 FormRules: [age, email]\n      5 FormRules: [email, age]\n     10 plain:     [email, age]"
+    },
+    {
+      "type": "para",
+      "text": "The engine returns violations in the map's iteration order, and `Map.of` leaves that order unspecified: here it changed from one JVM start to the next. The form shows its errors in a different order after each restart, and a test that asserts the list passes on some runs and fails on others."
+    },
+    {
+      "type": "para",
+      "text": "Then the record component is renamed to `contactEmail`. An IDE rename refactoring updates Java references, so it updates `s.email()` too; a string literal changes only if you also ask it to search text and accept that occurrence. Renamed by hand in `Signup.java`, the plain version no longer compiles:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "SignupCheck.java:15: error: cannot find symbol\n        if (s.email().indexOf('@') <= 0) failed.add(\"email\");\n             ^\n  symbol:   method email()\n  location: variable s of type Signup\n1 error"
+    },
+    {
+      "type": "para",
+      "text": "Either way, a program that uses only the engine (`EngineCheck`, its `main` validating the same signup) compiles cleanly, and the first signup fails:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Exception in thread \"main\" java.lang.IllegalStateException: cannot read email\n\tat FormRules.violations(FormRules.java:15)\n\tat EngineCheck.main(EngineCheck.java:10)\nCaused by: java.lang.NoSuchMethodException: Signup.email()\n\tat java.base/java.lang.Class.getMethod(Class.java:2397)\n\tat FormRules.violations(FormRules.java:12)\n\t... 1 more"
+    },
+    {
+      "type": "para",
+      "text": "The engine turned two method calls into strings, and javac checks no strings. When to share code between forms that do exist is unit 8.3.4's subject."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Plain Version Fits Today's Numbers; When They Change, Replace It"
+    },
+    {
+      "type": "para",
+      "text": "`PriceList` is simple because the list loads fast. Then the catalogue grows. Here is how long each checkout's `price()` takes, one checkout a minute, with the query replaced by building a map of that many entries (one machine, Java 21):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "long start = System.nanoTime();\nlist.price(\"SKU-42\");\nline.append(' ').append((System.nanoTime() - start) / 1_000_000);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "     3,000 SKUs, ms per checkout, one a minute: 5 0 0 0 0 3 0 0 0 0 1\n 2,000,000 SKUs, ms per checkout, one a minute: 1105 0 0 0 0 1142 0 0 0 0 1293"
+    },
+    {
+      "type": "para",
+      "text": "At two million SKUs the first checkout after each five-minute mark waits over a second. If a requirement says no checkout waits, the next design reloads in the background and swaps the new map in (unit 8.2.2), with a check of its own for that requirement."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Applying design patterns where none are needed (e.g., using the Strategy pattern for a single validation rule)",
-        "Creating deep inheritance hierarchies when composition or a simple method would suffice",
-        "Building custom frameworks when standard library classes solve the problem",
-        "Adding abstraction layers \"in case we need them later\" (YAGNI -- You Aren't Gonna Need It)"
+        "**Expiry counted from the last read keeps a popular price forever.** A general-purpose cache brings rules of its own, and sliding expiry broke \"never more than five minutes old\" for the SKU read most.",
+        "**One load time for the whole list meets the requirement.** With 3,000 SKUs that load in milliseconds, a map and a timestamp written only on load pass the check.",
+        "**Code simpler than the requirement is a bug.** A `computeIfAbsent` memo never reloads and fails the same check.",
+        "**An option nobody needed changes what other code may do.** Access order, turned on for eviction that never runs, makes `get` a structural modification, and the report throws CME with two SKUs.",
+        "**A rule engine for one form adds failures the plain method cannot have.** Its order changes between runs, and a renamed accessor compiles and fails at the first signup.",
+        "**The plain version fits today's numbers.** At two million SKUs one checkout every five minutes waits a second; the replacement is written when that requirement exists."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Reference"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "API",
+        "Behaviour (Java 21 javadoc, and the runs above)"
+      ],
+      "rows": [
+        [
+          "`new LinkedHashMap<>(cap, load, true)`",
+          "access order: `get`, `getOrDefault`, `put`, `putIfAbsent`, `compute*`, `merge` and `replace` on a present key make it the last entry; in this mode `get` is a structural modification"
+        ],
+        [
+          "`LinkedHashMap.removeEldestEntry`",
+          "called after a new mapping is inserted (the javadoc names `put` and `putAll`); returning `true` removes the eldest entry"
+        ],
+        [
+          "`Map.of`, `Map.copyOf`",
+          "unmodifiable; null keys and values rejected; iteration order unspecified and, in these runs, different between JVM starts"
+        ],
+        [
+          "`HashMap`",
+          "keeps a mapping until it is removed or replaced; growing the table keeps every mapping"
+        ],
+        [
+          "`Map.computeIfAbsent`",
+          "calls the function only when the key is absent (or mapped to `null`); a present value is never recomputed"
+        ],
+        [
+          "`Class.getMethod(name)`",
+          "finds a public method by name at run time; a missing one throws `NoSuchMethodException`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Simplicity is a feature, not a limitation.** Simple code is easier to understand, test, debug, and maintain.",
-        "**KISS is about the right level of complexity.** Some problems genuinely require complex solutions; KISS means not adding complexity beyond what the problem demands.",
-        "**Favor standard library solutions.** Java's standard library (`java.util`, `java.util.concurrent`, `java.util.stream`) covers most common needs. Prefer these over custom implementations.",
-        "**Readability trumps cleverness.** Code is read far more often than it is written. Choose the approach that is easiest to understand.",
-        "**Premature abstraction is as harmful as premature optimization.** Only introduce abstractions when you have concrete evidence they are needed.",
-        "**KISS complements other principles.** It works alongside SOLID, DRY, and YAGNI -- not in opposition to them.",
-        "**Simple does not mean untested.** Simple code still needs comprehensive tests."
+        "The pricing team adds a rule: a price changed by hand in the back office shows at checkout within ten seconds. Which of the three designs on this page survives, and what is the simplest change that meets the new requirement?",
+        "Your service already has a cache library on the classpath, with expiry after write as an option. Is configuring it simpler than `PriceList`? Count the rules each one brings.",
+        "Find a class in your codebase with an option set \"in case\": a pool size, a retry policy, an eviction limit. What does it change about the code around it today?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Design Note: Why the Check Comes Before the Code"
     },
     {
       "type": "para",
-      "text": "Java's evolution has consistently moved toward simplifying common patterns:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Records (Java 16+)**: Eliminate boilerplate for data-carrying classes. Instead of writing 50 lines of constructor, accessors, equals, hashCode, and toString, a record accomplishes this in one line (records are immutable, so there are no setters).",
-        "**Sealed classes (Java 17+)**: Simplify type hierarchies by explicitly declaring permitted subtypes, making exhaustive pattern matching possible.",
-        "**Pattern matching for switch (Java 21)**: Replaces verbose instanceof chains with concise, readable switch expressions.",
-        "**Text blocks (Java 15+)**: Simplify multi-line string literals, eliminating escape character clutter.",
-        "**Virtual threads (Java 21)**: Simplify concurrent programming by allowing simple thread-per-task models without the complexity of reactive frameworks or thread pool tuning.",
-        "**`var` local variable type inference (Java 10+)**: Reduces verbosity for local variables when the type is obvious from context."
-      ]
+      "text": "\"Simple\" has no measure on its own. The `computeIfAbsent` memo has fewer lines and branches than `PriceList` and fails the check; `PriceCache` handles more situations than either and fails it too. Written first, the requirement's check turns \"simplest\" into a question with an answer: the least code that passes it."
     },
     {
       "type": "para",
-      "text": "These features embody the KISS philosophy: they reduce boilerplate and let developers express intent with less ceremony."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Over-engineering validation logic** Problem: Creating elaborate validation frameworks with strategy patterns and rule engines for simple checks.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// VIOLATION: Over-engineered email validation\ninterface ValidationRule { boolean validate(String input); }\nclass NotNullRule implements ValidationRule { ... }\nclass NotEmptyRule implements ValidationRule { ... }\nclass ContainsAtRule implements ValidationRule { ... }\n// ... 5 more classes for a simple email check"
-          },
-          "Fix: Use a simple method.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// KISS: Simple and readable\npublic boolean isValidEmail(String email) {\n    if (email == null || email.isEmpty()) return false;\n    int atIndex = email.indexOf('@');\n    return atIndex > 0 && atIndex < email.length() - 1;\n}"
-          }
-        ],
-        [
-          "**Unnecessary wrapper classes** Problem: Creating wrapper classes around standard library types without adding value.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// VIOLATION: Wrapping HashMap for no reason\npublic class ConfigurationManager {\n    private final HashMap<String, String> config = new HashMap<>();\n    private static ConfigurationManager instance;\n    private ConfigurationManager() {}\n    public static synchronized ConfigurationManager getInstance() { ... }\n    public void setProperty(String key, String value) { config.put(key, value); }\n    public String getProperty(String key) { return config.get(key); }\n}"
-          },
-          "Fix: Use the standard library directly, or at minimum a simple wrapper only if truly needed.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// KISS: Use a simple Map directly\nMap<String, String> config = new HashMap<>();\nconfig.put(\"host\", \"localhost\");"
-          }
-        ],
-        [
-          "**Premature generalization** Problem: Making code generic \"for future use\" when only one concrete type is needed today.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// VIOLATION: Generic factory when you only ever create one type\npublic class AbstractEntityFactory<T extends Entity, C extends Context> {\n    public T create(C context) { ... }\n}"
-          },
-          "Fix: Start with the concrete case. Generalize only when you have two or more concrete needs.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// KISS: Concrete and clear\npublic User createUser(String name, String email) {\n    return new User(name, email);\n}"
-          }
-        ],
-        "**Deep inheritance hierarchies** Problem: Creating multi-level class hierarchies when composition would be simpler. Fix: Prefer composition over inheritance. Use interfaces and delegation."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Start simple, refactor when needed.** Write the simplest working solution first. Add complexity only when real requirements demand it and you have tests to protect you.",
-        "**Use the right tool from the standard library.** Before writing custom code, check if `java.util`, `java.util.concurrent`, or `java.util.stream` already provides what you need.",
-        "**Prefer explicit over implicit.** Explicit code is easier to follow. Avoid \"magic\" that hides behavior (e.g., reflection-based wiring when a constructor call would work).",
-        "**Keep methods short and focused.** A method that does one thing is easier to understand, test, and reuse than a method that does five things.",
-        "**Name things clearly.** Good naming reduces the need for comments and makes code self-documenting.",
-        "**Avoid premature optimization.** Write clear, simple code first. Profile and optimize only the actual bottlenecks.",
-        "**Limit the scope of variables.** Declare variables as close to their usage as possible and with the narrowest scope required."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Null inputs**: The simplest approach is often to validate early and fail fast.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public List<String> process(String input) {\n    if (input == null || input.isBlank()) {\n        return Collections.emptyList();\n    }\n    // ... process\n}"
-          }
-        ],
-        [
-          "**Empty collections**: Return empty collections rather than null to avoid NullPointerException downstream.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// KISS: Return empty list, not null\nreturn items.isEmpty() ? Collections.emptyList() : processItems(items);"
-          }
-        ],
-        "**Single vs. multiple items**: Avoid building frameworks for handling lists when you only ever have one item. Start with the single case.",
-        "**Error handling**: Use standard exception handling. Do not build custom error-handling frameworks unless the complexity of your domain genuinely requires it."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "para",
-      "text": "Interviewers assess KISS understanding by looking at:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Whether you reach for the simplest solution first or immediately jump to complex patterns",
-        "Your ability to justify why a simpler approach is preferable",
-        "Whether you can identify over-engineering in existing code",
-        "Your knowledge of when complexity IS warranted vs. when it is unnecessary",
-        "Your ability to refactor complex code into simpler alternatives"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Tricky questions to expect:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Is this code too simple or appropriately simple?\"",
-        "\"When would you introduce a design pattern here?\"",
-        "\"Can you simplify this class hierarchy?\"",
-        "\"What is the trade-off between simplicity and extensibility?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the KISS principle, and why is it important in software engineering?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: KISS (Keep It Simple, Stupid) is a design principle that advocates for simplicity in\ndesign. It states that most systems work best when they are simple rather than complex.\n\nIn software engineering, KISS is important because:\n1. Simple code is easier to read, understand, and maintain\n2. Simple code has fewer bugs -- less code means fewer places for bugs to hide\n3. Simple code is easier to test -- fewer code paths mean more thorough testing\n4. Simple code is easier to onboard new team members with\n5. Simple code is easier to refactor when requirements change\n\nKISS does NOT mean writing naive or incomplete code. It means choosing the simplest\napproach that correctly and completely solves the problem. The goal is to avoid\nunnecessary complexity, not necessary complexity."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Example: Simple approach vs. over-engineered approach\n\n// KISS approach: Parse a CSV line\npublic List<String> parseCsvLine(String line) {\n    if (line == null || line.isBlank()) {\n        return Collections.emptyList();\n    }\n    return Arrays.asList(line.split(\",\", -1)); // -1 keeps trailing empty fields\n}\n\n// Over-engineered approach (violates KISS):\n// - Custom tokenizer class\n// - Strategy pattern for different delimiters\n// - Builder pattern for configuration\n// - Observer pattern for parsing events\n// All for splitting a string by commas!"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How do you distinguish between necessary complexity and unnecessary complexity?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: The distinction comes down to whether the complexity serves a real, current requirement:\n\nNecessary complexity:\n- Solving an inherently complex problem (e.g., distributed consensus)\n- Meeting actual performance requirements backed by profiling data\n- Handling real edge cases that exist in the domain\n- Supporting multiple concrete use cases that exist today\n\nUnnecessary complexity:\n- Abstracting for hypothetical future requirements (\"what if we need...\")\n- Applying design patterns without a concrete problem they solve\n- Creating custom implementations when standard library solutions exist\n- Adding layers of indirection that do not improve testability or flexibility\n\nThe test: Can you explain to a colleague why this complexity is needed? If the answer\ninvolves hypothetical scenarios rather than concrete current requirements, it is\nlikely unnecessary."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Necessary complexity: Handling a genuinely complex business rule\npublic BigDecimal calculateTax(Order order, TaxJurisdiction jurisdiction) {\n    // Tax calculation IS inherently complex -- multiple rates, exemptions, etc.\n    // This complexity is necessary.\n    return jurisdiction.getRules().stream()\n            .filter(rule -> rule.appliesTo(order))\n            .map(rule -> rule.calculate(order))\n            .reduce(BigDecimal.ZERO, BigDecimal::add);\n}\n\n// Unnecessary complexity: Abstract factory for creating a single type\n// Just use a constructor or a simple static factory method instead.\npublic static User createUser(String name, String email) {\n    return new User(name, email);\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does KISS relate to other principles like SOLID and DRY?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: KISS complements other principles but can sometimes tension with them:\n\nKISS + SRP (Single Responsibility Principle):\n- Both favor focused, simple classes\n- SRP can sometimes lead to too many tiny classes if taken to an extreme\n- KISS says: split responsibilities, but do not create a class for every micro-concern\n\nKISS + OCP (Open/Closed Principle):\n- OCP encourages extension points for future flexibility\n- KISS says: only add extension points when you have concrete evidence they are needed\n- Balance: add extension points for known variation, not speculative variation\n\nKISS + DRY (Don't Repeat Yourself):\n- DRY says eliminate duplication\n- KISS says: sometimes a little duplication is simpler than a complex abstraction\n- Balance: DRY for genuine logic duplication, but do not force unrelated code into\n  a shared abstraction just because they look similar today\n\nKISS + YAGNI (You Aren't Gonna Need It):\n- These two are natural allies\n- Both argue against adding things before they are concretely needed\n\nThe key insight: all principles are guidelines, not laws. Use judgment to find the\nright balance for the specific situation."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Example: KISS vs over-applied DRY\n// Two methods that look similar but serve different domains:\n\n// User validation\npublic boolean isValidUsername(String name) {\n    return name != null && name.length() >= 3 && name.length() <= 50;\n}\n\n// Product code validation\npublic boolean isValidProductCode(String code) {\n    return code != null && code.length() >= 3 && code.length() <= 50;\n}\n\n// Over-applied DRY would merge these into one generic method.\n// But KISS says: they serve different domains and may diverge over time.\n// Keeping them separate is simpler and more maintainable."
-    },
-    {
-      "type": "para",
-      "text": "**Q4: Can you refactor this over-engineered code to follow KISS?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: The key steps for refactoring toward KISS are:\n1. Identify what the code actually does (the essential behavior)\n2. Remove abstraction layers that do not serve a concrete purpose\n3. Replace custom implementations with standard library equivalents\n4. Inline small helper classes or methods that add indirection without value\n5. Verify the simplified code passes all existing tests\n\nThe goal is to reduce the cognitive load on the reader while preserving\ncorrectness and functionality."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Before: Over-engineered retry logic\ninterface RetryStrategy { int getMaxAttempts(); long getDelay(); }\nclass ExponentialBackoff implements RetryStrategy { ... }\nclass LinearBackoff implements RetryStrategy { ... }\nclass RetryExecutor<T> {\n    private final RetryStrategy strategy;\n    private final List<RetryListener> listeners;\n    // ... 100+ lines of code\n}\n\n// After: KISS refactored retry\npublic <T> T executeWithRetry(Supplier<T> action, int maxAttempts) {\n    if (maxAttempts <= 0) throw new IllegalArgumentException(\"maxAttempts must be positive\");\n    RuntimeException lastException = null;\n    for (int attempt = 1; attempt <= maxAttempts; attempt++) {\n        try {\n            return action.get();\n        } catch (RuntimeException e) {\n            lastException = e;\n        }\n    }\n    throw lastException;\n}\n// If you later genuinely need exponential backoff, add it then -- not before."
-    },
-    {
-      "type": "para",
-      "text": "**Q5: When is it appropriate to violate KISS and introduce complexity?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Complexity is appropriate when:\n\n1. The problem domain is inherently complex (e.g., financial calculations,\n   distributed systems, compiler design). Simplifying the solution beyond a\n   certain point would make it incorrect.\n\n2. You have concrete, measured performance requirements that a simple solution\n   cannot meet. Profile first, then optimize.\n\n3. You have multiple concrete use cases today (not hypothetical) that benefit\n   from abstraction. If you have three different payment processors, a strategy\n   pattern is justified. If you have one, it is not.\n\n4. Regulatory or compliance requirements demand specific patterns (e.g., audit\n   logging, encryption, access control).\n\n5. The team has established conventions and patterns that would be confusing to\n   deviate from. Consistency can outweigh local simplicity.\n\nThe key word is \"concrete.\" If the justification for complexity starts with\n\"what if\" or \"someday we might,\" it is almost always premature."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Justified complexity: Multiple payment processors exist today\npublic interface PaymentProcessor {\n    PaymentResult process(Payment payment);\n}\n\npublic class StripeProcessor implements PaymentProcessor { ... }\npublic class PayPalProcessor implements PaymentProcessor { ... }\npublic class SquareProcessor implements PaymentProcessor { ... }\n\n// The Strategy pattern is justified because we have THREE concrete implementations.\n\n// Unjustified complexity: Only one notification channel exists\n// Do NOT create an interface, factory, and registry just for email.\n// Just write the email sender directly.\npublic void sendNotification(String to, String message) {\n    emailService.send(to, message);\n}"
+      "text": "The cost is that the plain design is chosen for today's numbers and replaced, not extended, when they change. The alternative is a general design on day one, which carries rules nobody requested (sliding expiry, access order, string-keyed rules) from the start, each with behaviour no check was written for."
     },
     {
       "type": "heading",
@@ -319,17 +351,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 10,
-    "paras": 13,
-    "code": 10,
-    "tables": 0,
-    "lists": 9,
+    "headings": 12,
+    "paras": 26,
+    "code": 20,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 2,
     "disclosures": 0
   },
-  "content_sha256": "3bee14c1466ce6158e95381e03df3cb552157861dd61cee7c5a303e0858df58b"
+  "content_sha256": "b0d00f51d8132aaf5aaae1657a4171a7486269cfa8e25c1f293c68fe988fdaff"
 }

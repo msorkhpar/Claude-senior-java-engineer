@@ -1,32 +1,12 @@
-Records are ideal **data transfer objects**: a DTO carries data between the
-layers of an application, and a record's compact constructor guards every way
-a DTO can be made, a factory method included.
+The nightly import reads rows from partner files, each row a map from column name to value, and
+turns every row into an object with `RowMapper.map`. The mapper was written for beans. The team
+has since turned `Shipment`, `Sensor` and the other imported types into records, and now every
+import fails before the first row is stored.
 
-`PersonDTO(String name, int age, String email)` is the course's DTO. Its
-compact constructor already validates (a null or empty name, a negative age, an
-email that is null or has no `@` are refused with `IllegalArgumentException`),
-and it has `isAdult()`. Write its static factory
+Finish `toRecord(...)` in `src/main/java/practice/RowMapper.java`, so that `map` builds records as
+well as beans. Each column is named after a component of the record, but partners send the
+columns in whatever order their files have, and the import adds bookkeeping columns of its own
+(their names start with `_`). A row that a record refuses must still be refused, with the
+record's own exception somewhere in what `map` throws. About ten lines.
 
-```java
-static PersonDTO parse(String line)
-```
-
-which reads one line of the form `name,age,email`:
-
-- strip the spaces around each field;
-- a line that does not have exactly three fields is refused with an
-  `IllegalArgumentException`;
-- an age that is not a whole number is refused with an
-  `IllegalArgumentException` (not a `NumberFormatException`);
-- build the DTO through its canonical constructor, so its own checks apply
-  (a parsed line with a bad email is refused with `Invalid email format`).
-
-## Examples
-
-```
-parse("John Doe,30,john@example.com")         -> PersonDTO[name=John Doe, age=30, email=john@example.com]
-parse(" Jane Doe , 15 , jane@example.com ")   -> PersonDTO[name=Jane Doe, age=15, email=jane@example.com]
-parse("John Doe,30")                          -> IllegalArgumentException
-parse("John Doe,thirty,john@example.com")     -> IllegalArgumentException
-parse("John Doe,30,invalidemail")             -> IllegalArgumentException: Invalid email format
-```
+The tests use records of their own, with components of several types.

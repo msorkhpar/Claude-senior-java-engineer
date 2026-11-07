@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Expression and block bodies: discount and categorize prices",
+  "title": "Make the order dispatcher's futures say what happened",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,27 @@
     },
     {
       "type": "para",
-      "text": "A lambda is a parameter list, the arrow `->`, and a body. The body is either a single expression, `(parameters) -> expression`, or a block of statements, `(parameters) -> { statements; }`, which may declare local variables and branch."
+      "text": "The returns service archives incoming orders on a small worker pool. Its support queue has three complaints this week: a customer who submitted the same return twice has two archive entries; an order hit a moment when the archive volume was busy and was never archived, although the dispatcher is meant to retry such failures; and an order the archive refused every time was reported as archived."
     },
     {
       "type": "para",
-      "text": "Write two static methods in `PriceRules`, each mapping a lambda over the prices:"
+      "text": "`OrderDispatch.dispatch(...)` already decides what to archive, retries and reports. It reads only the `Future`s that two methods return, and those two are still `TODO`s in `src/main/java/practice/OrderDispatch.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`discounted(List<Double> prices, double percent)` returns each price reduced by `percent` per cent (which may have a fraction, like `12.5`). The final price, not the discount, is rounded to the nearest cent with `Math.round` (a half cent rounds up), even when `percent` is 0.",
-        "`categorize(List<Double> prices)` names each price's band: below 10 is `\"cheap\"` (0 included), below 100 `\"moderate\"`, below 1000 `\"expensive\"`, and anything else `\"premium\"`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`discounted([100.0, 50.0], 10)`",
-          "`[90.0, 45.0]`"
-        ],
-        [
-          "`discounted([19.99], 15)`",
-          "`[16.99]`"
-        ],
-        [
-          "`categorize([5.0, 50.0, 500.0, 5000.0])`",
-          "`[\"cheap\", \"moderate\", \"expensive\", \"premium\"]`"
-        ]
+        "`remember(orderId)`: records the id on the pool; `dispatch` skips the order when the `Future`'s value is `false`;",
+        "`store(orderId)`: stores the order with `archive.store(...)` on the pool; `dispatch` retries when the `Future` fails with an `IOException` as its cause, and treats a `Future` that ends normally as stored."
       ]
     },
     {
       "type": "para",
-      "text": "Watch the prices that sit exactly on a limit, and what floating-point arithmetic leaves after a percentage."
+      "text": "Keep the signatures: other callers depend on `Future<?>`. About four lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run the dispatcher on a real `ExecutorService` with an archive that refuses some stores."
     },
     {
       "type": "heading",
@@ -71,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\n\npublic final class PriceRules {\n\n    private PriceRules() {\n    }\n\n    /** Each price reduced by {@code percent} per cent, rounded to cents. */\n    public static List<Double> discounted(List<Double> prices, double percent) {\n        Function<Double, Double> apply = price -> {\n            double discount = price * (percent / 100);\n            double finalPrice = price - discount;\n            return Math.round(finalPrice * 100.0) / 100.0;\n        };\n        return prices.stream().map(apply).toList();\n    }\n\n    /** The band of each price: cheap, moderate, expensive or premium. */\n    public static List<String> categorize(List<Double> prices) {\n        Function<Double, String> band = price -> {\n            if (price < 10) return \"cheap\";\n            else if (price < 100) return \"moderate\";\n            else if (price < 1000) return \"expensive\";\n            else return \"premium\";\n        };\n        return prices.stream().map(band).toList();\n    }\n}\n\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/** Archives incoming orders on a worker pool: each order id once, with a retry for I/O failures. */\npublic class OrderDispatch {\n\n    /** Stores one order in the archive. Throws IOException when the archive can't take it right now. */\n    public interface Archive {\n        void store(String orderId) throws IOException;\n    }\n\n    /** What a dispatch did: the ids it archived, in order, and the ids it gave up on. */\n    public record Report(List<String> archived, List<String> failed) {}\n\n    static final int ATTEMPTS = 3;\n\n    private final ExecutorService pool;\n    private final Archive archive;\n    private final Set<String> seen = ConcurrentHashMap.newKeySet();\n\n    public OrderDispatch(ExecutorService pool, Archive archive) {\n        this.pool = pool;\n        this.archive = archive;\n    }\n\n    /** Archives every id the dispatcher hasn't seen before, retrying I/O failures. */\n    public Report dispatch(List<String> orderIds) throws InterruptedException {\n        List<String> archived = new ArrayList<>();\n        List<String> failed = new ArrayList<>();\n        for (String id : orderIds) {\n            if (Boolean.FALSE.equals(await(remember(id)))) continue;   // seen before: already archived\n            if (archiveWithRetry(id)) archived.add(id);\n            else failed.add(id);\n        }\n        return new Report(archived, failed);\n    }\n\n    private boolean archiveWithRetry(String id) throws InterruptedException {\n        for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {\n            try {\n                store(id).get(5, TimeUnit.SECONDS);\n                return true;\n            } catch (ExecutionException e) {\n                if (!(e.getCause() instanceof IOException)) return false;   // only I/O failures are retried\n            } catch (TimeoutException e) {\n                return false;\n            }\n        }\n        return false;\n    }\n\n    private static Object await(Future<?> f) throws InterruptedException {\n        try {\n            return f.get(5, TimeUnit.SECONDS);\n        } catch (ExecutionException | TimeoutException e) {\n            throw new IllegalStateException(\"remembering an id failed\", e);\n        }\n    }\n\n    /**\n     * Records the id on the pool. dispatch() reads the Future's value: false means the id was\n     * already recorded, so the order is not archived again.\n     */\n    Future<?> remember(String orderId) {\n        return pool.submit(() -> seen.add(orderId));\n    }\n\n    /**\n     * Stores the order in the archive on the pool. dispatch() reads how the Future ends: normally\n     * when the order is stored; with the archive's IOException as the cause when it isn't, which\n     * dispatch() retries.\n     */\n    Future<?> store(String orderId) {\n        return pool.submit(() -> {\n            archive.store(orderId);\n            return null;\n        });\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\n\npublic final class PriceRules {\n\n    private PriceRules() {\n    }\n\n    /** Each price reduced by {@code percent} per cent, rounded to cents. */\n    public static List<Double> discounted(List<Double> prices, double percent) {\n        throw new UnsupportedOperationException(\"write discounted\");\n    }\n\n    /** The band of each price: cheap, moderate, expensive or premium. */\n    public static List<String> categorize(List<Double> prices) {\n        throw new UnsupportedOperationException(\"write categorize\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/** Archives incoming orders on a worker pool: each order id once, with a retry for I/O failures. */\npublic class OrderDispatch {\n\n    /** Stores one order in the archive. Throws IOException when the archive can't take it right now. */\n    public interface Archive {\n        void store(String orderId) throws IOException;\n    }\n\n    /** What a dispatch did: the ids it archived, in order, and the ids it gave up on. */\n    public record Report(List<String> archived, List<String> failed) {}\n\n    static final int ATTEMPTS = 3;\n\n    private final ExecutorService pool;\n    private final Archive archive;\n    private final Set<String> seen = ConcurrentHashMap.newKeySet();\n\n    public OrderDispatch(ExecutorService pool, Archive archive) {\n        this.pool = pool;\n        this.archive = archive;\n    }\n\n    /** Archives every id the dispatcher hasn't seen before, retrying I/O failures. */\n    public Report dispatch(List<String> orderIds) throws InterruptedException {\n        List<String> archived = new ArrayList<>();\n        List<String> failed = new ArrayList<>();\n        for (String id : orderIds) {\n            if (Boolean.FALSE.equals(await(remember(id)))) continue;   // seen before: already archived\n            if (archiveWithRetry(id)) archived.add(id);\n            else failed.add(id);\n        }\n        return new Report(archived, failed);\n    }\n\n    private boolean archiveWithRetry(String id) throws InterruptedException {\n        for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {\n            try {\n                store(id).get(5, TimeUnit.SECONDS);\n                return true;\n            } catch (ExecutionException e) {\n                if (!(e.getCause() instanceof IOException)) return false;   // only I/O failures are retried\n            } catch (TimeoutException e) {\n                return false;\n            }\n        }\n        return false;\n    }\n\n    private static Object await(Future<?> f) throws InterruptedException {\n        try {\n            return f.get(5, TimeUnit.SECONDS);\n        } catch (ExecutionException | TimeoutException e) {\n            throw new IllegalStateException(\"remembering an id failed\", e);\n        }\n    }\n\n    /**\n     * Records the id on the pool. dispatch() reads the Future's value: false means the id was\n     * already recorded, so the order is not archived again.\n     */\n    Future<?> remember(String orderId) {\n        // TODO: run this on the pool, and let the Future say whether the id was new.\n        throw new IllegalStateException(\"TODO: remember\");\n    }\n\n    /**\n     * Stores the order in the archive on the pool. dispatch() reads how the Future ends: normally\n     * when the order is stored; with the archive's IOException as the cause when it isn't, which\n     * dispatch() retries.\n     */\n    Future<?> store(String orderId) {\n        // TODO: run this on the pool, so that a failed store reaches dispatch() as described above.\n        throw new IllegalStateException(\"TODO: store\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -102,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a4acaa34dd045e4b7be21607c5c63400b7da3d21b9e48a373d49df3be07c72d1",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\n\npublic final class PriceRules {\n\n    private PriceRules() {\n    }\n\n    /** Each price reduced by {@code percent} per cent, rounded to cents. */\n    public static List<Double> discounted(List<Double> prices, double percent) {\n        throw new UnsupportedOperationException(\"write discounted\");\n    }\n\n    /** The band of each price: cheap, moderate, expensive or premium. */\n    public static List<String> categorize(List<Double> prices) {\n        throw new UnsupportedOperationException(\"write categorize\");\n    }\n}\n",
+  "content_sha256": "f031de08743c02b0b4e8ecc998b4ddb9889e21ee1267c84e17ef1d03966f519d",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/** Archives incoming orders on a worker pool: each order id once, with a retry for I/O failures. */\npublic class OrderDispatch {\n\n    /** Stores one order in the archive. Throws IOException when the archive can't take it right now. */\n    public interface Archive {\n        void store(String orderId) throws IOException;\n    }\n\n    /** What a dispatch did: the ids it archived, in order, and the ids it gave up on. */\n    public record Report(List<String> archived, List<String> failed) {}\n\n    static final int ATTEMPTS = 3;\n\n    private final ExecutorService pool;\n    private final Archive archive;\n    private final Set<String> seen = ConcurrentHashMap.newKeySet();\n\n    public OrderDispatch(ExecutorService pool, Archive archive) {\n        this.pool = pool;\n        this.archive = archive;\n    }\n\n    /** Archives every id the dispatcher hasn't seen before, retrying I/O failures. */\n    public Report dispatch(List<String> orderIds) throws InterruptedException {\n        List<String> archived = new ArrayList<>();\n        List<String> failed = new ArrayList<>();\n        for (String id : orderIds) {\n            if (Boolean.FALSE.equals(await(remember(id)))) continue;   // seen before: already archived\n            if (archiveWithRetry(id)) archived.add(id);\n            else failed.add(id);\n        }\n        return new Report(archived, failed);\n    }\n\n    private boolean archiveWithRetry(String id) throws InterruptedException {\n        for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {\n            try {\n                store(id).get(5, TimeUnit.SECONDS);\n                return true;\n            } catch (ExecutionException e) {\n                if (!(e.getCause() instanceof IOException)) return false;   // only I/O failures are retried\n            } catch (TimeoutException e) {\n                return false;\n            }\n        }\n        return false;\n    }\n\n    private static Object await(Future<?> f) throws InterruptedException {\n        try {\n            return f.get(5, TimeUnit.SECONDS);\n        } catch (ExecutionException | TimeoutException e) {\n            throw new IllegalStateException(\"remembering an id failed\", e);\n        }\n    }\n\n    /**\n     * Records the id on the pool. dispatch() reads the Future's value: false means the id was\n     * already recorded, so the order is not archived again.\n     */\n    Future<?> remember(String orderId) {\n        // TODO: run this on the pool, and let the Future say whether the id was new.\n        throw new IllegalStateException(\"TODO: remember\");\n    }\n\n    /**\n     * Stores the order in the archive on the pool. dispatch() reads how the Future ends: normally\n     * when the order is stored; with the archive's IOException as the cause when it isn't, which\n     * dispatch() retries.\n     */\n    Future<?> store(String orderId) {\n        // TODO: run this on the pool, so that a failed store reaches dispatch() as described above.\n        throw new IllegalStateException(\"TODO: store\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-02/practice-1/src/main/java/practice/PriceRules.java",
-    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-02/practice-1/src/test/java/practice/PriceRulesTest.java",
+    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-02/practice-1/src/main/java/practice/OrderDispatch.java",
+    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-02/practice-1/src/test/java/practice/OrderDispatchTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,29 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PriceRulesTest#appliesDiscount",
+        "id": "practice.OrderDispatchTest#archivesEveryNewOrderOnThePool",
         "kind": "main",
-        "says": "Each price is reduced by the given percentage."
+        "says": "with a healthy archive, every distinct order is stored once, by a pool thread, and reported as archived"
       },
       {
-        "id": "practice.PriceRulesTest#categorizesPrices",
-        "kind": "main",
-        "says": "Prices well inside each band get that band's category."
-      },
-      {
-        "id": "practice.PriceRulesTest#roundsToCents",
+        "id": "practice.OrderDispatchTest#aRepeatedOrderIsArchivedOnce",
         "kind": "edge",
-        "says": "A discounted price is rounded to two decimal places."
+        "says": "an order id that comes again is not stored again: the Future of remember() tells a new id from a repeat"
       },
       {
-        "id": "practice.PriceRulesTest#boundariesMoveUp",
+        "id": "practice.OrderDispatchTest#anOrderTheArchiveRefusesOnceIsArchivedOnRetry",
         "kind": "edge",
-        "says": "A price exactly on a limit (10, 100, 1000) belongs to the higher category."
+        "says": "an archive failure reaches dispatch() with the archive's IOException as the cause, so it is retried and the order is stored"
       },
       {
-        "id": "practice.PriceRulesTest#roundsToTheNearestCent",
+        "id": "practice.OrderDispatchTest#anOrderTheArchiveKeepsRefusingIsReportedAsFailed",
         "kind": "edge",
-        "says": "A price is rounded to the nearest cent, so 2.997 becomes 3.0; cutting off the extra digits is not rounding."
+        "says": "an order the archive never takes is reported as failed, not as archived"
       }
     ],
     "report": {
@@ -158,10 +136,10 @@
     },
     "origin": {
       "path": "13-lambda-expressions/README_4.1.2.md",
-      "section": "Concept Explanation"
+      "section": "When a Body Fits Both, the Overload That Returns a Value Wins"
     },
     "concepts": [
-      "A lambda is a parameter list, the arrow, and a body that is one expression or a block of statements."
+      "When a body fits both a void and a value-returning interface and its parameter types are known, the value-returning overload is chosen, so braces or a return decide what submit's Future holds and whether a checked exception reaches it."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Read repeated @Role annotations to guard a method",
+  "title": "Find the trace level of every handler the agent should trace",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,11 @@
     },
     {
       "type": "para",
-      "text": "When `@Role` is written twice on a method, the compiler wraps both in the container `@Roles`. The page's Q4 warns that a single `@Role` is **not wrapped**: then `getAnnotation(Roles.class)` is `null` and only `getAnnotation(Role.class)` finds it. `getAnnotationsByType(Role.class)` handles both cases."
+      "text": "The tracing agent decides per handler class how closely to trace it, from a `@Traced(level = ...)` annotation. Teams put it where it suits them: on the handler class, on a base class their handlers extend, or on a service interface such as `Ingest`, which a handler may implement directly, through its base class, or through another interface (`interface BulkIngest extends Ingest`). After the last release the agent's dashboards show no traces from about a third of the handlers, all of them handlers that teams say are annotated."
     },
     {
       "type": "para",
-      "text": "`Role` and `Roles` are given. Write:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`rolesOf(AnnotatedElement e)`: the role names on `e`, in the order written, whether there is one `@Role` or several.",
-        "`canCall(Method m, Set<String> granted)`: `true` when `granted` holds at least one of `m`'s roles. **A method without roles is open to everyone.** Role names are **compared by value**."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "method",
-        "`rolesOf`",
-        "`canCall` with `{MANAGER}`",
-        "with `{}`"
-      ],
-      "rows": [
-        [
-          "`@Role(\"ADMIN\") @Role(\"MANAGER\") listUsers()`",
-          "`[ADMIN, MANAGER]`",
-          "`true`",
-          "`false`"
-        ],
-        [
-          "`@Role(\"ADMIN\") createUser()`",
-          "`[ADMIN]`",
-          "`false`",
-          "`false`"
-        ],
-        [
-          "`health()`",
-          "`[]`",
-          "`true`",
-          "`true`"
-        ]
-      ]
+      "text": "Finish `levelOf(Class<?> handler)` and `fromInterfaces(Class<?>[] interfaces)` in `src/main/java/practice/TraceLookup.java`. A handler is traced at the level of the `@Traced` on its class or nearest superclass; failing that, at the level of the first traced interface found from the class upward; with none anywhere, it isn't traced. About twelve lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Repeatable;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.AnnotatedElement;\nimport java.lang.reflect.Method;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\n\npublic final class Access {\n\n    private Access() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Roles {\n        Role[] value();\n    }\n\n    @Repeatable(Roles.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Role {\n        String value();\n    }\n\n    /** The role names on e, in the order written. */\n    public static List<String> rolesOf(AnnotatedElement e) {\n        List<String> names = new ArrayList<>();\n        for (Role role : e.getAnnotationsByType(Role.class)) {\n            names.add(role.value());\n        }\n        return names;\n    }\n\n    /** Whether a caller holding the granted roles may call m. */\n    public static boolean canCall(Method m, Set<String> granted) {\n        List<String> required = rolesOf(m);\n        if (required.isEmpty()) {\n            return true;\n        }\n        for (String role : required) {\n            if (granted.contains(role)) {\n                return true;\n            }\n        }\n        return false;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Inherited;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.Optional;\n\n/**\n * Tells the tracing agent how closely to trace the instances of a handler class.\n *\n * A handler is traced at the level its {@code @Traced} says. The annotation may sit on the\n * class, on any of its superclasses, or on any interface the class or a superclass implements,\n * directly or through another interface. One on the class or a superclass wins over one on an\n * interface. A class with none anywhere is not traced.\n */\npublic class TraceLookup {\n\n    @Inherited\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.TYPE)\n    public @interface Traced {\n        String level() default \"SPANS\";\n    }\n\n    /** The level {@code handler} is traced at, or empty when it isn't traced. */\n    public Optional<String> levelOf(Class<?> handler) {\n        Traced onClasses = handler.getAnnotation(Traced.class);\n        if (onClasses != null) return Optional.of(onClasses.level());\n        for (Class<?> c = handler; c != null; c = c.getSuperclass()) {\n            Optional<String> found = fromInterfaces(c.getInterfaces());\n            if (found.isPresent()) return found;\n        }\n        return Optional.empty();\n    }\n\n    /** The level on the first of {@code interfaces}, or on an interface they extend, that is traced. */\n    Optional<String> fromInterfaces(Class<?>[] interfaces) {\n        for (Class<?> i : interfaces) {\n            Traced t = i.getAnnotation(Traced.class);\n            if (t != null) return Optional.of(t.level());\n            Optional<String> found = fromInterfaces(i.getInterfaces());\n            if (found.isPresent()) return found;\n        }\n        return Optional.empty();\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Repeatable;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.AnnotatedElement;\nimport java.lang.reflect.Method;\nimport java.util.List;\nimport java.util.Set;\n\npublic final class Access {\n\n    private Access() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Roles {\n        Role[] value();\n    }\n\n    @Repeatable(Roles.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Role {\n        String value();\n    }\n\n    /** The role names on e, in the order written. */\n    public static List<String> rolesOf(AnnotatedElement e) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Whether a caller holding the granted roles may call m. */\n    public static boolean canCall(Method m, Set<String> granted) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Inherited;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.Optional;\n\n/**\n * Tells the tracing agent how closely to trace the instances of a handler class.\n *\n * A handler is traced at the level its {@code @Traced} says. The annotation may sit on the\n * class, on any of its superclasses, or on any interface the class or a superclass implements,\n * directly or through another interface. One on the class or a superclass wins over one on an\n * interface. A class with none anywhere is not traced.\n */\npublic class TraceLookup {\n\n    @Inherited\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.TYPE)\n    public @interface Traced {\n        String level() default \"SPANS\";\n    }\n\n    /** The level {@code handler} is traced at, or empty when it isn't traced. */\n    public Optional<String> levelOf(Class<?> handler) {\n        // TODO: Find the handler's @Traced wherever the agent's rules allow it to be, and\n        //       return its level. A handler with none anywhere isn't traced.\n        throw new IllegalStateException(\"TODO: levelOf\");\n    }\n\n    /** The level on the first of {@code interfaces}, or on an interface they extend, that is traced. */\n    Optional<String> fromInterfaces(Class<?>[] interfaces) {\n        // TODO: Return the level of the first traced interface among these, counting the\n        //       interfaces each of them extends.\n        throw new IllegalStateException(\"TODO: fromInterfaces\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c4df5e474f9630ba3b8e343410cb5cf1fd316b990ed72cdb56f7dcfbf6e7eae1",
-  "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Repeatable;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.AnnotatedElement;\nimport java.lang.reflect.Method;\nimport java.util.List;\nimport java.util.Set;\n\npublic final class Access {\n\n    private Access() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Roles {\n        Role[] value();\n    }\n\n    @Repeatable(Roles.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Role {\n        String value();\n    }\n\n    /** The role names on e, in the order written. */\n    public static List<String> rolesOf(AnnotatedElement e) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Whether a caller holding the granted roles may call m. */\n    public static boolean canCall(Method m, Set<String> granted) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "d957e4d31cc896d28d65e173b52e8126c5c5ca0d6b29ebe168e68149911c47a0",
+  "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Inherited;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.Optional;\n\n/**\n * Tells the tracing agent how closely to trace the instances of a handler class.\n *\n * A handler is traced at the level its {@code @Traced} says. The annotation may sit on the\n * class, on any of its superclasses, or on any interface the class or a superclass implements,\n * directly or through another interface. One on the class or a superclass wins over one on an\n * interface. A class with none anywhere is not traced.\n */\npublic class TraceLookup {\n\n    @Inherited\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.TYPE)\n    public @interface Traced {\n        String level() default \"SPANS\";\n    }\n\n    /** The level {@code handler} is traced at, or empty when it isn't traced. */\n    public Optional<String> levelOf(Class<?> handler) {\n        // TODO: Find the handler's @Traced wherever the agent's rules allow it to be, and\n        //       return its level. A handler with none anywhere isn't traced.\n        throw new IllegalStateException(\"TODO: levelOf\");\n    }\n\n    /** The level on the first of {@code interfaces}, or on an interface they extend, that is traced. */\n    Optional<String> fromInterfaces(Class<?>[] interfaces) {\n        // TODO: Return the level of the first traced interface among these, counting the\n        //       interfaces each of them extends.\n        throw new IllegalStateException(\"TODO: fromInterfaces\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-2/src/main/java/practice/Access.java",
-    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-2/src/test/java/practice/AccessTest.java",
+    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-2/src/main/java/practice/TraceLookup.java",
+    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-2/src/test/java/practice/TraceLookupTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,19 +94,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AccessTest#readsRepeatedRolesAndGuardsTheCall",
+        "id": "practice.TraceLookupTest#aClassThatDeclaresItIsTracedAtItsLevel",
         "kind": "main",
-        "says": "listUsers() with @Role(\"ADMIN\") @Role(\"MANAGER\") has roles [ADMIN, MANAGER]; a MANAGER (a name built at run time) may call it and a GUEST may not."
+        "says": "a handler class that carries @Traced itself is traced at its own level, default or written"
       },
       {
-        "id": "practice.AccessTest#aSingleRoleIsNotWrapped",
-        "kind": "edge",
-        "says": "createUser() with one @Role(\"ADMIN\") has roles [ADMIN], although no @Roles container is present."
+        "id": "practice.TraceLookupTest#aClassWithNothingAnywhereIsNotTraced",
+        "kind": "main",
+        "says": "a handler with @Traced on no class and no interface of its hierarchy is not traced"
       },
       {
-        "id": "practice.AccessTest#aMethodWithoutRolesIsOpen",
+        "id": "practice.TraceLookupTest#anInterfaceTheClassImplementsMarksIt",
         "kind": "edge",
-        "says": "health() has no roles, so a caller with no roles at all may call it."
+        "says": "a handler that implements a traced interface is traced at the interface's level"
+      },
+      {
+        "id": "practice.TraceLookupTest#aSuperclassMarksItsSubclasses",
+        "kind": "edge",
+        "says": "a handler whose superclass is traced is traced at that level, which wins over an interface's"
+      },
+      {
+        "id": "practice.TraceLookupTest#anInterfaceReachedThroughASuperclassOrAnotherInterfaceMarksIt",
+        "kind": "edge",
+        "says": "a traced interface counts when a superclass implements it or another interface extends it"
       }
     ],
     "report": {
@@ -152,10 +125,10 @@
     },
     "origin": {
       "path": "42-annotations/README_10.4.2.md",
-      "section": "Interview Q&A Section"
+      "section": "@Inherited Reaches a Class Only from Its Superclasses"
     },
     "concepts": [
-      "Repeated annotations are wrapped in their container, a single one is not, and getAnnotationsByType() reads both cases."
+      "@Inherited makes getAnnotation find a class annotation on the nearest superclass, never on an interface, a method or for an annotation without @Inherited."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Adapt array-based legacy users to modern records",
+  "title": "Put a CompletableFuture in front of a callback FX client",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page's data-format adapter sits between an old system that stores a user as a `String[]` (`[first, last, email]`) and a new one that expects a `ModernUser(fullName, email)` record. Its edge-case list asks the adapter to handle **extra data fields**, **too few fields** and **empty collections**."
+      "text": "The pricing service is moving to `CompletableFuture`, but its FX rates still come from a legacy client that takes a listener and answers later, on a thread of its own. A pricing request combines several rates with `thenCombine` and turns any failure into a \"price unavailable\" reply with `exceptionally`. Those requests must always get a reply: last quarter, a handler that waited on a rate nobody would ever deliver held its thread until the pool ran dry."
     },
     {
       "type": "para",
-      "text": "Given: the records `LegacyUser(String[] data)` and `ModernUser(String fullName, String email)`. Write `UserDataAdapter`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`adapt(user)` returns `ModernUser(first + \" \" + last, email)`, reading the email at index 2; **fields beyond the third are ignored**.",
-        "**Fewer than three fields is refused with `IllegalArgumentException`** (not an `ArrayIndexOutOfBoundsException`).",
-        "`adaptAll(users)` adapts each user in order; **an empty list adapts to an empty list**."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "legacy data",
-        "`adapt` gives"
-      ],
-      "rows": [
-        [
-          "`[\"Ada\", \"Lovelace\", \"ada@example.org\"]`",
-          "`ModernUser[fullName=Ada Lovelace, email=ada@example.org]`"
-        ],
-        [
-          "`[\"Alan\", \"Turing\", \"alan@example.org\", \"x\"]`",
-          "`ModernUser[fullName=Alan Turing, email=alan@example.org]`"
-        ],
-        [
-          "`[\"Grace\", \"Hopper\"]`",
-          "`IllegalArgumentException`"
-        ]
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`adaptAll(List.of())`",
-          "`[]`"
-        ]
-      ]
+      "text": "`Rates` declares the client's interfaces (don't change them) and `RateUnavailableException`. Finish `rate(pair)` in `src/main/java/practice/Rates.java`, so that it returns at once with a future that settles however the client's lookup ends: with the rate, or failed with a `RateUnavailableException` that carries the client's reason, or failed with whatever the client threw. Callers handle every failure through the future. About ten lines in total."
     },
     {
       "type": "heading",
@@ -81,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\n\npublic final class UserData {\n\n    private UserData() {\n    }\n\n    /** The old system's user: data[0] = first name, data[1] = last name, data[2] = email. */\n    public record LegacyUser(String[] data) {\n    }\n\n    /** The user the new system expects. */\n    public record ModernUser(String fullName, String email) {\n    }\n\n    public static final class UserDataAdapter {\n\n        public ModernUser adapt(LegacyUser legacyUser) {\n            Objects.requireNonNull(legacyUser, \"legacy user must not be null\");\n            String[] data = legacyUser.data();\n            if (data.length < 3) {\n                throw new IllegalArgumentException(\"a legacy user needs at least 3 fields, got \" + data.length);\n            }\n            return new ModernUser(data[0] + \" \" + data[1], data[2]);\n        }\n\n        public List<ModernUser> adaptAll(List<LegacyUser> legacyUsers) {\n            Objects.requireNonNull(legacyUsers, \"legacy users must not be null\");\n            List<ModernUser> result = new ArrayList<>();\n            for (LegacyUser user : legacyUsers) {\n                result.add(adapt(user));\n            }\n            return result;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Objects;\nimport java.util.concurrent.CompletableFuture;\n\n/** The new pricing code's view of the legacy FX client: one future per lookup. */\npublic final class Rates {\n\n    /** The legacy client's callback. Exactly one method is called per lookup that was accepted. */\n    public interface RateListener {\n        void onRate(String pair, BigDecimal rate);\n\n        void onFailure(String pair, String reason);\n    }\n\n    /** The legacy FX client. Don't change it. */\n    public interface RateClient {\n        /**\n         * Checks {@code pair} on the calling thread and throws IllegalArgumentException if it is not\n         * of the form \"EUR/USD\"; otherwise returns at once and answers later, on a thread of its own.\n         */\n        void lookup(String pair, RateListener listener);\n    }\n\n    /** What a future fails with when the client reports a failure. */\n    public static final class RateUnavailableException extends RuntimeException {\n        public RateUnavailableException(String message) {\n            super(message);\n        }\n    }\n\n    private final RateClient client;\n\n    public Rates(RateClient client) {\n        this.client = Objects.requireNonNull(client);\n    }\n\n    /** The rate for {@code pair}, as a future that the client's answer completes. */\n    public CompletableFuture<BigDecimal> rate(String pair) {\n        CompletableFuture<BigDecimal> result = new CompletableFuture<>();\n        try {\n            client.lookup(pair, new RateListener() {\n                @Override\n                public void onRate(String p, BigDecimal rate) {\n                    result.complete(rate);\n                }\n\n                @Override\n                public void onFailure(String p, String reason) {\n                    result.completeExceptionally(new RateUnavailableException(p + \": \" + reason));\n                }\n            });\n        } catch (RuntimeException e) {\n            result.completeExceptionally(e);\n        }\n        return result;\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class UserData {\n\n    private UserData() {\n    }\n\n    /** The old system's user: data[0] = first name, data[1] = last name, data[2] = email. */\n    public record LegacyUser(String[] data) {\n    }\n\n    /** The user the new system expects. */\n    public record ModernUser(String fullName, String email) {\n    }\n\n    public static final class UserDataAdapter {\n\n        public ModernUser adapt(LegacyUser legacyUser) {\n            throw new UnsupportedOperationException(\"write adapt\");\n        }\n\n        public List<ModernUser> adaptAll(List<LegacyUser> legacyUsers) {\n            throw new UnsupportedOperationException(\"write adaptAll\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Objects;\nimport java.util.concurrent.CompletableFuture;\n\n/** The new pricing code's view of the legacy FX client: one future per lookup. */\npublic final class Rates {\n\n    /** The legacy client's callback. Exactly one method is called per lookup that was accepted. */\n    public interface RateListener {\n        void onRate(String pair, BigDecimal rate);\n\n        void onFailure(String pair, String reason);\n    }\n\n    /** The legacy FX client. Don't change it. */\n    public interface RateClient {\n        /**\n         * Checks {@code pair} on the calling thread and throws IllegalArgumentException if it is not\n         * of the form \"EUR/USD\"; otherwise returns at once and answers later, on a thread of its own.\n         */\n        void lookup(String pair, RateListener listener);\n    }\n\n    /** What a future fails with when the client reports a failure. */\n    public static final class RateUnavailableException extends RuntimeException {\n        public RateUnavailableException(String message) {\n            super(message);\n        }\n    }\n\n    private final RateClient client;\n\n    public Rates(RateClient client) {\n        this.client = Objects.requireNonNull(client);\n    }\n\n    /** The rate for {@code pair}, as a future that the client's answer completes. */\n    public CompletableFuture<BigDecimal> rate(String pair) {\n        // TODO: ask the client, and let its answer, whatever it is, settle the future.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -103,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 2,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -112,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "cd851354878f69c1e7ddee76981848d78e5f2b93158f0d7adcfb83a94c38edb0",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class UserData {\n\n    private UserData() {\n    }\n\n    /** The old system's user: data[0] = first name, data[1] = last name, data[2] = email. */\n    public record LegacyUser(String[] data) {\n    }\n\n    /** The user the new system expects. */\n    public record ModernUser(String fullName, String email) {\n    }\n\n    public static final class UserDataAdapter {\n\n        public ModernUser adapt(LegacyUser legacyUser) {\n            throw new UnsupportedOperationException(\"write adapt\");\n        }\n\n        public List<ModernUser> adaptAll(List<LegacyUser> legacyUsers) {\n            throw new UnsupportedOperationException(\"write adaptAll\");\n        }\n    }\n}\n",
+  "content_sha256": "ed99e71e1679fe084ea4d3462afb1d1db149d3b926bec25a8f9274aad4b46542",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Objects;\nimport java.util.concurrent.CompletableFuture;\n\n/** The new pricing code's view of the legacy FX client: one future per lookup. */\npublic final class Rates {\n\n    /** The legacy client's callback. Exactly one method is called per lookup that was accepted. */\n    public interface RateListener {\n        void onRate(String pair, BigDecimal rate);\n\n        void onFailure(String pair, String reason);\n    }\n\n    /** The legacy FX client. Don't change it. */\n    public interface RateClient {\n        /**\n         * Checks {@code pair} on the calling thread and throws IllegalArgumentException if it is not\n         * of the form \"EUR/USD\"; otherwise returns at once and answers later, on a thread of its own.\n         */\n        void lookup(String pair, RateListener listener);\n    }\n\n    /** What a future fails with when the client reports a failure. */\n    public static final class RateUnavailableException extends RuntimeException {\n        public RateUnavailableException(String message) {\n            super(message);\n        }\n    }\n\n    private final RateClient client;\n\n    public Rates(RateClient client) {\n        this.client = Objects.requireNonNull(client);\n    }\n\n    /** The rate for {@code pair}, as a future that the client's answer completes. */\n    public CompletableFuture<BigDecimal> rate(String pair) {\n        // TODO: ask the client, and let its answer, whatever it is, settle the future.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-3/src/main/java/practice/UserData.java",
-    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-3/src/test/java/practice/UserDataTest.java",
+    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-3/src/main/java/practice/Rates.java",
+    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-3/src/test/java/practice/RatesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,24 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.UserDataTest#adaptsNamesAndEmailInOrder",
+        "id": "practice.RatesTest#theClientsRateCompletesTheFuture",
         "kind": "main",
-        "says": "adapt joins first and last name with one space and keeps the email; adaptAll adapts every user and keeps their order."
+        "says": "rate() returns before the client answers, and the client's rate completes the future"
       },
       {
-        "id": "practice.UserDataTest#extraFieldsAreIgnored",
-        "kind": "edge",
-        "says": "A legacy array with more than three fields still takes the email from index 2, and ignores the rest."
+        "id": "practice.RatesTest#eachLookupGetsItsOwnAnswer",
+        "kind": "main",
+        "says": "two lookups answered in the other order each complete with their own rate"
       },
       {
-        "id": "practice.UserDataTest#aShortArrayIsRefusedWithIllegalArgument",
+        "id": "practice.RatesTest#aFailureTheClientReportsFailsTheFuture",
         "kind": "edge",
-        "says": "A legacy array of two fields throws IllegalArgumentException instead of an index error."
+        "says": "a failure the client reports through its callback fails the future with RateUnavailableException carrying the reason"
       },
       {
-        "id": "practice.UserDataTest#anEmptyListAdaptsToAnEmptyList",
+        "id": "practice.RatesTest#aPairTheClientRefusesFailsTheFutureInsteadOfThrowing",
         "kind": "edge",
-        "says": "adaptAll(List.of()) returns an empty list without throwing."
+        "says": "a pair the client refuses on the calling thread gives a failed future, not an exception from rate()"
       }
     ],
     "report": {
@@ -163,10 +120,11 @@
     },
     "origin": {
       "path": "37-structural-patterns/README_9.2.1.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "A Callback Adapter Must Complete the Future on Every Path the Legacy Call Can Take"
     },
     "concepts": [
-      "A data-format adapter handles extra fields, too few fields and empty collections without failing in unexpected ways."
+      "A CompletableFuture made with new completes only when code completes it, so a callback adapter that ignores the legacy API's failure callback leaves its callers waiting forever.",
+      "An exception the legacy call throws on the caller's thread must become a failed future; otherwise it leaves the adapter past the caller's exceptionally."
     ]
   }
 }

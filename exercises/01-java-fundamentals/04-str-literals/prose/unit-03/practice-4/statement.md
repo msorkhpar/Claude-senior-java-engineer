@@ -1,11 +1,12 @@
-`substring(0, n)` needs a String of at least `n` characters, so a method that shortens text
-first checks whether there is anything to shorten.
+The support team writes message templates such as `Hello {customer}, ticket {ticket} is closed.`
+and the help desk fills them with each customer's data. The team picks the names, and some have
+dots in them, such as `{invoice.no}`. Since refunds were added, some messages fail to send, and
+one went out with a file path that had lost its backslashes.
 
-Write `abbreviate(String text, int max)` in `Abbreviation`. It returns `text` unchanged when
-it has at most `max` characters, and otherwise its first `max - 3` characters followed by
-`"..."`, so the result is exactly `max` long:
+Finish the two `TODO`s in `src/main/java/practice/MessageTemplate.java`:
 
-- `abbreviate("Hello, World", 8)` is `"Hello..."`;
-- `abbreviate("Hi", 8)` is `"Hi"`, and `abbreviate("", 5)` is `""`;
-- a text of exactly `max` characters is kept: `abbreviate("Exactly8", 8)` is `"Exactly8"`;
-- `max` below `3` leaves no room for the dots: throw `IllegalArgumentException`.
+- `render(values)`: the template with every value of the map filled in;
+- `fill(text, name, value)`: `text` with `value` in place of `{name}`.
+
+When you're done, every value appears exactly as the customer's data holds it, wherever its name
+appears, and no other text changes. About four lines in total.

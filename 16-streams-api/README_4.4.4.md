@@ -1,446 +1,359 @@
 # 4.4.4. Terminal Operations (forEach, reduce, collect)
 
-## Concept Explanation
+A billing job adds up a customer's per-request charges and a base fee of 250 cents:
+`usage.stream().reduce(baseFee, Integer::sum)`. Its tests pass. To speed up the nightly run, a
+colleague changes `stream()` to `parallelStream()`, and the next morning every large bill is
+31,750 cents too high. Nothing threw, and the small bills in the tests are still right.
 
-Terminal operations are the final step in a stream pipeline. They **trigger the execution** of all lazy intermediate
-operations and produce a result (or side effect). After a terminal operation executes, the stream is exhausted and
-cannot be reused.
+Six rules, one per heading. Laziness and single use are in unit 4.4.1, `forEach` and
+`forEachOrdered` in unit 4.2.1, `toMap` in unit 4.2.3.
 
-**Real-world analogy**: Terminal operations are like the checkout counter at a supermarket. You browse the aisles
-(source), place items in your cart based on criteria (intermediate operations), but nothing is tallied until you reach
-the checkout (terminal operation). The checkout produces the final result — a receipt with the total.
+## reduce Needs an Identity That Changes Nothing and an Operation That Can Be Regrouped
 
-### Categories of Terminal Operations
-
-**Reduction operations** — aggregate all elements into a single result:
-- `reduce(identity, BinaryOperator<T>)` — combines all elements using an accumulator; returns T
-- `reduce(BinaryOperator<T>)` — no identity; returns `Optional<T>` (handles empty streams)
-- `count()` — number of elements
-- `min(Comparator)`, `max(Comparator)` — return `Optional<T>`
-- `sum()`, `average()`, `summaryStatistics()`, and `min()`/`max()` without a comparator — only on primitive streams
-
-**Collecting operations** — gather elements into a container:
-- `collect(Collector<T, A, R>)` — flexible collection with Collectors utility
-  - `toList()`, `toSet()`, `toMap()`, `toUnmodifiableList()`
-  - `groupingBy()` — group into `Map<K, List<T>>`
-  - `partitioningBy()` — split into two groups (true/false map)
-  - `joining()` — concatenate strings
-  - `counting()`, `summingInt()`, `averagingInt()`
-  - `mapping()`, `collectingAndThen()`
-- `toArray()` — collect into an array
-
-**Search operations** — find specific elements:
-- `findFirst()` — first element (Optional); respects encounter order
-- `findAny()` — any element (Optional); may return different results in parallel
-
-**Matching operations** — short-circuit boolean checks:
-- `anyMatch(Predicate<T>)` — true if any element matches
-- `allMatch(Predicate<T>)` — true if all elements match (or stream is empty)
-- `noneMatch(Predicate<T>)` — true if no element matches (or stream is empty)
-
-**Side-effect operations**:
-- `forEach(Consumer<T>)` — process each element with a side effect; order not guaranteed in parallel
-- `forEachOrdered(Consumer<T>)` — process in encounter order, even in parallel
-
-## Key Points to Remember
-
-1. **Terminal operations trigger execution** of all preceding lazy intermediate operations.
-2. **`collect()`** is the most versatile terminal operation — use `Collectors` for many common patterns.
-3. **`reduce(identity, op)`** returns `T` (works on empty streams using identity); **`reduce(op)`** returns `Optional<T>`.
-4. **`allMatch()`** on empty stream returns `true` (vacuous truth); **`anyMatch()`** returns `false`; **`noneMatch()`** returns `true`.
-5. **`findFirst()`** vs **`findAny()`**: `findFirst()` is deterministic (first in encounter order); `findAny()` may return any element (useful in parallel for performance).
-6. **`forEach()` does not guarantee order in parallel streams**; use `forEachOrdered()` when order matters.
-7. **`Collectors.groupingBy()`** groups elements into a `Map<K, List<V>>` by default; downstream collectors can further transform the values.
-8. **`Collectors.partitioningBy()`** is a special case of `groupingBy()` producing `Map<Boolean, List<T>>`.
-9. **`Collectors.joining()`** is the preferred way to concatenate stream elements into a String.
-10. **`Stream.toList()` (Java 16+)** is more concise than `collect(Collectors.toList())` and returns an unmodifiable list.
-
-## Relevant Java 21 Features
-
-- **`Stream.toList()` (Java 16+)**: Returns an unmodifiable list, like `collect(Collectors.toUnmodifiableList())`, but
-  it accepts null elements, where `toUnmodifiableList()` throws `NullPointerException`.
-- **`Collectors.toUnmodifiableList/Set/Map()` (Java 10+)**: Explicitly unmodifiable collectors.
-- **`Collectors.teeing()` (Java 12+)**: Applies two collectors in parallel and merges results with a merger function.
-- **`mapMulti()` (Java 16)**: Flexible element expansion before collection.
-- **Sequenced collection methods (Java 21)**: `getFirst()`, `getLast()` on ordered collections complement stream `findFirst()`.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using `forEach` when `collect` is more appropriate**:
-   ```java
-   // BROKEN — using forEach to build a list (mutating shared state)
-   List<String> result = new ArrayList<>();
-   stream.forEach(result::add); // Works but violates functional style; unsafe in parallel
-   ```
-   **Fix**: Use `collect(Collectors.toList())` or `toList()`.
-   ```java
-   List<String> result = stream.collect(Collectors.toList());
-   ```
-
-2. **`reduce` with wrong identity value**:
-   ```java
-   // BROKEN — wrong identity for multiplication: 0 would always give 0
-   int product = Stream.of(1, 2, 3, 4).reduce(0, (a, b) -> a * b); // Gives 0!
-   ```
-   **Fix**: Use the correct identity (1 for multiplication, 0 for addition, empty string for concatenation).
-   ```java
-   int product = Stream.of(1, 2, 3, 4).reduce(1, (a, b) -> a * b); // Gives 24
-   ```
-
-3. **Ignoring the `Optional` return of `reduce`/`findFirst`/`min`/`max`**:
-   ```java
-   // BROKEN — throws NoSuchElementException if stream is empty
-   String first = stream.findFirst().get(); // Dangerous!
-   ```
-   **Fix**: Handle the Optional properly.
-   ```java
-   String first = stream.findFirst().orElse("default");
-   // or
-   Optional<String> opt = stream.findFirst();
-   opt.ifPresent(System.out::println);
-   ```
-
-4. **`Collectors.toMap()` with duplicate keys**:
-   ```java
-   // BROKEN — throws IllegalStateException if two elements map to the same key
-   Map<Integer, String> map = list.stream()
-       .collect(Collectors.toMap(String::length, s -> s));
-   ```
-   **Fix**: Provide a merge function.
-   ```java
-   Map<Integer, String> map = list.stream()
-       .collect(Collectors.toMap(String::length, s -> s, (s1, s2) -> s1 + "," + s2));
-   ```
-
-5. **Using `allMatch()` on empty streams without understanding vacuous truth**:
-   ```java
-   // This returns true — empty stream vacuously satisfies any predicate
-   boolean result = Stream.<String>empty().allMatch(s -> s.length() > 100); // true!
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer `collect(Collectors.toList())` or `Stream.toList()`** over manual `forEach + add` patterns.
-2. **Use `Collectors.groupingBy()` with downstream collectors** for powerful aggregation (e.g., counting per group, averaging per group).
-3. **Use `Collectors.joining(delimiter, prefix, suffix)`** for human-readable string output.
-4. **Use `Collectors.teeing()` (Java 12+)** when you need two different views of the same data in one pass.
-5. **Use `IntStream.sum()`, `average()`, `summaryStatistics()`** directly on primitive streams — more efficient than `collect()`.
-6. **Prefer `findFirst()` over `min(Comparator)`** when you only need the first element in encounter order.
-7. **Use `anyMatch()` instead of `filter().findFirst().isPresent()`** — both stop at the first match, but `anyMatch()` states the intent directly and needs no `Optional`.
-
-## Edge Cases and Their Handling
-
-1. **`reduce` on empty stream with identity**: Returns the identity value.
-2. **`reduce` on empty stream without identity**: Returns `Optional.empty()`.
-3. **`collect` on empty stream**: Returns an empty collection/map/string.
-4. **`allMatch` on empty stream**: Returns `true` (vacuous truth).
-5. **`anyMatch` on empty stream**: Returns `false`.
-6. **`noneMatch` on empty stream**: Returns `true`.
-7. **`min`/`max` on empty stream**: Returns `Optional.empty()`.
-8. **`count` on empty stream**: Returns 0.
-9. **`groupingBy` with all elements in same group**: Produces a map with one entry.
-10. **`joining` on empty stream**: Returns empty string (or prefix+suffix if specified).
-
-## Interview-specific Insights
-
-Interviewers frequently test:
-- The `allMatch`/`anyMatch`/`noneMatch` behavior on empty streams (trick question)
-- The correct identity values for common `reduce` operations
-- `Collectors.groupingBy()` with downstream collectors
-- `Collectors.toMap()` duplicate key handling
-- `findFirst()` vs `findAny()` and when to use each
-- `forEach` vs `forEachOrdered` in parallel streams
-- `collect(Collectors.joining())` for string concatenation
-
-Tricky whiteboard questions:
-- "Write a stream that counts words grouped by their first character"
-- "Use `reduce()` to compute the product of all numbers in a list"
-- "What does `allMatch()` return for an empty stream?"
-
-## Interview Q&A Section
-
-**Q1: What is the difference between `reduce()` with an identity and without one?**
-
-```text
-A1: reduce() comes in two main forms:
-
-With identity (T identity, BinaryOperator<T> accumulator):
-- The identity is the starting value and the result for an empty stream.
-- Always returns T (never Optional) because the identity is returned for empty streams.
-- The identity must be a "neutral element": identity OP element == element for all elements.
-  (e.g., 0 for addition, 1 for multiplication, "" for string concatenation)
-- Example: Stream.empty().reduce(0, Integer::sum) returns 0.
-
-Without identity (BinaryOperator<T> accumulator):
-- Returns Optional<T> — empty Optional if the stream is empty.
-- Safer for cases where you don't know what the identity should be, or where no identity makes sense.
-- Example: Stream.empty().reduce(Integer::sum) returns Optional.empty().
-
-The three-argument form reduce(identity, BiFunction<U,T,U>, BinaryOperator<U>) is the only reduce form whose result
-type U can differ from the element type T; its combiner merges the partial results of a parallel stream, and must
-be compatible with the accumulator.
-```
+`reduce(identity, op)` is guaranteed to give the same answer on a sequential and a parallel stream
+if `identity` leaves every element unchanged (`op(identity, t)` equals `t`) and `op` is associative.
+The billing job, on a 20-core machine:
 
 ```java
-List<Integer> numbers = List.of(1, 2, 3, 4, 5);
-
-// With identity — safe for empty streams
-int sum = numbers.stream().reduce(0, Integer::sum); // 15
-int emptySum = Stream.<Integer>empty().reduce(0, Integer::sum); // 0 (identity returned)
-
-// Without identity — returns Optional
-Optional<Integer> product = numbers.stream().reduce((a, b) -> a * b); // Optional[120]
-Optional<Integer> emptyProduct = Stream.<Integer>empty().reduce((a, b) -> a * b); // Optional.empty()
-
-// Max using reduce (prefer Stream.max() in practice)
-Optional<Integer> max = numbers.stream().reduce(Integer::max); // Optional[5]
-
-// Wrong identity!
-int wrongProduct = numbers.stream().reduce(0, (a, b) -> a * b); // 0 — always 0!
-int rightProduct = numbers.stream().reduce(1, (a, b) -> a * b); // 120
+List<Integer> usage = IntStream.rangeClosed(1, 1000).boxed().toList();   // 500,500 cents
+int baseFee = 250;
+System.out.println("sequential: " + usage.stream().reduce(baseFee, Integer::sum));
+System.out.println("parallel:   " + usage.parallelStream().reduce(baseFee, Integer::sum));
+System.out.println("fixed:      " + (usage.parallelStream().reduce(0, Integer::sum) + baseFee));
 ```
-
-**Q2: How does `Collectors.groupingBy()` work, and what are downstream collectors?**
 
 ```text
-A2: Collectors.groupingBy(classifier) groups stream elements into a Map<K, List<V>> where K is the key
-computed by the classifier function and V is the element type.
-
-The basic form: groupingBy(Function<T,K>) produces Map<K, List<T>>
-
-The two-argument form: groupingBy(Function<T,K>, Collector<T,A,D>) applies a downstream collector to
-the values in each group, producing Map<K, D> instead of Map<K, List<T>>.
-
-Downstream collectors enable powerful aggregation:
-- Collectors.counting() — count elements per group
-- Collectors.toSet() — collect to Set per group
-- Collectors.averagingInt() — average per group
-- Collectors.summingInt() — sum per group
-- Collectors.mapping() — transform then collect per group
-- Collectors.joining() — join strings per group
-- Another groupingBy — nested grouping (multi-level)
+sequential: 500750
+parallel:   532500
+fixed:      500750
 ```
+
+A parallel stream splits the list into chunks, reduces each from the identity into a partial
+result of its own, and combines the partial results with the same operation. Here there were 128 chunks, so the fee was added 128
+times. The identity is not "the starting value":
+it is a value every chunk may start from, any number of times. For `+` that is 0, for `*` it is 1,
+for `Integer::max` it is `Integer.MIN_VALUE`. The fee is added once, outside.
+
+The second condition rules out subtraction. A running balance is the obvious way to write one:
 
 ```java
-record Employee(String name, String dept, int salary) {}
-
-List<Employee> employees = List.of(
-    new Employee("Alice", "Engineering", 90000),
-    new Employee("Bob",   "Engineering", 85000),
-    new Employee("Carol", "Marketing",   70000),
-    new Employee("Dave",  "Marketing",   72000),
-    new Employee("Eve",   "Engineering", 95000)
-);
-
-// Basic grouping: Map<String, List<Employee>>
-Map<String, List<Employee>> byDept = employees.stream()
-    .collect(Collectors.groupingBy(Employee::dept));
-
-// Count per department: Map<String, Long>
-Map<String, Long> countByDept = employees.stream()
-    .collect(Collectors.groupingBy(Employee::dept, Collectors.counting()));
-// {Engineering=3, Marketing=2}
-
-// Average salary per department: Map<String, Double>
-Map<String, Double> avgSalary = employees.stream()
-    .collect(Collectors.groupingBy(Employee::dept, Collectors.averagingInt(Employee::salary)));
-
-// Names per department: Map<String, List<String>>
-Map<String, List<String>> namesByDept = employees.stream()
-    .collect(Collectors.groupingBy(
-        Employee::dept,
-        Collectors.mapping(Employee::name, Collectors.toList())
-    ));
-// {Engineering=[Alice, Bob, Eve], Marketing=[Carol, Dave]}
-
-// Names joined per department: Map<String, String>
-Map<String, String> joinedNames = employees.stream()
-    .collect(Collectors.groupingBy(
-        Employee::dept,
-        Collectors.mapping(Employee::name, Collectors.joining(", "))
-    ));
-// {Engineering="Alice, Bob, Eve", Marketing="Carol, Dave"}
+List<Integer> debits = IntStream.rangeClosed(1, 1000).boxed().toList();  // 500,500 cents
+int opening = 1_000_000;
+System.out.println("sequential: " + debits.stream().reduce(opening, (balance, d) -> balance - d));
+System.out.println("parallel:   " + debits.parallelStream().reduce(opening, (balance, d) -> balance - d));
+System.out.println("fixed:      " + (opening - debits.parallelStream().reduce(0, Integer::sum)));
 ```
-
-**Q3: How does `Collectors.toMap()` work and what happens with duplicate keys?**
 
 ```text
-A3: Collectors.toMap(keyMapper, valueMapper) collects stream elements into a Map where the key and value
-for each entry are computed by the respective mapper functions.
-
-Duplicate key handling:
-- The basic two-argument form THROWS IllegalStateException if two elements produce the same key.
-- The three-argument form: toMap(keyMapper, valueMapper, mergeFunction) uses the mergeFunction to
-  resolve conflicts: (existingValue, newValue) -> resolvedValue.
-- The four-argument form: toMap(keyMapper, valueMapper, mergeFunction, mapFactory) allows specifying
-  the Map implementation (e.g., LinkedHashMap to preserve insertion order, TreeMap for sorted keys).
-
-Important: toMap() does not allow null values (unlike groupingBy). Use special handling for nulls.
+sequential: 499500
+parallel:   0
+fixed:      499500
 ```
+
+`(a - b) - c` is not `a - (b - c)`. In parallel each chunk started from the opening balance, and
+the chunks' balances were then subtracted from each other. Sum the debits, then subtract once.
+
+Neither bug shows on a sequential stream. Both appear when someone adds `.parallel()`, or a
+library hands you a parallel stream, months after the code was reviewed.
+
+### The Three-Argument Form's Combiner Runs Only on a Parallel Stream
+
+`reduce(identity, accumulator, combiner)` lets the result type differ from the element type: here
+the elements are words and the result is the longest length. The accumulator folds one word into a
+partial result; the combiner merges two partial results. This combiner was copied from a sum:
 
 ```java
-List<String> words = List.of("apple", "banana", "cherry", "avocado", "blueberry");
-
-// Basic: word -> length (no duplicates in this example)
-Map<String, Integer> wordLengths = words.stream()
-    .collect(Collectors.toMap(w -> w, String::length));
-// {apple=5, banana=6, cherry=6, avocado=7, blueberry=9}
-
-// ERROR: duplicate keys (cherry and banana both have length 6)
-// Map<Integer, String> byLength = words.stream()
-//     .collect(Collectors.toMap(String::length, w -> w)); // IllegalStateException!
-
-// Fix: merge function — keep the first value
-Map<Integer, String> byLengthFirst = words.stream()
-    .collect(Collectors.toMap(
-        String::length,
-        w -> w,
-        (existing, newVal) -> existing // keep first
-    ));
-
-// Fix: merge function — concatenate duplicates
-Map<Integer, String> byLengthConcat = words.stream()
-    .collect(Collectors.toMap(
-        String::length,
-        w -> w,
-        (a, b) -> a + ", " + b
-    ));
-// {5=apple, 6=banana, cherry, 7=avocado, 9=blueberry}
-
-// LinkedHashMap to preserve insertion order
-Map<String, Integer> ordered = words.stream()
-    .collect(Collectors.toMap(w -> w, String::length, (a, b) -> a, LinkedHashMap::new));
+List<String> words = new ArrayList<>();
+for (int i = 0; i < 1000; i++) words.add("w".repeat(1 + i % 12));   // lengths 1 to 12
+AtomicInteger calls = new AtomicInteger();
+for (Stream<String> s : List.of(words.stream(), words.parallelStream())) {
+    calls.set(0);
+    int longest = s.reduce(0,
+            (max, w) -> Math.max(max, w.length()),
+            (a, b) -> { calls.incrementAndGet(); return a + b; });   // copied from a sum
+    System.out.println((s.isParallel() ? "parallel:   " : "sequential: ")
+            + longest + ", combiner calls: " + calls.get());
+}
 ```
-
-**Q4: When should you use `findFirst()` vs `findAny()`?**
 
 ```text
-A4: Both findFirst() and findAny() return Optional<T> from the stream, but differ in their guarantees:
-
-findFirst():
-- Returns the first element in encounter order.
-- Deterministic: always returns the same element for the same input.
-- In parallel streams, it still respects encounter order, but may be slower because threads must
-  coordinate to determine which element is "first".
-- Use when the result must be the first element (e.g., results are ordered by priority).
-
-findAny():
-- Returns any element — no guarantee which one.
-- In sequential streams, typically returns the first element (as an optimization), but this is not guaranteed.
-- In parallel streams, may return any element that a thread finishes processing first — faster than
-  findFirst() because no inter-thread coordination is needed.
-- Use when you just need any matching element and order doesn't matter (e.g., existence check).
-
-In practice: prefer findFirst() for deterministic results; use findAny() in parallel streams for performance.
+sequential: 12, combiner calls: 0
+parallel:   1413, combiner calls: 127
 ```
+
+The JDK's sequential path never called the combiner, so no sequential test can find a wrong one.
+The javadoc requires it to be compatible with the accumulator:
+`combiner.apply(u, accumulator.apply(identity, t))` must equal `accumulator.apply(u, t)`. Merging
+a partial result must do what folding in its elements would have done; here that is `Math::max`.
+The identity must also be an identity for the combiner.
+
+<!-- practice 1 -->
+
+## Without an Identity, reduce Returns an Optional, and So Do min, max and findFirst
+
+A dashboard shows the day's largest order. `Integer.MIN_VALUE` is a true identity for
+`Integer::max`, and in parallel it gives the right answer. The trouble is the day with no orders:
 
 ```java
-List<Integer> numbers = List.of(5, 3, 8, 1, 9, 2, 7, 4, 6);
-
-// Sequential: findFirst and findAny typically return the same result
-Optional<Integer> first = numbers.stream().filter(n -> n > 5).findFirst(); // Optional[8]
-Optional<Integer> any = numbers.stream().filter(n -> n > 5).findAny();    // Optional[8] (sequential)
-
-// Parallel: findAny is faster but nondeterministic
-Optional<Integer> parallelAny = numbers.parallelStream()
-    .filter(n -> n > 5)
-    .findAny(); // Could be 8, 9, 7, or 6 — whichever thread finishes first
-
-Optional<Integer> parallelFirst = numbers.parallelStream()
-    .filter(n -> n > 5)
-    .findFirst(); // Always 8 — first in encounter order, but slower in parallel
-
-// Existence check: prefer anyMatch() over findAny().isPresent()
-boolean hasLarge = numbers.stream().anyMatch(n -> n > 5); // true — more readable
+List<Integer> none = List.of();
+System.out.println(none.stream().reduce(Integer.MIN_VALUE, Integer::max));
+System.out.println(none.stream().reduce(Integer::max));
 ```
-
-**Q5: What does `Collectors.joining()` do and what are its variants?**
 
 ```text
-A5: Collectors.joining() concatenates stream elements (which must be CharSequence, typically String) into
-a single String. It has three forms:
-
-1. joining() — simple concatenation, no delimiter: "abc"
-2. joining(delimiter) — elements separated by delimiter: "a,b,c"
-3. joining(delimiter, prefix, suffix) — with prefix and suffix: "[a,b,c]"
-
-Internally, it uses a StringBuilder for efficient string concatenation — far better than using reduce()
-with string concatenation, which creates O(n^2) intermediate strings.
-
-joining() is the idiomatic, efficient way to concatenate stream elements into a string. It replaces
-patterns like String.join() when you also need to filter/map elements.
+-2147483648
+Optional.empty
 ```
 
-```java
-List<String> names = List.of("Alice", "Bob", "Charlie", "David");
+An empty stream returns the identity, so the dashboard reports an order of -2,147,483,648 cents,
+and nothing downstream can tell it from a real value. `reduce(op)` has no identity to fall back on:
+it returns an `Optional` that is empty for an empty stream, and the caller must decide what "no
+orders" means. `min`, `max`,
+`findFirst` and `findAny` return `Optional` for the same reason.
 
-// Simple concatenation
-String simple = names.stream().collect(Collectors.joining()); // "AliceBobCharlieDavid"
+### findAny Is Free to Return Any Match
 
-// With delimiter
-String csv = names.stream().collect(Collectors.joining(", ")); // "Alice, Bob, Charlie, David"
-
-// With delimiter, prefix, suffix
-String formatted = names.stream()
-    .collect(Collectors.joining(", ", "[", "]")); // "[Alice, Bob, Charlie, David]"
-
-// Common pattern: filter, transform, then join
-// (assumes an Employee type with isActive() and email(), not the record from Q2)
-String emailList = employees.stream()
-    .filter(Employee::isActive)
-    .map(Employee::email)
-    .collect(Collectors.joining("; ")); // "alice@example.com; bob@example.com"
-
-// Joining with prefix/suffix for SQL IN clause
-String inClause = ids.stream()
-    .map(String::valueOf)
-    .collect(Collectors.joining(", ", "(", ")")); // "(1, 2, 3, 4)"
-```
-
-**Q6: What is `Collectors.teeing()` (Java 12+)?**
+On an ordered stream, `findFirst` returns the first match in encounter order, even in parallel. `findAny`'s
+javadoc calls it "explicitly nondeterministic". Five runs each, looking for multiples of 1,000 in
+1 to 10,000 on a parallel stream:
 
 ```text
-A6: Collectors.teeing(downstream1, downstream2, merger) applies two collectors simultaneously to the same
-stream elements, then combines the two results using a BiFunction merger. It is a "tee" in the functional
-sense — like a T-pipe that splits the flow.
-
-Use cases:
-1. Computing two different aggregations in a single stream pass (avoids iterating twice).
-2. Computing both min and max in one pass.
-3. Separating summary statistics from detail data.
-4. Any scenario where you need two independent reductions from the same input.
-
-Without teeing, you would need to iterate the collection twice or collect to a list first.
+findAny:   3000 5000 9000 1000 2000 
+findFirst: 1000 1000 1000 1000 1000 
 ```
+
+Sequentially, `findAny` returned 1000, so code that relies on it passes its tests. Use `findAny`
+when any match will do, such as "any idle worker"; use `findFirst` when you need the earliest, at
+the cost of waiting for the chunks before the one that found it.
+
+<!-- practice 5 -->
+
+## reduce Combines Values; a Mutable Container Goes Through collect
+
+`reduce` assumes the accumulator returns a new value and leaves its inputs alone. An `ArrayList`
+as the identity breaks that assumption:
 
 ```java
-import java.util.stream.Collectors;
-
-record Stats(long count, double average) {}
-
-List<Integer> numbers = List.of(3, 1, 4, 1, 5, 9, 2, 6, 5, 3);
-
-// Compute count and sum in one pass, then derive average
-Stats stats = numbers.stream().collect(
-    Collectors.teeing(
-        Collectors.counting(),                             // downstream1: count
-        Collectors.summingDouble(Integer::doubleValue),   // downstream2: sum
-        (count, sum) -> new Stats(count, sum / count)    // merger
-    )
-);
-System.out.println(stats); // Stats[count=10, average=3.9]
-
-// Min and max in one pass
-record MinMax(int min, int max) {}
-MinMax minMax = numbers.stream().collect(
-    Collectors.teeing(
-        Collectors.minBy(Comparator.<Integer>naturalOrder()), // explicit type: inference fails without it
-        Collectors.maxBy(Comparator.<Integer>naturalOrder()),
-        (min, max) -> new MinMax(min.orElseThrow(), max.orElseThrow())
-    )
-);
-System.out.println(minMax); // MinMax[min=1, max=9]
+List<String> ids = List.of("o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8");
+System.out.println("sequential: " + ids.stream().reduce(new ArrayList<String>(),
+        (list, id) -> { list.add(id); return list; },
+        (a, b) -> { a.addAll(b); return a; }));
 ```
+
+The three `parallel` lines run the same `reduce` on `ids.parallelStream()`, and the last line is
+the `collect` shown further down:
+
+```text
+sequential: [o1, o2, o3, o4, o5, o6, o7, o8]
+parallel:   size 198
+parallel:   size 80
+parallel:   size 352
+collect:    [o1, o2, o3, o4, o5, o6, o7, o8]
+```
+
+The identity is one list, shared by every chunk. All the worker threads added to it
+unsynchronized, and the combiner then added it to itself. Eight ids came out as 80 to 352 entries;
+1,000 ids threw `ArrayIndexOutOfBoundsException` on every run. A `StringBuilder` as identity fails
+the same way.
+
+`collect` is the mutable form of a reduction. It takes a supplier instead of an identity and calls
+it once per chunk, so each thread fills a container of its own, and the combiner merges two
+different containers:
+
+```java
+ArrayList<String> collected = ids.parallelStream().collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+```
+
+`Collectors.toList()` is the same supplier, accumulator and combiner packaged as a `Collector`.
+Use `reduce` for immutable values such as numbers and records, `joining` for strings, and
+`collect` for anything you add to.
+
+<!-- practice 2 -->
+
+## groupingBy Gives a Map of Lists in No Promised Order; a Downstream and a Map Factory Change Both
+
+`groupingBy(classifier)` puts each element in a list under its key. A downstream collector
+changes what each group becomes; a map factory changes the map. Six orders in four regions:
+
+```java
+record Order(String region, String customer, int cents) {}
+
+List<Order> orders = orders();   // west: 3 orders from c-17 (twice) and c-33; one each elsewhere
+Map<String, List<Order>> byRegion = orders.stream().collect(Collectors.groupingBy(Order::region));
+Map<String, Long> count = orders.stream()
+        .collect(Collectors.groupingBy(Order::region, Collectors.counting()));
+Map<String, Integer> cents = orders.stream()
+        .collect(Collectors.groupingBy(Order::region, Collectors.summingInt(Order::cents)));
+Map<String, Set<String>> customers = orders.stream()
+        .collect(Collectors.groupingBy(Order::region, Collectors.mapping(Order::customer, Collectors.toSet())));
+TreeMap<String, Long> sorted = orders.stream()
+        .collect(Collectors.groupingBy(Order::region, TreeMap::new, Collectors.counting()));
+System.out.println(byRegion.getClass().getSimpleName() + " " + byRegion.keySet());
+```
+
+```text
+HashMap [east, south, north, west]
+counting():   {east=1, south=1, north=1, west=3}
+summingInt(): {east=3000, south=700, north=450, west=2150}
+mapping(..., toSet()): {east=[c-40], south=[c-09], north=[c-02], west=[c-33, c-17]}
+TreeMap::new: {east=1, north=1, south=1, west=3}
+```
+
+West has three orders from two customers: `counting()` counts orders, while
+`mapping(Order::customer, toSet())` keeps the distinct customers. The default map was a `HashMap`,
+with the regions in hash order, and the javadoc gives "no guarantees on the type, mutability,
+serializability, or thread-safety" of that map. The three-argument form takes a supplier of the
+map: `TreeMap::new` for sorted keys, `LinkedHashMap::new` for the
+order in which keys were first seen.
+
+### teeing Feeds Two Collectors in One Pass, and joining Writes Its Prefix Even for Nothing
+
+`Collectors.teeing` (Java 12) sends every element to two collectors and merges their results.
+`joining(delimiter, prefix, suffix)` concatenates strings:
+
+```java
+String line = orders.stream().collect(Collectors.teeing(
+        Collectors.summingInt(Order::cents),
+        Collectors.counting(),
+        (total, n) -> total + " cents in " + n + " orders"));
+```
+
+The output's last two lines are `joining(", ", "[", "]")` over the distinct customers and over an
+empty stream:
+
+```text
+6300 cents in 6 orders
+[c-17, c-02, c-40, c-09, c-33]
+[]
+```
+
+The empty stream still yields `[]`, so an `isEmpty()` check on the joined string never fires.
+
+## partitioningBy Always Has Both Keys; groupingBy Has Only the Keys It Saw
+
+A nightly report splits the orders of 1,000 cents or more from the rest. On a day when every order
+is small, the two collectors disagree:
+
+```java
+List<Order> small = orders().stream().filter(o -> o.cents() < 1000).toList();
+Map<Boolean, List<Order>> p = small.stream().collect(Collectors.partitioningBy(o -> o.cents() >= 1000));
+Map<Boolean, List<Order>> g = small.stream().collect(Collectors.groupingBy(o -> o.cents() >= 1000));
+```
+
+```text
+partitioningBy: [false, true], get(true) = []
+groupingBy:     [false], get(true) = null
+```
+
+`groupingBy` creates a key the first time an element maps to it, so a group with no members does
+not exist, and `g.get(true).size()` throws `NullPointerException` on a day with no large orders.
+`partitioningBy`'s javadoc promises that the map "always contains mappings for both false and true
+keys", with empty lists where nothing matched. For a yes/no split, use `partitioningBy`; read a
+`groupingBy` map with `getOrDefault`.
+
+<!-- practice 3 -->
+
+## toList(), Collectors.toList() and toUnmodifiableList() Return Three Different Lists
+
+Each line collects `"a", null, "c"`, then calls `add("d")` on the result:
+
+```java
+show("toList()", () -> Stream.of("a", null, "c").toList());
+show("Collectors.toList()", () -> Stream.of("a", null, "c").collect(Collectors.toList()));
+show("toUnmodifiableList()", () -> Stream.of("a", null, "c").collect(Collectors.toUnmodifiableList()));
+```
+
+```text
+toList()              java.util.ImmutableCollections$ListN, add(): UnsupportedOperationException
+Collectors.toList()   java.util.ArrayList, add() worked: [a, null, c, d]
+toUnmodifiableList()  NullPointerException
+```
+
+`Collectors.toList()` returned an
+`ArrayList`, but its javadoc gives "no guarantees on the type, mutability, serializability, or
+thread-safety", so a caller that adds to it relies on an implementation detail.
+`Collectors.toUnmodifiableList()` (Java 10) rejects nulls with `NullPointerException`.
+
+The costly swap is the refactor from `collect(Collectors.toList())` to `toList()`: it compiles, and
+the first caller that sorts or appends to the result throws `UnsupportedOperationException` at run
+time. Choose by what the caller does: `toList()` (Java 16) for a result nobody changes,
+`Collectors.toCollection(ArrayList::new)` for one the caller will change, and
+`toUnmodifiableList()` when a null would be a bug you want reported at once.
+
+`toArray()` returns an `Object[]`, and casting it to
+`String[]` throws `ClassCastException`; `toArray(String[]::new)` passes the array's constructor
+and returns a real `String[]`.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **`reduce` needs a true identity and an associative operation.** A fee used as identity, or a
+  running subtraction, is wrong only in parallel, where the three-argument form's combiner also
+  first runs.
+- **Without an identity, `reduce` returns an `Optional`,** as do `min`, `max`, `findFirst` and
+  `findAny`, so "no data" can't pass for a value; `findAny` may return any match.
+- **`reduce` is for values, `collect` for containers.** A mutable identity is one object shared by
+  every chunk; `collect`'s supplier gives each chunk its own.
+- **`groupingBy` returns a map of lists with no promised type or order.** A downstream collector
+  changes the values, a map factory the map.
+- **`partitioningBy` always has both keys;** `groupingBy` only has the keys it saw.
+- **The three list collectors differ in mutability and nulls.** `toList()` is unmodifiable and
+  keeps nulls, `Collectors.toList()` promises neither, `toUnmodifiableList()` rejects nulls.
+
+## Reference
+
+**The three `reduce` forms, and `collect`, with their contracts (from the `Stream` javadoc):**
+
+| Form | Returns | The functions must satisfy |
+|---|---|---|
+| `reduce(identity, op)` | `T`; `identity` for an empty stream | `op(identity, t)` equals `t`; `op` associative |
+| `reduce(op)` | `Optional<T>`; empty for an empty stream | `op` associative |
+| `reduce(identity, accumulator, combiner)` | `U` | `combiner(identity, u)` equals `u`; `combiner(u, accumulator(identity, t))` equals `accumulator(u, t)`; both associative |
+| `collect(supplier, accumulator, combiner)` | `R`, a container | combiner compatible with accumulator; both associative; the supplier returns a new container each call |
+
+**Other terminal operations (Java 21):**
+
+| Operation | Result | Note |
+|---|---|---|
+| `min`, `max`, `findFirst`, `findAny` | `Optional<T>` | empty for an empty stream |
+| `count()` | `long` | may skip the pipeline when the size is known (unit 4.2.1) |
+| `anyMatch` | `boolean` | `false` on an empty stream |
+| `allMatch`, `noneMatch` | `boolean` | `true` on an empty stream |
+| `toArray()` / `toArray(String[]::new)` | `Object[]` / `String[]` | |
+
+**Collectors used on this page:**
+
+| Collector | Result |
+|---|---|
+| `groupingBy(f)` | `Map<K, List<T>>`; a `HashMap` in Java 21, no promised type |
+| `groupingBy(f, downstream)` | `Map<K, D>`: `counting()` gives `Long`, `summingInt` gives `Integer`, `mapping(g, toSet())` gives `Set` |
+| `groupingBy(f, TreeMap::new, downstream)` | the map the factory makes |
+| `partitioningBy(p)` | `Map<Boolean, List<T>>` with both keys |
+| `joining(delim, prefix, suffix)` | `String`; `prefix + suffix` for an empty stream |
+| `teeing(c1, c2, merger)` | the merger's result (Java 12) |
+| `Collectors.toList()` / `Collectors.toUnmodifiableList()` | no promised type / unmodifiable, rejects nulls (Java 10) |
+
+## Challenges
+
+1. A dashboard computes the average order value with one `reduce`. Write it with the
+   three-argument form and a small record as the partial result, then check your combiner against
+   the compatibility rule. When is `teeing` or `summaryStatistics()` (unit 4.4.2) the better tool?
+2. Your team adds `.parallel()` to every stream in a batch job. Which of its `reduce` and `collect`
+   calls could change their results, and what test would find each one before production does?
+3. A method returns `collect(Collectors.toList())` and fifty callers use the result, some of them
+   adding to it. How would you move it to `toList()` safely, and what does each choice promise the
+   callers?
+
+## Design Note: Why Java Has Both reduce and collect
+
+`reduce` comes from functional programming, where values never change: combining two partial sums
+makes a third, and the identity can be shared because nobody modifies it. That is what lets the
+library split the work across threads without locks. Building a list that way would copy the list
+at every step, which is quadratic, and `collect` exists for that case: it trades shared values for
+a container per chunk and a combiner that merges two of them. The compiler can't tell the two
+apart: `reduce(new ArrayList<>(), ...)` compiles, and only a parallel run shows the shared
+identity.
 
 ## Code Examples
 

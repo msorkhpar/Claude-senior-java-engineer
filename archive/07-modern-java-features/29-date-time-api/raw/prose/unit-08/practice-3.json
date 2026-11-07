@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Bridge a Calendar without touching it",
+  "title": "Book pickups through a Calendar-based dispatch library",
   "blocks": [
     {
       "type": "heading",
@@ -19,49 +19,24 @@
     },
     {
       "type": "para",
-      "text": "An old library hands you `java.util.Calendar` objects and wants them back. A `Calendar` is mutable, and the library keeps using the ones it gave you."
+      "text": "The courier service books pickups through a dispatch library written before Java 8. It takes the requested pickup as a `GregorianCalendar`, and returns the confirmed pickup as a `Calendar` in the depot's zone. Each depot is configured with a zone ID. Last month a depot was configured with a misspelled ID and its pickups were booked hours off for two weeks before anyone noticed, and the drivers' app sometimes shows a confirmed pickup at a time that is right on no clock at the depot."
     },
     {
       "type": "para",
-      "text": "Write two methods on `LegacyCalendars`:"
+      "text": "`DispatchAdapter.book(...)` already calls the library. Finish the three `TODO` methods in `src/main/java/practice/DispatchAdapter.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`toZoned(Calendar calendar)`: the same moment as a `ZonedDateTime` in the calendar's **own time zone**. Most calendars are `GregorianCalendar`s, but **any** `Calendar` must convert, such as the Japanese imperial calendar.",
-        "`plusOneDay(Calendar calendar)`: a new `Calendar`, one calendar day later at the **same wall-clock time** in the same zone. The caller's calendar is **never changed**."
+        "`depotZone(configuredId)`: the depot's zone for the library, refusing an ID that names no zone;",
+        "`toLibrary(pickup)`: the calendar to hand the library;",
+        "`fromLibrary(returned)`: the confirmed pickup, as the moment the calendar holds in its own zone."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calendar (zone, moment)",
-        "toZoned",
-        "plusOneDay"
-      ],
-      "rows": [
-        [
-          "UTC, `2024-03-15T10:00:00Z`",
-          "`2024-03-15T10:00` at that moment",
-          "`2024-03-16T10:00:00Z`"
-        ],
-        [
-          "`America/New_York`, `2024-03-15T14:00:00Z`",
-          "`2024-03-15T10:00-04:00[America/New_York]`",
-          ""
-        ],
-        [
-          "Japanese, `Asia/Tokyo`, `2024-03-15T10:00:00Z`",
-          "`2024-03-15T19:00+09:00[Asia/Tokyo]`",
-          ""
-        ],
-        [
-          "`America/New_York`, `2024-03-09T17:00:00Z` (noon)",
-          "",
-          "`2024-03-10T16:00:00Z` (noon again)"
-        ]
-      ]
+      "type": "para",
+      "text": "The servers' default zone must make no difference; the tests use depots in several zones and never change it. About three lines in total."
     },
     {
       "type": "heading",
@@ -76,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.time.ZonedDateTime;\nimport java.util.Calendar;\nimport java.util.GregorianCalendar;\n\npublic final class LegacyCalendars {\n\n    private LegacyCalendars() {\n    }\n\n    /** The same moment as a ZonedDateTime in the calendar's own time zone. */\n    public static ZonedDateTime toZoned(Calendar calendar) {\n        if (calendar instanceof GregorianCalendar gregorian) {\n            return gregorian.toZonedDateTime();\n        }\n        // Any other Calendar: its instant, read in its own time zone.\n        return calendar.toInstant().atZone(calendar.getTimeZone().toZoneId());\n    }\n\n    /** A new Calendar one calendar day later at the same wall-clock time; the argument is not changed. */\n    public static Calendar plusOneDay(Calendar calendar) {\n        return GregorianCalendar.from(toZoned(calendar).plusDays(1));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.ZoneId;\nimport java.time.ZonedDateTime;\nimport java.util.Calendar;\nimport java.util.GregorianCalendar;\nimport java.util.TimeZone;\n\n/**\n * Books courier pickups through a dispatch library written before Java 8. The library takes a\n * GregorianCalendar for the requested pickup and returns the confirmed pickup as a Calendar, in\n * the depot's zone. Depots are configured by zone ID.\n */\npublic class DispatchAdapter {\n\n    /** The dispatch library. */\n    public interface Dispatcher {\n        Calendar confirm(GregorianCalendar requested, TimeZone depot);\n    }\n\n    private final Dispatcher dispatcher;\n\n    public DispatchAdapter(Dispatcher dispatcher) {\n        this.dispatcher = dispatcher;\n    }\n\n    /** Books a pickup at a depot and returns the pickup the library confirmed. */\n    public ZonedDateTime book(String depotZoneId, ZonedDateTime pickup) {\n        TimeZone depot = depotZone(depotZoneId);\n        return fromLibrary(dispatcher.confirm(toLibrary(pickup), depot));\n    }\n\n    /** The library's zone for a depot configured with {@code configuredId}. */\n    TimeZone depotZone(String configuredId) {\n        return TimeZone.getTimeZone(ZoneId.of(configuredId));\n    }\n\n    /** The calendar to hand the library for {@code pickup}. */\n    GregorianCalendar toLibrary(ZonedDateTime pickup) {\n        return GregorianCalendar.from(pickup);\n    }\n\n    /** A calendar the library returned, as the moment and zone it holds. */\n    ZonedDateTime fromLibrary(Calendar returned) {\n        return returned.toInstant().atZone(returned.getTimeZone().toZoneId());\n    }\n}\n"
         }
       ]
     },
@@ -88,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.ZonedDateTime;\nimport java.util.Calendar;\n\npublic final class LegacyCalendars {\n\n    private LegacyCalendars() {\n    }\n\n    /** The same moment as a ZonedDateTime in the calendar's own time zone. */\n    public static ZonedDateTime toZoned(Calendar calendar) {\n        throw new UnsupportedOperationException(\"write toZoned\");\n    }\n\n    /** A new Calendar one calendar day later at the same wall-clock time; the argument is not changed. */\n    public static Calendar plusOneDay(Calendar calendar) {\n        throw new UnsupportedOperationException(\"write plusOneDay\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.ZoneId;\nimport java.time.ZonedDateTime;\nimport java.util.Calendar;\nimport java.util.GregorianCalendar;\nimport java.util.TimeZone;\n\n/**\n * Books courier pickups through a dispatch library written before Java 8. The library takes a\n * GregorianCalendar for the requested pickup and returns the confirmed pickup as a Calendar, in\n * the depot's zone. Depots are configured by zone ID.\n */\npublic class DispatchAdapter {\n\n    /** The dispatch library. */\n    public interface Dispatcher {\n        Calendar confirm(GregorianCalendar requested, TimeZone depot);\n    }\n\n    private final Dispatcher dispatcher;\n\n    public DispatchAdapter(Dispatcher dispatcher) {\n        this.dispatcher = dispatcher;\n    }\n\n    /** Books a pickup at a depot and returns the pickup the library confirmed. */\n    public ZonedDateTime book(String depotZoneId, ZonedDateTime pickup) {\n        TimeZone depot = depotZone(depotZoneId);\n        return fromLibrary(dispatcher.confirm(toLibrary(pickup), depot));\n    }\n\n    /** The library's zone for a depot configured with {@code configuredId}. */\n    TimeZone depotZone(String configuredId) {\n        // TODO: Return the zone of the depot. A depot whose configured ID names no zone\n        //       must not be booked.\n        throw new IllegalStateException(\"TODO: depotZone\");\n    }\n\n    /** The calendar to hand the library for {@code pickup}. */\n    GregorianCalendar toLibrary(ZonedDateTime pickup) {\n        // TODO: Return a calendar for the pickup that the library reads on the depot's clock.\n        throw new IllegalStateException(\"TODO: toLibrary\");\n    }\n\n    /** A calendar the library returned, as the moment and zone it holds. */\n    ZonedDateTime fromLibrary(Calendar returned) {\n        // TODO: Return the moment the library's calendar holds, in the calendar's own zone.\n        //       The library may return any kind of Calendar.\n        throw new IllegalStateException(\"TODO: fromLibrary\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -96,9 +71,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -107,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ee362bfc6a179543515b98bdb99b338a69edeebf9845d24c518e5817ec983722",
-  "starting_code": "package practice;\n\nimport java.time.ZonedDateTime;\nimport java.util.Calendar;\n\npublic final class LegacyCalendars {\n\n    private LegacyCalendars() {\n    }\n\n    /** The same moment as a ZonedDateTime in the calendar's own time zone. */\n    public static ZonedDateTime toZoned(Calendar calendar) {\n        throw new UnsupportedOperationException(\"write toZoned\");\n    }\n\n    /** A new Calendar one calendar day later at the same wall-clock time; the argument is not changed. */\n    public static Calendar plusOneDay(Calendar calendar) {\n        throw new UnsupportedOperationException(\"write plusOneDay\");\n    }\n}\n",
+  "content_sha256": "eba18e1906a93024b51aa8d0eb0aae0796a348df76684f0f36a39e64e62a3ece",
+  "starting_code": "package practice;\n\nimport java.time.ZoneId;\nimport java.time.ZonedDateTime;\nimport java.util.Calendar;\nimport java.util.GregorianCalendar;\nimport java.util.TimeZone;\n\n/**\n * Books courier pickups through a dispatch library written before Java 8. The library takes a\n * GregorianCalendar for the requested pickup and returns the confirmed pickup as a Calendar, in\n * the depot's zone. Depots are configured by zone ID.\n */\npublic class DispatchAdapter {\n\n    /** The dispatch library. */\n    public interface Dispatcher {\n        Calendar confirm(GregorianCalendar requested, TimeZone depot);\n    }\n\n    private final Dispatcher dispatcher;\n\n    public DispatchAdapter(Dispatcher dispatcher) {\n        this.dispatcher = dispatcher;\n    }\n\n    /** Books a pickup at a depot and returns the pickup the library confirmed. */\n    public ZonedDateTime book(String depotZoneId, ZonedDateTime pickup) {\n        TimeZone depot = depotZone(depotZoneId);\n        return fromLibrary(dispatcher.confirm(toLibrary(pickup), depot));\n    }\n\n    /** The library's zone for a depot configured with {@code configuredId}. */\n    TimeZone depotZone(String configuredId) {\n        // TODO: Return the zone of the depot. A depot whose configured ID names no zone\n        //       must not be booked.\n        throw new IllegalStateException(\"TODO: depotZone\");\n    }\n\n    /** The calendar to hand the library for {@code pickup}. */\n    GregorianCalendar toLibrary(ZonedDateTime pickup) {\n        // TODO: Return a calendar for the pickup that the library reads on the depot's clock.\n        throw new IllegalStateException(\"TODO: toLibrary\");\n    }\n\n    /** A calendar the library returned, as the moment and zone it holds. */\n    ZonedDateTime fromLibrary(Calendar returned) {\n        // TODO: Return the moment the library's calendar holds, in the calendar's own zone.\n        //       The library may return any kind of Calendar.\n        throw new IllegalStateException(\"TODO: fromLibrary\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-08/practice-3/src/main/java/practice/LegacyCalendars.java",
-    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-08/practice-3/src/test/java/practice/LegacyCalendarsTest.java",
+    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-08/practice-3/src/main/java/practice/DispatchAdapter.java",
+    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-08/practice-3/src/test/java/practice/DispatchAdapterTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -132,29 +107,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LegacyCalendarsTest#convertsAUtcCalendar",
+        "id": "practice.DispatchAdapterTest#aBookedPickupKeepsItsMoment",
         "kind": "main",
-        "says": "A UTC GregorianCalendar converts to the same moment and local time, and a day later is 24 hours on."
+        "says": "a pickup booked through the library comes back as the same moment"
       },
       {
-        "id": "practice.LegacyCalendarsTest#keepsTheCalendarsZone",
-        "kind": "edge",
-        "says": "A New York calendar converts to a ZonedDateTime in America/New_York at its local time."
+        "id": "practice.DispatchAdapterTest#aConfiguredDepotGetsItsZone",
+        "kind": "main",
+        "says": "a depot configured with a valid zone ID gets that zone"
       },
       {
-        "id": "practice.LegacyCalendarsTest#aNonGregorianCalendarConverts",
+        "id": "practice.DispatchAdapterTest#aMisspelledDepotIsRefused",
         "kind": "edge",
-        "says": "A Japanese imperial calendar converts through its instant and its time zone."
+        "says": "a depot configured with a misspelled zone ID is refused with a DateTimeException"
       },
       {
-        "id": "practice.LegacyCalendarsTest#theCallersCalendarIsUntouched",
+        "id": "practice.DispatchAdapterTest#theLibraryGetsThePickupOnTheDepotClock",
         "kind": "edge",
-        "says": "After plusOneDay the caller's Calendar still holds its original time, and a different object is returned."
+        "says": "the calendar handed to the library has the pickup's zone and hour, for depots in two zones"
       },
       {
-        "id": "practice.LegacyCalendarsTest#aDayLaterKeepsTheWallClock",
+        "id": "practice.DispatchAdapterTest#aReturnedCalendarIsReadOnItsOwnClock",
         "kind": "edge",
-        "says": "Noon in New York the day before the clocks spring forward becomes noon the next day, 23 hours later."
+        "says": "a calendar the library returns is read in that calendar's zone, for depots in two zones"
+      },
+      {
+        "id": "practice.DispatchAdapterTest#aJapaneseCalendarFromTheLibraryConverts",
+        "kind": "edge",
+        "says": "a calendar that is not a GregorianCalendar converts too"
       }
     ],
     "report": {
@@ -163,12 +143,12 @@
     },
     "origin": {
       "path": "29-date-time-api/README_7.3.3.md",
-      "section": "Interview Q&A Section"
+      "section": "A Calendar Converts With Its Own Zone, Not the JVM's"
     },
     "concepts": [
-      "GregorianCalendar.toZonedDateTime() and GregorianCalendar.from(ZonedDateTime) bridge Calendar and ZonedDateTime, keeping the calendar's zone.",
-      "A Calendar that is not a GregorianCalendar converts through toInstant() and getTimeZone().toZoneId().",
-      "TimeZone.toZoneId() and TimeZone.getTimeZone(ZoneId) convert between the legacy and the modern zone types."
+      "GregorianCalendar.from and toZonedDateTime keep the calendar's zone; toInstant drops it, so the zone attached next must be the calendar's own, not the JVM's default.",
+      "Only GregorianCalendar has toZonedDateTime; any other Calendar converts with toInstant and getTimeZone().toZoneId().",
+      "TimeZone.getTimeZone(String) turns an unknown ID into GMT, while TimeZone.getTimeZone(ZoneId.of(id)) rejects it."
     ]
   }
 }

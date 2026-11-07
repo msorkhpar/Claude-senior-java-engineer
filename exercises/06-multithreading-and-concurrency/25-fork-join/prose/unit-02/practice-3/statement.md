@@ -1,26 +1,12 @@
-The page's `submit(task)` gives back a `ForkJoinTask`, which is a `Future`, so
-you can wait for it **with a bound**: `get(timeout, unit)`. The module's own
-`ForkJoinPoolBasics.sumWithTimeout` does exactly this. `get` reports a task's
-failure wrapped in an `ExecutionException`, and on a timeout it throws
-`TimeoutException`. The page's edge cases also ask you to handle thread
-**interruption** properly.
+The video service renders previews with a library that has a floating licence of a few seats.
+Every render task takes a seat before it calls the library, and the task that finishes a render
+gives the seat back. Both kinds of task run on the same render `ForkJoinPool`. On a quiet day it
+works. On a busy day the pool freezes: every seat is taken, more renders are waiting for one, and
+the finishing tasks that would give seats back are queued behind them, never started.
 
-Write `Deadline.within(task, parallelism, timeoutMillis)`:
+`LicenceSeats` keeps the seats in a `Semaphore`. Finish the `TODO` in
+`src/main/java/practice/LicenceSeats.java`: `take()` takes one seat, waiting if none is free.
 
-- run `task` in a **new** pool of the given parallelism and wait at most
-  `timeoutMillis` for it;
-- in time: return `Optional.of(result)`;
-- too late: cancel the task and return `Optional.empty()`;
-- the task failed: throw `IllegalStateException` whose cause is the task's
-  exception;
-- the caller is interrupted while it waits: return `Optional.empty()` with the
-  caller's interrupt flag set again;
-- always finish with `shutdownNow()`, which also **interrupts** a worker that is
-  still running a task (a cancelled `ForkJoinTask` is not interrupted by
-  `cancel(true)`).
-
-| task | timeout | answer |
-|---|---|---|
-| returns `42` | 5000 ms | `Optional[42]` |
-| waits on a latch that is never opened | 200 ms | `Optional.empty`, and the waiting task gets an `InterruptedException` |
-| throws `IllegalArgumentException("bad input")` | 5000 ms | `IllegalStateException`, whose root cause says `"bad input"` |
+When you're done, a render task waiting for a seat no longer stops the rest of the pool's work,
+and a task that takes a seat really holds one, so the count of free seats stays right. About
+twelve lines in total.

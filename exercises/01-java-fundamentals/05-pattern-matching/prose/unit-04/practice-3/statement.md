@@ -1,9 +1,17 @@
-In a pattern switch, `default` never matches `null`: without a `case null`, a `null` selector
-throws `NullPointerException`, default or not. `case null, default ->` handles both in one
-arm.
+Each service reads its settings from a configuration file, and a parser turns the file into a map
+from key to value. `Settings` keeps what the admin page shows:
 
-Write `text(Object obj)` in `Normalizer` as one switch expression:
+| Parsed value | Shown as |
+|---|---|
+| a `String` | the string itself |
+| an `Integer` | its digits |
+| a `Boolean` | `yes` or `no` |
+| a `List` | its elements, separated by `, ` |
 
-- a `String` is trimmed: `text("  hi ")` is `"hi"`;
-- an `Integer` becomes its digits: `text(42)` is `"42"`;
-- anything else gives `""`, and so does `null`: `text(3.5)` and `text(null)` are both `""`.
+Operators often leave a key in the file with no value, such as `retries:`, to say "use the
+built-in default", and the parser gives that key the value `null`. Such keys belong in `unset()`,
+not in `values()`. Any other type means the file is wrong, and the load must stop with an
+`IllegalArgumentException` that names the key: last quarter a `ratio: 0.75` went unnoticed for a
+week because the service treated it as missing.
+
+Write `put(...)` in `src/main/java/practice/Settings.java`. About seven lines in total.

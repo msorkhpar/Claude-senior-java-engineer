@@ -1,507 +1,310 @@
 # 10.3.3. Dynamic Object Creation and Method Invocation
 
-## Concept Explanation
+At 14:00 a config change sets `exporter=com.example.export.CvsExporter`. The service restarts,
+the health checks pass, and the deploy is marked green. At 02:00 the nightly export dies with
+`ClassNotFoundException: com.example.export.CvsExporter`. Somebody swapped two letters, and
+nothing failed for twelve hours.
 
-Dynamic object creation and method invocation take reflection beyond mere inspection into active use. Instead of calling constructors and methods at compile time with known types, you can create objects and invoke methods entirely at runtime, driven by configuration, user input, or discovery. This is the foundation of plugin architectures, dependency injection containers, ORM frameworks, serialization libraries, and remote method invocation systems.
+Creating an object or calling a method from a name moves checks the compiler would have made to
+run time. A factory built on this is unit 9.1.2, `ServiceLoader` is unit 8.1.5, and `Proxy` is
+unit 9.2.3.
 
-**Real-world analogy**: Imagine a universal remote control that can operate any electronic device -- you do not need to know the brand or model at the time the remote is manufactured. You simply point it at a device, discover its capabilities at runtime (what buttons it responds to), and press the appropriate ones. Dynamic reflection works the same way: your code does not need compile-time knowledge of the class it will create or the method it will call.
+## A Class Named in Configuration Fails at First Use, Unless Startup Resolves It
 
-The key mechanisms are:
-
-1. **Dynamic instantiation**: `Constructor.newInstance(args...)` or `Class.forName("...").getDeclaredConstructor().newInstance()`
-2. **Dynamic method invocation**: `Method.invoke(target, args...)`
-3. **Dynamic array creation**: `java.lang.reflect.Array.newInstance(componentType, length)`
-4. **Dynamic proxies**: `java.lang.reflect.Proxy.newProxyInstance(loader, interfaces, handler)` creates an implementation of one or more interfaces at runtime
-
-## Key Points to Remember
-
-- `Class.forName()` combined with `Constructor.newInstance()` is the standard pattern for creating objects from configuration strings.
-- `Method.invoke()` auto-boxes primitives and unwraps return values. Exceptions thrown by the target method are wrapped in `InvocationTargetException`.
-- The `java.lang.reflect.Array` class provides static methods for creating and manipulating arrays reflectively.
-- `java.lang.reflect.Proxy` creates dynamic proxy instances that implement specified interfaces and delegate all method calls to an `InvocationHandler`.
-- Dynamic proxies only work with **interfaces**, not concrete classes. For class-based proxies, use CGLIB or Byte Buddy.
-- The `InvocationHandler.invoke()` method receives the proxy instance, the `Method` object, and the arguments array. For methods with no arguments, the args array is `null`.
-- Factory patterns and service locators commonly use reflection for decoupled, configurable object creation.
-- Dependency injection containers resolve and wire dependencies at runtime using reflection.
-
-## Relevant Java 21 Features
-
-- **`MethodHandles.lookup()`**: A more performant alternative to `Method.invoke()` for dynamic invocation.
-- **Virtual threads**: Dynamic proxy handlers can leverage virtual threads for non-blocking invocation.
-- **`ServiceLoader`**: The preferred mechanism for plugin discovery in modular Java, reducing the need for raw `Class.forName()`.
-- **Record constructors**: Records have a canonical constructor; pass the types from `getRecordComponents()` (each component's `getType()`) to `getDeclaredConstructor()` to find it and invoke it reflectively.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Forgetting to handle `InvocationTargetException` in `Method.invoke()`**
-
-   ```java
-   // WRONG: Losing the actual exception
-   try {
-       method.invoke(target, args);
-   } catch (Exception e) {
-       throw e; // This throws InvocationTargetException, not the real exception
-   }
-
-   // CORRECT: Unwrap the cause
-   try {
-       method.invoke(target, args);
-   } catch (InvocationTargetException e) {
-       throw new RuntimeException(e.getCause());
-   }
-   ```
-
-2. **Passing `null` for zero-argument varargs in dynamic proxy handlers**
-
-   ```java
-   // In InvocationHandler.invoke(), args is null (not empty array) for zero-arg methods
-   @Override
-   public Object invoke(Object proxy, Method method, Object[] args) {
-       // WRONG: args.length will throw NPE for zero-arg methods
-       // CORRECT:
-       int argCount = (args != null) ? args.length : 0;
-   }
-   ```
-
-3. **Using `Proxy.newProxyInstance()` with a concrete class**
-
-   ```java
-   // WRONG: IllegalArgumentException - concrete class is not an interface
-   Proxy.newProxyInstance(loader, new Class<?>[]{ArrayList.class}, handler);
-
-   // CORRECT: Use interfaces only
-   Proxy.newProxyInstance(loader, new Class<?>[]{List.class}, handler);
-   ```
-
-4. **Type mismatch when setting array elements reflectively**
-
-   ```java
-   Object arr = Array.newInstance(int.class, 5);
-   // WRONG: passing a String to an int array
-   // Array.set(arr, 0, "hello"); // throws IllegalArgumentException
-
-   // CORRECT:
-   Array.set(arr, 0, 42);
-   ```
-
-5. **Not checking for the correct constructor parameter types**
-
-   ```java
-   // WRONG: NoSuchMethodException if constructor takes (String) not (Object)
-   clazz.getDeclaredConstructor(Object.class);
-
-   // CORRECT: Match the exact declared types
-   clazz.getDeclaredConstructor(String.class);
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use factory patterns** to encapsulate reflective creation and provide type safety to callers.
-2. **Register class mappings** (key -> Class) upfront instead of calling `Class.forName()` repeatedly.
-3. **Cache `Constructor` and `Method` objects** -- the lookup is expensive, the invocation is not.
-4. **Consider `ServiceLoader`** instead of raw `Class.forName()` for plugin architectures.
-5. **Use dynamic proxies judiciously** -- they add a method call overhead per invocation. For hot paths, consider compile-time code generation.
-6. **Log proxy method calls** only when debugging; remove or disable in production for performance.
-7. **Validate configuration** early (e.g., at startup) rather than failing at runtime when `Class.forName()` fails.
-8. **Prefer `MethodHandle`** over `Method.invoke()` for performance-critical dynamic invocation.
-
-## Edge Cases and Their Handling
-
-1. **Abstract classes and interfaces**: Cannot be instantiated directly. For an abstract class, `Constructor.newInstance()` throws `InstantiationException`; an interface has no constructors at all, so `getDeclaredConstructor()` throws `NoSuchMethodException`.
-2. **Enum classes**: Constructors are private and reflective instantiation is explicitly blocked by the JVM; `Constructor.newInstance()` throws `IllegalArgumentException`.
-3. **Zero-length arrays**: `Array.newInstance(type, 0)` is valid and creates an empty array.
-4. **Null elements in arrays**: `Array.set(arr, 0, null)` is valid for reference-type arrays but throws `IllegalArgumentException` for primitive arrays.
-5. **Proxy equality**: `proxy.equals(proxy)` delegates to the `InvocationHandler`, so you must handle `equals`, `hashCode`, and `toString` explicitly in your handler.
-6. **Circular dependencies in DI**: A simple reflective DI container can enter infinite recursion. Guard with a "currently creating" set.
-
-## Interview-specific Insights
-
-Interviewers focus on:
-
-- Your understanding of when and why to use dynamic object creation (plugin systems, frameworks).
-- The dynamic proxy pattern: how `Proxy.newProxyInstance()` works and its limitations (interfaces only).
-- How AOP (Aspect-Oriented Programming) frameworks implement cross-cutting concerns using proxies.
-- Factory pattern implementation using reflection vs hard-coded switch statements.
-- The trade-offs between flexibility (reflection) and type safety / performance (compile-time).
-
-Common tricky questions:
-
-- "How does `Proxy.newProxyInstance()` work internally?" (It generates a class at runtime that implements the given interfaces and delegates to the handler.)
-- "Can you create a proxy for a concrete class?" (Not with `java.lang.reflect.Proxy`; you need CGLIB, Byte Buddy, or similar.)
-- "What happens if the `InvocationHandler` returns an incompatible type?" (A `ClassCastException` is thrown at the call site.)
-
-## Interview Q&A Section
-
-**Q1: How do you create an object dynamically from a class name string?**
-
-```text
-A1: The standard pattern is:
-
-1. Load the class: Class<?> clazz = Class.forName("com.example.MyClass");
-2. Get the constructor: Constructor<?> ctor = clazz.getDeclaredConstructor(paramTypes);
-3. Make accessible if needed: ctor.setAccessible(true);
-4. Create the instance: Object obj = ctor.newInstance(args);
-
-This pattern is used extensively in:
-- Plugin systems that load implementations from configuration
-- JDBC driver loading (historically)
-- Serialization/deserialization frameworks
-- Dependency injection containers
-
-Error handling is critical: you must handle ClassNotFoundException,
-NoSuchMethodException, InstantiationException, IllegalAccessException,
-and InvocationTargetException.
-```
+The service keeps the class name and loads the class when the first report is exported (the
+demo exports right after startup):
 
 ```java
-public class DynamicCreationDemo {
-    interface Plugin {
-        String execute();
-    }
+public String export(String report) throws ReflectiveOperationException {
+    Exporter e = (Exporter) Class.forName(className).getDeclaredConstructor().newInstance();
+    return e.export(report);
+}
+```
 
-    static class DefaultPlugin implements Plugin {
-        public String execute() { return "Default executed"; }
-    }
+With the right name and with the typo:
 
-    public static Plugin loadPlugin(String className) throws ReflectiveOperationException {
-        Class<?> clazz = Class.forName(className);
-        Constructor<?> ctor = clazz.getDeclaredConstructor();
-        ctor.setAccessible(true);
-        return (Plugin) ctor.newInstance();
-    }
+```text
+$ java com.example.export.Main lazy com.example.export.CsvExporter
+started, exporter = com.example.export.CsvExporter
+02:00 nightly export:
+sales-2026-11.csv
+$ java com.example.export.Main lazy com.example.export.CvsExporter
+started, exporter = com.example.export.CvsExporter
+02:00 nightly export:
+Exception in thread "main" java.lang.ClassNotFoundException: com.example.export.CvsExporter
+	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:641)
+```
 
-    public static void main(String[] args) throws Exception {
-        String pluginClass = "DynamicCreationDemo$DefaultPlugin"; // from config
-        Plugin plugin = loadPlugin(pluginClass);
-        System.out.println(plugin.execute()); // "Default executed"
+The same typo in source never reaches a deploy:
+
+```text
+$ javac Typo.java
+Typo.java:4: error: cannot find symbol
+    Exporter exporter = new CvsExporter();
+                            ^
+  symbol:   class CvsExporter
+  location: class Typo
+1 error
+```
+
+A name in a string is checked only when a class loader is asked for it. If startup doesn't ask,
+the first request that needs the class does: here a batch job twelve hours after the deploy,
+when rolling back means another deploy.
+
+Resolve the name at startup and check its type:
+
+```java
+public CheckedService(String name) throws ClassNotFoundException {
+    exporterClass = Class.forName(name, false, CheckedService.class.getClassLoader())
+                         .asSubclass(Exporter.class);
+    System.out.println("started, exporter = " + exporterClass.getName());
+}
+```
+
+```text
+$ java com.example.export.Main checked com.example.export.CvsExporter
+Exception in thread "main" java.lang.ClassNotFoundException: com.example.export.CvsExporter
+	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:641)
+$ java com.example.export.Main checked com.example.export.ReportJob
+Exception in thread "main" java.lang.ClassCastException: class com.example.export.ReportJob
+	at java.base/java.lang.Class.asSubclass(Class.java:4104)
+	at com.example.export.CheckedService.<init>(CheckedService.java:9)
+```
+
+`ReportJob` exists but isn't an `Exporter`, and `asSubclass` checks that against the class
+object. The cast `(Class<? extends Exporter>) Class.forName(name, false, loader)` compiles with an unchecked warning and checks
+nothing, because generics are erased: `ReportJob` would pass startup and fail with a
+`ClassCastException` at the line that takes its first instance as an `Exporter`, before any
+`Exporter` method is called. The message of
+`asSubclass` names only the class, so wrap it with the config key that named it.
+
+## Class.forName(name) Runs the Static Initialiser; the Three-Argument Form Waits for First Use
+
+The startup check now touches every configured plug-in. Which of their code runs? Three exporters
+in the default package have a static block each. `PdfExporter` and `CsvExporter` print a line,
+and `XlsxExporter` reads a setting it requires:
+
+```java
+class XlsxExporter {
+    static final String TEMPLATE_DIR = required("XLSX_TEMPLATES");
+
+    static String required(String name) {
+        String value = System.getenv(name);
+        if (value == null) throw new IllegalStateException(name + " is not set");
+        return value;
     }
 }
 ```
 
-**Q2: What is a dynamic proxy and how does it work in Java?**
-
-```text
-A2: A dynamic proxy is an object created at runtime that implements one or more
-interfaces and delegates all method calls to an InvocationHandler.
-
-How it works:
-1. You provide an array of interfaces the proxy should implement.
-2. You provide an InvocationHandler that defines what happens when any method
-   on the proxy is called.
-3. Proxy.newProxyInstance() generates a new class at runtime that implements
-   those interfaces, where every method body calls handler.invoke().
-
-The InvocationHandler.invoke() method receives:
-- proxy: the proxy instance itself
-- method: the Method object being called
-- args: the arguments (null for zero-arg methods)
-
-Common use cases:
-- Logging / tracing (log every method call)
-- Transaction management (begin/commit around method calls)
-- Lazy loading (defer object creation until first method call)
-- Access control (check permissions before delegating)
-- Mocking frameworks (Mockito uses proxies internally)
-
-Limitation: Java's built-in Proxy only works with interfaces, not classes.
-For class-based proxies, libraries like CGLIB or Byte Buddy are used.
-```
+The program reaches each one differently, then calls `forName("XlsxExporter")` twice:
 
 ```java
-public class ProxyDemo {
-    interface UserService {
-        String findUser(int id);
-        void deleteUser(int id);
-    }
+System.out.println("PdfExporter.class:");
+Class<?> literal = PdfExporter.class;
+System.out.println("forName(name, false, loader):");
+Class<?> lazy = Class.forName("PdfExporter", false, loader);
+System.out.println("first instance:");
+lazy.getDeclaredConstructor().newInstance();
+System.out.println("forName(name):");
+Class.forName("CsvExporter");
+```
 
-    static class RealUserService implements UserService {
-        public String findUser(int id) { return "User#" + id; }
-        public void deleteUser(int id) { System.out.println("Deleted: " + id); }
-    }
+```text
+PdfExporter.class:
+forName(name, false, loader):
+first instance:
+  PdfExporter: static block runs
+forName(name):
+  CsvExporter: static block runs
+forName on a class whose static block fails:
+  java.lang.ExceptionInInitializerError
+    caused by java.lang.IllegalStateException: XLSX_TEMPLATES is not set
+  java.lang.NoClassDefFoundError: Could not initialize class XlsxExporter
+    caused by java.lang.ExceptionInInitializerError: Exception java.lang.IllegalStateException: XLSX_TEMPLATES is not set [in thread "main"]
+```
 
-    // Logging proxy that wraps any interface implementation
-    @SuppressWarnings("unchecked")
-    public static <T> T createLoggingProxy(Class<T> iface, T target) {
-        return (T) Proxy.newProxyInstance(
-            iface.getClassLoader(),
-            new Class<?>[]{iface},
-            (proxy, method, args) -> {
-                System.out.println("Before: " + method.getName());
-                Object result = method.invoke(target, args);
-                System.out.println("After: " + method.getName() + " -> " + result);
-                return result;
-            }
-        );
-    }
+`Class.forName(name)` is `forName(name, true, callerLoader)`: it loads the class and
+**initialises** it, which runs its static field initialisers and static blocks. A class literal
+and `forName` with `false` only load it, and the initialiser runs at the first instance, static
+method call or access to a static field that isn't a compile-time constant.
 
-    public static void main(String[] args) {
-        UserService real = new RealUserService();
-        UserService proxy = createLoggingProxy(UserService.class, real);
-        proxy.findUser(42);
-        // Before: findUser
-        // After: findUser -> User#42
+A failed initialiser is not retried. The class stays unusable, and every later use in that JVM
+throws `NoClassDefFoundError: Could not initialize class`; on Java 21 its cause names the first
+failure, as above. With one-argument `forName`, an exporter nobody uses tonight stops the service
+from starting. With `false` the check confirms the name and the type,
+and leaves the exporter's own setup for when it is used.
+
+<!-- practice 1 -->
+
+## Class.newInstance Lets the Constructor's Checked Exception Escape Undeclared
+
+`Class.newInstance()` is shorter than `getDeclaredConstructor().newInstance()`, but deprecated
+since Java 9 because of what it does when a constructor throws. A loader creates each plug-in
+and skips the ones that fail:
+
+```java
+for (Class<?> type : plugins) {
+    try {
+        Object p = deprecated ? classNewInstance(type)
+                              : type.getDeclaredConstructor().newInstance();
+        System.out.println("loaded " + p.getClass().getSimpleName());
+    } catch (ReflectiveOperationException e) {
+        System.out.println("skipped " + type.getSimpleName() + ": " + e.getCause());
     }
 }
 ```
 
-**Q3: How does the `java.lang.reflect.Array` class work for dynamic array operations?**
+The first plug-in's constructor is `SftpExporter() throws IOException`, and it throws:
 
 ```text
-A3: The Array class provides static methods for creating and manipulating
-arrays when the component type is not known at compile time:
-
-Creation:
-- Array.newInstance(componentType, length) -- creates a 1D array
-- Array.newInstance(componentType, dimensions...) -- creates multi-dimensional array
-
-Access:
-- Array.get(array, index) -- returns element as Object (auto-boxes primitives)
-- Array.set(array, index, value) -- sets element (auto-unboxes wrappers)
-- Array.getLength(array) -- returns the length
-
-Typed access (avoids boxing):
-- Array.getInt(array, index), Array.setInt(array, index, value)
-- Similar methods for all primitive types
-
-The Array class is used by frameworks that need to handle arrays generically,
-such as serialization libraries that must create arrays of arbitrary types.
-
-Important: Array.newInstance returns Object, not T[]. You must cast carefully.
-For a type-safe approach:
-  int[] arr = (int[]) Array.newInstance(int.class, 10);
+$ java LoadAll
+skipped SftpExporter: java.io.IOException: sftp.example.com: connection refused
+loaded LocalExporter
+$ java LoadAll deprecated
+Exception in thread "main" java.io.IOException: sftp.example.com: connection refused
+	at SftpExporter.<init>(LoadAll.java:27)
+	...
+	at java.base/java.lang.Class.newInstance(Class.java:727)
+	at LoadAll.classNewInstance(LoadAll.java:21)
+	at LoadAll.main(LoadAll.java:10)
 ```
 
-```java
-public class ArrayReflectionDemo {
-    public static void main(String[] args) {
-        // Create int array dynamically
-        Object intArr = Array.newInstance(int.class, 5);
-        Array.setInt(intArr, 0, 100);
-        Array.setInt(intArr, 1, 200);
-        System.out.println(Array.getInt(intArr, 0)); // 100
-        System.out.println(Array.getLength(intArr)); // 5
+`Constructor.newInstance` wraps whatever the constructor throws in an
+`InvocationTargetException`, which is a `ReflectiveOperationException`, so the catch runs and the
+loop goes on. `Class.newInstance` declares only `InstantiationException` and
+`IllegalAccessException`, and rethrows the constructor's exception as it is. The `IOException`
+came out of a method that doesn't declare it, passed the catch and ended `main`, which declares
+nothing either. One plug-in that can't reach its server stopped every other one from loading.
 
-        // Create String array dynamically
-        Object strArr = Array.newInstance(String.class, 3);
-        Array.set(strArr, 0, "hello");
-        Array.set(strArr, 1, "world");
-        String[] typed = (String[]) strArr;
-        System.out.println(Arrays.toString(typed)); // [hello, world, null]
-
-        // Create 2D array: int[3][4]
-        Object matrix = Array.newInstance(int.class, 3, 4);
-        int[][] typedMatrix = (int[][]) matrix;
-        typedMatrix[0][0] = 42;
-    }
-}
-```
-
-**Q4: How would you implement a simple reflective factory pattern?**
+The caller can't catch it as an `IOException`, because the compiler sees none in the `try`; only
+a broad `catch (Exception e)` sees it:
 
 ```text
-A4: A reflective factory maps string keys (names, types, or identifiers) to
-Class objects and creates instances on demand:
-
-1. Registration phase: Map each key to a Class object.
-2. Creation phase: Look up the Class by key, find the constructor, create instance.
-
-Advantages over switch/if-else factory:
-- Open/Closed Principle: Add new types by registering, no code changes.
-- Configuration-driven: Keys can come from config files, databases, etc.
-- Plugin-friendly: Load classes at runtime from external JARs.
-
-Disadvantages:
-- No compile-time type checking.
-- Errors surface at runtime (ClassNotFoundException, etc.).
-- Slightly slower due to reflection overhead.
-
-For production use, consider combining with:
-- ServiceLoader for automatic discovery
-- Caching of Constructor objects
-- Type-safe generics where possible
+CatchIo.java:8: error: exception IOException is never thrown in body of corresponding try statement
+        } catch (IOException e) {
+          ^
+1 error
 ```
+
+`javac -Xlint:deprecation` flags each use (`warning: [deprecation] newInstance() in Class has
+been deprecated`). Replace it with `getDeclaredConstructor().newInstance()`, and take
+`getCause()` of the `InvocationTargetException` where the constructor's own exception matters.
+
+<!-- practice 2 -->
+
+## A Method Handle Has a Type, and invokeExact Holds the Call Site to It
+
+`Method.invoke` (unit 10.3.2) takes `Object` and `Object...`, so a wrong argument shows only at the call:
+`apply(long)` called with `"2500"` throws `IllegalArgumentException: argument type mismatch`.
+A `MethodHandle` is looked up with its full type, return type included, and each call is
+checked against it. `Discount.apply(long)` returns 90 % of its argument:
 
 ```java
-public class ReflectiveFactoryDemo {
-    interface Shape {
-        double area();
-    }
+MethodHandle discount = MethodHandles.lookup().findVirtual(
+        Discount.class, "apply", MethodType.methodType(long.class, long.class));
+System.out.println("type: " + discount.type());
 
-    static class Circle implements Shape {
-        public double area() { return Math.PI * 4; } // r=2
-    }
+Discount d = new Discount();
+long cents = (long) discount.invokeExact(d, 2_500L);
+System.out.println("invokeExact(Discount, long) -> long: " + cents);
 
-    static class Square implements Shape {
-        public double area() { return 16; } // side=4
-    }
+try {
+    int narrowed = (int) discount.invokeExact(d, 2_500L);
+} catch (Throwable t) { System.out.println("as int: " + t); }
 
-    static class ShapeFactory {
-        private final Map<String, Class<? extends Shape>> registry = new HashMap<>();
+Object rule = d;
+try {
+    long viaObject = (long) discount.invokeExact(rule, 2_500L);
+} catch (Throwable t) { System.out.println("receiver typed Object: " + t); }
 
-        public void register(String name, Class<? extends Shape> clazz) {
-            registry.put(name.toLowerCase(), clazz);
-        }
+try {
+    long fromInt = (long) discount.invokeExact(d, 2_500);
+} catch (Throwable t) { System.out.println("argument int: " + t); }
 
-        public Shape create(String name) throws ReflectiveOperationException {
-            Class<? extends Shape> clazz = registry.get(name.toLowerCase());
-            if (clazz == null) throw new IllegalArgumentException("Unknown: " + name);
-            return clazz.getDeclaredConstructor().newInstance();
-        }
-    }
-
-    public static void main(String[] args) throws Exception {
-        ShapeFactory factory = new ShapeFactory();
-        factory.register("circle", Circle.class);
-        factory.register("square", Square.class);
-
-        Shape shape = factory.create("circle");
-        System.out.println(shape.area()); // ~12.566
-    }
-}
+System.out.println("invoke() adapts: " + (long) discount.invoke(rule, 2_500));
 ```
-
-**Q5: How does a dependency injection container use reflection to wire objects?**
 
 ```text
-A5: A DI container uses reflection in several stages:
-
-1. Scanning: The container scans classes (via classpath scanning or explicit
-   registration) to discover which types are available and what their
-   dependencies are.
-
-2. Dependency analysis: For each class, the container inspects:
-   - Constructor parameters (constructor injection)
-   - Fields annotated with @Inject/@Autowired (field injection)
-   - Setter methods annotated with @Inject (method injection)
-
-3. Resolution: When creating an instance, the container:
-   a. Finds the constructor to use (annotated or single constructor).
-   b. Recursively resolves each parameter type.
-   c. Calls Constructor.newInstance() with the resolved dependencies.
-
-4. Post-creation wiring:
-   a. For field injection: Field.setAccessible(true), Field.set(instance, dep).
-   b. For method injection: Method.setAccessible(true), Method.invoke(instance, dep).
-
-5. Lifecycle management: The container may also reflectively invoke
-   @PostConstruct and @PreDestroy methods.
-
-The key challenge is handling circular dependencies, scope management
-(singleton vs prototype), and ensuring thread safety.
+type: (Discount,long)long
+invokeExact(Discount, long) -> long: 2250
+as int: java.lang.invoke.WrongMethodTypeException: handle's method type (Discount,long)long but found (Discount,long)int
+receiver typed Object: java.lang.invoke.WrongMethodTypeException: handle's method type (Discount,long)long but found (Object,long)long
+argument int: java.lang.invoke.WrongMethodTypeException: handle's method type (Discount,long)long but found (Discount,int)long
+invoke() adapts: 2250
 ```
 
-```java
-public class MiniDI {
-    @Retention(RetentionPolicy.RUNTIME)
-    @Target(ElementType.CONSTRUCTOR)
-    @interface Inject {}
+All four `invokeExact` calls compiled. `invokeExact` is signature-polymorphic: `javac` takes the
+call site's type from the static types of the arguments and the cast on the result, and checks
+nothing. At run time that type must equal the handle's, with no widening, boxing or upcasting.
+Without the cast the call site's return type is `Object`, or `void` in a bare statement, and it
+fails the same way. `invoke` converts as if through `asType`, which also casts an `Object`
+receiver down to `Discount`.
 
-    static class Repository {
-        String getData() { return "data from DB"; }
-    }
-
-    static class Service {
-        private final Repository repo;
-
-        @Inject
-        Service(Repository repo) {
-            this.repo = repo;
-        }
-
-        String process() { return "Processed: " + repo.getData(); }
-    }
-
-    static class Container {
-        private final Map<Class<?>, Object> singletons = new HashMap<>();
-
-        @SuppressWarnings("unchecked")
-        <T> T resolve(Class<T> type) throws Exception {
-            if (singletons.containsKey(type)) {
-                return (T) singletons.get(type);
-            }
-
-            Constructor<?> ctor = findInjectableConstructor(type);
-            Object[] args = Arrays.stream(ctor.getParameterTypes())
-                    .map(paramType -> {
-                        try { return resolve(paramType); }
-                        catch (Exception e) { throw new RuntimeException(e); }
-                    })
-                    .toArray();
-
-            T instance = (T) ctor.newInstance(args);
-            singletons.put(type, instance);
-            return instance;
-        }
-
-        private Constructor<?> findInjectableConstructor(Class<?> type) {
-            for (Constructor<?> c : type.getDeclaredConstructors()) {
-                if (c.isAnnotationPresent(Inject.class)) return c;
-            }
-            try { return type.getDeclaredConstructor(); }
-            catch (NoSuchMethodException e) { throw new RuntimeException(e); }
-        }
-    }
-}
-```
-
-**Q6: What are the limitations of `java.lang.reflect.Proxy` and what alternatives exist?**
+The lookup is checked as well. Asking for an `apply` that returns `int` fails there, before any
+call:
 
 ```text
-A6: Limitations of java.lang.reflect.Proxy:
-
-1. Interface-only: Can only proxy interfaces, not concrete or abstract classes.
-   If the target type is a class, Proxy cannot help.
-
-2. Performance overhead: Each method call goes through InvocationHandler.invoke(),
-   which involves Method object dispatch and argument array creation.
-
-3. No field access: Proxies only intercept method calls, not field reads/writes.
-
-4. Object identity: proxy != target, so identity checks (==) will fail.
-
-5. Method dispatch: equals(), hashCode(), and toString() are delegated to the
-   handler, which must handle them explicitly for correct behavior.
-
-Alternatives:
-- CGLIB: Creates subclass-based proxies for classes (not just interfaces).
-  Used by Spring for class-based AOP.
-- Byte Buddy: Modern bytecode generation library. More flexible than CGLIB.
-- Java compiler API: Generate and compile code at runtime.
-- MethodHandle + LambdaMetafactory: Can create functional interface
-  implementations without full proxy overhead.
-
-In Java 21+, the trend is moving toward compile-time code generation
-(annotation processors, GraalVM native image) to avoid reflection overhead
-in production.
+lookup with int return: java.lang.NoSuchMethodException: no such method: Discount.apply(long)int/invokeVirtual
 ```
 
-```java
-public class ProxyLimitations {
-    // Interface -- can be proxied with java.lang.reflect.Proxy
-    interface Greetable {
-        String greet(String name);
-    }
+A handle moves the failure to the lookup, which can run at startup, and to a call site with the
+wrong type, which fails on its first call. When the receiver is only known as `Object`, adapt the
+handle once with `asType(MethodType.methodType(long.class, Object.class, long.class))` and keep
+calling `invokeExact`. Unit 10.3.4 measures what each style costs.
 
-    // Concrete class -- CANNOT be proxied with Proxy.newProxyInstance
-    static class ConcreteGreeter {
-        String greet(String name) { return "Hi, " + name; }
-    }
+<!-- practice 3 -->
 
-    public static void main(String[] args) {
-        // Works: interface-based proxy
-        Greetable proxy = (Greetable) Proxy.newProxyInstance(
-            Greetable.class.getClassLoader(),
-            new Class<?>[]{Greetable.class},
-            (p, method, a) -> "Proxied: " + a[0]
-        );
-        System.out.println(proxy.greet("World")); // "Proxied: World"
+## Summary
 
-        // Does NOT work: cannot proxy a concrete class
-        // Proxy.newProxyInstance(loader, new Class<?>[]{ConcreteGreeter.class}, handler);
-        // -> IllegalArgumentException: ConcreteGreeter is not an interface
-    }
-}
-```
+- **A class named in configuration fails at its first use.** Resolve every name at startup and
+  check its type with `asSubclass`; an unchecked cast of the `Class` checks nothing.
+- **`Class.forName(name)` runs the static initialiser.** `forName(name, false, loader)` loads
+  without running it. A failed initialiser is never retried, and later uses throw
+  `NoClassDefFoundError`.
+- **`Class.newInstance` lets a constructor's checked exception escape undeclared.**
+  `getDeclaredConstructor().newInstance()` wraps it in `InvocationTargetException`.
+- **A method handle has a type.** The lookup checks it, and `invokeExact` throws
+  `WrongMethodTypeException` when the call site's type differs; `invoke` adapts.
+
+## Reference
+
+| Call | Initialises the class | When the constructor throws |
+|---|---|---|
+| `Class.forName(name)` | yes | (no constructor runs) |
+| `Class.forName(name, false, loader)` | no | (no constructor runs) |
+| `X.class` | no | (no constructor runs) |
+| `cls.getDeclaredConstructor().newInstance()` | yes | wrapped in `InvocationTargetException` |
+| `cls.newInstance()` (deprecated since 9) | yes | rethrown as is, checked or not |
+
+A static initialiser that throws gives `ExceptionInInitializerError` from whichever of these
+initialises the class, and `NoClassDefFoundError` from every later use.
+
+| Lookup or call | Checked when | Failure |
+|---|---|---|
+| `Class.forName` of a wrong name | that call | `ClassNotFoundException` |
+| `cls.asSubclass(T.class)` | that call | `ClassCastException` |
+| `(Class<? extends T>) cls` | never (erased) | `ClassCastException` where an instance is used as `T` |
+| `lookup.findVirtual(c, name, type)` | at lookup | `NoSuchMethodException`, `IllegalAccessException` |
+| `mh.invokeExact(...)` | each call, against the call site's type | `WrongMethodTypeException` |
+| `mh.invoke(...)` | each call, after `asType` conversion | `WrongMethodTypeException` if no conversion exists; `ClassCastException` if a downcast fails |
+
+## Challenges
+
+1. Your service reads 40 plug-in names from a table that operators edit while it runs. Where do
+   you resolve them, and what happens to a row that fails?
+2. A plug-in's static initialiser opens a connection pool. When the database is down at startup,
+   who should see the failure: the startup check, the first request, or a health endpoint?
+3. Rewrite a `Method.invoke`-based dispatcher with one cached handle per method. Which errors move
+   from the first request to startup, and which can't?
+
+## Design Note: Why the Compiler Doesn't Check invokeExact
+
+A method handle's type is a value that exists only after the lookup has run, so `javac` has
+nothing to check a call against. It records the call site's type instead, and the JDK makes
+`invokeExact` compare that type with the handle's at run time and refuse any difference. An exact
+match needs no conversion at the call; `invoke` is for callers that want one. The cost is that a
+missing cast compiles and fails on its first call, with a message that names two method types
+rather than the mistake in the line.
 
 ## Code Examples
 

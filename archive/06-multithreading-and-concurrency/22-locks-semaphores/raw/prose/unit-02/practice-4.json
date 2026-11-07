@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Wait for every worker with one semaphore",
+  "title": "Wait for a quorum of replica acknowledgements",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A semaphore's permits belong to nobody: **any thread** may `release()`, and a `release()` that comes **before** any `acquire()` is not lost, it simply raises the count. The page's start gate uses `new Semaphore(0)`, and its edge cases note that the count may even start **below zero**: `new Semaphore(-2)` needs two releases before one acquire can succeed."
+      "text": "The order store keeps every record on several replicas. A write is confirmed to the caller once a quorum of replicas has acknowledged it; the rest catch up later. Replicas acknowledge from their own threads, and a fast one may acknowledge before the writer has even started to wait."
     },
     {
       "type": "para",
-      "text": "Write `Rendezvous`, which lets a coordinator wait until `workers` workers have each reported ready, using one `Semaphore`:"
+      "text": "Two reports came in after a replica failure last week. Writes that had exactly the quorum of replicas behind them were reported as failed. And just after a slow replica went down, one write was confirmed although only one replica had stored it."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`void ready()` is called once by each worker, from any thread, at any time, even before the coordinator waits.",
-        "`boolean awaitAll(long timeout, TimeUnit unit)` waits **at most** `timeout` for every worker to be ready, and returns whether they all were."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "workers",
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "3",
-          "three threads each call `ready()`; then `awaitAll(1, SECONDS)`",
-          "`true`"
-        ],
-        [
-          "3",
-          "`ready()` twice; `awaitAll(100, MILLISECONDS)`",
-          "`false`"
-        ],
-        [
-          "3",
-          "then a third `ready()`; `awaitAll(3, SECONDS)`",
-          "`true`"
-        ],
-        [
-          "2",
-          "nobody ready; `awaitAll(100_000, MICROSECONDS)`",
-          "`false` after about 100 ms"
-        ],
-        [
-          "2",
-          "a coordinator waits in `awaitAll(8, SECONDS)`; two other threads call `ready()`",
-          "the coordinator gets `true`"
-        ]
-      ]
+      "type": "para",
+      "text": "Finish `acksForNextWrite()` and `awaitQuorum(...)` in `src/main/java/practice/QuorumWriter.java`. `write(...)` already sends the record and passes each replica an acknowledgement that releases one permit. When you're done, a write is confirmed exactly when a quorum of replicas acknowledged that write, and a write that can't reach a quorum returns `false` once `timeoutMillis` has passed. About two lines in total."
     },
     {
       "type": "heading",
@@ -81,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/** Lets a coordinator wait until every worker has called {@link #ready()}. */\npublic final class Rendezvous {\n\n    private final Semaphore gate;\n\n    public Rendezvous(int workers) {\n        this.gate = new Semaphore(1 - workers);\n    }\n\n    /** Reports one worker ready; any thread may call it, at any time. */\n    public void ready() {\n        gate.release();\n    }\n\n    /** Waits at most {@code timeout} for every worker to be ready; returns whether they all were. */\n    public boolean awaitAll(long timeout, TimeUnit unit) throws InterruptedException {\n        return gate.tryAcquire(timeout, unit);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Writes records to a set of replicas, one write at a time. A write succeeds once a quorum of\n * replicas has acknowledged it; the others catch up later.\n */\npublic class QuorumWriter {\n\n    /**\n     * One replica. It stores the record and calls {@code ack.run()} once it has, from whatever\n     * thread it likes: before store() returns, later, or never if it is down.\n     */\n    public interface Replica {\n        void store(long version, String record, Runnable ack);\n    }\n\n    private final List<Replica> replicas;\n    private final int quorum;\n    private final long timeoutMillis;\n    private long version;\n\n    public QuorumWriter(List<Replica> replicas, int quorum, long timeoutMillis) {\n        this.replicas = List.copyOf(replicas);\n        this.quorum = quorum;\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Writes one record. True once a quorum acknowledged it, false if none came in time. */\n    public synchronized boolean write(String record) throws InterruptedException {\n        long v = ++version;\n        Semaphore acks = acksForNextWrite();\n        for (Replica replica : replicas) replica.store(v, record, acks::release);\n        return awaitQuorum(acks);\n    }\n\n    /** The semaphore that counts the acknowledgements of the write about to be sent. */\n    Semaphore acksForNextWrite() {\n        return new Semaphore(0);\n    }\n\n    /** Waits for a quorum of acknowledgements, at most timeoutMillis. True if they came. */\n    boolean awaitQuorum(Semaphore acks) throws InterruptedException {\n        return acks.tryAcquire(quorum, timeoutMillis, TimeUnit.MILLISECONDS);\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.TimeUnit;\n\n/** Lets a coordinator wait until every worker has called {@link #ready()}. */\npublic final class Rendezvous {\n\n    public Rendezvous(int workers) {\n    }\n\n    /** Reports one worker ready; any thread may call it, at any time. */\n    public void ready() {\n        throw new UnsupportedOperationException(\"write ready\");\n    }\n\n    /** Waits at most {@code timeout} for every worker to be ready; returns whether they all were. */\n    public boolean awaitAll(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write awaitAll\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Writes records to a set of replicas, one write at a time. A write succeeds once a quorum of\n * replicas has acknowledged it; the others catch up later.\n */\npublic class QuorumWriter {\n\n    /**\n     * One replica. It stores the record and calls {@code ack.run()} once it has, from whatever\n     * thread it likes: before store() returns, later, or never if it is down.\n     */\n    public interface Replica {\n        void store(long version, String record, Runnable ack);\n    }\n\n    private final List<Replica> replicas;\n    private final int quorum;\n    private final long timeoutMillis;\n    private long version;\n\n    public QuorumWriter(List<Replica> replicas, int quorum, long timeoutMillis) {\n        this.replicas = List.copyOf(replicas);\n        this.quorum = quorum;\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Writes one record. True once a quorum acknowledged it, false if none came in time. */\n    public synchronized boolean write(String record) throws InterruptedException {\n        long v = ++version;\n        Semaphore acks = acksForNextWrite();\n        for (Replica replica : replicas) replica.store(v, record, acks::release);\n        return awaitQuorum(acks);\n    }\n\n    /** The semaphore that counts the acknowledgements of the write about to be sent. */\n    Semaphore acksForNextWrite() {\n        // TODO: Every replica's acknowledgement releases one permit on it, possibly before anyone\n        //       waits. Only acknowledgements of this write may count towards its quorum.\n        throw new IllegalStateException(\"TODO: acksForNextWrite\");\n    }\n\n    /** Waits for a quorum of acknowledgements, at most timeoutMillis. True if they came. */\n    boolean awaitQuorum(Semaphore acks) throws InterruptedException {\n        // TODO: Return true as soon as a quorum of replicas has acknowledged; false once\n        //       timeoutMillis has passed without one.\n        throw new IllegalStateException(\"TODO: awaitQuorum\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -112,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a99e841c15475b672082058cd8cffd681a1dd4c8f7be216f720f92846554a383",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.TimeUnit;\n\n/** Lets a coordinator wait until every worker has called {@link #ready()}. */\npublic final class Rendezvous {\n\n    public Rendezvous(int workers) {\n    }\n\n    /** Reports one worker ready; any thread may call it, at any time. */\n    public void ready() {\n        throw new UnsupportedOperationException(\"write ready\");\n    }\n\n    /** Waits at most {@code timeout} for every worker to be ready; returns whether they all were. */\n    public boolean awaitAll(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write awaitAll\");\n    }\n}\n",
+  "content_sha256": "13fcb64b0d987b9760b0f8e1530e3a0f6fd1218bea6617256768ddfd34931ad1",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Writes records to a set of replicas, one write at a time. A write succeeds once a quorum of\n * replicas has acknowledged it; the others catch up later.\n */\npublic class QuorumWriter {\n\n    /**\n     * One replica. It stores the record and calls {@code ack.run()} once it has, from whatever\n     * thread it likes: before store() returns, later, or never if it is down.\n     */\n    public interface Replica {\n        void store(long version, String record, Runnable ack);\n    }\n\n    private final List<Replica> replicas;\n    private final int quorum;\n    private final long timeoutMillis;\n    private long version;\n\n    public QuorumWriter(List<Replica> replicas, int quorum, long timeoutMillis) {\n        this.replicas = List.copyOf(replicas);\n        this.quorum = quorum;\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Writes one record. True once a quorum acknowledged it, false if none came in time. */\n    public synchronized boolean write(String record) throws InterruptedException {\n        long v = ++version;\n        Semaphore acks = acksForNextWrite();\n        for (Replica replica : replicas) replica.store(v, record, acks::release);\n        return awaitQuorum(acks);\n    }\n\n    /** The semaphore that counts the acknowledgements of the write about to be sent. */\n    Semaphore acksForNextWrite() {\n        // TODO: Every replica's acknowledgement releases one permit on it, possibly before anyone\n        //       waits. Only acknowledgements of this write may count towards its quorum.\n        throw new IllegalStateException(\"TODO: acksForNextWrite\");\n    }\n\n    /** Waits for a quorum of acknowledgements, at most timeoutMillis. True if they came. */\n    boolean awaitQuorum(Semaphore acks) throws InterruptedException {\n        // TODO: Return true as soon as a quorum of replicas has acknowledged; false once\n        //       timeoutMillis has passed without one.\n        throw new IllegalStateException(\"TODO: awaitQuorum\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-4/src/main/java/practice/Rendezvous.java",
-    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-4/src/test/java/practice/RendezvousTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-4/src/main/java/practice/QuorumWriter.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-4/src/test/java/practice/QuorumWriterTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,29 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.RendezvousTest#allReadyThenAwait",
+        "id": "practice.QuorumWriterTest#writesSucceedWhenEveryReplicaAcknowledges",
         "kind": "main",
-        "says": "When every worker has called ready, from its own thread and before anyone waits, awaitAll returns true."
+        "says": "writes succeed one after another when every replica acknowledges, whether before or after the writer waits"
       },
       {
-        "id": "practice.RendezvousTest#waitsForEveryWorker",
+        "id": "practice.QuorumWriterTest#exactlyAQuorumOfAcknowledgementsIsEnough",
         "kind": "edge",
-        "says": "awaitAll returns false while even one worker has not called ready, and true once the last one has."
+        "says": "a write succeeds with exactly a quorum of acknowledgements and no more"
       },
       {
-        "id": "practice.RendezvousTest#givesUpAtTimeout",
+        "id": "practice.QuorumWriterTest#lateAcknowledgementsOfAnEarlierWriteDoNotCountForTheNextOne",
         "kind": "edge",
-        "says": "With no worker ready, awaitAll gives up after its timeout and returns false."
+        "says": "an acknowledgement that arrives after its write completed does not count towards the next write"
       },
       {
-        "id": "practice.RendezvousTest#waiterIsWokenByLateReadies",
+        "id": "practice.QuorumWriterTest#aWriteWithoutAQuorumGivesUpAfterTheTimeout",
         "kind": "edge",
-        "says": "A coordinator already waiting in awaitAll is woken when the last worker calls ready."
-      },
-      {
-        "id": "practice.RendezvousTest#theTimeoutIsKeptExactly",
-        "kind": "edge",
-        "says": "A timeout of 250,000 microseconds or 1,600 ms waits that long in full: the unit is honoured and nothing is rounded to whole seconds."
+        "says": "a write that cannot reach a quorum returns false once its timeout has passed"
       }
     ],
     "report": {
@@ -168,11 +124,11 @@
     },
     "origin": {
       "path": "22-locks-semaphores/README_6.3.2.md",
-      "section": "Key Points to Remember"
+      "section": "A Semaphore Keeps a Release Nobody Waited For, Which Makes It a Signal"
     },
     "concepts": [
-      "Any thread may release a permit, and a release that comes before any acquire is kept, which makes a semaphore a signal between threads.",
-      "A semaphore may start at zero or below, so acquirers wait until enough releases have brought the count above zero."
+      "A semaphore that starts at -k needs k+1 releases before a single acquire succeeds.",
+      "A release with nobody waiting is kept as a permit, so a semaphore can count signals from other threads, and leftover permits carry over to the next use."
     ]
   }
 }

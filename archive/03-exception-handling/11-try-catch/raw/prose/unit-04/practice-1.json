@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Write a custom AutoCloseable session",
+  "title": "Close every partition writer of an ingest run",
   "blocks": [
     {
       "type": "heading",
@@ -19,30 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Any class that implements `AutoCloseable` can be declared in a try-with-resources statement, and its `close()` is called automatically when the block exits."
+      "text": "An ingest run writes sensor rows into one file per partition of the object store. It opens a partition's writer when the first row for that partition arrives, so the number of writers is known only at run time and they can't be declared in one try-with-resources header. The run itself is the resource: the job does `try (PartitionWriters run = ...)`."
     },
     {
       "type": "para",
-      "text": "Write the class `Session implements AutoCloseable`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Session(String name, List<String> log)` opens a session that records what happens in `log`;",
-        "`void use(String what)` adds `\"use \" + what` to the log;",
-        "`void close()` adds `\"close \" + name` to the log (it throws no checked exception);",
-        "`boolean isClosed()` says whether **this** session has been closed (each session keeps its own state, even when two share a name and a log)."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "try (Session s = new Session(\"db\", log)) {\n    s.use(\"query\");\n}\n// log is now [\"use query\", \"close db\"]"
+      "text": "The object store flushes a writer's last rows when it is closed, and that flush can fail. After a night when the store was briefly unavailable, two things were found: partitions whose files were never closed, and an alert that named one failed partition when three had failed."
     },
     {
       "type": "para",
-      "text": "Page's pitfall: a resource is closed after its try block, so using it there must fail with `IllegalStateException(\"Resource is already closed\")`. And a resource may be closed more than once by careless callers."
+      "text": "Write `close()` in `src/main/java/practice/PartitionWriters.java` so the run ends the way it would if every writer had been declared in a try-with-resources header in the order it was opened. About ten lines."
     },
     {
       "type": "heading",
@@ -57,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class Session implements AutoCloseable {\n\n    private final String name;\n    private final List<String> log;\n    private boolean closed;\n\n    /** Opens a session named {@code name} that records what happens in {@code log}. */\n    public Session(String name, List<String> log) {\n        this.name = name;\n        this.log = log;\n    }\n\n    /** Records \"use <what>\". */\n    public void use(String what) {\n        if (closed) {\n            throw new IllegalStateException(\"Resource is already closed\");\n        }\n        log.add(\"use \" + what);\n    }\n\n    /** Records \"close <name>\". */\n    @Override\n    public void close() {\n        if (closed) {\n            return;\n        }\n        closed = true;\n        log.add(\"close \" + name);\n    }\n\n    /** Returns whether the session has been closed. */\n    public boolean isClosed() {\n        return closed;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The writers one ingest run keeps open, one per partition. A writer is opened the first time a\n * row for its partition arrives, and stays open until the run is closed.\n */\npublic class PartitionWriters implements AutoCloseable {\n\n    /** Appends rows to one partition's file in the object store. */\n    public interface Writer extends AutoCloseable {\n        void write(String row) throws Exception;\n\n        @Override\n        void close() throws Exception;\n    }\n\n    /** Opens the writer for a partition. */\n    public interface Opener {\n        Writer open(String partition) throws Exception;\n    }\n\n    private final Opener opener;\n    private final Map<String, Writer> writers = new LinkedHashMap<>();\n\n    public PartitionWriters(Opener opener) {\n        this.opener = opener;\n    }\n\n    /** Appends a row to its partition, opening that partition's writer if this is its first row. */\n    public void write(String partition, String row) throws Exception {\n        Writer writer = writers.get(partition);\n        if (writer == null) {\n            writer = opener.open(partition);\n            writers.put(partition, writer);\n        }\n        writer.write(row);\n    }\n\n    /** The writers opened so far, in the order they were opened. */\n    List<Writer> opened() {\n        return new ArrayList<>(writers.values());\n    }\n\n    /** Ends the run: closes every writer it opened. */\n    @Override\n    public void close() throws Exception {\n        List<Writer> opened = opened();\n        Exception failure = null;\n        for (int i = opened.size() - 1; i >= 0; i--) {\n            try {\n                opened.get(i).close();\n            } catch (Exception e) {\n                if (failure == null) failure = e;\n                else failure.addSuppressed(e);\n            }\n        }\n        if (failure != null) throw failure;\n    }\n}\n"
         }
       ]
     },
@@ -69,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Session implements AutoCloseable {\n\n    /** Opens a session named {@code name} that records what happens in {@code log}. */\n    public Session(String name, List<String> log) {\n        throw new UnsupportedOperationException(\"write Session\");\n    }\n\n    /** Records \"use <what>\". */\n    public void use(String what) {\n        throw new UnsupportedOperationException(\"write use\");\n    }\n\n    /** Records \"close <name>\". */\n    @Override\n    public void close() {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n\n    /** Returns whether the session has been closed. */\n    public boolean isClosed() {\n        throw new UnsupportedOperationException(\"write isClosed\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The writers one ingest run keeps open, one per partition. A writer is opened the first time a\n * row for its partition arrives, and stays open until the run is closed.\n */\npublic class PartitionWriters implements AutoCloseable {\n\n    /** Appends rows to one partition's file in the object store. */\n    public interface Writer extends AutoCloseable {\n        void write(String row) throws Exception;\n\n        @Override\n        void close() throws Exception;\n    }\n\n    /** Opens the writer for a partition. */\n    public interface Opener {\n        Writer open(String partition) throws Exception;\n    }\n\n    private final Opener opener;\n    private final Map<String, Writer> writers = new LinkedHashMap<>();\n\n    public PartitionWriters(Opener opener) {\n        this.opener = opener;\n    }\n\n    /** Appends a row to its partition, opening that partition's writer if this is its first row. */\n    public void write(String partition, String row) throws Exception {\n        Writer writer = writers.get(partition);\n        if (writer == null) {\n            writer = opener.open(partition);\n            writers.put(partition, writer);\n        }\n        writer.write(row);\n    }\n\n    /** The writers opened so far, in the order they were opened. */\n    List<Writer> opened() {\n        return new ArrayList<>(writers.values());\n    }\n\n    /** Ends the run: closes every writer it opened. */\n    @Override\n    public void close() throws Exception {\n        // TODO: Close every writer this run opened. The object store's writers can fail while\n        //       closing (the last flush happens there); whoever closes the run needs to learn\n        //       about it, with nothing left open and no failure lost.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -78,9 +63,9 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -88,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e1db3bbb474093616eac6b3732712258442c2ebdde656fb24622859dc2aacf76",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Session implements AutoCloseable {\n\n    /** Opens a session named {@code name} that records what happens in {@code log}. */\n    public Session(String name, List<String> log) {\n        throw new UnsupportedOperationException(\"write Session\");\n    }\n\n    /** Records \"use <what>\". */\n    public void use(String what) {\n        throw new UnsupportedOperationException(\"write use\");\n    }\n\n    /** Records \"close <name>\". */\n    @Override\n    public void close() {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n\n    /** Returns whether the session has been closed. */\n    public boolean isClosed() {\n        throw new UnsupportedOperationException(\"write isClosed\");\n    }\n}\n",
+  "content_sha256": "52bdd4f03bffd4fcab945a5b165faeb33d00662d147c16f21e312e829d9cfe9a",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The writers one ingest run keeps open, one per partition. A writer is opened the first time a\n * row for its partition arrives, and stays open until the run is closed.\n */\npublic class PartitionWriters implements AutoCloseable {\n\n    /** Appends rows to one partition's file in the object store. */\n    public interface Writer extends AutoCloseable {\n        void write(String row) throws Exception;\n\n        @Override\n        void close() throws Exception;\n    }\n\n    /** Opens the writer for a partition. */\n    public interface Opener {\n        Writer open(String partition) throws Exception;\n    }\n\n    private final Opener opener;\n    private final Map<String, Writer> writers = new LinkedHashMap<>();\n\n    public PartitionWriters(Opener opener) {\n        this.opener = opener;\n    }\n\n    /** Appends a row to its partition, opening that partition's writer if this is its first row. */\n    public void write(String partition, String row) throws Exception {\n        Writer writer = writers.get(partition);\n        if (writer == null) {\n            writer = opener.open(partition);\n            writers.put(partition, writer);\n        }\n        writer.write(row);\n    }\n\n    /** The writers opened so far, in the order they were opened. */\n    List<Writer> opened() {\n        return new ArrayList<>(writers.values());\n    }\n\n    /** Ends the run: closes every writer it opened. */\n    @Override\n    public void close() throws Exception {\n        // TODO: Close every writer this run opened. The object store's writers can fail while\n        //       closing (the last flush happens there); whoever closes the run needs to learn\n        //       about it, with nothing left open and no failure lost.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-1/src/main/java/practice/Session.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-1/src/test/java/practice/SessionTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-1/src/main/java/practice/PartitionWriters.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-1/src/test/java/practice/PartitionWritersTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SessionTest#closesAtTheEndOfTheTry",
+        "id": "practice.PartitionWritersTest#closingTheRunClosesEveryWriterItOpened",
         "kind": "main",
-        "says": "A session declared in try-with-resources is used, then closed as the block ends."
+        "says": "closing the run closes each writer it opened"
       },
       {
-        "id": "practice.SessionTest#closesWhenTheBodyThrows",
-        "kind": "main",
-        "says": "The session is closed even when the block throws."
-      },
-      {
-        "id": "practice.SessionTest#aClosedSessionRefusesUse",
+        "id": "practice.PartitionWritersTest#aWriterThatFailsToCloseLeavesNoOtherOpen",
         "kind": "edge",
-        "says": "Using the session after the try block, once it is closed, throws IllegalStateException(\"Resource is already closed\")."
+        "says": "a writer whose close fails does not stop the other writers from being closed, and the failure reaches the caller"
       },
       {
-        "id": "practice.SessionTest#closingTwiceClosesOnce",
+        "id": "practice.PartitionWritersTest#closesTheNewestWriterFirst",
         "kind": "edge",
-        "says": "A second close() does nothing: the session is closed only once."
+        "says": "the writers are closed in the reverse of the order they were opened"
+      },
+      {
+        "id": "practice.PartitionWritersTest#theFirstFailureIsTheOneThrown",
+        "kind": "edge",
+        "says": "when several writers fail to close, the failure of the first one closed is the exception thrown"
+      },
+      {
+        "id": "practice.PartitionWritersTest#theOtherFailuresTravelWithIt",
+        "kind": "edge",
+        "says": "the other close failures are attached to the thrown exception as suppressed, none lost"
       }
     ],
     "report": {
@@ -139,12 +129,11 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.4.md",
-      "section": "Q&A"
+      "section": "A close() Failure Is Attached as Suppressed, Not Thrown in Place of the Body's Exception"
     },
     "concepts": [
-      "A resource declared in try-with-resources is closed automatically when the try block exits, normally or by an exception.",
-      "A resource is closed once its try block ends, so using it afterwards fails.",
-      "Any class of your own becomes a resource by implementing AutoCloseable and its close() method."
+      "Code that closes several resources itself closes the newest first and keeps closing the others after one fails.",
+      "When the body and a close() both throw, the body's exception is thrown and the close failure is attached to it as suppressed, where a close in finally would replace it."
     ]
   }
 }

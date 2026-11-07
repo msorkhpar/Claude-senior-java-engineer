@@ -1,17 +1,13 @@
-A record pattern tests a type and takes the record apart in one step:
+The warehouse prints one label for every order event it receives. Customers fill in a billing
+address, a shipping address, both or neither, and the order system passes along `null` for any
+address that was left empty. Since the label printer was moved to record patterns, some orders
+come back as "not an order" and others are labelled for the wrong address.
 
-```java
-if (obj instanceof Point(int x, int y)) {
-    // x and y are the point's components
-}
-```
+Finish `shipTo(...)` in `src/main/java/practice/ShippingLabels.java`:
 
-`Quadrants` holds `record Point(int x, int y)`. Write `quadrant(Object obj)` in `Quadrants`:
+- a parcel goes to the customer's shipping address, or to the billing address when there is no
+  shipping address on file; use `label(...)` for the line;
+- a customer with no address at all collects the parcel at the counter: `pickup(...)`;
+- anything that is not an `Order`, `null` included, is rejected with `IllegalArgumentException`.
 
-- for a point, the quadrant it lies in: `1` for `x > 0, y > 0`, `2` for `x < 0, y > 0`,
-  `3` for `x < 0, y < 0` and `4` for `x > 0, y < 0`;
-- `0` for a point on an axis (`x == 0` or `y == 0`);
-- `-1` for anything that is not a point, `null` included.
-
-Examples: `quadrant(new Quadrants.Point(2, 3))` is `1`, `quadrant(new Quadrants.Point(-2, -3))`
-is `3`, `quadrant(new Quadrants.Point(0, 5))` is `0`, and `quadrant("2,3")` is `-1`.
+The records, `label` and `pickup` are written. About six lines in total.

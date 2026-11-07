@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Smooth without reading what others write",
+  "title": "Leave the book untouched when the accrual fails",
   "blocks": [
     {
       "type": "heading",
@@ -19,58 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's pitfalls warn about an action that **reads the array while other subtasks modify it**, and its best practice is to work on **disjoint ranges** so no synchronization is needed. A smoothing filter needs its neighbours' values, so it cannot overwrite its input in place: it **reads** a source array and **writes** a separate destination, each leaf writing only its own range."
+      "text": "This practice continues the interest accrual: `Accrual.java` here is the finished version of the previous practice, with `Adjust` working as you wrote it."
     },
     {
       "type": "para",
-      "text": "Write `SmoothAction(source, dest, start, end, threshold)`, a `RecursiveAction` that fills `dest[i]` for every `i` in `[start, end)`:"
+      "text": "Last month one account held a corrupt negative balance, the adjustment threw on it, and the accrual failed. The operator fixed the account and ran the accrual again, and thousands of customers were paid two months of interest. The bank wants the accrual to be all or nothing."
+    },
+    {
+      "type": "para",
+      "text": "Rewrite `accrue()` in `src/main/java/practice/Accrual.java`. When you're done:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`dest[i] = (source[i - 1] + source[i] + source[i + 1]) / 3` (Java's integer division `/`, which truncates toward zero; values may be negative);",
-        "the first and last index of the **whole array** have a missing neighbour, so they are copied: `dest[0] = source[0]`, `dest[n - 1] = source[n - 1]`."
+        "a book with no bad account is adjusted as before;",
+        "when any adjustment fails, `accrue()` fails with that exception, and the array the caller passed holds exactly what it held before the call, then and afterwards."
       ]
     },
     {
       "type": "para",
-      "text": "Split at the midpoint with `invokeAll` while the range is longer than `threshold`. `source` is never changed, and `dest` is written only in `[start, end)`."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "source",
-        "range",
-        "threshold",
-        "dest afterwards (starting all 0)"
-      ],
-      "rows": [
-        [
-          "`0, 9, 0, 9, 0`",
-          "`[0, 5)`",
-          "5",
-          "`0, 3, 6, 3, 0`"
-        ],
-        [
-          "`0, 9, 0, 9, 0, 9, 0, 9`",
-          "`[0, 8)`",
-          "2",
-          "`0, 3, 6, 3, 6, 3, 6, 9`"
-        ],
-        [
-          "`5, 1, 1, 1, 7`",
-          "`[0, 5)`",
-          "5",
-          "first `5`, last `7`"
-        ],
-        [
-          "`3, 6, 9, 12, 15, 18, 21, 24`",
-          "`[2, 5)`",
-          "2",
-          "`0, 0, 9, 12, 15, 0, 0, 0`"
-        ]
-      ]
+      "text": "About four lines in total. One test holds part of the accrual until after the failure has reached the caller."
     },
     {
       "type": "heading",
@@ -85,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.RecursiveAction;\n\npublic final class SmoothAction extends RecursiveAction {\n\n    private final int[] source;\n    private final int[] dest;\n    private final int start;\n    private final int end;\n    private final int threshold;\n\n    public SmoothAction(int[] source, int[] dest, int start, int end, int threshold) {\n        this.source = source;\n        this.dest = dest;\n        this.start = start;\n        this.end = end;\n        this.threshold = threshold;\n    }\n\n    @Override\n    protected void compute() {\n        int length = end - start;\n        if (length <= threshold) {\n            int last = source.length - 1;\n            for (int i = start; i < end; i++) {\n                if (i == 0 || i == last) {\n                    dest[i] = source[i];\n                } else {\n                    dest[i] = (source[i - 1] + source[i] + source[i + 1]) / 3;\n                }\n            }\n            return;\n        }\n        int mid = start + length / 2;\n        invokeAll(new SmoothAction(source, dest, start, mid, threshold),\n                new SmoothAction(source, dest, mid, end, threshold));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Month-end interest accrual: every account balance, in cents, is adjusted. The bank has a few\n * million accounts, so the adjustment runs on a ForkJoinPool. The month-end report reads the\n * balances as soon as accrue() returns. An adjustment can fail on a bad account; the operator then\n * fixes the account and runs the accrual again.\n */\npublic class Accrual {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator adjust;\n\n    /**\n     * @param pool      the pool the accrual runs in\n     * @param threshold the most balances one task adjusts by itself, on its own thread\n     * @param adjust    the new balance of one account, given its old balance\n     */\n    public Accrual(ForkJoinPool pool, int threshold, LongUnaryOperator adjust) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.adjust = adjust;\n    }\n\n    /**\n     * Adjusts every balance of the book. The report reads them as soon as this returns. If any\n     * adjustment fails, the failure reaches the caller and the book is left as it was.\n     */\n    public void accrue(long[] balances) {\n        long[] next = balances.clone();\n        pool.invoke(new Adjust(next, 0, next.length));\n        System.arraycopy(next, 0, balances, 0, next.length);\n    }\n\n    /** Adjusts balances[from] to balances[to - 1]. */\n    final class Adjust extends RecursiveAction {\n        private final long[] balances;\n        private final int from, to;\n\n        Adjust(long[] balances, int from, int to) {\n            this.balances = balances;\n            this.from = from;\n            this.to = to;\n        }\n\n        /** Adjusts this task's balances one after another, on the current thread. */\n        void adjustHere() {\n            for (int i = from; i < to; i++) balances[i] = adjust.applyAsLong(balances[i]);\n        }\n\n        @Override\n        protected void compute() {\n            if (to - from <= threshold) {\n                adjustHere();\n                return;\n            }\n            int mid = (from + to) >>> 1;\n            invokeAll(new Adjust(balances, from, mid), new Adjust(balances, mid, to));\n        }\n    }\n}\n"
         }
       ]
     },
@@ -97,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.RecursiveAction;\n\npublic final class SmoothAction extends RecursiveAction {\n\n    public SmoothAction(int[] source, int[] dest, int start, int end, int threshold) {\n    }\n\n    @Override\n    protected void compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Month-end interest accrual: every account balance, in cents, is adjusted. The bank has a few\n * million accounts, so the adjustment runs on a ForkJoinPool. The month-end report reads the\n * balances as soon as accrue() returns. An adjustment can fail on a bad account; the operator then\n * fixes the account and runs the accrual again.\n */\npublic class Accrual {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator adjust;\n\n    /**\n     * @param pool      the pool the accrual runs in\n     * @param threshold the most balances one task adjusts by itself, on its own thread\n     * @param adjust    the new balance of one account, given its old balance\n     */\n    public Accrual(ForkJoinPool pool, int threshold, LongUnaryOperator adjust) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.adjust = adjust;\n    }\n\n    /**\n     * Adjusts every balance of the book. The report reads them as soon as this returns. If any\n     * adjustment fails, the failure reaches the caller and the book is left as it was.\n     */\n    public void accrue(long[] balances) {\n        // TODO: Adjust every balance with an Adjust task, as before. If any adjustment fails, the\n        //       caller must learn of it, and `balances` must hold exactly what it held before\n        //       the call, so that the operator can fix the account and run the accrual again.\n        throw new IllegalStateException(\"TODO: accrue\");\n    }\n\n    /** Adjusts balances[from] to balances[to - 1]. */\n    final class Adjust extends RecursiveAction {\n        private final long[] balances;\n        private final int from, to;\n\n        Adjust(long[] balances, int from, int to) {\n            this.balances = balances;\n            this.from = from;\n            this.to = to;\n        }\n\n        /** Adjusts this task's balances one after another, on the current thread. */\n        void adjustHere() {\n            for (int i = from; i < to; i++) balances[i] = adjust.applyAsLong(balances[i]);\n        }\n\n        @Override\n        protected void compute() {\n            if (to - from <= threshold) {\n                adjustHere();\n                return;\n            }\n            int mid = (from + to) >>> 1;\n            invokeAll(new Adjust(balances, from, mid), new Adjust(balances, mid, to));\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -105,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -116,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4bdabd6c882acb1869ca2487bce543bb073596975eaff792f8a41f46ea827eaa",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.RecursiveAction;\n\npublic final class SmoothAction extends RecursiveAction {\n\n    public SmoothAction(int[] source, int[] dest, int start, int end, int threshold) {\n    }\n\n    @Override\n    protected void compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n",
+  "content_sha256": "6af471900034de80f01db69fadebbdaef19e01d54131d1ed0d377c5bb3244e0f",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Month-end interest accrual: every account balance, in cents, is adjusted. The bank has a few\n * million accounts, so the adjustment runs on a ForkJoinPool. The month-end report reads the\n * balances as soon as accrue() returns. An adjustment can fail on a bad account; the operator then\n * fixes the account and runs the accrual again.\n */\npublic class Accrual {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator adjust;\n\n    /**\n     * @param pool      the pool the accrual runs in\n     * @param threshold the most balances one task adjusts by itself, on its own thread\n     * @param adjust    the new balance of one account, given its old balance\n     */\n    public Accrual(ForkJoinPool pool, int threshold, LongUnaryOperator adjust) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.adjust = adjust;\n    }\n\n    /**\n     * Adjusts every balance of the book. The report reads them as soon as this returns. If any\n     * adjustment fails, the failure reaches the caller and the book is left as it was.\n     */\n    public void accrue(long[] balances) {\n        // TODO: Adjust every balance with an Adjust task, as before. If any adjustment fails, the\n        //       caller must learn of it, and `balances` must hold exactly what it held before\n        //       the call, so that the operator can fix the account and run the accrual again.\n        throw new IllegalStateException(\"TODO: accrue\");\n    }\n\n    /** Adjusts balances[from] to balances[to - 1]. */\n    final class Adjust extends RecursiveAction {\n        private final long[] balances;\n        private final int from, to;\n\n        Adjust(long[] balances, int from, int to) {\n            this.balances = balances;\n            this.from = from;\n            this.to = to;\n        }\n\n        /** Adjusts this task's balances one after another, on the current thread. */\n        void adjustHere() {\n            for (int i = from; i < to; i++) balances[i] = adjust.applyAsLong(balances[i]);\n        }\n\n        @Override\n        protected void compute() {\n            if (to - from <= threshold) {\n                adjustHere();\n                return;\n            }\n            int mid = (from + to) >>> 1;\n            invokeAll(new Adjust(balances, from, mid), new Adjust(balances, mid, to));\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-3/src/main/java/practice/SmoothAction.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-3/src/test/java/practice/SmoothActionTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-3/src/main/java/practice/Accrual.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-3/src/test/java/practice/AccrualTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -141,29 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SmoothActionTest#smoothsTheInterior",
+        "id": "practice.AccrualTest#adjustsEveryBalanceOfAGoodBook",
         "kind": "main",
-        "says": "Each interior element of the result is the average of its source element and the source's two neighbours."
+        "says": "a book with no bad account is adjusted, every balance once, for any size and threshold"
       },
       {
-        "id": "practice.SmoothActionTest#neighboursAcrossALeafBoundary",
+        "id": "practice.AccrualTest#aFailedAccrualLeavesEveryBalanceAsItWas",
         "kind": "edge",
-        "says": "An element at the edge of a leaf's range still averages with the neighbour that belongs to the next leaf."
+        "says": "when an adjustment fails, balances adjusted before the failure are not left changed"
       },
       {
-        "id": "practice.SmoothActionTest#theEndsAreCopied",
+        "id": "practice.AccrualTest#theCallerLearnsThatTheAccrualFailed",
         "kind": "edge",
-        "says": "The first and last elements, which lack a neighbour, are copied from the source unchanged."
+        "says": "a failed adjustment reaches the caller of accrue() as its exception, rather than the accrual returning as if it had run"
       },
       {
-        "id": "practice.SmoothActionTest#writesOnlyItsOwnRange",
+        "id": "practice.AccrualTest#aPartStillRunningAfterTheFailureCannotChangeTheBook",
         "kind": "edge",
-        "says": "An action over [start, end) writes only those indexes of the destination."
-      },
-      {
-        "id": "practice.SmoothActionTest#divisionTruncates",
-        "kind": "edge",
-        "says": "Averages use Java's integer division, which truncates toward zero: 5/3 is 1 and -2/3 is 0, neither rounded nor floored."
+        "says": "a part of the accrual that is still running when the failure reaches the caller cannot change the book afterwards"
       }
     ],
     "report": {
@@ -172,10 +136,12 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.3.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "A Failure Leaves the Array Partly Changed, So Write to a Copy"
     },
     "concepts": [
-      "An action must not read data that other subtasks are modifying; reading a source and writing a separate destination avoids it."
+      "When a leaf throws, invoke() rethrows but every leaf that ran keeps its writes, so the array is left partly changed.",
+      "invokeAll rethrows a failure without waiting for a subtask already running, which keeps writing after the caller has caught the exception, so a rollback in the catch can be overwritten.",
+      "Running the action on a copy and publishing it only when invoke() returns normally leaves the original untouched on failure."
     ]
   }
 }

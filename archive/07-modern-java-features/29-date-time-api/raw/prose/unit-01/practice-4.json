@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Look up a time zone strictly",
+  "title": "Put each payment on the exchange's business day",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The legacy `TimeZone.getTimeZone(id)` never complains: an ID it does not recognise silently gives GMT, and it still accepts three-letter abbreviations such as `\"CST\"`, which could mean Central Standard Time or China Standard Time. A typo in a configuration file therefore turns into wrong times, not an error."
+      "text": "A card processor settles with an exchange in Tokyo and totals its payments per business day of that exchange. The ledger API it reads still returns `java.util.Date`. Since part of the fleet moved to a data centre in São Paulo, the totals from those servers disagree with the exchange's for payments made in the evening there. One older caller passes, instead of a payment moment, the settlement day it read from a `DATE` column with `ResultSet.getDate`; its report has been crashing, and once fixed it must show the same day the column holds, on servers in any zone."
     },
     {
       "type": "para",
-      "text": "Write `ZoneLookup.zone(String id)`. It returns the `ZoneId` for a region ID such as `\"Europe/Paris\"`. An ID that names no zone is refused with an `IllegalArgumentException`, and so are the ambiguous abbreviations `\"CST\"` (Central or China Standard Time) and `\"IST\"` (India, Israel or Irish Standard Time)."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "id",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`\"Europe/Paris\"`",
-          "`ZoneId.of(\"Europe/Paris\")`"
-        ],
-        [
-          "`\"Asia/Tokyo\"`",
-          "`ZoneId.of(\"Asia/Tokyo\")`"
-        ],
-        [
-          "`\"Mars/Olympus_Mons\"`",
-          "throws `IllegalArgumentException`"
-        ],
-        [
-          "`\"CST\"`, `\"IST\"`",
-          "throws `IllegalArgumentException`"
-        ]
-      ]
+      "text": "Finish `businessDay(...)` in `src/main/java/practice/SettlementReport.java`. About four lines."
     },
     {
       "type": "heading",
@@ -63,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.time.DateTimeException;\nimport java.time.ZoneId;\n\npublic final class ZoneLookup {\n\n    private ZoneLookup() {\n    }\n\n    /** Returns the zone with this region ID; unknown IDs and abbreviations are an IllegalArgumentException. */\n    public static ZoneId zone(String id) {\n        try {\n            // ZoneId.of fails fast on an unknown ID, and knows no three-letter abbreviations\n            return ZoneId.of(id);\n        } catch (DateTimeException e) {\n            throw new IllegalArgumentException(\"unknown time zone: \" + id, e);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDate;\nimport java.time.ZoneId;\nimport java.util.Date;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/** Totals card payments per business day of the exchange in Tokyo, whatever zone the server runs in. */\npublic class SettlementReport {\n\n    static final ZoneId EXCHANGE = ZoneId.of(\"Asia/Tokyo\");\n\n    /** A payment as the legacy ledger API returns it. */\n    public record Payment(Date at, long cents) {}\n\n    /** Total cents per business day, earliest day first. */\n    public static Map<LocalDate, Long> totals(List<Payment> payments) {\n        Map<LocalDate, Long> out = new TreeMap<>();\n        for (Payment p : payments) {\n            out.merge(businessDay(p.at()), p.cents(), Long::sum);\n        }\n        return out;\n    }\n\n    // TODO: the exchange's business day of a payment. A moment falls on the exchange's day, and the\n    // report must give the same answer on servers in any zone. Some callers pass the settlement day\n    // they read with ResultSet.getDate, a java.sql.Date: that value already names the business day.\n    static LocalDate businessDay(Date at) {\n        if (at instanceof java.sql.Date day) {\n            return day.toLocalDate();\n        }\n        return Instant.ofEpochMilli(at.getTime()).atZone(EXCHANGE).toLocalDate();\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.ZoneId;\n\npublic final class ZoneLookup {\n\n    private ZoneLookup() {\n    }\n\n    /** Returns the zone with this region ID; unknown IDs and abbreviations are an IllegalArgumentException. */\n    public static ZoneId zone(String id) {\n        throw new UnsupportedOperationException(\"write zone\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDate;\nimport java.time.ZoneId;\nimport java.util.Date;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/** Totals card payments per business day of the exchange in Tokyo, whatever zone the server runs in. */\npublic class SettlementReport {\n\n    static final ZoneId EXCHANGE = ZoneId.of(\"Asia/Tokyo\");\n\n    /** A payment as the legacy ledger API returns it. */\n    public record Payment(Date at, long cents) {}\n\n    /** Total cents per business day, earliest day first. */\n    public static Map<LocalDate, Long> totals(List<Payment> payments) {\n        Map<LocalDate, Long> out = new TreeMap<>();\n        for (Payment p : payments) {\n            out.merge(businessDay(p.at()), p.cents(), Long::sum);\n        }\n        return out;\n    }\n\n    // TODO: the exchange's business day of a payment. A moment falls on the exchange's day, and the\n    // report must give the same answer on servers in any zone. Some callers pass the settlement day\n    // they read with ResultSet.getDate, a java.sql.Date: that value already names the business day.\n    static LocalDate businessDay(Date at) {\n        throw new IllegalStateException(\"TODO: the business day of a payment\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -85,7 +60,7 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -94,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ea1d60750d33792a240ac40658075664980656d1e435a17ca49e629248bad205",
-  "starting_code": "package practice;\n\nimport java.time.ZoneId;\n\npublic final class ZoneLookup {\n\n    private ZoneLookup() {\n    }\n\n    /** Returns the zone with this region ID; unknown IDs and abbreviations are an IllegalArgumentException. */\n    public static ZoneId zone(String id) {\n        throw new UnsupportedOperationException(\"write zone\");\n    }\n}\n",
+  "content_sha256": "6023ae24b56f5aedf590411eca1691cdf7ec013bd752c35e7200293d707a1965",
+  "starting_code": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDate;\nimport java.time.ZoneId;\nimport java.util.Date;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/** Totals card payments per business day of the exchange in Tokyo, whatever zone the server runs in. */\npublic class SettlementReport {\n\n    static final ZoneId EXCHANGE = ZoneId.of(\"Asia/Tokyo\");\n\n    /** A payment as the legacy ledger API returns it. */\n    public record Payment(Date at, long cents) {}\n\n    /** Total cents per business day, earliest day first. */\n    public static Map<LocalDate, Long> totals(List<Payment> payments) {\n        Map<LocalDate, Long> out = new TreeMap<>();\n        for (Payment p : payments) {\n            out.merge(businessDay(p.at()), p.cents(), Long::sum);\n        }\n        return out;\n    }\n\n    // TODO: the exchange's business day of a payment. A moment falls on the exchange's day, and the\n    // report must give the same answer on servers in any zone. Some callers pass the settlement day\n    // they read with ResultSet.getDate, a java.sql.Date: that value already names the business day.\n    static LocalDate businessDay(Date at) {\n        throw new IllegalStateException(\"TODO: the business day of a payment\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-4/src/main/java/practice/ZoneLookup.java",
-    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-4/src/test/java/practice/ZoneLookupTest.java",
+    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-4/src/main/java/practice/SettlementReport.java",
+    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-4/src/test/java/practice/SettlementReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,19 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ZoneLookupTest#findsARegionZone",
+        "id": "practice.SettlementReportTest#totalsPaymentsPerBusinessDay",
         "kind": "main",
-        "says": "A region ID such as Europe/Paris gives that zone."
+        "says": "payments made during the exchange's day are totalled under that day"
       },
       {
-        "id": "practice.ZoneLookupTest#anUnknownIdIsRefused",
+        "id": "practice.SettlementReportTest#aPaymentLateInTheServersEveningCountsOnTheExchangesNextDay",
         "kind": "edge",
-        "says": "An ID that names no zone is refused instead of quietly becoming GMT."
+        "says": "the business day of a moment is the exchange's day, not the day in the zone the server runs in"
       },
       {
-        "id": "practice.ZoneLookupTest#aThreeLetterAbbreviationIsRefused",
+        "id": "practice.SettlementReportTest#aSettlementDayReadWithGetDateIsAccepted",
         "kind": "edge",
-        "says": "The ambiguous abbreviations CST and IST are refused instead of being guessed at."
+        "says": "a java.sql.Date passed in is accepted rather than failing as a java.util.Date method would"
+      },
+      {
+        "id": "practice.SettlementReportTest#aSettlementDayReadWithGetDateKeepsItsDayOnAServerAheadOfTokyo",
+        "kind": "edge",
+        "says": "a java.sql.Date is read as the day it names, not as a moment shifted into the exchange's zone"
       }
     ],
     "report": {
@@ -140,10 +120,11 @@
     },
     "origin": {
       "path": "29-date-time-api/README_7.3.1.md",
-      "section": "Key Points to Remember"
+      "section": "java.sql.Date Is a java.util.Date That Breaks Its Parent's Contract"
     },
     "concepts": [
-      "TimeZone.getTimeZone silently returns GMT for an unknown ID and accepts ambiguous abbreviations, while ZoneId.of fails fast."
+      "A Date holds only milliseconds since the epoch; toString(), the field getters and a SimpleDateFormat without a zone use the JVM's default zone, so the day of a Date depends on the zone you name.",
+      "java.sql.Date extends java.util.Date but throws from toInstant() and the time getters, so code written for java.util.Date fails on values from ResultSet.getDate; a java.sql.Date names a day, read with toLocalDate(), not by shifting its milliseconds into another zone."
     ]
   }
 }

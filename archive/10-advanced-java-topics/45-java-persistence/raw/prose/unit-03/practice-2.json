@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A transaction template that never hides the cause",
+  "title": "Keep every editor's tag when two save the same product",
   "blocks": [
     {
       "type": "heading",
@@ -19,49 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's fourth pitfall: `catch (SQLException e) { conn.rollback(); throw e; }` loses the real error when `rollback()` itself throws. The fix catches the rollback's exception and attaches it with `e.addSuppressed(...)`."
+      "text": "In the shop's back office, editors tag products by hand while a nightly job adds seasonal tags. Nobody holds a lock while editing: an editor may sit on a product page for minutes. Since the job started running during office hours, editors report tags that \"didn't stick\": they saved, saw the tag, and an hour later it was gone. Every product row already has a `version` column that nothing uses yet."
     },
     {
       "type": "para",
-      "text": "Write `Transactions.inTransaction(connection, work)`. It turns autoCommit off, runs `work.run(connection)` and commits."
+      "text": "Finish the two `TODO`s in `src/main/java/practice/ProductTags.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "If the work throws, roll back and rethrow the work's exception. **If the rollback fails too, add its exception as suppressed and throw the original error.**",
-        "**An unchecked exception from the work rolls back too**, and is rethrown unchanged. (Careful: turning autoCommit back on commits an open transaction.)",
-        "**`autoCommit` is restored after a failure as well** as after success."
+        "`addTag(...)`: add one tag and save it, trying at most `ATTEMPTS` times;",
+        "`save(...)`: write the new tags, unless someone else saved the product since it was read."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "work",
-        "`rollback()`",
-        "thrown",
-        "rows kept"
-      ],
-      "rows": [
-        [
-          "insert 1, insert 2",
-          "-",
-          "nothing",
-          "1, 2"
-        ],
-        [
-          "insert 1, throw `SQLException(\"insert failed\")`",
-          "throws `SQLException(\"rollback failed\")`",
-          "`insert failed`, suppressed: `rollback failed`",
-          "-"
-        ],
-        [
-          "insert 1, throw `IllegalStateException`",
-          "works",
-          "`IllegalStateException`",
-          "none"
-        ]
-      ]
+      "type": "para",
+      "text": "Read products with `load(...)`. The other writers keep the `version` column the way your `save` does. When you're done, no writer's tag is lost, whoever saves first. About fifteen lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run each editor on its own connection to an in-memory H2 database, and use the `Pause` to let another writer save between an editor's read and its save."
     },
     {
       "type": "heading",
@@ -76,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    @FunctionalInterface\n    public interface Work {\n        void run(Connection connection) throws SQLException;\n    }\n\n    /** Runs the work in one transaction: commit on success, roll back on any exception. */\n    public static void inTransaction(Connection connection, Work work) throws SQLException {\n        connection.setAutoCommit(false);\n        try {\n            work.run(connection);\n            connection.commit();\n        } catch (SQLException | RuntimeException e) {\n            try {\n                connection.rollback();\n            } catch (SQLException rollbackFailure) {\n                e.addSuppressed(rollbackFailure);\n            }\n            throw e;\n        } finally {\n            connection.setAutoCommit(true);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\n\n/**\n * Adds tags to products in the shop's back office. Editors work without locks: an editor opens a\n * product, adds a tag and saves, and other editors and jobs may change the same product meanwhile.\n *\n * <p>Table: {@code product(id INT PRIMARY KEY, tags VARCHAR(500) NOT NULL, version INT NOT NULL)};\n * {@code tags} is a comma-separated list in the order the tags were added.\n */\npublic class ProductTags {\n\n    /** Runs after every read of a product. Production passes nothing. */\n    public interface Pause {\n        void between() throws Exception;\n    }\n\n    /** How many times one call tries to save before it gives up. */\n    static final int ATTEMPTS = 3;\n\n    private final Pause pause;\n\n    public ProductTags() {\n        this(() -> { });\n    }\n\n    public ProductTags(Pause pause) {\n        this.pause = pause;\n    }\n\n    record Product(String tags, int version) { }\n\n    /** Adds the tag to the product: true once saved, false if every attempt lost to another writer. */\n    public boolean addTag(Connection c, int productId, String tag) throws Exception {\n        c.setAutoCommit(false);\n        for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {\n            Product read = load(c, productId);\n            if (save(c, productId, withTag(read.tags(), tag), read.version())) {\n                c.commit();\n                return true;\n            }\n            c.rollback();\n        }\n        return false;\n    }\n\n    /** Writes the product's new tags. True if they were written. */\n    boolean save(Connection c, int productId, String tags, int versionRead) throws SQLException {\n        try (PreparedStatement p = c.prepareStatement(\n                \"UPDATE product SET tags = ?, version = version + 1 WHERE id = ? AND version = ?\")) {\n            p.setString(1, tags);\n            p.setInt(2, productId);\n            p.setInt(3, versionRead);\n            return p.executeUpdate() == 1;\n        }\n    }\n\n    /** Reads the product as it is now. Every read of a product goes through here. */\n    Product load(Connection c, int productId) throws Exception {\n        Product product;\n        try (PreparedStatement p = c.prepareStatement(\"SELECT tags, version FROM product WHERE id = ?\")) {\n            p.setInt(1, productId);\n            try (ResultSet r = p.executeQuery()) {\n                r.next();\n                product = new Product(r.getString(1), r.getInt(2));\n            }\n        }\n        pause.between();\n        return product;\n    }\n\n    static String withTag(String tags, String tag) {\n        return tags.isEmpty() ? tag : tags + \",\" + tag;\n    }\n}\n"
         }
       ]
     },
@@ -88,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    @FunctionalInterface\n    public interface Work {\n        void run(Connection connection) throws SQLException;\n    }\n\n    /** Runs the work in one transaction: commit on success, roll back on any exception. */\n    public static void inTransaction(Connection connection, Work work) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\n\n/**\n * Adds tags to products in the shop's back office. Editors work without locks: an editor opens a\n * product, adds a tag and saves, and other editors and jobs may change the same product meanwhile.\n *\n * <p>Table: {@code product(id INT PRIMARY KEY, tags VARCHAR(500) NOT NULL, version INT NOT NULL)};\n * {@code tags} is a comma-separated list in the order the tags were added.\n */\npublic class ProductTags {\n\n    /** Runs after every read of a product. Production passes nothing. */\n    public interface Pause {\n        void between() throws Exception;\n    }\n\n    /** How many times one call tries to save before it gives up. */\n    static final int ATTEMPTS = 3;\n\n    private final Pause pause;\n\n    public ProductTags() {\n        this(() -> { });\n    }\n\n    public ProductTags(Pause pause) {\n        this.pause = pause;\n    }\n\n    record Product(String tags, int version) { }\n\n    /** Adds the tag to the product: true once saved, false if every attempt lost to another writer. */\n    public boolean addTag(Connection c, int productId, String tag) throws Exception {\n        // TODO: Add the tag and save it. Other editors and jobs change products without locks, and\n        //       none of their changes may be lost. Give up after ATTEMPTS tries.\n        throw new IllegalStateException(\"TODO: addTag\");\n    }\n\n    /** Writes the product's new tags. True if they were written. */\n    boolean save(Connection c, int productId, String tags, int versionRead) throws SQLException {\n        // TODO: Write the new tags, unless someone else has saved the product since it was read.\n        throw new IllegalStateException(\"TODO: save\");\n    }\n\n    /** Reads the product as it is now. Every read of a product goes through here. */\n    Product load(Connection c, int productId) throws Exception {\n        Product product;\n        try (PreparedStatement p = c.prepareStatement(\"SELECT tags, version FROM product WHERE id = ?\")) {\n            p.setInt(1, productId);\n            try (ResultSet r = p.executeQuery()) {\n                r.next();\n                product = new Product(r.getString(1), r.getInt(2));\n            }\n        }\n        pause.between();\n        return product;\n    }\n\n    static String withTag(String tags, String tag) {\n        return tags.isEmpty() ? tag : tags + \",\" + tag;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -96,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -107,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7ee165498344af6f7f65112c04d99115e7612d6dd6e92c9c85c050172f576596",
-  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    @FunctionalInterface\n    public interface Work {\n        void run(Connection connection) throws SQLException;\n    }\n\n    /** Runs the work in one transaction: commit on success, roll back on any exception. */\n    public static void inTransaction(Connection connection, Work work) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "a5b42e37c400c988a145bf9a6735b88554e486b026a1ae3e25f9ac2cb8fd80aa",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\n\n/**\n * Adds tags to products in the shop's back office. Editors work without locks: an editor opens a\n * product, adds a tag and saves, and other editors and jobs may change the same product meanwhile.\n *\n * <p>Table: {@code product(id INT PRIMARY KEY, tags VARCHAR(500) NOT NULL, version INT NOT NULL)};\n * {@code tags} is a comma-separated list in the order the tags were added.\n */\npublic class ProductTags {\n\n    /** Runs after every read of a product. Production passes nothing. */\n    public interface Pause {\n        void between() throws Exception;\n    }\n\n    /** How many times one call tries to save before it gives up. */\n    static final int ATTEMPTS = 3;\n\n    private final Pause pause;\n\n    public ProductTags() {\n        this(() -> { });\n    }\n\n    public ProductTags(Pause pause) {\n        this.pause = pause;\n    }\n\n    record Product(String tags, int version) { }\n\n    /** Adds the tag to the product: true once saved, false if every attempt lost to another writer. */\n    public boolean addTag(Connection c, int productId, String tag) throws Exception {\n        // TODO: Add the tag and save it. Other editors and jobs change products without locks, and\n        //       none of their changes may be lost. Give up after ATTEMPTS tries.\n        throw new IllegalStateException(\"TODO: addTag\");\n    }\n\n    /** Writes the product's new tags. True if they were written. */\n    boolean save(Connection c, int productId, String tags, int versionRead) throws SQLException {\n        // TODO: Write the new tags, unless someone else has saved the product since it was read.\n        throw new IllegalStateException(\"TODO: save\");\n    }\n\n    /** Reads the product as it is now. Every read of a product goes through here. */\n    Product load(Connection c, int productId) throws Exception {\n        Product product;\n        try (PreparedStatement p = c.prepareStatement(\"SELECT tags, version FROM product WHERE id = ?\")) {\n            p.setInt(1, productId);\n            try (ResultSet r = p.executeQuery()) {\n                r.next();\n                product = new Product(r.getString(1), r.getInt(2));\n            }\n        }\n        pause.between();\n        return product;\n    }\n\n    static String withTag(String tags, String tag) {\n        return tags.isEmpty() ? tag : tags + \",\" + tag;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/src/main/java/practice/Transactions.java",
-    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/src/test/java/practice/TransactionsTest.java",
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/src/main/java/practice/ProductTags.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/src/test/java/practice/ProductTagsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -132,24 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TransactionsTest#commitsTheWorkAndRestoresAutoCommit",
+        "id": "practice.ProductTagsTest#addsTagsOneAfterAnother",
         "kind": "main",
-        "says": "Work that inserts two rows is committed (another connection sees both) and autoCommit is true again."
+        "says": "tags added one after another all end up on the product, in order"
       },
       {
-        "id": "practice.TransactionsTest#aFailingRollbackIsSuppressedNotThrown",
+        "id": "practice.ProductTagsTest#aTagAddedByAnotherJobMeanwhileIsKept",
         "kind": "edge",
-        "says": "When the work throws and rollback() throws too, the work's exception is thrown, with the rollback's exception in getSuppressed()."
+        "says": "a tag another job saved between the editor's read and save is still there afterwards"
       },
       {
-        "id": "practice.TransactionsTest#aRuntimeExceptionAlsoRollsBack",
+        "id": "practice.ProductTagsTest#twoEditorsAddingAtOnceBothKeepTheirTag",
         "kind": "edge",
-        "says": "Work that inserts a row and then throws IllegalStateException leaves no row, and the IllegalStateException reaches the caller."
+        "says": "two editors running the same code on the same product both keep their tag"
       },
       {
-        "id": "practice.TransactionsTest#autoCommitIsRestoredAfterAFailure",
+        "id": "practice.ProductTagsTest#anEditorWhoLosesTwiceStillSavesOnTheThirdTry",
         "kind": "edge",
-        "says": "After work that throws SQLException, the connection is back in autoCommit mode."
+        "says": "an editor whose first two saves lose to other writers saves on the third try, on top of their changes"
       }
     ],
     "report": {
@@ -158,11 +136,10 @@
     },
     "origin": {
       "path": "45-java-persistence/README_10.7.3.md",
-      "section": "4. Swallowing Rollback Exceptions"
+      "section": "A Version Column Turns a Lost Update into an Update Count of 0"
     },
     "concepts": [
-      "autoCommit is restored in a finally block, so a pooled connection is not handed on in manual mode.",
-      "A rollback that fails is attached to the original exception with addSuppressed, so the real cause is not lost."
+      "A version-checked UPDATE returns an update count of 0 when another writer saved first; the caller reads again before retrying, and every writer increments the version."
     ]
   }
 }

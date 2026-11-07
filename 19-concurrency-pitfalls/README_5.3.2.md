@@ -1,606 +1,296 @@
 # 5.3.2. Atomicity Violations and Ensuring Atomic Operations
 
-## Concept Explanation
-
-An **atomicity violation** occurs when an operation that should be indivisible is interrupted midway by another thread,
-leaving the system in an inconsistent state. In concurrent programming, "atomic" means that an operation either
-completes in full or not at all — from the perspective of other threads, there is no intermediate state.
-
-**Real-world analogy**: Consider a bank transfer: moving $100 from Account A to Account B requires two steps — debit A
-and credit B. If the system crashes (or another thread reads the balances) between those two steps, Account A has lost
-$100 but Account B has not received it. This is an atomicity violation. The two-step transfer must be an atomic
-transaction — both steps happen together or neither does.
-
-In Java, the following operations are NOT automatically atomic:
-- `i++` or `i--` (read-modify-write on any type)
-- `i += n` for any n
-- Any compound operation on multiple variables (e.g., updating both `x` and `y` to maintain an invariant)
-- `check-then-act` sequences (even with individually synchronized operations)
-- Any multi-step update to a data structure
-
-### Categories of Atomicity Violations
-
-1. **Single-variable compound operations**: `i++`, `i += n`, conditional assignment
-2. **Multi-variable invariants**: Two fields that must always satisfy a relationship
-3. **Check-then-act**: Reading state, making a decision, acting on it — all three must be atomic
-4. **Read-modify-write on collections**: Iterating and modifying a collection
-
-## Key Points to Remember
-
-1. The JVM guarantees atomic reads and writes for `int`, `char`, `byte`, `short`, `boolean`, `float`, and object
-   references — but NOT for `long` and `double` (which may be torn on 32-bit JVMs).
-2. `volatile` makes reads and writes of all types (including `long`/`double`) atomic for single operations.
-3. `AtomicInteger`, `AtomicLong`, `AtomicReference`, and other `java.util.concurrent.atomic` classes provide
-   compound-atomic operations via Compare-And-Swap (CAS).
-4. `synchronized` blocks/methods make an arbitrary sequence of operations appear atomic to other threads.
-5. `java.util.concurrent.locks.Lock` and `StampedLock` provide finer-grained atomicity control.
-6. CAS (Compare-And-Swap) is a hardware primitive that enables lock-free atomic operations.
-7. ABA problem: A value can be changed from A to B back to A between CAS attempts — `AtomicStampedReference` solves this.
-
-## Relevant Java 21 Features
-
-- **`VarHandle`** (Java 9+): Provides access to variable-level memory ordering and atomic operations with more
-  flexibility than `AtomicInteger`. Includes `compareAndSet`, `getAndAdd`, and memory-fence operations.
-- **`AtomicReferenceFieldUpdater`** and `VarHandle`: Can apply atomic operations to regular fields, avoiding the overhead
-  of wrapper classes.
-- **Virtual threads (Project Loom)**: Virtual threads make blocking synchronization (synchronized, ReentrantLock) much
-  less costly in terms of system resources, reducing the appeal of complex lock-free algorithms for most use cases.
-- **Structured concurrency**: Helps reason about which tasks share state and when state must be synchronized.
-- **`LongAccumulator` and `LongAdder`**: Introduced in Java 8, these specialized classes outperform `AtomicLong` in
-  high-contention write scenarios by using internal striping.
-
-## Common Pitfalls and How to Avoid Them
-
-### 1. Non-atomic compound operations on shared state
+A launch campaign gives a voucher to the first 1,000 people who sign up. The count is an
+`AtomicInteger`, and the voucher email goes out from inside the update, so that a customer is
+emailed only when the count really moves:
 
 ```java
-// PROBLEM: counter++ is not atomic
-class NonAtomicIncrement {
-    private int counter = 0;
+claimed.updateAndGet(n -> {
+    if (n >= CAP) return n;
+    emails.incrementAndGet();          // sendVoucherEmail(customer, n + 1)
+    return n + 1;
+});
+```
 
-    public void increment() {
-        counter++; // Compiles to: read counter, add 1, write counter — 3 steps!
-    }
-    // Two threads calling increment() 1000x each may yield counter < 2000
-}
+Sixteen threads take the launch burst. Afterwards the counter reads exactly 1,000, and the mail
+log shows 3,520 voucher emails. Every operation in the code is atomic.
 
-// SOLUTION: AtomicInteger
-class AtomicIncrement {
-    private final AtomicInteger counter = new AtomicInteger(0);
+An operation is atomic when no other thread can see it half done or act in its middle. A
+**compound action** (read, decide, write; or change two values that must agree) is atomic only if
+one operation does all of it. Every output below is from Java 21 on one machine
+(`availableProcessors()` printed 20); timings come from plain loops, not a JMH benchmark.
 
-    public void increment() {
-        counter.incrementAndGet(); // Atomic CAS-based operation
-    }
+## An Atomic Update Retries Until Its compareAndSet Wins, So Its Function Can Run Many Times
 
-    public int get() {
-        return counter.get();
+`updateAndGet` takes no lock; its JDK 21 source is a loop:
+
+```java
+public final int updateAndGet(IntUnaryOperator updateFunction) {
+    int prev = get(), next = 0;
+    for (boolean haveNext = false;;) {
+        if (!haveNext)
+            next = updateFunction.applyAsInt(prev);
+        if (weakCompareAndSetVolatile(prev, next))
+            return next;
+        haveNext = (prev == (prev = get()));
     }
 }
 ```
 
-### 2. Check-then-act races
-
-```java
-// PROBLEM: Non-atomic check-then-act on a map
-class NonAtomicCheckThenAct {
-    private final Map<String, Integer> map = new HashMap<>();
-
-    public void initializeIfAbsent(String key, int value) {
-        if (!map.containsKey(key)) {    // check
-            map.put(key, value);         // act — race: another thread may have inserted by now!
-        }
-    }
-}
-
-// SOLUTION: ConcurrentHashMap.putIfAbsent or computeIfAbsent
-class AtomicCheckThenAct {
-    private final ConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();
-
-    public void initializeIfAbsent(String key, int value) {
-        map.putIfAbsent(key, value); // Atomic check-and-insert
-    }
-
-    // Even better for expensive computations — compute is called at most once per key
-    public Integer getOrCompute(String key) {
-        return map.computeIfAbsent(key, k -> expensiveComputation(k));
-    }
-}
-```
-
-### 3. Non-atomic multi-variable updates
-
-```java
-// PROBLEM: Two fields must always be consistent, but they're updated separately
-class NonAtomicCoordinate {
-    private int x = 0;
-    private int y = 0;
-
-    public void moveTo(int newX, int newY) {
-        x = newX; // A reader may see x updated but not y
-        y = newY;
-    }
-
-    public String getPosition() {
-        return "(" + x + ", " + y + ")"; // May read an inconsistent state!
-    }
-}
-
-// SOLUTION 1: synchronized
-class SynchronizedCoordinate {
-    private int x = 0;
-    private int y = 0;
-
-    public synchronized void moveTo(int newX, int newY) {
-        x = newX;
-        y = newY;
-    }
-
-    public synchronized String getPosition() {
-        return "(" + x + ", " + y + ")";
-    }
-}
-
-// SOLUTION 2: Immutable value + volatile reference (lock-free)
-class ImmutableCoordinate {
-    private record Point(int x, int y) {}
-    private volatile Point position = new Point(0, 0);
-
-    public void moveTo(int newX, int newY) {
-        position = new Point(newX, newY); // Atomic reference replacement
-    }
-
-    public String getPosition() {
-        Point p = position; // Atomic volatile read — consistent snapshot
-        return "(" + p.x() + ", " + p.y() + ")";
-    }
-}
-```
-
-### 4. Iterating and modifying a list
-
-```java
-// PROBLEM: Concurrent modification during iteration
-class ConcurrentModificationProblem {
-    private final List<String> list = new ArrayList<>();
-
-    public void addAndClean(String item) {
-        list.add(item);
-        list.removeIf(s -> s.length() > 10); // Another thread adding at the same time may cause a
-                                             // ConcurrentModificationException or corrupt the list
-    }
-}
-
-// SOLUTION: CopyOnWriteArrayList (read-heavy workloads)
-class CopyOnWriteSolution {
-    private final List<String> list = new CopyOnWriteArrayList<>();
-    // All mutating operations create a new copy — iterators are always safe
-}
-```
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer high-level abstractions**: `ConcurrentHashMap`, `CopyOnWriteArrayList`, `BlockingQueue` are designed for
-   concurrent use and eliminate most atomicity concerns.
-2. **Use atomic classes**: `AtomicInteger`, `AtomicLong`, `AtomicReference`, `LongAdder` for single-variable
-   compound operations without locking.
-3. **Use synchronized for multi-variable invariants**: When multiple fields must be consistent together, synchronize
-   all accesses.
-4. **Minimize lock scope**: Hold locks only as long as necessary to reduce contention.
-5. **Use `LongAdder` over `AtomicLong` under high contention**: `LongAdder` uses internal striping to reduce CAS
-   failures.
-6. **Prefer immutable value objects**: Replacing mutable state with immutable snapshots + volatile reference
-   eliminates multi-variable atomicity issues.
-7. **Avoid holding locks during I/O or long computations**: This starves other threads. Compute outside the lock, then
-   apply results atomically.
-
-## Edge Cases and Their Handling
-
-### 1. ABA Problem in CAS-based algorithms
-
-```java
-// ABA: A -> B -> A between CAS attempts — CAS succeeds incorrectly
-class ABAProblemDemo {
-    private final AtomicReference<String> ref = new AtomicReference<>("A");
-
-    public void demonstrateABA() {
-        String expected = ref.get(); // Reads "A"
-        // Another thread changes A -> B -> A
-        // Our CAS: is ref still "A"? Yes — but the intermediate change is invisible!
-        ref.compareAndSet(expected, "C"); // Succeeds, but shouldn't in some algorithms
-    }
-
-    // Fix: AtomicStampedReference tracks version/stamp alongside the value
-    private final AtomicStampedReference<String> stampedRef =
-        new AtomicStampedReference<>("A", 0);
-
-    public boolean safeCompareAndSet(String expected, String update) {
-        int[] stamp = new int[1];
-        stampedRef.get(stamp); // read the current stamp
-        // Succeeds only if the reference is still 'expected' AND the stamp is unchanged
-        return stampedRef.compareAndSet(expected, update, stamp[0], stamp[0] + 1);
-    }
-}
-```
-
-### 2. Failed compareAndSet and retry loops
-
-`compareAndSet` fails whenever another thread changed the value between your read and your CAS, so a CAS-based update
-must run in a retry loop. (`compareAndSet` itself never fails spuriously; the `weakCompareAndSet*` variants may, which
-is one more reason to loop.)
-
-```java
-class CASRetryLoop {
-    private final AtomicInteger value = new AtomicInteger(0);
-
-    public void incrementIfPositive() {
-        int current;
-        do {
-            current = value.get();
-            if (current <= 0) return; // Condition not met — give up
-        } while (!value.compareAndSet(current, current + 1)); // Retry on failure
-    }
-}
-```
-
-### 3. Atomic maximum with LongAccumulator
-
-```java
-class OverflowSafeAccumulator {
-    private final LongAccumulator accumulator =
-        new LongAccumulator(Long::max, Long.MIN_VALUE); // Tracks the maximum
-
-    public void observe(long value) {
-        accumulator.accumulate(value);
-    }
-
-    public long getMax() {
-        return accumulator.get();
-    }
-}
-```
-
-## Interview-specific Insights
-
-Interviewers focus on:
-- The difference between atomicity and visibility (two orthogonal concerns)
-- Why `synchronized` provides both atomicity AND visibility (volatile only provides visibility)
-- The performance trade-offs between `synchronized`, `volatile`, and `Atomic*` classes
-- Understanding of CAS and its limitations (ABA problem, spin-loop overhead)
-- When to use `LongAdder` vs. `AtomicLong`
-
-Common tricky questions:
-- "Is reading a `volatile long` atomic?" — Yes, volatile makes long/double reads atomic.
-- "Can two `synchronized` methods on different objects deadlock?" — Yes, if they both try to lock each other's monitors.
-- "What is the difference between `AtomicInteger.getAndIncrement()` and `incrementAndGet()`?" — Return value: old vs.
-  new. Semantically equivalent for thread safety.
-
-## Interview Q&A Section
-
-**Q1: What is the difference between atomicity and visibility in concurrent programming?**
+It writes only if the value is still the one it read; otherwise it reads again and re-runs the
+function. So how many times does the function run when 8 threads each call
+`updateAndGet(n -> n + 1)` a million times?
 
 ```text
-A1: Atomicity and visibility are two distinct and orthogonal properties in concurrent programming,
-both of which must be ensured for correct multi-threaded code.
-
-Atomicity means that a set of operations appears as a single, indivisible action from the
-perspective of other threads. No other thread can observe an intermediate state. For example,
-a bank transfer (debit + credit) must be atomic — no thread should ever see the debit without the
-corresponding credit.
-
-Visibility means that when one thread writes a value, that write becomes visible to other threads.
-Without proper visibility guarantees, a thread may keep reading a stale value (for example one the
-JIT keeps in a register) even though another thread has written a new value.
-
-Relationship:
-- synchronized provides BOTH atomicity (mutual exclusion) AND visibility (memory flush/reload).
-- volatile provides ONLY visibility (no atomicity for compound operations).
-- AtomicInteger provides atomicity for specific operations (via CAS) AND visibility.
-
-A common mistake is using volatile thinking it provides atomicity — it does not!
-volatile int counter = 0; counter++; // Still not atomic!
+updateAndGet: counter = 8,000,000, function ran 22,139,089 times (14,139,089 re-runs)
 ```
 
+The function ran almost three times per update. For `n + 1` that only costs CPU; the voucher
+function sends an email from every losing attempt that was still below the cap. Three runs of the campaign, each followed by a version that decides inside the
+function and acts after it, on the value it returned:
+
 ```java
-class AtomicityVsVisibility {
-    // volatile: visible but NOT atomic for compound operations
-    private volatile int visibilityOnly = 0;
+int before = claimed.getAndUpdate(n -> n < CAP ? n + 1 : n);
+if (before < CAP) emails.incrementAndGet(); // sendVoucherEmail(customer, before + 1)
+```
 
-    // AtomicInteger: both visible and atomic
-    private final AtomicInteger atomicAndVisible = new AtomicInteger(0);
+```text
+email inside the function: vouchers = 1000, emails = 3520
+email after getAndUpdate:  vouchers = 1000, emails = 1000
+email inside the function: vouchers = 1000, emails = 1050
+email after getAndUpdate:  vouchers = 1000, emails = 1000
+email inside the function: vouchers = 1000, emails = 1000
+email after getAndUpdate:  vouchers = 1000, emails = 1000
+```
 
-    // synchronized: provides both atomicity and visibility
-    private int bothAtomicAndVisible = 0;
+The extra emails depend on how often threads collided, so a test with one thread, or a quiet day,
+sends exactly 1,000. The javadoc of `getAndUpdate`, `accumulateAndGet` and `LongAccumulator` says
+the function "should be side-effect-free, since it may be re-applied when attempted updates fail
+due to contention among threads". Keep the function a pure computation of the next value, and do
+the side effect once, after the update, from the value it returned. 
 
-    // NOT thread-safe: visible write but compound operation is still racy
-    public void unsafeIncrement() {
-        visibilityOnly++; // Read, add, write — 3 steps — racy!
-    }
+Write the loop yourself when the caller needs more than the new value back (did this caller win,
+which number did it get) or when the decision calls out, to a quota service, say: read, decide,
+`compareAndSet`, and on failure go back to the read. Every retry decides again on the new value;
+a decision kept from the first attempt is a check-then-act again (unit 5.3.1).
 
-    // Thread-safe: CAS provides atomicity, and AtomicInteger ensures visibility
-    public void safeAtomicIncrement() {
-        atomicAndVisible.incrementAndGet();
-    }
+<!-- practice 1 -->
 
-    // Thread-safe: synchronized provides both mutual exclusion and memory flushing
-    public synchronized void safeSynchronizedIncrement() {
-        bothAtomicAndVisible++;
-    }
+## LongAdder Counts Faster Under Contention Because No Single Variable Holds the Total
+
+Every `incrementAndGet` on an `AtomicLong` is an atomic add to one memory location, so threads
+that update it at the same time queue up for that location's cache line. `LongAdder` spreads
+contending threads over several cells and adds them up when asked. Ten million increments, split
+over the threads:
+
+```text
+threads  AtomicLong  LongAdder   (ms for 10,000,000 increments, best of 5)
+      1          48         43
+      2          77         22
+      4          83         16
+      8          91          8
+     16         105          7
+```
+
+With one thread they cost the same, as the javadoc says ("Under low update contention, the two
+classes have similar characteristics"). Neither lost an update: after the threads ended, every
+run's total was exactly 10,000,000.
+
+The price is that no variable holds the total. `sum()` takes no lock: it reads the cells one
+after another while they change, and its javadoc says the result is "NOT an atomic snapshot". A queue-depth gauge
+shows what that means: 4 producers add 1 and then enqueue a job, 4 consumers take a job and then
+subtract 1. Every subtraction follows its addition, so the depth is never below zero. A monitor
+read it 20 million times:
+
+```text
+LongAdder.sum()   reads below 0: 123  lowest: -149
+AtomicLong.get()  reads below 0: 0  lowest: 0
+```
+
+Two more runs gave 15 and 110 negative reads. `sum()` read a consumer's cell after its
+subtraction and a producer's cell before the matching addition, and returned a value the gauge
+never held. An alert on "depth below 0" fires; one on "depth above N" can fire late or early.
+
+`LongAdder` also has no `compareAndSet`, `incrementAndGet` or `getAndIncrement`. It can't hand out the next order number or stop at a cap. Use it for statistics
+that are read now and then; use `AtomicLong` when the value takes part in a decision.
+
+## compute and merge Are Atomic for One Key, Not for an Action Across Keys
+
+`ConcurrentHashMap.compute` and `merge` lock the key's bin while the function runs (unit 6.5.2),
+and the javadoc of `compute` promises "The supplied function is invoked exactly once per
+invocation of this method":
+
+```text
+ConcurrentHashMap.compute:      value 8,000,000, function ran 8,000,000 times
+AtomicReference.updateAndGet:   value 8,000,000, function ran 34,569,375 times
+```
+
+In exchange, other updates to that bin wait while the function runs, so the javadoc asks for a
+computation that is "short and simple" and must not modify the map.
+
+The atomicity covers one call on one key. A show has 200 seats, kept as two keys, and a booking
+moves one seat from free to sold with two `compute` calls:
+
+```java
+void book(Runnable between) {
+    seats.compute("show-9:free", (k, n) -> n - 1);
+    between.run();                                   // the booking thread is descheduled here
+    seats.compute("show-9:sold", (k, n) -> n + 1);
 }
 ```
 
-**Q2: Explain Compare-And-Swap (CAS) and how it enables lock-free programming.**
-
-```text
-A2: Compare-And-Swap (CAS) is a hardware-level atomic instruction supported by modern CPUs. It
-takes three operands:
-- V: the memory location to update
-- E: the expected value
-- N: the new value
-
-Semantics: "If the current value of V equals E, atomically replace it with N. Return whether the
-swap occurred (true/false)."
-
-The key insight is that this is done atomically at the hardware level — no interrupt or context
-switch can occur between the compare and the swap.
-
-Lock-free algorithms use CAS in a retry loop:
-1. Read current state
-2. Compute desired new state
-3. Try CAS — if it succeeds, we're done; if it fails, another thread changed the value, so retry
-
-Advantages over locks:
-- No deadlocks (threads never block each other)
-- Better throughput under low contention
-- More resilient to thread preemption
-
-Disadvantages:
-- ABA problem (resolved by AtomicStampedReference)
-- Starvation: under very high contention an individual thread can keep losing the CAS race and
-  retrying (the system as a whole still makes progress — some thread always succeeds)
-- Complex to implement correctly for non-trivial data structures
-```
+A latch holds the booking at `between` while another thread adds up the two keys. The fix keeps
+both numbers in one immutable value under one key, so the only pause point is before its one
+`compute`:
 
 ```java
-class CASDemo {
-    private final AtomicInteger counter = new AtomicInteger(0);
+record Show(int free, int sold) {
+    Show book() { return new Show(free - 1, sold + 1); }
+}
 
-    // Manual CAS retry loop — demonstrates how AtomicInteger works internally
-    public void incrementByN(int n) {
-        int current;
-        int next;
-        do {
-            current = counter.get();          // Read
-            next = current + n;               // Compute
-        } while (!counter.compareAndSet(current, next)); // Swap or retry
+void book(Runnable between) {
+    between.run();                                   // a single compute has no middle to pause in
+    shows.compute("show-9", (k, s) -> s.book());
+}
+```
+
+```text
+two keys: seats during a booking: 199
+two keys: seats after the booking:  200
+one key : seats during a booking: 200
+one key : seats after the booking:  200
+```
+
+Each `compute` was atomic, and a reader still saw 199 seats. A capacity check that runs in that
+window admits or refuses on a total that never existed; a scan of the whole map does the same
+(unit 6.5.3). What must stay consistent goes under one key, so that one `compute` changes all of
+it. If the values must live under different keys, every writer and every reader takes the same
+lock, and the map's own concurrency no longer helps.
+
+<!-- practice 2 -->
+
+## Values That Must Agree Need One Lock or One Immutable Holder Replaced by compareAndSet
+
+An account may go below zero only down to its overdraft limit: `balance >= -limit`. Both fields
+are `AtomicLong`s, and both operations check the rule against the other field. `pause.here()` is
+the example's hook for holding a thread after its check, on its first attempt only:
+
+```java
+boolean withdraw(long amount, Pause pause) {
+    long after = balance.get() - amount;
+    if (after < -limit.get()) return false;          // check against the other field
+    pause.here();
+    balance.set(after);
+    return true;
+}
+
+boolean lowerLimit(long newLimit, Pause pause) {
+    if (balance.get() < -newLimit) return false;
+    pause.here();
+    limit.set(newLimit);
+    return true;
+}
+```
+
+From balance 0 and limit 100, a withdrawal of 80 is held after its check while another thread
+lowers the limit to 50. Each check passes on its own; what does the account end up with?
+
+```text
+two atomics: withdraw 80 -> true, lower limit to 50 -> true, now balance -80, limit 50
+```
+
+Replacing `set` with `compareAndSet` on each field doesn't help: the withdrawal's CAS on `balance`
+succeeds, because the limit changed and the balance didn't. A CAS protects one variable; the rule
+reads two.
+
+So make them one variable: an immutable `Account` record holds both and refuses to exist in a
+state that breaks the rule, and an `AtomicReference` holds the current record. An update builds
+the next record from the current one and swaps it in with `compareAndSet`, retrying from the read:
+
+```java
+record Account(long balance, long limit) {
+    Account {
+        if (balance < -limit) throw new IllegalStateException("balance " + balance + " below -" + limit);
     }
+}
 
-    // Using VarHandle for direct field CAS (Java 9+)
-    private int rawField = 0;
-    private static final java.lang.invoke.VarHandle RAW_FIELD;
-
-    static {
+private boolean update(java.util.function.UnaryOperator<Account> change, Pause pause) {
+    while (true) {
+        Account current = account.get();
+        Account next;
         try {
-            RAW_FIELD = java.lang.invoke.MethodHandles.lookup()
-                .findVarHandle(CASDemo.class, "rawField", int.class);
-        } catch (ReflectiveOperationException e) {
-            throw new ExceptionInInitializerError(e);
+            next = change.apply(current);            // the record's constructor checks the rule
+        } catch (IllegalStateException e) {
+            return false;
         }
-    }
-
-    public boolean casOnRawField(int expected, int newValue) {
-        return RAW_FIELD.compareAndSet(this, expected, newValue);
+        pause.here();
+        if (account.compareAndSet(current, next)) return true;
     }
 }
-```
 
-**Q3: When should you use `LongAdder` instead of `AtomicLong`?**
+boolean withdraw(long amount, Pause pause) {
+    return update(a -> new Account(a.balance() - amount, a.limit()), pause);
+}
+```
 
 ```text
-A3: LongAdder (and its sibling DoubleAdder) are designed for scenarios with high write contention
-and infrequent reads. They achieve this by using an array of "cells" (a technique called striping),
-where threads update different cells concurrently. The sum() method adds all cells together.
-
-Use LongAdder when:
-1. Multiple threads frequently increment/add (high write contention)
-2. You only occasionally need the total (sum() is infrequent)
-3. You don't need atomic "get-and-set" semantics
-
-Use AtomicLong when:
-1. You need get-and-set, compareAndSet, or similar compound read-modify-write operations
-2. Write contention is low to moderate
-3. You need the current value immediately after an operation (not just eventual sum)
-4. You need atomic conditional updates (compareAndSet)
-
-Performance rule of thumb: Under high thread contention on writes, LongAdder can outperform
-AtomicLong by 10x or more. Under low contention, they are comparable.
+one holder : withdraw 80 -> false, lower limit to 50 -> true, now balance 0, limit 50
 ```
 
-```java
-class LongAdderVsAtomicLong {
-    private final AtomicLong atomicCounter = new AtomicLong(0);
-    private final LongAdder adderCounter = new LongAdder();
+The withdrawal's swap failed because the record had been replaced; its retry built a record with
+balance -80 against limit 50, and the constructor refused it. A `synchronized` method for every
+read and write of both fields (unit 6.2.1) gives the same guarantee and is simpler when the
+critical section is short. The holder lets readers take one consistent pair without a lock, and
+it costs an allocation per update and retries under contention. Unit 5.3.3 covers the
+single-writer case of this swap, where no compare-and-set is needed.
 
-    // AtomicLong: use when you need CAS or get-and-set
-    public long incrementAndGetAtomic() {
-        return atomicCounter.incrementAndGet(); // Returns new value
-    }
+<!-- practice 3 -->
 
-    public boolean conditionalUpdate(long expected, long newValue) {
-        return atomicCounter.compareAndSet(expected, newValue); // CAS
-    }
+## Summary
 
-    // LongAdder: use for high-contention increment-only scenarios
-    public void incrementAdder() {
-        adderCounter.increment(); // Low contention — contending threads are spread over several cells
-    }
+- **An atomic class's update is a compare-and-set retried until it wins.** The function you pass
+  can run several times per call; side effects belong after the update, decided from its result.
+- **`LongAdder` scales a counter by splitting it.** It is faster under contention, `sum()` is not a
+  snapshot, and it has no compare-and-set to make decisions with.
+- **`compute` and `merge` are atomic for one key.** Two calls, on two keys or on one, are two
+  steps that a reader can fall between; keep what must agree under one key.
+- **Values that must agree need one lock or one immutable holder.** Atomic fields keep each value
+  whole and let the rule between them break.
 
-    public long getTotalAdder() {
-        return adderCounter.sum(); // Sums all internal cells
-    }
+## Reference
 
-    public void resetAdder() {
-        adderCounter.reset(); // Resets to 0
-    }
+**What makes which compound action atomic (Java 21):**
 
-    // LongAccumulator for custom binary operations
-    private final LongAccumulator maxAccumulator =
-        new LongAccumulator(Long::max, Long.MIN_VALUE);
+| Tool | Atomic unit | Function re-run under contention | Notes |
+|---|---|---|---|
+| `AtomicInteger`/`AtomicLong`/`AtomicReference` `updateAndGet`, `getAndUpdate`, `accumulateAndGet` | one variable | yes ("may be re-applied") | lock-free; retries cost CPU |
+| hand-written `get` + `compareAndSet` loop | one variable | the loop body re-runs on every failure | decision retaken on the current value |
+| `LongAdder` `add`/`increment` | one increment | no function | `sum()` "is NOT an atomic snapshot"; `reset()` and `sumThenReset()` are exact only with no concurrent updates |
+| `LongAccumulator.accumulate` | one update | yes ("may be re-applied"); order of accumulation not guaranteed | for predictable results, the function should be associative and commutative |
+| `ConcurrentHashMap.compute` | one key | no: "invoked exactly once per invocation" | other updates to the bin wait while it runs |
+| `ConcurrentHashMap.merge` | one key | the javadoc says the whole call "is performed atomically" and doesn't promise one run | function must not update other mappings |
+| `synchronized` / a `Lock` on every access | whatever the block covers | no | readers must lock too |
+| immutable holder in an `AtomicReference` | every field of the holder | yes, the build of the next holder | one allocation per update |
 
-    public void observe(long value) {
-        maxAccumulator.accumulate(value);
-    }
+## Challenges
 
-    public long getObservedMax() {
-        return maxAccumulator.get();
-    }
-}
-```
+1. The voucher fix sends the email after `getAndUpdate`. If the mail server is down, the voucher
+   is counted and never sent. What would you record, and where, so that a retry sends each voucher
+   exactly once?
+2. Measure the `AtomicLong`/`LongAdder` table on your own machine with JMH. At how many threads do
+   they cross, and does that change with work between the increments?
+3. A rate limiter allows 100 requests per second per tenant and is checked on every request.
+   Would you keep the counts in a `ConcurrentHashMap<String, LongAdder>`, a
+   `ConcurrentHashMap<String, AtomicLong>` or one `compute` per request? Which wrong answers would
+   each one let through?
 
-**Q4: What is the ABA problem and how do you solve it?**
+## Design Note: Why the Atomic Classes Retry Instead of Lock
 
-```text
-A4: The ABA problem is a subtle issue in CAS-based algorithms. It occurs when:
-
-1. Thread A reads value V, getting result "A"
-2. Thread B changes V from "A" to "B"
-3. Thread B (or another thread) changes V from "B" back to "A"
-4. Thread A performs CAS: is V still "A"? Yes! But the intermediate state change was invisible.
-
-This can cause incorrect behavior in algorithms that need to detect whether a value has changed
-at all (not just what the current value is). Classic example: ABA in linked-list stack pop.
-
-Solutions:
-1. AtomicStampedReference<V>: pairs the value with an integer "stamp" (version counter). CAS
-   checks both value AND stamp — even if V returns to "A", the stamp will be different.
-2. AtomicMarkableReference<V>: uses a boolean mark alongside the reference.
-3. Epoch-based reclamation: tracks epochs when objects can be safely freed.
-4. Hazard pointers: track which objects are currently referenced by threads.
-
-In practice, many Java concurrent algorithms are immune to ABA because Java's garbage collector
-ensures that if you hold a reference to an object, that object can't be freed and reused at the
-same address (as can happen in C/C++). But logical ABA (same reference to a different "state") is
-still possible with mutable objects.
-```
-
-```java
-class ABASolution {
-    // Problem: ABA with AtomicReference
-    private final AtomicReference<String> atomicRef = new AtomicReference<>("A");
-
-    // Stamped reference: tracks version number alongside value
-    private final AtomicStampedReference<String> stampedRef =
-        new AtomicStampedReference<>("A", 0);
-
-    public boolean updateWithStamp(String expectedValue, String newValue) {
-        int[] stampHolder = new int[1];
-        String current = stampedRef.get(stampHolder);
-        int currentStamp = stampHolder[0];
-
-        // Both value AND stamp must match — prevents ABA
-        return stampedRef.compareAndSet(
-            expectedValue,     // expected value
-            newValue,          // new value
-            currentStamp,      // expected stamp
-            currentStamp + 1   // new stamp (incremented to detect any changes)
-        );
-    }
-
-    // Markable reference: tracks a boolean flag alongside value
-    private final AtomicMarkableReference<String> markableRef =
-        new AtomicMarkableReference<>("A", false);
-
-    public boolean markAndUpdate(String expectedValue, String newValue) {
-        boolean[] markHolder = new boolean[1];
-        String current = markableRef.get(markHolder);
-        // Only update if not marked for deletion
-        if (markHolder[0]) return false;
-        return markableRef.compareAndSet(expectedValue, newValue, false, false);
-    }
-}
-```
-
-**Q5: How do you ensure atomicity when multiple variables must be updated consistently?**
-
-```text
-A5: When multiple variables must satisfy a shared invariant, you have several options:
-
-1. synchronized blocks: Lock a common monitor before reading or writing any of the related fields.
-   This is the simplest and safest approach for most applications.
-
-2. Immutable snapshot + volatile reference: Replace the mutable multi-field state with an
-   immutable value object. Use a volatile reference to the current snapshot. Writers create a new
-   snapshot; readers read the reference (atomic volatile read provides a consistent snapshot).
-   This is lock-free and excellent for read-heavy workloads.
-
-3. ReadWriteLock: If reads are far more frequent than writes, ReadWriteLock allows concurrent
-   reads but exclusive writes.
-
-4. StampedLock (Java 8+): A more advanced lock supporting optimistic reads — check if a write
-   occurred after a read and retry if so. Very efficient for read-heavy workloads.
-
-5. Software transactional memory (STM): Not in the JDK; third-party libraries (e.g. ScalaSTM,
-   Multiverse) provide transactional memory semantics.
-
-The choice depends on contention, read/write ratio, and whether you can afford object creation
-for the immutable snapshot approach.
-```
-
-```java
-class MultiVariableAtomicity {
-    // Approach 1: synchronized
-    private int balance;
-    private int transactionCount;
-
-    public synchronized void deposit(int amount) {
-        balance += amount;
-        transactionCount++;
-    }
-
-    public synchronized int[] getBalanceAndCount() {
-        return new int[]{balance, transactionCount};
-    }
-
-    // (Each approach is meant to be used on its own: approaches 1 and 3 guard the same fields with
-    // DIFFERENT locks here, which would be broken if both were used — see 5.2.2 pitfall 1.)
-
-    // Approach 2: Immutable snapshot in an AtomicReference (read and CAS the SAME reference)
-    private record AccountState(int balance, int transactionCount) {}
-    private final java.util.concurrent.atomic.AtomicReference<AccountState> stateRef =
-        new java.util.concurrent.atomic.AtomicReference<>(new AccountState(0, 0));
-
-    public void depositLockFree(int amount) {
-        AccountState current;
-        AccountState next;
-        do {
-            current = stateRef.get();
-            next = new AccountState(current.balance() + amount, current.transactionCount() + 1);
-        } while (!stateRef.compareAndSet(current, next));
-    }
-
-    // Approach 3: ReadWriteLock for read-heavy
-    private final java.util.concurrent.locks.ReadWriteLock rwLock =
-        new java.util.concurrent.locks.ReentrantReadWriteLock();
-
-    public int readBalance() {
-        rwLock.readLock().lock();
-        try {
-            return balance;
-        } finally {
-            rwLock.readLock().unlock();
-        }
-    }
-
-    public void writeDeposit(int amount) {
-        rwLock.writeLock().lock();
-        try {
-            balance += amount;
-            transactionCount++;
-        } finally {
-            rwLock.writeLock().unlock();
-        }
-    }
-}
-```
+A compare-and-set never blocks: a thread that loses tries again, and some thread always wins, so a
+descheduled thread can't hold the others up the way a lock holder can. A lock gives the opposite
+trade: the work runs once, and everyone else waits for the holder, however long it is
+descheduled. Which to use depends first on whether the work may run twice, and then on how long
+it runs.
 
 ## Code Examples
 

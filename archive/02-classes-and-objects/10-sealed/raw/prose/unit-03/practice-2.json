@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A door as a sealed state machine",
+  "title": "Load old ticket rows into states that can't contradict themselves",
   "blocks": [
     {
       "type": "heading",
@@ -19,68 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page suggests sealed types for state machines: only the valid states exist, and the transitions between them are controlled. `Door` models a door whose state is one of three records of a sealed interface `State`: `Opened()`, `Closed()` and `Locked(String code)`."
+      "text": "The help desk's old ticket table has a `status` column (`OPEN`, `ASSIGNED`, `RESOLVED`) and two columns that may be null: `agent` and `resolution`. Years of manual fixes left rows that contradict their status, and the dashboard shows tickets \"resolved by null\". The new code keeps each ticket as one of three records, `Open`, `Assigned` and `Resolved`, each holding the data of its state."
     },
     {
       "type": "para",
-      "text": "Write the four transitions. Each takes the current state and returns the next one:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "transition",
-        "from `Opened`",
-        "from `Closed`",
-        "from `Locked(c)`"
-      ],
-      "rows": [
-        [
-          "`open(s)`",
-          "`Opened`",
-          "`Opened`",
-          "refused"
-        ],
-        [
-          "`close(s)`",
-          "`Closed`",
-          "`Closed`",
-          "unchanged"
-        ],
-        [
-          "`lock(s, code)`",
-          "refused",
-          "`Locked(code)`",
-          "unchanged"
-        ],
-        [
-          "`unlock(s, code)`",
-          "unchanged",
-          "unchanged",
-          "`Closed` if `code` equals `c`, else unchanged"
-        ]
-      ]
+      "text": "Finish `src/main/java/practice/Tickets.java`: the two constructors marked `TODO` and `fromRow`. When you're done, no code path, the loader or any other, can produce an `Assigned` without an agent or a `Resolved` without an agent and a resolution (a blank string counts as missing). A row that doesn't fit its status is refused with an `IllegalArgumentException` that lets the data team find the row; nothing in it is silently dropped. `requireText` and `requireEmpty` are there to use. About twenty lines in total."
     },
     {
       "type": "para",
-      "text": "A code matches when its text is the same."
-    },
-    {
-      "type": "para",
-      "text": "\"Refused\" means throw `IllegalStateException`. \"Unchanged\" means return the state you were given. Switch over the state; `State` is sealed, so no `default` is needed."
-    },
-    {
-      "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`open(new Closed())` -> `Opened[]`",
-        "`lock(new Closed(), \"1234\")` -> `Locked[code=1234]`",
-        "`unlock(new Locked(\"1234\"), \"1234\")` -> `Closed[]`",
-        "`open(new Locked(\"1234\"))` -> throws `IllegalStateException`"
-      ]
+      "text": "The tests use their own ticket ids, agents and rows."
     },
     {
       "type": "heading",
@@ -95,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Door {\n\n    public sealed interface State permits Opened, Closed, Locked {\n    }\n\n    public record Opened() implements State {\n    }\n\n    public record Closed() implements State {\n    }\n\n    public record Locked(String code) implements State {\n    }\n\n    public static State open(State s) {\n        return switch (s) {\n            case Opened o -> o;\n            case Closed c -> new Opened();\n            case Locked l -> throw new IllegalStateException(\"a locked door does not open\");\n        };\n    }\n\n    public static State close(State s) {\n        return switch (s) {\n            case Opened o -> new Closed();\n            case Closed c -> c;\n            case Locked l -> l;\n        };\n    }\n\n    public static State lock(State s, String code) {\n        return switch (s) {\n            case Opened o -> throw new IllegalStateException(\"close the door before locking it\");\n            case Closed c -> new Locked(code);\n            case Locked l -> l;\n        };\n    }\n\n    public static State unlock(State s, String code) {\n        return switch (s) {\n            case Locked l when l.code().equals(code) -> new Closed();\n            case Opened o -> o;\n            case Closed c -> c;\n            case Locked l -> l;\n        };\n    }\n}\n"
+          "text": "package practice;\n\n/** Support tickets, loaded from the old table into one record per state. */\npublic class Tickets {\n\n    public sealed interface Ticket permits Open, Assigned, Resolved {\n        String id();\n    }\n\n    public record Open(String id) implements Ticket {\n        public Open {\n            requireText(id, \"id\");\n        }\n    }\n\n    public record Assigned(String id, String agent) implements Ticket {\n        public Assigned {\n            requireText(id, \"id\");\n            requireText(agent, \"agent\");\n        }\n    }\n\n    public record Resolved(String id, String agent, String resolution) implements Ticket {\n        public Resolved {\n            requireText(id, \"id\");\n            requireText(agent, \"agent\");\n            requireText(resolution, \"resolution\");\n        }\n    }\n\n    /** One row of the old table: a status and two columns that may be null. */\n    public record Row(String id, String status, String agent, String resolution) {}\n\n    static void requireText(String value, String name) {\n        if (value == null || value.isBlank()) {\n            throw new IllegalArgumentException(name + \" is missing\");\n        }\n    }\n\n    /**\n     * Loads one row. A row whose columns don't fit its status is refused with an\n     * IllegalArgumentException whose message names the row's id.\n     */\n    public static Ticket fromRow(Row row) {\n        try {\n            return switch (row.status()) {\n                case \"OPEN\" -> {\n                    requireEmpty(row.agent(), \"agent\");\n                    requireEmpty(row.resolution(), \"resolution\");\n                    yield new Open(row.id());\n                }\n                case \"ASSIGNED\" -> {\n                    requireEmpty(row.resolution(), \"resolution\");\n                    yield new Assigned(row.id(), row.agent());\n                }\n                case \"RESOLVED\" -> new Resolved(row.id(), row.agent(), row.resolution());\n                default -> throw new IllegalArgumentException(\"unknown status \" + row.status());\n            };\n        } catch (IllegalArgumentException e) {\n            throw new IllegalArgumentException(\"row \" + row.id() + \": \" + e.getMessage(), e);\n        }\n    }\n\n    static void requireEmpty(String value, String name) {\n        if (value != null) {\n            throw new IllegalArgumentException(name + \" set on a ticket in this state\");\n        }\n    }\n\n    /** Writes a ticket back as a row. */\n    public static Row toRow(Ticket t) {\n        return switch (t) {\n            case Open o -> new Row(o.id(), \"OPEN\", null, null);\n            case Assigned a -> new Row(a.id(), \"ASSIGNED\", a.agent(), null);\n            case Resolved r -> new Row(r.id(), \"RESOLVED\", r.agent(), r.resolution());\n        };\n    }\n}\n"
         }
       ]
     },
@@ -107,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Door {\n\n    public sealed interface State permits Opened, Closed, Locked {\n    }\n\n    public record Opened() implements State {\n    }\n\n    public record Closed() implements State {\n    }\n\n    public record Locked(String code) implements State {\n    }\n\n    public static State open(State s) {\n        throw new UnsupportedOperationException(\"write open\");\n    }\n\n    public static State close(State s) {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n\n    public static State lock(State s, String code) {\n        throw new UnsupportedOperationException(\"write lock\");\n    }\n\n    public static State unlock(State s, String code) {\n        throw new UnsupportedOperationException(\"write unlock\");\n    }\n}\n"
+      "text": "package practice;\n\n/** Support tickets, loaded from the old table into one record per state. */\npublic class Tickets {\n\n    public sealed interface Ticket permits Open, Assigned, Resolved {\n        String id();\n    }\n\n    public record Open(String id) implements Ticket {\n        public Open {\n            requireText(id, \"id\");\n        }\n    }\n\n    public record Assigned(String id, String agent) implements Ticket {\n        public Assigned {\n            // TODO: refuse an Assigned that lacks what an assigned ticket must have.\n            throw new IllegalStateException(\"TODO: Assigned\");\n        }\n    }\n\n    public record Resolved(String id, String agent, String resolution) implements Ticket {\n        public Resolved {\n            // TODO: refuse a Resolved that lacks what a resolved ticket must have.\n            throw new IllegalStateException(\"TODO: Resolved\");\n        }\n    }\n\n    /** One row of the old table: a status and two columns that may be null. */\n    public record Row(String id, String status, String agent, String resolution) {}\n\n    static void requireText(String value, String name) {\n        if (value == null || value.isBlank()) {\n            throw new IllegalArgumentException(name + \" is missing\");\n        }\n    }\n\n    /**\n     * Loads one row. A row whose columns don't fit its status is refused with an\n     * IllegalArgumentException whose message names the row's id.\n     */\n    public static Ticket fromRow(Row row) {\n        // TODO: turn the row into the ticket its status names, or refuse it.\n        throw new IllegalStateException(\"TODO: fromRow\");\n    }\n\n    static void requireEmpty(String value, String name) {\n        if (value != null) {\n            throw new IllegalArgumentException(name + \" set on a ticket in this state\");\n        }\n    }\n\n    /** Writes a ticket back as a row. */\n    public static Row toRow(Ticket t) {\n        return switch (t) {\n            case Open o -> new Row(o.id(), \"OPEN\", null, null);\n            case Assigned a -> new Row(a.id(), \"ASSIGNED\", a.agent(), null);\n            case Resolved r -> new Row(r.id(), \"RESOLVED\", r.agent(), r.resolution());\n        };\n    }\n}\n"
     }
   ],
   "video": null,
@@ -115,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 5,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -126,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9ae6093419023194f948439c70767512ddc9f657748d9f1f10743c7b3922661a",
-  "starting_code": "package practice;\n\npublic class Door {\n\n    public sealed interface State permits Opened, Closed, Locked {\n    }\n\n    public record Opened() implements State {\n    }\n\n    public record Closed() implements State {\n    }\n\n    public record Locked(String code) implements State {\n    }\n\n    public static State open(State s) {\n        throw new UnsupportedOperationException(\"write open\");\n    }\n\n    public static State close(State s) {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n\n    public static State lock(State s, String code) {\n        throw new UnsupportedOperationException(\"write lock\");\n    }\n\n    public static State unlock(State s, String code) {\n        throw new UnsupportedOperationException(\"write unlock\");\n    }\n}\n",
+  "content_sha256": "40f3b5e8a6235c3c0e8839091aea6c8be313afc80883471106c5ac52f052b4b0",
+  "starting_code": "package practice;\n\n/** Support tickets, loaded from the old table into one record per state. */\npublic class Tickets {\n\n    public sealed interface Ticket permits Open, Assigned, Resolved {\n        String id();\n    }\n\n    public record Open(String id) implements Ticket {\n        public Open {\n            requireText(id, \"id\");\n        }\n    }\n\n    public record Assigned(String id, String agent) implements Ticket {\n        public Assigned {\n            // TODO: refuse an Assigned that lacks what an assigned ticket must have.\n            throw new IllegalStateException(\"TODO: Assigned\");\n        }\n    }\n\n    public record Resolved(String id, String agent, String resolution) implements Ticket {\n        public Resolved {\n            // TODO: refuse a Resolved that lacks what a resolved ticket must have.\n            throw new IllegalStateException(\"TODO: Resolved\");\n        }\n    }\n\n    /** One row of the old table: a status and two columns that may be null. */\n    public record Row(String id, String status, String agent, String resolution) {}\n\n    static void requireText(String value, String name) {\n        if (value == null || value.isBlank()) {\n            throw new IllegalArgumentException(name + \" is missing\");\n        }\n    }\n\n    /**\n     * Loads one row. A row whose columns don't fit its status is refused with an\n     * IllegalArgumentException whose message names the row's id.\n     */\n    public static Ticket fromRow(Row row) {\n        // TODO: turn the row into the ticket its status names, or refuse it.\n        throw new IllegalStateException(\"TODO: fromRow\");\n    }\n\n    static void requireEmpty(String value, String name) {\n        if (value != null) {\n            throw new IllegalArgumentException(name + \" set on a ticket in this state\");\n        }\n    }\n\n    /** Writes a ticket back as a row. */\n    public static Row toRow(Ticket t) {\n        return switch (t) {\n            case Open o -> new Row(o.id(), \"OPEN\", null, null);\n            case Assigned a -> new Row(a.id(), \"ASSIGNED\", a.agent(), null);\n            case Resolved r -> new Row(r.id(), \"RESOLVED\", r.agent(), r.resolution());\n        };\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-2/src/main/java/practice/Door.java",
-    "test_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-2/src/test/java/practice/DoorTest.java",
+    "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-2/src/main/java/practice/Tickets.java",
+    "test_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-2/src/test/java/practice/TicketsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -151,29 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DoorTest#aDoorOpensClosesLocksAndUnlocks",
+        "id": "practice.TicketsTest#loadsEveryConsistentRowIntoItsState",
         "kind": "main",
-        "says": "A closed door opens, closes, locks with a code and unlocks with the same code."
+        "says": "each consistent row becomes the record its status names, and writing it back gives the same row"
       },
       {
-        "id": "practice.DoorTest#aLockedDoorDoesNotOpen",
-        "kind": "edge",
-        "says": "Opening a locked door is refused with IllegalStateException."
+        "id": "practice.TicketsTest#refusesRowsThatLackTheirStatesData",
+        "kind": "main",
+        "says": "a row missing the agent or resolution its status needs, or with an unknown status, is refused"
       },
       {
-        "id": "practice.DoorTest#anOpenDoorCannotBeLocked",
+        "id": "practice.TicketsTest#codeCannotBuildATicketWithoutItsData",
         "kind": "edge",
-        "says": "Locking an open door is refused with IllegalStateException."
+        "says": "code that builds an Assigned or Resolved directly, without its data, is refused by the record itself"
       },
       {
-        "id": "practice.DoorTest#theWrongCodeKeepsItLocked",
+        "id": "practice.TicketsTest#refusesARowCarryingDataItsStateCannotHave",
         "kind": "edge",
-        "says": "Unlocking with the wrong code leaves the door locked with its own code."
+        "says": "a row whose status can't have an agent or a resolution, but has one, is refused rather than trimmed"
       },
       {
-        "id": "practice.DoorTest#theCodeIsComparedByItsText",
+        "id": "practice.TicketsTest#aRefusalNamesTheRowSoItCanBeFixed",
         "kind": "edge",
-        "says": "A code typed in as a different String object with the same text unlocks the door."
+        "says": "a refused row's exception message names the row's id"
       }
     ],
     "report": {
@@ -182,10 +129,10 @@
     },
     "origin": {
       "path": "10-sealed/README_2.5.3.md",
-      "section": "2. State Machines"
+      "section": "Give Each State Its Own Record, and an Order Without a Tracking Number Can't Be Shipped"
     },
     "concepts": [
-      "Sealed states let a state machine define only its valid states and control every transition between them."
+      "Each state is a record holding only the data true in that state; the compact constructor, not the record itself, refuses a state built without its data."
     ]
   }
 }

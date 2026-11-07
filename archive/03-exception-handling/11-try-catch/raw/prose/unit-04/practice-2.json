@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Trace when the resource closes, the catch runs and finally runs",
+  "title": "Keep the archive reader's connection pool full",
   "blocks": [
     {
       "type": "heading",
@@ -19,38 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A try-with-resources statement can carry `catch` and `finally` blocks, as in the page's syntax example. The resources are closed as the `try` block exits, before any `catch` or `finally` block of the same statement runs."
+      "text": "The billing importer reads the first record of each meter archive from the archive store, over a pool of a few connections. `ArchiveReader.Decoder` checks an archive's header when it is constructed, and closing a decoder closes the connection under it, the way a stream decorator closes the stream it wraps."
     },
     {
       "type": "para",
-      "text": "Write `Traced.run(Opener opener, Body body, List<String> log)` as one try-with-resources statement with a `catch` and a `finally`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "declare the resource `opener.open(\"r\")` (the opener and the resource record `\"open r\"` and `\"close r\"` in the same log themselves);",
-        "run `body`, then add `\"body done\"`;",
-        "catch any `IOException` (from opening, from the body or from closing) and add `\"caught \" + message`; anything else leaves `run` unchanged, after the steps below;",
-        "in `finally`, add `\"finally\"`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "body",
-        "log"
-      ],
-      "rows": [
-        [
-          "completes",
-          "`open r, body done, close r, finally`"
-        ]
-      ]
+      "text": "Two things went wrong last month. A partner uploaded a few hundred CSV exports instead of archives, and from then on every import failed with `pool exhausted`. And on an ordinary day, two imports were found reading over the same connection at once."
     },
     {
       "type": "para",
-      "text": "Work out where `\"caught boom\"` lands when the body throws `IOException(\"boom\")`, and which block handles a failure of the resource's own `close()`."
+      "text": "Finish the two `TODO`s in `src/main/java/practice/ArchiveReader.java`: `firstRecord(...)` and `Lease.close()`. When you're done, a rejected file costs the pool nothing, and a connection is never handed to two readers. About six lines in total."
     },
     {
       "type": "heading",
@@ -65,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.List;\n\npublic final class Traced {\n\n    private Traced() {\n    }\n\n    /** A resource that may fail to close. */\n    public interface Resource extends AutoCloseable {\n        @Override\n        void close() throws IOException;\n    }\n\n    /** Opens a resource by name. */\n    public interface Opener {\n        Resource open(String name) throws IOException;\n    }\n\n    /** The work done while the resource is open. */\n    public interface Body {\n        void run() throws IOException;\n    }\n\n    /** Runs {@code body} with the resource \"r\" open, recording the steps in {@code log}. */\n    public static void run(Opener opener, Body body, List<String> log) {\n        try (Resource resource = opener.open(\"r\")) {\n            body.run();\n            log.add(\"body done\");\n        } catch (IOException e) {\n            log.add(\"caught \" + e.getMessage());\n        } finally {\n            log.add(\"finally\");\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Reads meter archives from the archive store through a small pool of connections. An archive\n * is text: the line \"ARC1\", then one record per line.\n */\npublic class ArchiveReader {\n\n    /** A fixed set of connections to the archive store. */\n    public static final class Pool {\n        private final Deque<Lease> idle = new ArrayDeque<>();\n\n        /** A pool of {@code size} connections, all reading the given archive. */\n        public Pool(int size, String archive) {\n            for (int i = 1; i <= size; i++) idle.addLast(new Lease(this, \"lease-\" + i, archive));\n        }\n\n        /** Takes an idle connection; close the lease to give it back. */\n        public Lease borrow() {\n            Lease lease = idle.pollFirst();\n            if (lease == null) throw new IllegalStateException(\"pool exhausted\");\n            lease.inUse = true;\n            return lease;\n        }\n\n        /** The connections waiting to be borrowed, next one first. */\n        public List<Lease> idle() {\n            return List.copyOf(idle);\n        }\n\n        void giveBack(Lease lease) {\n            idle.addFirst(lease);\n        }\n    }\n\n    /** One borrowed connection to the archive store. */\n    public static final class Lease implements AutoCloseable {\n        private final Pool pool;\n        private final String id;\n        private final String archive;\n        boolean inUse;   // true while somebody holds this lease\n\n        Lease(Pool pool, String id, String archive) {\n            this.pool = pool;\n            this.id = id;\n            this.archive = archive;\n        }\n\n        String fetch() {\n            return archive;\n        }\n\n        @Override\n        public String toString() {\n            return id;\n        }\n\n        /** Gives the connection back to its pool. */\n        @Override\n        public void close() {\n            if (!inUse) return;\n            inUse = false;\n            pool.giveBack(this);\n        }\n    }\n\n    /** Reads an archive over a lease. Closing it closes the lease, as a stream decorator does. */\n    public static final class Decoder implements AutoCloseable {\n        private final Lease lease;\n        private final String[] lines;\n        private int next = 1;\n\n        /** Fetches the archive and checks its header. */\n        public Decoder(Lease lease) throws IOException {\n            String[] lines = lease.fetch().split(\"\\n\");\n            if (!lines[0].equals(\"ARC1\")) throw new IOException(\"not an archive: \" + lines[0]);\n            this.lease = lease;\n            this.lines = lines;\n        }\n\n        /** The next record, or null after the last. */\n        public String readRecord() {\n            return next < lines.length ? lines[next++] : null;\n        }\n\n        @Override\n        public void close() {\n            lease.close();\n        }\n    }\n\n    /** The first record of the archive, read over a connection borrowed from the pool. */\n    public static String firstRecord(Pool pool) throws IOException {\n        try (Lease lease = pool.borrow();\n             Decoder decoder = new Decoder(lease)) {\n            return decoder.readRecord();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -77,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.List;\n\npublic final class Traced {\n\n    private Traced() {\n    }\n\n    /** A resource that may fail to close. */\n    public interface Resource extends AutoCloseable {\n        @Override\n        void close() throws IOException;\n    }\n\n    /** Opens a resource by name. */\n    public interface Opener {\n        Resource open(String name) throws IOException;\n    }\n\n    /** The work done while the resource is open. */\n    public interface Body {\n        void run() throws IOException;\n    }\n\n    /** Runs {@code body} with the resource \"r\" open, recording the steps in {@code log}. */\n    public static void run(Opener opener, Body body, List<String> log) {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Reads meter archives from the archive store through a small pool of connections. An archive\n * is text: the line \"ARC1\", then one record per line.\n */\npublic class ArchiveReader {\n\n    /** A fixed set of connections to the archive store. */\n    public static final class Pool {\n        private final Deque<Lease> idle = new ArrayDeque<>();\n\n        /** A pool of {@code size} connections, all reading the given archive. */\n        public Pool(int size, String archive) {\n            for (int i = 1; i <= size; i++) idle.addLast(new Lease(this, \"lease-\" + i, archive));\n        }\n\n        /** Takes an idle connection; close the lease to give it back. */\n        public Lease borrow() {\n            Lease lease = idle.pollFirst();\n            if (lease == null) throw new IllegalStateException(\"pool exhausted\");\n            lease.inUse = true;\n            return lease;\n        }\n\n        /** The connections waiting to be borrowed, next one first. */\n        public List<Lease> idle() {\n            return List.copyOf(idle);\n        }\n\n        void giveBack(Lease lease) {\n            idle.addFirst(lease);\n        }\n    }\n\n    /** One borrowed connection to the archive store. */\n    public static final class Lease implements AutoCloseable {\n        private final Pool pool;\n        private final String id;\n        private final String archive;\n        boolean inUse;   // true while somebody holds this lease\n\n        Lease(Pool pool, String id, String archive) {\n            this.pool = pool;\n            this.id = id;\n            this.archive = archive;\n        }\n\n        String fetch() {\n            return archive;\n        }\n\n        @Override\n        public String toString() {\n            return id;\n        }\n\n        /** Gives the connection back to its pool. */\n        @Override\n        public void close() {\n            // TODO: Put this connection back among the pool's idle ones (pool.giveBack), so the\n            //       next borrow() can hand it out. Two readers must never hold one connection.\n            throw new IllegalStateException(\"TODO: close\");\n        }\n    }\n\n    /** Reads an archive over a lease. Closing it closes the lease, as a stream decorator does. */\n    public static final class Decoder implements AutoCloseable {\n        private final Lease lease;\n        private final String[] lines;\n        private int next = 1;\n\n        /** Fetches the archive and checks its header. */\n        public Decoder(Lease lease) throws IOException {\n            String[] lines = lease.fetch().split(\"\\n\");\n            if (!lines[0].equals(\"ARC1\")) throw new IOException(\"not an archive: \" + lines[0]);\n            this.lease = lease;\n            this.lines = lines;\n        }\n\n        /** The next record, or null after the last. */\n        public String readRecord() {\n            return next < lines.length ? lines[next++] : null;\n        }\n\n        @Override\n        public void close() {\n            lease.close();\n        }\n    }\n\n    /** The first record of the archive, read over a connection borrowed from the pool. */\n    public static String firstRecord(Pool pool) throws IOException {\n        // TODO: Borrow a connection, read the archive's first record through a Decoder, and leave\n        //       the connection back in the pool whatever happens, a file that is not an archive\n        //       included.\n        throw new IllegalStateException(\"TODO: firstRecord\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -87,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -96,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c68f9cae459b023b95629b953224940e2aca57dd35098dd9c141a56745a7ccf5",
-  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.util.List;\n\npublic final class Traced {\n\n    private Traced() {\n    }\n\n    /** A resource that may fail to close. */\n    public interface Resource extends AutoCloseable {\n        @Override\n        void close() throws IOException;\n    }\n\n    /** Opens a resource by name. */\n    public interface Opener {\n        Resource open(String name) throws IOException;\n    }\n\n    /** The work done while the resource is open. */\n    public interface Body {\n        void run() throws IOException;\n    }\n\n    /** Runs {@code body} with the resource \"r\" open, recording the steps in {@code log}. */\n    public static void run(Opener opener, Body body, List<String> log) {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n",
+  "content_sha256": "cb0a9e62877834e032fa0bdfa97e87cb4bc1921c752fc07498a8faf156d3b0fb",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Reads meter archives from the archive store through a small pool of connections. An archive\n * is text: the line \"ARC1\", then one record per line.\n */\npublic class ArchiveReader {\n\n    /** A fixed set of connections to the archive store. */\n    public static final class Pool {\n        private final Deque<Lease> idle = new ArrayDeque<>();\n\n        /** A pool of {@code size} connections, all reading the given archive. */\n        public Pool(int size, String archive) {\n            for (int i = 1; i <= size; i++) idle.addLast(new Lease(this, \"lease-\" + i, archive));\n        }\n\n        /** Takes an idle connection; close the lease to give it back. */\n        public Lease borrow() {\n            Lease lease = idle.pollFirst();\n            if (lease == null) throw new IllegalStateException(\"pool exhausted\");\n            lease.inUse = true;\n            return lease;\n        }\n\n        /** The connections waiting to be borrowed, next one first. */\n        public List<Lease> idle() {\n            return List.copyOf(idle);\n        }\n\n        void giveBack(Lease lease) {\n            idle.addFirst(lease);\n        }\n    }\n\n    /** One borrowed connection to the archive store. */\n    public static final class Lease implements AutoCloseable {\n        private final Pool pool;\n        private final String id;\n        private final String archive;\n        boolean inUse;   // true while somebody holds this lease\n\n        Lease(Pool pool, String id, String archive) {\n            this.pool = pool;\n            this.id = id;\n            this.archive = archive;\n        }\n\n        String fetch() {\n            return archive;\n        }\n\n        @Override\n        public String toString() {\n            return id;\n        }\n\n        /** Gives the connection back to its pool. */\n        @Override\n        public void close() {\n            // TODO: Put this connection back among the pool's idle ones (pool.giveBack), so the\n            //       next borrow() can hand it out. Two readers must never hold one connection.\n            throw new IllegalStateException(\"TODO: close\");\n        }\n    }\n\n    /** Reads an archive over a lease. Closing it closes the lease, as a stream decorator does. */\n    public static final class Decoder implements AutoCloseable {\n        private final Lease lease;\n        private final String[] lines;\n        private int next = 1;\n\n        /** Fetches the archive and checks its header. */\n        public Decoder(Lease lease) throws IOException {\n            String[] lines = lease.fetch().split(\"\\n\");\n            if (!lines[0].equals(\"ARC1\")) throw new IOException(\"not an archive: \" + lines[0]);\n            this.lease = lease;\n            this.lines = lines;\n        }\n\n        /** The next record, or null after the last. */\n        public String readRecord() {\n            return next < lines.length ? lines[next++] : null;\n        }\n\n        @Override\n        public void close() {\n            lease.close();\n        }\n    }\n\n    /** The first record of the archive, read over a connection borrowed from the pool. */\n    public static String firstRecord(Pool pool) throws IOException {\n        // TODO: Borrow a connection, read the archive's first record through a Decoder, and leave\n        //       the connection back in the pool whatever happens, a file that is not an archive\n        //       included.\n        throw new IllegalStateException(\"TODO: firstRecord\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-2/src/main/java/practice/Traced.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-2/src/test/java/practice/TracedTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-2/src/main/java/practice/ArchiveReader.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-2/src/test/java/practice/ArchiveReaderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -121,29 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TracedTest#aCleanRunClosesThenRunsFinally",
+        "id": "practice.ArchiveReaderTest#readsTheFirstRecordOfEachArchiveWithoutRunningOutOfConnections",
         "kind": "main",
-        "says": "A clean run opens, runs the body, closes the resource, then runs finally."
+        "says": "the first record of a valid archive is returned, read after read, from a pool of one connection"
       },
       {
-        "id": "practice.TracedTest#theCatchRunsAfterTheResourceIsClosed",
+        "id": "practice.ArchiveReaderTest#aFileThatIsNotAnArchiveStillGivesItsConnectionBack",
         "kind": "edge",
-        "says": "When the body throws, the resource is closed before the catch block runs."
+        "says": "a file the decoder rejects while being constructed still leaves its connection back in the pool"
       },
       {
-        "id": "practice.TracedTest#aCloseFailureIsCaughtByTheSameCatch",
+        "id": "practice.ArchiveReaderTest#aConnectionGoesBackToThePoolOnlyOnce",
         "kind": "edge",
-        "says": "A failure while closing the resource is caught by the statement's own catch block."
-      },
-      {
-        "id": "practice.TracedTest#anUncheckedFailureLeavesAfterFinally",
-        "kind": "edge",
-        "says": "Only an IOException is caught; an unchecked failure leaves the method, after the resource is closed and the finally block has run."
-      },
-      {
-        "id": "practice.TracedTest#anOpenFailureIsCaughtToo",
-        "kind": "edge",
-        "says": "A failure to open the resource is caught by the statement's own catch, and finally still runs."
+        "says": "after a read, the pool hands its connections to two borrowers as two different connections"
       }
     ],
     "report": {
@@ -152,10 +119,11 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.4.md",
-      "section": "Syntax"
+      "section": "Only a Resource That Finished Constructing Is Closed, So Declare Each Stream Separately"
     },
     "concepts": [
-      "A catch or finally block of a try-with-resources statement runs after its resources are closed, and it also sees close failures."
+      "Declared separately, a wrapped resource is closed twice; Closeable requires that to be harmless, AutoCloseable does not, so a close() of your own must be idempotent.",
+      "Only a resource that finished constructing is closed, so a stream created inside another resource's constructor call leaks when that constructor throws; declaring each stream separately closes it."
     ]
   }
 }

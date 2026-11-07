@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "18-happens-before"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "ordinal": 3,
+  "title": "Check yourself: publishing objects safely",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-session-racy-reference",
+        "stem": "A `Session` class has a `final String userId` and a plain `long expiresAtMillis`, both set in its constructor, which hands `this` to nobody. A login thread builds a session and stores it in a plain, non-volatile field. A request thread on another core later reads that field and gets the new reference. Which fields will it read as the constructor set them, on any JVM and any CPU?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Both fields, since the final and the plain one were set before the login thread stored the reference",
+            "correct": false,
+            "says": "the login thread's order of writes binds no other thread without an edge; the reader may get the reference without the plain field's value"
+          },
+          {
+            "id": "b",
+            "text": "Only userId, since a final field is frozen when the constructor ends and a racy read still sees it frozen",
+            "correct": true,
+            "says": "JLS 17.5 guarantees final fields to any thread that sees the reference after the constructor finished, even through a data race; plain fields get no guarantee"
+          },
+          {
+            "id": "c",
+            "text": "Both fields, since a reference is written atomically, so the object behind it arrives complete",
+            "correct": false,
+            "says": "atomicity of the reference write (JLS 17.7) means no half reference; it says nothing about the object's fields"
+          },
+          {
+            "id": "d",
+            "text": "Only expiresAtMillis, since a long is written in one step while a final reference can be read before its target",
+            "correct": false,
+            "says": "a long written in the constructor gets no guarantee through a race; the final reference field is the one JLS 17.5 covers"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.3.md",
+          "section": "final Fields Are Guaranteed Through a Race, and Nothing Else in the Object Is"
+        }
+      },
+      {
+        "id": "q-signing-keys-initializer",
+        "stem": "A `Signing` class declares `static final KeyPair KEYS = Vault.fetchKeys();`. At startup the vault is restarting, so the first call to `Signing.sign(...)` fails with an exception from `fetchKeys()`. Thirty seconds later the vault is back, and requests keep calling `Signing.sign(...)`. What do those calls get until the process restarts?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Working signatures, since the next use of the class runs its initializer again and now reaches the vault",
+            "correct": false,
+            "says": "a class whose initializer threw is marked as failed and is never initialized again in that class loader"
+          },
+          {
+            "id": "b",
+            "text": "An ExceptionInInitializerError on every call, since the class keeps the first failure and throws it to each caller",
+            "correct": false,
+            "says": "only the first use gets ExceptionInInitializerError; later uses get NoClassDefFoundError"
+          },
+          {
+            "id": "c",
+            "text": "A NoClassDefFoundError on every call, since the class was marked as failed when its initializer threw",
+            "correct": true,
+            "says": "JLS 12.4.2 marks the class erroneous; every later use gets NoClassDefFoundError: Could not initialize class"
+          },
+          {
+            "id": "d",
+            "text": "Working signatures, since the JVM retries a failed initializer once the first exception has been reported",
+            "correct": false,
+            "says": "nothing retries a failed initializer; only a new class loader or a restart initializes the class again"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.3.md",
+          "section": "A Static Initializer Publishes to Every Thread, and Fails for Every Thread"
+        }
+      },
+      {
+        "id": "q-tariff-through-map",
+        "stem": "A loader thread constructs a `Tariff` whose fields are all plain (not final, not volatile), sets two more of its fields through setters, then calls `tariffs.put(\"2025-Q3\", tariff)` on a `ConcurrentHashMap`. Nobody changes the tariff after that. A pricing thread later calls `tariffs.get(\"2025-Q3\")` and gets it. What may the pricing thread read from the tariff's fields?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Every value written before the put, since the put happens-before the get that returned the tariff",
+            "correct": true,
+            "says": "a concurrent collection is a safe publication: everything written before the put is visible after the get that returns the element"
+          },
+          {
+            "id": "b",
+            "text": "Only the values written in the constructor, since the put publishes the tariff as its constructor left it",
+            "correct": false,
+            "says": "the edge covers every write made before the release, setters included; only changes after the put need an edge of their own"
+          },
+          {
+            "id": "c",
+            "text": "Possibly defaults for all of them, since the get makes the reference visible but not the fields behind it",
+            "correct": false,
+            "says": "the map's put/get edge orders all of the loader's earlier writes before the pricing thread's later reads"
+          },
+          {
+            "id": "d",
+            "text": "Possibly defaults for all of them, since only final fields reach a thread that did not build the tariff",
+            "correct": false,
+            "says": "an effectively immutable object needs one safe publication, not final fields; the final-field guarantee matters only for a racy reference"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.3.md",
+          "section": "Safe Publication Is an Edge From the Object's Construction to the Read of Its Reference"
+        }
+      },
+      {
+        "id": "q-batcher-starts-thread",
+        "stem": "An `OrderBatcher` constructor runs `this.flusher = new Thread(this::flushLoop); flusher.start(); this.maxBatch = config.maxBatch();`, where `maxBatch` is a `final int`. `flushLoop` reads `maxBatch` as soon as it runs. What may `flushLoop` read?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The configured size, since maxBatch is final, and a final value is frozen before flushLoop can read it",
+            "correct": false,
+            "says": "the final-field guarantee is only for threads that see the object after its constructor finished; the flusher got it before"
+          },
+          {
+            "id": "b",
+            "text": "Possibly 0, since flusher.start() ran before maxBatch was set, and start() publishes only the Thread's own state",
+            "correct": false,
+            "says": "start() publishes every write the starting thread made before it, not only the Thread object's; the assignment after start() is what nothing orders"
+          },
+          {
+            "id": "c",
+            "text": "The configured size, since flusher.start() ran before flushLoop, and start() publishes the constructor's writes",
+            "correct": false,
+            "says": "the start() edge covers the writes before start(), not the assignment that comes after it"
+          },
+          {
+            "id": "d",
+            "text": "Possibly 0, since flusher.start() ran before maxBatch was set, and start() publishes only earlier writes",
+            "correct": true,
+            "says": "this escaped to the flusher before the constructor finished, so neither the start() edge nor the final-field guarantee covers maxBatch"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.3.md",
+          "section": "A Constructor That Lets this Escape Hands Out an Object Before It Is Built"
+        }
+      }
+    ]
+  }
+}

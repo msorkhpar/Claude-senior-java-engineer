@@ -1,18 +1,16 @@
-A birthday is a `LocalDate`: only the date matters. Here "today" comes from
-a `Clock` passed in rather than from `LocalDate.now()`, so a test can fix the
-moment and the zone.
+A lender's support desk gets the same complaint every spring. A customer whose loan contract says
+"due on the 30th" is asked to pay on the 28th in March, April and every month after. Another,
+whose first instalment was due on 30 June and whose contract says "the last day of each month",
+is asked for 30 July instead of 31 July. Late fees are charged against both schedules.
 
-Write `Ages`:
+The contract, as the lawyers wrote it: instalments are due on the same day of the month as the
+first one; in a month that has no such day, on that month's last day. A loan whose first
+instalment fell on the last day of its month is due on the last day of every month.
 
-- `static int ageOn(LocalDate birth, LocalDate on)` returns the number of whole
-  years from `birth` to `on`. A year counts only once the birthday has been
-  reached. A `birth` after `on` is refused with an `IllegalArgumentException`.
-- `static int ageToday(LocalDate birth, Clock clock)` is the age on today's
-  date, where today is the date `clock` shows **in the clock's own zone**.
+`Instalments.schedule` already lists the due dates. Finish the two `TODO`s in
+`src/main/java/practice/Instalments.java`:
 
-| call | answer |
-|---|---|
-| `ageOn(1990-06-15, 2024-06-15)` | `34` |
-| `ageOn(1990-06-15, 2024-06-14)` | `33` |
-| `ageOn(2000-03-01, 2023-03-01)` | `23` |
-| `ageToday(1990-06-15, Clock.fixed(2024-06-14T20:00:00Z, Asia/Tokyo))` | `34` (it is already June 15 in Tokyo) |
+- `dueDate(first, n)`: the due date of instalment `n`, where instalment `0` is due on `first`;
+- `isMonthEnd(date)`: whether a date is the last day of its month.
+
+About four lines in total. The tests use loans that start in 2027 and 2028, leap years included.

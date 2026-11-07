@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A sorter that delegates to whichever strategy it holds",
+  "title": "Let one shipping policy quote for every request thread",
   "blocks": [
     {
       "type": "heading",
@@ -19,51 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The Strategy pattern has three parts: a **strategy interface**, the concrete strategies, and a **context** that holds one strategy and delegates to it. The page's first pitfall is a context whose strategy can be `null`: it fails with a `NullPointerException` far from the mistake."
+      "text": "The checkout page quotes shipping through one `ShippingPolicy` object that every request thread calls. The carrier's rate table is a remote service, and a lookup can take 300 ms. The version in production, `ByWeightV1`, gives the right price in every unit test, yet support has tickets from customers who were quoted the price of somebody else's parcel, and only at busy hours."
     },
     {
       "type": "para",
-      "text": "`SortStrategy<T>` (given) has `List<T> sort(List<T> data)` and `String name()`. Write the context, `Sorter<T>`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`new Sorter<>(strategy)` keeps the strategy; `null` throws `IllegalArgumentException`.",
-        "`sort(data)` returns what the current strategy returns for `data`.",
-        "`setStrategy(next)` **replaces the strategy** used by every later `sort()`; `null` is refused with `IllegalArgumentException` here too, and the old strategy stays.",
-        "`getStrategy()` returns the current strategy."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "strategy held",
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "ascending",
-          "`sort([3, 1, 2])`",
-          "`[1, 2, 3]`"
-        ],
-        [
-          "ascending, then `setStrategy(descending)`",
-          "`sort([3, 1, 2])`",
-          "`[3, 2, 1]`"
-        ],
-        [
-          "ascending",
-          "`setStrategy(null)`",
-          "`IllegalArgumentException`"
-        ],
-        [
-          "none",
-          "`new Sorter<>(null)`",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "text": "Write `quoteCents` in `ByWeight`, in `src/main/java/practice/ShippingQuotes.java`. It gives every parcel the price `ByWeightV1` gives it when called on its own: billable kilograms (the grams rounded up, at least 1) times the zone's rate, plus 20 % for the zone `island`. One `ByWeight` serves every thread at once, and a quote must not wait for another parcel's rate lookup. Leave `ByWeightV1` as it is. About three lines in total."
     },
     {
       "type": "heading",
@@ -78,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class Sorter<T extends Comparable<T>> {\n\n    public interface SortStrategy<T extends Comparable<T>> {\n        List<T> sort(List<T> data);\n\n        String name();\n    }\n\n    private SortStrategy<T> strategy;\n\n    public Sorter(SortStrategy<T> strategy) {\n        if (strategy == null) {\n            throw new IllegalArgumentException(\"Strategy cannot be null\");\n        }\n        this.strategy = strategy;\n    }\n\n    public void setStrategy(SortStrategy<T> next) {\n        if (next == null) {\n            throw new IllegalArgumentException(\"Strategy cannot be null\");\n        }\n        this.strategy = next;\n    }\n\n    public SortStrategy<T> getStrategy() {\n        return strategy;\n    }\n\n    public List<T> sort(List<T> data) {\n        return strategy.sort(data);\n    }\n}\n"
+          "text": "package practice;\n\n/** Shipping quotes for the checkout page. */\npublic class ShippingQuotes {\n\n    public record Parcel(String id, int grams, String zone) {}\n\n    /** The carrier's rate table. In production each lookup is a remote call of up to 300 ms. */\n    public interface RateTable {\n        long centsPerKg(String zone);\n    }\n\n    public interface ShippingPolicy {\n        long quoteCents(Parcel parcel);\n    }\n\n    /**\n     * The version in production. Its quotes are right in every unit test, and under load some\n     * customers are shown the price of another customer's parcel.\n     */\n    public static final class ByWeightV1 implements ShippingPolicy {\n        private final RateTable rates;\n        private long kg;\n        private String zone;\n\n        public ByWeightV1(RateTable rates) {\n            this.rates = rates;\n        }\n\n        @Override\n        public long quoteCents(Parcel parcel) {\n            weigh(parcel);\n            long rate = rates.centsPerKg(zone);\n            return withSurcharge(kg * rate);\n        }\n\n        private void weigh(Parcel parcel) {\n            kg = Math.max(1, (parcel.grams() + 999) / 1000);\n            zone = parcel.zone();\n        }\n\n        private long withSurcharge(long cents) {\n            return zone.equals(\"island\") ? cents * 120 / 100 : cents;\n        }\n    }\n\n    /**\n     * Its replacement: the same prices, from one instance that serves every request thread.\n     * Billable kilograms are the grams rounded up, at least 1; the price is kilograms times the\n     * zone's rate, plus 20 % for the zone \"island\".\n     */\n    public static final class ByWeight implements ShippingPolicy {\n        private final RateTable rates;\n\n        public ByWeight(RateTable rates) {\n            this.rates = rates;\n        }\n\n        @Override\n        public long quoteCents(Parcel parcel) {\n            long kg = Math.max(1, (parcel.grams() + 999) / 1000);\n            long cents = kg * rates.centsPerKg(parcel.zone());\n            return parcel.zone().equals(\"island\") ? cents * 120 / 100 : cents;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -90,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Sorter<T extends Comparable<T>> {\n\n    public interface SortStrategy<T extends Comparable<T>> {\n        List<T> sort(List<T> data);\n\n        String name();\n    }\n\n    public Sorter(SortStrategy<T> strategy) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void setStrategy(SortStrategy<T> next) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public SortStrategy<T> getStrategy() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public List<T> sort(List<T> data) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\n/** Shipping quotes for the checkout page. */\npublic class ShippingQuotes {\n\n    public record Parcel(String id, int grams, String zone) {}\n\n    /** The carrier's rate table. In production each lookup is a remote call of up to 300 ms. */\n    public interface RateTable {\n        long centsPerKg(String zone);\n    }\n\n    public interface ShippingPolicy {\n        long quoteCents(Parcel parcel);\n    }\n\n    /**\n     * The version in production. Its quotes are right in every unit test, and under load some\n     * customers are shown the price of another customer's parcel.\n     */\n    public static final class ByWeightV1 implements ShippingPolicy {\n        private final RateTable rates;\n        private long kg;\n        private String zone;\n\n        public ByWeightV1(RateTable rates) {\n            this.rates = rates;\n        }\n\n        @Override\n        public long quoteCents(Parcel parcel) {\n            weigh(parcel);\n            long rate = rates.centsPerKg(zone);\n            return withSurcharge(kg * rate);\n        }\n\n        private void weigh(Parcel parcel) {\n            kg = Math.max(1, (parcel.grams() + 999) / 1000);\n            zone = parcel.zone();\n        }\n\n        private long withSurcharge(long cents) {\n            return zone.equals(\"island\") ? cents * 120 / 100 : cents;\n        }\n    }\n\n    /**\n     * Its replacement: the same prices, from one instance that serves every request thread.\n     * Billable kilograms are the grams rounded up, at least 1; the price is kilograms times the\n     * zone's rate, plus 20 % for the zone \"island\".\n     */\n    public static final class ByWeight implements ShippingPolicy {\n        private final RateTable rates;\n\n        public ByWeight(RateTable rates) {\n            this.rates = rates;\n        }\n\n        @Override\n        public long quoteCents(Parcel parcel) {\n            // TODO: quote the parcel at the same price ByWeightV1 gives it, from one instance that\n            // every request thread calls at the same time, while some rate lookups are slow.\n            throw new IllegalStateException(\"TODO: quote the parcel\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -100,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -109,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7dabb91332dd8c40a42c3abe102cd5c4984b0d6f1412e0cfe14a1e77bc607d86",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Sorter<T extends Comparable<T>> {\n\n    public interface SortStrategy<T extends Comparable<T>> {\n        List<T> sort(List<T> data);\n\n        String name();\n    }\n\n    public Sorter(SortStrategy<T> strategy) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void setStrategy(SortStrategy<T> next) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public SortStrategy<T> getStrategy() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public List<T> sort(List<T> data) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "08fa29d02f1aa9f176aa6dc064608920a217d440629c90957047a63d1de77b3b",
+  "starting_code": "package practice;\n\n/** Shipping quotes for the checkout page. */\npublic class ShippingQuotes {\n\n    public record Parcel(String id, int grams, String zone) {}\n\n    /** The carrier's rate table. In production each lookup is a remote call of up to 300 ms. */\n    public interface RateTable {\n        long centsPerKg(String zone);\n    }\n\n    public interface ShippingPolicy {\n        long quoteCents(Parcel parcel);\n    }\n\n    /**\n     * The version in production. Its quotes are right in every unit test, and under load some\n     * customers are shown the price of another customer's parcel.\n     */\n    public static final class ByWeightV1 implements ShippingPolicy {\n        private final RateTable rates;\n        private long kg;\n        private String zone;\n\n        public ByWeightV1(RateTable rates) {\n            this.rates = rates;\n        }\n\n        @Override\n        public long quoteCents(Parcel parcel) {\n            weigh(parcel);\n            long rate = rates.centsPerKg(zone);\n            return withSurcharge(kg * rate);\n        }\n\n        private void weigh(Parcel parcel) {\n            kg = Math.max(1, (parcel.grams() + 999) / 1000);\n            zone = parcel.zone();\n        }\n\n        private long withSurcharge(long cents) {\n            return zone.equals(\"island\") ? cents * 120 / 100 : cents;\n        }\n    }\n\n    /**\n     * Its replacement: the same prices, from one instance that serves every request thread.\n     * Billable kilograms are the grams rounded up, at least 1; the price is kilograms times the\n     * zone's rate, plus 20 % for the zone \"island\".\n     */\n    public static final class ByWeight implements ShippingPolicy {\n        private final RateTable rates;\n\n        public ByWeight(RateTable rates) {\n            this.rates = rates;\n        }\n\n        @Override\n        public long quoteCents(Parcel parcel) {\n            // TODO: quote the parcel at the same price ByWeightV1 gives it, from one instance that\n            // every request thread calls at the same time, while some rate lookups are slow.\n            throw new IllegalStateException(\"TODO: quote the parcel\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-01/practice-1/src/main/java/practice/Sorter.java",
-    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-01/practice-1/src/test/java/practice/SorterTest.java",
+    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-01/practice-1/src/main/java/practice/ShippingQuotes.java",
+    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-01/practice-1/src/test/java/practice/ShippingQuotesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -134,24 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SorterTest#sortsWithTheStrategyItHolds",
+        "id": "practice.ShippingQuotesTest#quotesEachParcelByWeightAndZone",
         "kind": "main",
-        "says": "sort() hands the data to the strategy given to the constructor and returns that strategy's answer."
+        "says": "a parcel is priced at its billable kilograms times its zone's rate, with 20 % more for island parcels"
       },
       {
-        "id": "practice.SorterTest#aSwitchedStrategyIsUsedFromTheNextCall",
+        "id": "practice.ShippingQuotesTest#aQuoteWaitingOnTheRateTableKeepsItsOwnParcel",
         "kind": "edge",
-        "says": "After setStrategy(other), the next sort() uses the other strategy."
+        "says": "a quote that waits on its rate lookup while another quote runs to the end through the same policy still prices its own parcel"
       },
       {
-        "id": "practice.SorterTest#theSetterRefusesNullToo",
+        "id": "practice.ShippingQuotesTest#aSlowRateLookupDoesNotHoldUpOtherQuotes",
         "kind": "edge",
-        "says": "setStrategy(null) throws IllegalArgumentException and the sorter keeps working with its old strategy."
-      },
-      {
-        "id": "practice.SorterTest#theConstructorRefusesNull",
-        "kind": "edge",
-        "says": "new Sorter<>(null) throws IllegalArgumentException at once, not a NullPointerException on the first sort."
+        "says": "a quote for another zone finishes while one rate lookup is still waiting"
       }
     ],
     "report": {
@@ -160,11 +115,11 @@
     },
     "origin": {
       "path": "38-behavioral-patterns/README_9.3.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Strategy Object Is Shared, So a Field in It Is Shared State"
     },
     "concepts": [
-      "A context holds a reference to a strategy interface and delegates the algorithm to it, and a setter swaps the strategy at runtime.",
-      "A context validates its strategy in the constructor and the setter, so a null strategy fails at once with IllegalArgumentException."
+      "One strategy instance serves every thread, so fields that carry per-call values between its steps mix concurrent calls; keeping those values in locals or a value the call owns fixes it.",
+      "Making the shared fields volatile doesn't stop the race and made it far more frequent; synchronized makes it correct but makes every caller queue behind one lock, including behind a slow call."
     ]
   }
 }

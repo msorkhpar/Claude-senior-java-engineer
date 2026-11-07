@@ -1,20 +1,11 @@
-The page's fifth pitfall: `em.find(Employee.class, 1)` twice in one
-persistence context gives `e1 == e2`. The `EntityManager` keeps each loaded
-entity in its first-level cache, keyed by id, and hands back the same managed
-instance. Build that cache by hand.
+The billing overview lists every invoice with its lines. It loads them with
+`loadAllSlowly()`, and the database team has traced one overview to 341 statements. The
+numbers are right; the round trips are the problem.
 
-`ProductSession` is given an open `Connection` to
-`products(id INT PRIMARY KEY, name VARCHAR, price DECIMAL(10,2))`.
-`find(id)` returns `Optional<Product>`:
+Write `loadAll()` in `src/main/java/practice/InvoiceRepository.java`. It returns what
+`loadAllSlowly()` returns: every invoice in id order, including invoices that have no lines
+yet, each one once, with its lines in line-number order. It may send the database only one
+statement, however many invoices there are. About fifteen lines in total.
 
-- The first `find` of an id loads the row; later calls in the same session
-  return the same instance and **run no query**.
-- **Ids are compared by value**, so id 1000 is cached like id 7.
-- **Each session has its own cache**: a new session loads its own instance.
-- An id with no row gives `Optional.empty()`.
-
-| calls | answer | queries run |
-|---|---|---|
-| `s.find(7)`, `s.find(7)` | the same `Product[7, Pen, 1.50]` twice | 1 |
-| `s.find(1000)`, `s.find(1000)` | the same instance twice | 1 |
-| `s1.find(7)`, `s2.find(7)` | two different instances | 2 |
+The tests run the repository against H2 in memory through a connection that counts the
+statements it executes.

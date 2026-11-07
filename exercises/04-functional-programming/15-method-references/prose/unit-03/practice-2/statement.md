@@ -1,15 +1,12 @@
-`Comparator.comparing(Employee::department)` builds a comparator from a key-extracting
-method reference; `thenComparing` adds a tie-breaker, and `comparingDouble` avoids
-boxing a `double` key. `reversed()` reverses **the whole comparator it is called on**.
+The operations notifier turns events into short notices. Each event names a template and
+carries one payload: a single value, an `Object[]` from the JSON decoder when the event has
+several values, or an `int[]` from the metrics feed. The notifier takes its renderer as a
+`BiFunction<String, Object, String>`, and until now it was configured with `String::format`.
+Notices with one value went out fine. The first event with two values failed with
+`MissingFormatArgumentException`, and the on-call engineer never heard about the cache that had
+restarted four times.
 
-`Employee` is a record `(String name, String department, double salary)`. Write
-`Roster.ranked(List<Employee> employees)`: it returns the names ordered by department,
-then salary (highest first, compared exactly), then name. Departments and names compare
-with `String::compareTo`, so capitals come before lower case.
-
-| employees | result |
-|---|---|
-| Alice (Engineering, 95 000), Bob (Marketing, 75 000), Charlie (Engineering, 88 000), Diana (Marketing, 82 000), Eve (Engineering, 95 000) | `["Alice", "Eve", "Charlie", "Diana", "Bob"]` |
-
-The page builds it from method references. Be careful which part of the chain you reverse, and
-what happens when two people in a department earn the same.
+Finish `render(String template, Object payload)` in `src/main/java/practice/Notices.java`, which
+the notifier now uses as `Notices::render`. Each value of the payload fills the next format
+specifier of the template, whatever kind of payload the event carries. About three lines in
+total.

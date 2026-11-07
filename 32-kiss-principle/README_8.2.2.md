@@ -1,433 +1,348 @@
 # 8.2.2. Applying KISS in Concurrent Programming
 
-## Concept Explanation
+A warehouse service moves stock between 100 bins on four threads. A dashboard audit adds up the
+bins and raises an alert when the total isn't 100,000. The alert fires on almost every audit, yet
+the closing count is always exactly 100,000. Every bin has its own lock, and every move takes both
+bins' locks in a fixed order.
 
-Concurrency is one of the most error-prone areas of software development. Bugs in concurrent code are notoriously difficult to reproduce, diagnose, and fix because they depend on non-deterministic thread scheduling. The KISS principle is especially critical in concurrent programming because every additional layer of complexity multiplies the number of possible interleavings and the risk of subtle bugs such as race conditions, deadlocks, and visibility issues.
+Every output is from Java 21 on one 20-core
+machine; timings come from plain loops, not a benchmark harness.
 
-Applying KISS to concurrency means:
-- **Using Java's built-in concurrency utilities** (`java.util.concurrent`) instead of rolling your own synchronization primitives
-- **Choosing the simplest synchronization mechanism** that meets the requirements (e.g., `AtomicInteger` instead of a `ReentrantLock` for a simple counter)
-- **Avoiding unnecessary shared mutable state** -- the simplest concurrency is no concurrency at all
-- **Favoring immutable objects** that are inherently thread-safe
-- **Keeping critical sections small and obvious** rather than spreading synchronization across complex call chains
-
-**Real-world analogy**: Consider traffic management at an intersection. The KISS approach is a traffic light -- simple rules, easy to understand, predictable behavior. The over-engineered approach is an AI-powered system with sensors, cameras, machine learning models, and real-time optimization that recalculates signal timing every 100 milliseconds. The traffic light works reliably for decades. The AI system introduces a thousand potential failure modes.
-
-### 8.2.2.1. Avoiding Unnecessary Complexity
-
-Unnecessary complexity in concurrent code often comes from:
-- Custom lock implementations when `synchronized` or `java.util.concurrent` locks would suffice
-- Complex thread coordination when a `BlockingQueue` or `CountDownLatch` would do
-- Manual thread management when `ExecutorService` or virtual threads handle it automatically
-- Custom thread-safe collections when `ConcurrentHashMap` or `CopyOnWriteArrayList` exist
-
-### 8.2.2.2. Favoring Simplicity and Readability
-
-In concurrent code, readability is a safety feature. If a reviewer cannot easily understand the synchronization logic, there are likely bugs hiding in it. Simple concurrent code means:
-- Thread-safety guarantees are obvious from the types used (e.g., `AtomicReference`, `ConcurrentHashMap`)
-- Synchronization boundaries are clear and minimal
-- The flow of data between threads is easy to trace
-
-## Key Points to Remember
-
-1. **Use `java.util.concurrent` before writing custom synchronization.** The JDK's concurrent utilities are battle-tested, optimized, and well-documented.
-2. **Prefer `AtomicInteger`/`AtomicReference` over `synchronized` for simple atomic operations.** They are lock-free and perform better under contention.
-3. **Use `ConcurrentHashMap` instead of `Collections.synchronizedMap()`.** It provides better concurrent performance through lock-free reads and fine-grained, per-bin locking for writes (the Java 7 version used lock striping over segments).
-4. **Use `BlockingQueue` for producer-consumer patterns.** It eliminates the need for manual wait/notify logic.
-5. **Virtual threads (Java 21) simplify concurrency dramatically.** They allow a simple thread-per-task model without the overhead of platform thread management.
-6. **Immutable objects are the simplest thread-safe objects.** Use records and `final` fields to make objects inherently safe.
-7. **Avoid shared mutable state wherever possible.** The simplest way to avoid concurrency bugs is to avoid the conditions that create them.
-8. **Keep critical sections as small as possible.** Hold locks for the minimum time necessary.
-
-## Relevant Java 21 Features
-
-- **Virtual threads (JEP 444)**: The most KISS-aligned concurrency feature in modern Java. Virtual threads let you write simple blocking code (one thread per task) without worrying about thread pool sizing, reactive callbacks, or complex asynchronous patterns.
-  ```java
-  // KISS: Simple blocking code with virtual threads
-  try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-      for (var task : tasks) {
-          executor.submit(() -> process(task));
-      }
-  }
-  ```
-
-- **Structured concurrency (JEP 453, preview in Java 21)**: Simplifies multi-task coordination by tying the lifecycle of concurrent tasks to a scope, making error handling and cancellation straightforward.
-
-- **Scoped values (JEP 446, preview in Java 21)**: A simpler alternative to `ThreadLocal` for sharing immutable data across threads.
-
-- **`ConcurrentHashMap.computeIfAbsent()`**: Atomic compute-if-absent eliminates the need for double-checked locking patterns in caching scenarios.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Rolling your own thread-safe counter instead of using AtomicInteger**
-
-   Problem:
-   ```java
-   // VIOLATION: Custom synchronization for a counter
-   private int count = 0;
-   private final Object lock = new Object();
-
-   public void increment() {
-       synchronized (lock) {
-           count++;
-       }
-   }
-   ```
-
-   Fix:
-   ```java
-   // KISS: Use AtomicInteger
-   private final AtomicInteger count = new AtomicInteger(0);
-
-   public void increment() {
-       count.incrementAndGet();
-   }
-   ```
-
-2. **Building custom producer-consumer with wait/notify**
-
-   Problem:
-   ```java
-   // VIOLATION: Manual wait/notify
-   synchronized (queue) {
-       while (queue.isEmpty()) {
-           queue.wait();
-       }
-       return queue.remove(0);
-   }
-   ```
-
-   Fix:
-   ```java
-   // KISS: Use BlockingQueue
-   private final BlockingQueue<T> queue = new LinkedBlockingQueue<>();
-
-   public T consume() throws InterruptedException {
-       return queue.take(); // Blocks until an item is available
-   }
-   ```
-
-3. **Using complex reactive frameworks for simple concurrent tasks**
-
-   Problem: Pulling in a reactive library (e.g., RxJava, Project Reactor) for a task that just needs to run a few things in parallel.
-
-   Fix:
-   ```java
-   // KISS: Use virtual threads and simple futures
-   try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-       var future1 = executor.submit(() -> fetchFromService1());
-       var future2 = executor.submit(() -> fetchFromService2());
-       return combine(future1.get(), future2.get());
-   }
-   ```
-
-4. **Over-complicating caching with custom locking**
-
-   Problem: Using double-checked locking or custom read-write locks for a cache.
-
-   Fix:
-   ```java
-   // KISS: Use ConcurrentHashMap.computeIfAbsent
-   private final ConcurrentHashMap<String, Data> cache = new ConcurrentHashMap<>();
-
-   public Data getData(String key) {
-       return cache.computeIfAbsent(key, this::loadFromDatabase);
-   }
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Choose the simplest concurrency primitive that works.**
-   - Need an atomic counter? Use `AtomicInteger`.
-   - Need a thread-safe map? Use `ConcurrentHashMap`.
-   - Need a queue between threads? Use `BlockingQueue`.
-   - Need to run tasks in parallel? Use `ExecutorService` with virtual threads.
-
-2. **Make objects immutable whenever possible.** Immutable objects never need synchronization.
-   ```java
-   // KISS: Immutable record is inherently thread-safe
-   public record UserData(String name, int age) {}
-   ```
-
-3. **Prefer message-passing over shared memory.** Use `BlockingQueue` to pass data between threads rather than sharing mutable state with locks.
-
-4. **Use virtual threads for I/O-bound work.** They eliminate the complexity of thread pool sizing and reactive programming for I/O-heavy applications.
-
-5. **Document thread-safety guarantees.** If a class is thread-safe, say so in the Javadoc. If it is not, say that too.
-
-6. **Avoid mixing multiple synchronization mechanisms.** Stick to one approach per class (e.g., all `AtomicReference` or all `synchronized`, not both).
-
-## Edge Cases and Their Handling
-
-1. **Empty task lists**: Always check for empty inputs before submitting to an executor.
-   ```java
-   public <T> List<T> executeAll(List<Callable<T>> tasks) throws Exception {
-       if (tasks.isEmpty()) return Collections.emptyList();
-       // ...
-   }
-   ```
-
-2. **Null values in concurrent collections**: `ConcurrentHashMap` does not permit null keys or values. Use `Optional` or sentinel values if needed.
-
-3. **Thread interruption**: Always handle `InterruptedException` properly -- either re-throw or restore the interrupt flag.
-   ```java
-   try {
-       result = queue.take();
-   } catch (InterruptedException e) {
-       Thread.currentThread().interrupt(); // Restore interrupt flag
-       throw new RuntimeException("Interrupted while waiting", e);
-   }
-   ```
-
-4. **Executor shutdown**: Always close executors properly to avoid resource leaks. Use try-with-resources with `ExecutorService` in Java 21.
-
-## Interview-specific Insights
-
-Interviewers look for:
-- Whether you default to the simplest concurrent tool (e.g., `AtomicInteger` for a counter) or immediately reach for locks
-- Your knowledge of `java.util.concurrent` utilities and when to use each
-- Whether you can identify over-engineering in concurrent code
-- Understanding of when `synchronized` is sufficient vs. when you need explicit locks
-- Knowledge of virtual threads and how they simplify concurrency
-
-Common tricky questions:
-- "When would you use `synchronized` vs. `ReentrantLock`?"
-- "How would you implement a thread-safe cache?"
-- "What is the simplest way to run 10 tasks in parallel and collect results?"
-
-## Interview Q&A Section
-
-**Q1: What is the simplest way to make a counter thread-safe in Java?**
-
-```text
-A1: The simplest way is to use AtomicInteger from java.util.concurrent.atomic.
-AtomicInteger provides lock-free, thread-safe increment/decrement operations
-using CPU-level compare-and-swap (CAS) instructions.
-
-Why AtomicInteger is the KISS choice:
-- No explicit locking needed (no synchronized blocks, no ReentrantLock)
-- No risk of forgetting to release a lock
-- No risk of deadlocks
-- Higher performance under contention than synchronized blocks
-- Single line of code for thread-safe operations
-
-Only consider ReentrantLock or synchronized when you need compound operations
-that cannot be expressed as a single atomic operation (e.g., incrementing the
-counter AND updating a separate collection atomically).
-```
+## A Lock per Bin Keeps Every Move Right and Every Total Wrong
 
 ```java
-// KISS approach
-private final AtomicInteger counter = new AtomicInteger(0);
+import java.util.Arrays;
 
-public void increment() {
-    counter.incrementAndGet();
-}
+/** Stock in numbered bins, with a lock per bin. */
+public class LockedBins {
+    private final long[] qty;
+    private final Object[] locks;
 
-public int get() {
-    return counter.get();
-}
+    public LockedBins(int bins, long each) {
+        qty = new long[bins];
+        Arrays.fill(qty, each);
+        locks = new Object[bins];
+        Arrays.setAll(locks, i -> new Object());
+    }
 
-// Over-engineered approach (violates KISS)
-private int counter = 0;
-private final ReentrantLock lock = new ReentrantLock();
-private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
+    public boolean move(int from, int to, long n) {
+        Object first = locks[Math.min(from, to)], second = locks[Math.max(from, to)];
+        synchronized (first) {                      // always the lower bin first (unit 6.2.1)
+            synchronized (second) {
+                if (qty[from] < n) return false;
+                qty[from] -= n;
+                qty[to] += n;
+                return true;
+            }
+        }
+    }
 
-public void increment() {
-    lock.lock();
-    try {
-        counter++;
-        listeners.forEach(Runnable::run); // Unnecessary notification system
-    } finally {
-        lock.unlock();
+    public long total() {
+        long sum = 0;
+        for (int b = 0; b < qty.length; b++) {
+            synchronized (locks[b]) { sum += qty[b]; }
+        }
+        return sum;
     }
 }
 ```
 
-**Q2: How do you implement a thread-safe producer-consumer pattern simply?**
+No field is read or written without its lock, and the lock order rules out deadlock. Four threads
+make random moves for one second while a fifth audits in a loop:
 
 ```text
-A2: Use a BlockingQueue. The JDK's BlockingQueue implementations
-(LinkedBlockingQueue, ArrayBlockingQueue) handle all synchronization
-internally. You do not need to write any wait/notify logic.
-
-Why BlockingQueue is the KISS choice:
-- put() blocks when the queue is full (if bounded)
-- take() blocks when the queue is empty
-- All synchronization is handled internally
-- No risk of missed signals or spurious wakeups
-- No risk of forgetting to notify waiting threads
-- Thread-safe by design
-
-Choose LinkedBlockingQueue for unbounded or large-capacity queues,
-ArrayBlockingQueue for fixed capacity (with an optional fairness policy).
+lock per bin      11,855,782 moves,    258,239 audits,  247,317 wrong, final total 100,000
 ```
+
+Three runs gave 233,571 to 247,366 wrong totals out of 243,962 to 262,097 audits.
+
+Say the audit has added up bins 0 to 40 when a move takes 3 units from bin 70 to bin 12.
+Bin 12 was counted before the move and bin 70 will be counted after it, so the audit comes out 3
+short. A move the other way makes it 3 too high. Each lock protects one bin, and the total is a
+fact about all 100 at once, which no single lock protects. Inside this design the direct cure is
+for `total()` to hold all 100 locks, taken in order, for the whole sum.
+
+## One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting
+
+The first fix deletes code: drop the lock array and make `move` and `total` `synchronized`. The
+second gives the bins an owner: a single-thread executor is the only thread that touches `qty`
+after construction, so the array needs no lock (unit 5.3.4), and after each move it publishes a
+copy that nothing changes:
 
 ```java
-// KISS: BlockingQueue handles everything
-public class SimpleProducerConsumer<T> {
-    private final BlockingQueue<T> queue;
+import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
-    public SimpleProducerConsumer(int capacity) {
-        this.queue = new LinkedBlockingQueue<>(capacity);
+/** Stock in numbered bins, changed only by one owner thread. */
+public class OwnedBins implements AutoCloseable {
+
+    /** What readers get: a copy that nothing changes after it is built. */
+    public static final class Stock {
+        private final long[] qty;
+        Stock(long[] live) { qty = live.clone(); }
+        public long of(int bin) { return qty[bin]; }
+        public long total() { return Arrays.stream(qty).sum(); }
     }
 
-    public void produce(T item) throws InterruptedException {
-        queue.put(item); // Blocks if full
+    private final ExecutorService owner = Executors.newSingleThreadExecutor();
+    private final long[] qty;                       // read and written only by the owner thread
+    private volatile Stock stock;                   // replaced whole after every move
+
+    public OwnedBins(int bins, long each) {
+        qty = new long[bins];
+        Arrays.fill(qty, each);
+        stock = new Stock(qty);
     }
 
-    public T consume() throws InterruptedException {
-        return queue.take(); // Blocks if empty
+    public Future<Boolean> move(int from, int to, long n) {
+        return owner.submit(() -> {
+            if (qty[from] < n) return false;
+            qty[from] -= n;
+            qty[to] += n;
+            stock = new Stock(qty);
+            return true;
+        });
     }
-}
 
-// Usage with virtual threads
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    var queue = new SimpleProducerConsumer<String>(100);
-    executor.submit(() -> { queue.produce("data"); return null; });
-    executor.submit(() -> { String data = queue.consume(); return null; });
+    public Stock stock() { return stock; }
+
+    @Override
+    public void close() { owner.shutdownNow(); }
 }
 ```
 
-**Q3: When should you use synchronized vs. ReentrantLock vs. AtomicReference?**
+The same race, with the movers waiting on each `Future` and the audit reading `stock().total()`:
 
 ```text
-A3: Follow the KISS hierarchy -- use the simplest tool that works:
-
-1. Immutable objects (simplest) -- no synchronization needed at all
-2. AtomicInteger/AtomicReference -- for single-variable atomic operations
-3. synchronized -- for simple mutual exclusion with automatic lock release
-4. ReentrantLock -- when you need tryLock(), timed locking, or Condition objects
-5. ReadWriteLock -- when reads vastly outnumber writes
-
-Decision guide:
-- Can you make it immutable? Do that.
-- Is it a single atomic operation on one variable? Use Atomic*.
-- Do you just need mutual exclusion? Use synchronized.
-- Do you need tryLock, timed lock, or interruptible lock? Use ReentrantLock.
-- Do you need multiple condition variables? Use ReentrantLock + Condition.
-
-The key KISS insight: most concurrent code in practice only needs levels 1-3.
-Reaching for ReentrantLock or ReadWriteLock should be a conscious decision
-justified by a specific requirement that synchronized cannot meet.
+owner, snapshot      368,597 moves, 12,285,992 audits,        0 wrong, final total 100,000
+one lock           6,952,234 moves,  2,327,678 audits,        0 wrong, final total 100,000
 ```
 
-```java
-// Level 1: Immutable (simplest -- no synchronization)
-public record Config(String host, int port) {} // Inherently thread-safe
+Both are right in all three runs. The volatile write publishes the finished `Stock` (unit 5.2.3),
+and a reader holds one whole state, from before or after any move, for as long as it likes.
+`Stock` copies the array. A read-only view of live state would not do: the javadoc of
+`Collections.unmodifiableMap(m)` says its reads go through to `m`, so it changes under the reader
+with every move.
 
-// Level 2: Atomic operations
-private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);
-public boolean start() {
-    return state.compareAndSet(State.IDLE, State.RUNNING);
-}
+The two fixes differ in who waits. With one lock, an audit waits for a move and a move waits for an
+audit. With an owner, readers never wait: 12 million audits against 2.3 million. Moves cost more:
+each is a hand-off to another thread and back, and the owner did 340,000 to 490,000 moves a second
+against the one lock's 6.4 to 9 million. When nobody needs reads that never block, one lock is the
+simpler choice.
 
-// Level 3: synchronized (simple mutual exclusion)
-public synchronized void transfer(Account from, Account to, int amount) {
-    from.debit(amount);
-    to.credit(amount);
-}
-
-// Level 4: ReentrantLock (when you need tryLock)
-private final ReentrantLock lock = new ReentrantLock();
-public boolean tryTransfer(Account from, Account to, int amount) {
-    if (lock.tryLock()) {
-        try { from.debit(amount); to.credit(amount); return true; }
-        finally { lock.unlock(); }
-    }
-    return false;
-}
-```
-
-**Q4: How do virtual threads simplify concurrent programming and align with KISS?**
+A decision belongs on the owner too. A caller that checks `stock().of(from) >= n` and then submits
+a move without the check is the check-then-act of unit 5.3.1. Two callers asked to take 3 units
+from a bin holding 3, while the owner was still busy with an earlier task:
 
 ```text
-A4: Virtual threads (Java 21) are the most KISS-aligned concurrency feature
-in modern Java. They simplify concurrent programming by allowing developers
-to write simple, blocking code without worrying about thread pool sizing or
-reactive programming patterns.
-
-Before virtual threads:
-- Platform threads are expensive (1MB+ stack each)
-- You had to carefully size thread pools
-- For high-concurrency I/O, you needed reactive frameworks (complex callbacks,
-  publishers, subscribers, back-pressure handling)
-
-With virtual threads:
-- Millions of virtual threads can exist simultaneously
-- Simple blocking code (Thread.sleep, socket.read) is efficient
-- No need for reactive frameworks for I/O-bound work
-- Thread-per-task model works at scale
-
-This is KISS because the simplest concurrency model (one thread per task,
-blocking I/O) becomes the efficient choice again. No complex callback chains,
-no reactive operators, no thread pool tuning.
+checked on the caller:     first move true, second move true, bin 0 now holds -3
+checked inside the task:   first move true, second move false, bin 0 now holds 0
 ```
 
-```java
-// Before virtual threads: Complex thread pool management
-ExecutorService executor = new ThreadPoolExecutor(
-    10, 100, 60, TimeUnit.SECONDS,
-    new LinkedBlockingQueue<>(1000),
-    new ThreadFactory() { ... },
-    new ThreadPoolExecutor.CallerRunsPolicy()
-);
+Checked on the caller, both moves read the same snapshot (bin 0 holds 3) and passed. Inside the
+task, the check runs on the only thread that changes the bins, so nothing comes between it and the
+move.
 
-// With virtual threads: KISS
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    List<Future<String>> futures = urls.stream()
-            .map(url -> executor.submit(() -> fetchUrl(url)))
-            .toList();
+### A Snapshot of 100,000 Bins Copies 800 KB on Every Move
 
-    List<String> results = new ArrayList<>();
-    for (var future : futures) {
-        results.add(future.get());
-    }
-}
-// Simple, readable, and scales to millions of concurrent tasks
-```
-
-**Q5: How would you simplify a thread-safe cache implementation?**
+The same race with 100,000 bins, plus an owner with no snapshot that runs each audit as a task
+submitted to the owner:
 
 ```text
-A5: Use ConcurrentHashMap with computeIfAbsent. This single method call
-replaces the entire double-checked locking pattern and is both simpler and
-more correct.
-
-Why ConcurrentHashMap.computeIfAbsent is the KISS choice:
-- Atomic check-and-compute in a single method call
-- No explicit locking needed
-- No risk of race conditions in the check-then-act pattern
-- No risk of computing the value twice
-- Fine-grained internal locking (per bin) for high concurrent performance
-
-The only caveat: the mapping function should be short and non-blocking.
-For expensive computations, consider using a Future as the value type.
+lock per bin      21,433,573 moves,        593 audits,      593 wrong, final total 100,000,000
+owner, snapshot       10,542 moves,     28,722 audits,        0 wrong, final total 100,000,000
+owner, audit task    137,774 moves,     20,674 audits,        0 wrong, final total 100,000,000
+one lock           2,522,335 moves,     28,821 audits,        0 wrong, final total 100,000,000
 ```
+
+Every move now copies 800 KB, and the owner managed 10,500 to 12,900 moves a second over three
+runs. A snapshot suits small state. For large state that changes often, send the read to the
+owner as a task, which then waits its turn behind the moves, or use one lock (790,000 to 2.5
+million moves a second here).
+
+<!-- practice 1 -->
+
+<!-- practice 2 -->
+
+## A compareAndSet Loop That Reads the Value Once Spins Forever; incrementAndGet Leaves No Loop to Get Wrong
+
+A counter whose author read that atomics beat locks, with its retry loop written by hand:
 
 ```java
-// KISS: ConcurrentHashMap does the heavy lifting
-public class SimpleCache<K, V> {
-    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();
+private final AtomicLong count = new AtomicLong();
 
-    public V get(K key, Function<K, V> loader) {
-        return cache.computeIfAbsent(key, loader);
-    }
-
-    public void invalidate(K key) {
-        cache.remove(key);
+public void increment() {                          // hand-written, "lock-free"
+    long seen = count.get();
+    while (!count.compareAndSet(seen, seen + 1)) {
+        Thread.onSpinWait();                       // someone else won; try again
     }
 }
-
-// Over-engineered alternative (violates KISS):
-// - Custom ReadWriteLock-based cache
-// - LRU eviction policy (do you actually need it?)
-// - Statistics tracking (do you actually need it?)
-// - Expiration support (do you actually need it?)
-// - Custom serialization (do you actually need it?)
-// Each feature adds complexity and potential for bugs.
-// Add them ONLY when you have a concrete requirement.
 ```
+
+Spot the problem before the run. Four threads, a million increments each, two seconds to finish:
+
+```text
+hand-written CAS 3 of 4 threads still running after 2 s, count = 1,000,000
+```
+
+Ten runs out of ten ended this way, with the count between 1,000,000 and 1,000,255. `seen` is
+read once, before the loop. The first time another thread wins, `count` moves past `seen` and never
+comes back, so every later `compareAndSet(seen, …)` fails: the thread spins at 100 % until the JVM
+exits. A retry loop has to read the value again on every failure, as `updateAndGet()` does inside
+the JDK (unit 5.3.2 shows it). `incrementAndGet()` and a `synchronized` method around `count++`
+leave no loop to write, three runs each:
+
+```text
+incrementAndGet  all threads done in 49 ms, count = 4,000,000
+synchronized     all threads done in 246 ms, count = 4,000,000
+```
+
+`incrementAndGet()` took 41 to 49 ms and `synchronized` 246 to 294 ms, for four threads doing
+nothing but counting. For a counter that is the hot spot, unit 5.3.2 measures `LongAdder`.
+
+## A Double-Checked Flag Can Say Loaded Before the Value Is; a synchronized Getter Can't
+
+Exchange rates are loaded on first use. The author wanted no lock once they are loaded, and set
+the flag first so that no second caller starts another load:
+
+```java
+import java.util.Map;
+import java.util.function.Supplier;
+
+/** Exchange rates loaded on first use, with no lock once they are loaded. */
+public class FlagRates {
+    private final Supplier<Map<String, Long>> loader;
+    private volatile boolean loaded;
+    private Map<String, Long> rates;
+
+    public FlagRates(Supplier<Map<String, Long>> loader) { this.loader = loader; }
+
+    public Map<String, Long> rates() {
+        if (!loaded) {
+            synchronized (this) {
+                if (!loaded) {
+                    loaded = true;                  // first, so no second caller starts another load
+                    rates = loader.get();
+                }
+            }
+        }
+        return rates;
+    }
+}
+```
+
+The plain version locks every call and uses the value itself as the flag:
+
+```java
+import java.util.Map;
+import java.util.function.Supplier;
+
+/** Exchange rates loaded on first use, under one lock. */
+public class SyncRates {
+    private final Supplier<Map<String, Long>> loader;
+    private Map<String, Long> rates;
+
+    public SyncRates(Supplier<Map<String, Long>> loader) { this.loader = loader; }
+
+    public synchronized Map<String, Long> rates() {
+        if (rates == null) rates = loader.get();
+        return rates;
+    }
+}
+```
+
+Thread A calls `rates()`, and its load is held open while thread B calls `rates()` and for 500 ms
+after. A second run makes the first load throw. `volatile ref` is the double-checked locking of
+unit 5.1.3: one `volatile` field holding the map, read once into a local.
+
+```text
+flag          B 500 ms into the load: returned null; B finally got null
+synchronized  B 500 ms into the load: waiting (BLOCKED); B finally got {EUR/USD=10842, GBP/USD=12671}
+volatile ref  B 500 ms into the load: waiting (BLOCKED); B finally got {EUR/USD=10842, GBP/USD=12671}
+flag          1st call: rate service timed out; 2nd: null; 3rd: null
+synchronized  1st call: rate service timed out; 2nd: {EUR/USD=10842, GBP/USD=12671}; 3rd: {EUR/USD=10842, GBP/USD=12671}
+volatile ref  1st call: rate service timed out; 2nd: {EUR/USD=10842, GBP/USD=12671}; 3rd: {EUR/USD=10842, GBP/USD=12671}
+```
+
+In all three runs the flag said "loaded" while the map was still `null`: the flag and the map are
+two variables. B read the flag without the lock, so it never waited for the load. When
+the load threw, the flag stayed `true` and the map `null`, and every later call returns `null`
+until the process restarts. In `SyncRates` there is only the map: `null` means "not loaded", a
+failed load leaves it `null`, and the next call tries again. The volatile version also has a
+single variable.
+
+The lock costs time. Eight threads that do nothing but call `rates()` 10 million times each:
+
+```text
+synchronized  8 threads x 10,000,000 calls: 3,327 ms
+volatile ref  8 threads x 10,000,000 calls: 47 ms
+```
+
+Keep the `synchronized` getter until a profile shows it, then switch to the volatile reference.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A lock per object keeps each object right and leaves every fact about several objects
+  unprotected.** Making the total right inside that design means holding every lock at once.
+- **One lock fixes it by deleting code; one owner thread with an immutable snapshot fixes it and
+  keeps readers from waiting.** The owner costs a hand-off per write and a copy per snapshot, and
+  decisions about the state are made on the owner, not on a snapshot.
+- **A hand-written compareAndSet loop that doesn't re-read the value spins forever** after its
+  first lost race. `incrementAndGet()` or `synchronized` is correct with no loop of your own.
+- **A double-checked flag beside the value can say "loaded" while the value is `null`**, and a
+  failed load leaves it so for good. A `synchronized` getter whose value is its own flag is right;
+  the volatile-reference version of unit 5.1.3 is the fix when the lock shows in a profile.
+
+## Reference
+
+**Measured on this page (Java 21, one 20-core machine, three runs each, plain loops):**
+
+| Design | Result |
+|---|---|
+| a lock per bin, audit takes each lock in turn, 100 bins | 94–96 % of audits wrong; final total right |
+| one lock, 100 bins | 0 wrong; 6.4–9 million moves/s, 1.9–2.6 million audits/s |
+| owner thread and snapshot, 100 bins | 0 wrong; 340,000–490,000 moves/s, 10.7–14.8 million audits/s |
+| owner thread and snapshot, 100,000 bins | 0 wrong; 10,500–12,900 moves/s |
+| owner thread, audit as a task, 100,000 bins | 0 wrong; 137,000–181,000 moves/s |
+| `compareAndSet` loop reading the value once | 3 of 4 threads spinning after 2 s, 10 of 10 runs |
+| `incrementAndGet()` / `synchronized` counter, 4 × 1 million | 41–49 ms / 246–294 ms |
+| `synchronized` / volatile-reference lazy getter, 8 × 10 million calls | 3.3–3.6 s / 43–47 ms |
+
+**What a reader of each construct can rely on (javadoc):**
+
+| Construct | Guarantee |
+|---|---|
+| `ExecutorService` | actions before `submit` happen-before the task; the task happens-before `Future.get()` returns |
+| `Executors.newSingleThreadExecutor()` | tasks run sequentially, never two at once; a thread that dies of a failure is replaced |
+| `Collections.unmodifiableMap(m)` | a read-only view; reads go through to `m` |
+| `AtomicLong.compareAndSet(expect, update)` | sets the value only if it currently equals `expect`; returns whether it did |
+
+## Challenges
+
+1. The warehouse also needs "move 10 units from bin 4 to whichever of bins 7, 8 and 9 has the
+   least stock". Write it for one lock and for the owner thread. Which version needs a new idea?
+2. At what number of bins does the snapshot's copy cost more than the hand-off on your machine?
+   Race four movers against an auditor as this page does, then try a snapshot built from a
+   persistent map instead of a copy.
+3. Your counter must also record the time of the last increment, and readers want both values
+   together. Which of `AtomicLong`, `synchronized` and an immutable pair behind an
+   `AtomicReference` (unit 5.3.2) do you choose, and why?
+
+## Design Note: Simple Means Fewer Shared Variables, Not Fewer Lines
+
+Unit 8.2.1 judged simplicity by the code you read. With threads, the measure is how many shared
+mutable variables a reader has to keep in mind at once, and in how many places they change.
+`OwnedBins` is longer than `LockedBins`, yet once it is built the only variable two threads share
+is `stock`, and only the owner writes it. `FlagRates` is longer than `SyncRates` because it keeps
+a second variable in step with the first, and that second variable is the bug.
+
+The price of that design is throughput: one lock admits one thread at a time and one owner thread
+does one thing at a time, so neither scales with cores the way the broken per-bin locks did. Unit
+8.2.3 counts what the simpler design buys in return: fewer interleavings to reason about and test.
 
 ## Code Examples
 

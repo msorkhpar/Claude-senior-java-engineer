@@ -18,246 +18,216 @@
       "text": "8.3.3. Benefits of DRY for Concurrency"
     },
     {
+      "type": "para",
+      "text": "Each code of the spring campaign may be redeemed three times. A week after launch, finance finds codes redeemed four and five times. The web checkout reads how often a code was used and, if that is under the limit, adds one, so two orders that read at the same moment both pass. The team makes the web checkout check and update in one atomic step, its load test goes from oversold to clean, and the fix ships. The next week's report still shows oversold codes."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Fix Made in One Copy of a Check-Then-Update Leaves the Other Copy Racing"
     },
     {
       "type": "para",
-      "text": "Applying DRY to concurrent code yields two critical benefits: **improved code maintainability** and **consistency in concurrent behavior**. Concurrency bugs are notoriously difficult to reproduce and debug because they depend on thread scheduling, timing, and memory visibility. When synchronization logic is duplicated, each copy becomes an independent source of potential race conditions, deadlocks, or visibility issues. DRY ensures there is one correct implementation that all code paths share."
+      "text": "The counters live in `PromoCodes`, which hands each checkout a code's counter:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** How many times each promo code has been redeemed, and how many times it may be. */\npublic class PromoCodes {\n    private final int limit;\n    private final Map<String, AtomicInteger> used = new ConcurrentHashMap<>();\n\n    public PromoCodes(int limit) {\n        this.limit = limit;\n    }\n\n    public int limit() {\n        return limit;\n    }\n\n    public AtomicInteger counter(String code) {\n        return used.computeIfAbsent(code, c -> new AtomicInteger());\n    }\n}"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Consider a fleet of delivery trucks. If each truck has its own navigation system with its own map data, updating a road closure requires updating every truck individually. Miss one, and that truck takes the wrong route. A centralized navigation service (DRY) pushes updates once, and every truck immediately benefits. The same principle applies to concurrent code: one locking strategy, one cache implementation, one retry policy -- all consumers benefit from a single fix."
+      "text": "The mobile checkout, which nobody looked at during the incident, has the same lines the web checkout had:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicInteger;\n\npublic class MobileCheckout {\n    private final PromoCodes codes;\n\n    public MobileCheckout(PromoCodes codes) {\n        this.codes = codes;\n    }\n\n    /** True if the code still had a redemption left and this order took it. */\n    public boolean apply(String code) {\n        AtomicInteger used = codes.counter(code);\n        if (used.get() >= codes.limit()) return false;   // validate\n        used.incrementAndGet();                           // update\n        return true;\n    }\n}"
     },
     {
       "type": "para",
-      "text": "This section covers:"
+      "text": "After its fix, the web checkout uses `getAndUpdate`, which stores the function's result only if no other thread changed the count in between, and retries otherwise. The function adds one only while the count is under the limit:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class WebCheckout {\n    private final PromoCodes codes;\n\n    public WebCheckout(PromoCodes codes) {\n        this.codes = codes;\n    }\n\n    /** True if the code still had a redemption left and this order took it. */\n    public boolean apply(String code) {\n        int limit = codes.limit();\n        int before = codes.counter(code).getAndUpdate(n -> n < limit ? n + 1 : n);\n        return before < limit;                            // validate and update in one step\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The load test releases eight threads together; each tries each of 20,000 codes once, in the same order; the mixed rows split the eight threads four and four. A code is oversold when more than three of its eight attempts succeed. Each row is 20 runs on fresh counters:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "8 threads, 20000 codes, limit 3, 20 runs each\nweb, before its fix          20 of 20 runs oversold, worst run: 2905 codes\nweb, after its fix            0 of 20 runs oversold, worst run: 0 codes\nmobile                       20 of 20 runs oversold, worst run: 3825 codes\nweb (fixed) and mobile       20 of 20 runs oversold, worst run: 2109 codes"
+    },
+    {
+      "type": "para",
+      "text": "The first two rows are the team's load test, which the fix passed. The mobile row is the same check-then-update, still racing. The last row is production: both checkouts share the codes, and the fixed web copy doesn't protect them. The mobile copy reads 2, a web order moves the counter to 3, and the mobile copy adds a fourth. This is the check-then-act of unit 6.2.1: each call is atomic, and the pair is not. On one thread nothing can come between the mobile copy's check and its update, so it refuses the fourth redemption too; only a test that runs several threads through the unfixed copy finds the race. With the incident closed, the next report's oversold codes look like a new bug."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Fix Made in the Owning Class Reaches Every Caller Without Touching Them"
+    },
+    {
+      "type": "para",
+      "text": "Unit 8.3.2 shows how to move a compound action into the class that guards its state. Here `PromoCodes.tryRedeem` first held the mobile checkout's `get` and `incrementAndGet`, racing as before; after the fix it reads:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** How many times each promo code has been redeemed, and how many times it may be. */\npublic class PromoCodes {\n    private final int limit;\n    private final Map<String, AtomicInteger> used = new ConcurrentHashMap<>();\n\n    public PromoCodes(int limit) {\n        this.limit = limit;\n    }\n\n    /** True if the code still had a redemption left and the caller took it. */\n    public boolean tryRedeem(String code) {\n        AtomicInteger counter = used.computeIfAbsent(code, c -> new AtomicInteger());\n        return counter.getAndUpdate(n -> n < limit ? n + 1 : n) < limit;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The checkouts never see a counter. Each is now one line, and `MobileCheckout` is the same class under another name:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class WebCheckout {\n    private final PromoCodes codes;\n\n    public WebCheckout(PromoCodes codes) {\n        this.codes = codes;\n    }\n\n    public boolean apply(String code) {\n        return codes.tryRedeem(code);\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The same load test, before and after the one edit to `tryRedeem`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "owner before its fix: 8 threads, 20000 codes, limit 3, 20 runs each\nweb                          20 of 20 runs oversold, worst run: 2524 codes\nmobile                       19 of 20 runs oversold, worst run: 2489 codes\nweb and mobile               20 of 20 runs oversold, worst run: 2679 codes\nowner after its fix: 8 threads, 20000 codes, limit 3, 20 runs each\nweb                           0 of 20 runs oversold, worst run: 0 codes\nmobile                        0 of 20 runs oversold, worst run: 0 codes\nweb and mobile                0 of 20 runs oversold, worst run: 0 codes"
+    },
+    {
+      "type": "para",
+      "text": "Every row went to zero, mixed traffic included. javac produced the same bytes for `WebCheckout.class` and `MobileCheckout.class` before and after the fix, so a load test of `tryRedeem` covers every caller that only delegates to it."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**One machine.** Java 21, 20 cores, each program run three times: every racing row was oversold in 19 or 20 of its 20 runs, every fixed row in none."
+        }
+      ]
+    },
+    {
+      "type": "para",
+      "text": "`getAndUpdate` may call its function more than once when threads collide (unit 5.3.2), so the function only computes the new count; anything with a side effect, such as recording the order, goes after `tryRedeem` returns `true`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Fix Holds Only While No Caller Can Reach the Counter"
+    },
+    {
+      "type": "para",
+      "text": "A month later, a support tool needs to apply codes to phone orders, and its author pastes the redemption lines from an old branch of the mobile checkout:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicInteger;\n\n/** Lets an agent apply a code to a phone order: the old mobile lines, pasted in. */\npublic class SupportDesk {\n    private final PromoCodes codes;\n\n    public SupportDesk(PromoCodes codes) {\n        this.codes = codes;\n    }\n\n    public boolean apply(String code) {\n        AtomicInteger used = codes.counter(code);\n        if (used.get() >= codes.limit()) return false;\n        used.incrementAndGet();\n        return true;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Against the fixed `PromoCodes`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "pasted/SupportDesk.java:12: error: cannot find symbol\n        AtomicInteger used = codes.counter(code);\n                                  ^\n  symbol:   method counter(String)\n  location: variable codes of type PromoCodes\npasted/SupportDesk.java:13: error: cannot find symbol\n        if (used.get() >= codes.limit()) return false;\n                               ^\n  symbol:   method limit()\n  location: variable codes of type PromoCodes\n2 errors"
+    },
+    {
+      "type": "para",
+      "text": "The public `counter()` of the first design is what made the copies possible: any class holding the `AtomicInteger` could write its own check-then-update, and nothing but review would stop it. With `counter()` gone, and `limit()`, which only the copies needed, the third copy fails to compile, and the author has to call `tryRedeem`."
+    },
+    {
+      "type": "para",
+      "text": "Not every accessor reopens the race. A method `int redeemed(String code)` that returns the count as a number is safe to add: a caller may check it, but the only way to change the count is `tryRedeem`, which checks again."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**8.3.3.1. Improved code maintainability** -- changing synchronization strategy in one place propagates everywhere.",
-        "**8.3.3.2. Consistency in concurrent behavior** -- all code paths use the same thread-safe mechanism, preventing mixed-mode bugs."
+        "**A fix made in one copy of a check-then-update leaves every other copy racing.** The fixed copy's own load test passes, and with mixed traffic the codes are still oversold.",
+        "**A fix made in the owning class reaches every caller without an edit to them.** One method and one load test cover every path; the callers compiled to the same bytes.",
+        "**The fix holds only while no caller can reach the state around the owner's method.** Return values, not the counter, and a pasted copy stops compiling."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "A bug fix in a shared synchronization utility automatically fixes every caller.",
-        "DRY reduces the testing surface for concurrency -- test the utility once, trust it everywhere.",
-        "Mixed synchronization strategies (some code uses `synchronized`, others use `ReentrantLock`, others use `AtomicInteger`) cause reasoning complexity and potential bugs.",
-        "Consistent concurrent behavior means deterministic outcomes regardless of which code path executes.",
-        "DRY-compliant concurrent code is easier to audit for correctness by security and performance reviewers.",
-        "Read-write lock wrappers (`ReadWriteLockedResource<T>`) let multiple repositories share the same locking strategy."
-      ]
+      "type": "para",
+      "text": "**One call that validates and updates (Java 21 javadoc):**"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Virtual threads**: When all code uses the same executor abstraction, migrating from platform threads to virtual threads is a one-line change.",
-        "**Scoped values (JEP 446, preview)**: Replace `ThreadLocal` with scoped values -- DRY enables this migration in a single shared utility.",
-        "**`ExecutorService` as `AutoCloseable`**: Consistent executor lifecycle management through try-with-resources.",
-        "**Records**: Immutable DTOs returned from concurrent utilities avoid shared mutable state."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Need",
+        "Call",
+        "Caveat in the javadoc"
+      ],
+      "rows": [
         [
-          "**Mixed locking strategies across repositories**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// UserRepo uses synchronized, ProductRepo uses ReentrantLock\n// Reasoning about their interaction becomes very difficult"
-          },
-          "**Solution**: Use a shared `ReadWriteLockedResource<T>` wrapper for all repositories."
+          "a counter with a ceiling",
+          "`AtomicInteger.getAndUpdate(n -> n < limit ? n + 1 : n)`",
+          "the function should be side-effect-free; it may be re-applied under contention"
         ],
         [
-          "**Inconsistent counter implementations**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// CounterA uses synchronized, CounterB uses AtomicInteger\n// Hard to reason about composability and visibility guarantees"
-          },
-          "**Solution**: Standardize on a single `ConsistentCounter` abstraction."
+          "a per-key value in a map",
+          "`ConcurrentHashMap.compute(key, (k, v) -> ...)`",
+          "the whole call is atomic and the function runs once; keep it short and simple, and don't modify the map from it"
         ],
         [
-          "**Updating locking logic in one class but forgetting another**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fixed a deadlock in UserService by changing lock ordering\n// OrderService still has the old ordering -- deadlock persists"
-          },
-          "**Solution**: Centralize lock management in a shared utility."
-        ],
-        [
-          "**Event handling with inconsistent thread safety**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Some event handlers use CopyOnWriteArrayList, others use synchronized ArrayList"
-          },
-          "**Solution**: Use a single `SimpleEventBus` with consistent internal synchronization."
+          "create a value once per key",
+          "`ConcurrentHashMap.computeIfAbsent(key, k -> ...)`",
+          "atomic; the function runs at most once, only if the key is absent; keep it short and simple, and don't modify the map from it"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Use `ReadWriteLockedResource<T>`** for read-heavy workloads: readers don't block each other, only writers block.",
-        "**Wrap all repositories with the same locking abstraction**: changing from `ReentrantReadWriteLock` to `StampedLock` requires modifying only one class.",
-        "**Standardize on `AtomicInteger` for counters**: simpler, faster, and lock-free compared to `synchronized`.",
-        "**Use a thread-safe event bus for publish-subscribe**: `ConcurrentHashMap` for topics + `CopyOnWriteArrayList` for listeners is a well-tested pattern.",
-        "**Test the shared utility exhaustively with concurrent stress tests**: once proven correct, all callers inherit the guarantee."
+        "The redemption limit moves into a database that three services in different languages share. Where is the owner now, and what is the single step that validates and updates?",
+        "Finance adds a per-customer limit next to the per-code one. Can `tryRedeem` still be one atomic step, and what does keeping two counters consistent cost?",
+        "A code base has a dozen copies of a check-then-update against a shared cache. Which change tells you, with a compile, that you have found all of them?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null resources**: `ReadWriteLockedResource(null)` should throw immediately -- fail fast before any locking occurs.",
-        "**Null read/write actions**: Reject null lambdas before acquiring locks.",
-        "**Counter overflow**: `AtomicInteger` wraps at `Integer.MAX_VALUE` -- for unbounded counts, use `AtomicLong` or `LongAdder`.",
-        "**Event bus with no listeners**: `publish()` on a topic with no subscribers should be a no-op, not throw.",
-        "**Empty repository queries**: `getAllUsers()` on an empty repository should return an empty list, not null."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the Counter Is Hidden Rather Than Documented"
     },
     {
       "type": "para",
-      "text": "Interviewers focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "How you ensure consistent synchronization across a codebase",
-        "Your understanding of why mixed locking strategies cause subtle bugs",
-        "Ability to articulate the maintenance cost of duplicated concurrency code",
-        "Knowledge of DRY patterns like `ReadWriteLockedResource<T>` and event buses"
-      ]
+      "text": "The first design had a rule, \"check and update a code's count in one step\", that nothing in the code enforced. Hiding the counter moves the rule into the type: the only operation a caller has is the one that is correct."
     },
     {
       "type": "para",
-      "text": "Tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What happens when you need to change from `ReentrantReadWriteLock` to `StampedLock`?\" (With DRY: one class change. Without: every repository.)",
-        "\"How do you test that all code paths use the same synchronization?\" (Code review + shared abstraction that makes it structurally impossible to diverge.)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: How does DRY improve maintainability of concurrent code?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: When synchronization logic lives in a shared abstraction (e.g., ReadWriteLockedResource),\nmaintenance improves in several ways:\n\n1. Single point of change: Switching from ReentrantReadWriteLock to StampedLock requires\n   editing only the wrapper class.\n2. Single point of testing: Concurrency tests focus on the shared utility.\n3. Reduced code review burden: Reviewers verify the locking pattern once, not per repository.\n4. Easier migration: Moving to virtual threads or structured concurrency affects one utility.\n\nWithout DRY, each repository independently implements locking, and a strategy change\nrequires shotgun surgery across the entire codebase."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// DRY: Shared read-write locking wrapper\npublic class ReadWriteLockedResource<T> {\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    public <R> R read(Function<T, R> action) {\n        rwLock.readLock().lock();\n        try { return action.apply(resource); }\n        finally { rwLock.readLock().unlock(); }\n    }\n\n    public void writeVoid(Consumer<T> action) {\n        rwLock.writeLock().lock();\n        try { action.accept(resource); }\n        finally { rwLock.writeLock().unlock(); }\n    }\n}\n\n// Both repos use the same locking -- change once, applied everywhere\nclass UserRepo {\n    private final ReadWriteLockedResource<Map<String, String>> data = ...;\n    public String getUser(String id) { return data.read(m -> m.get(id)); }\n}\nclass ProductRepo {\n    private final ReadWriteLockedResource<Map<String, Double>> data = ...;\n    public Double getPrice(String name) { return data.read(m -> m.get(name)); }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: Why are inconsistent synchronization strategies dangerous?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: When different parts of a codebase use different synchronization mechanisms\n(synchronized, ReentrantLock, AtomicInteger, volatile), several problems arise:\n\n1. Composability issues: synchronized blocks and ReentrantLock blocks don't\n   interoperate -- holding one doesn't prevent the other from proceeding.\n2. Visibility confusion: volatile provides visibility but not atomicity;\n   synchronized provides both -- mixing them creates false safety assumptions.\n3. Reasoning complexity: Developers must track which mechanism each class uses,\n   increasing cognitive load during code review.\n4. Deadlock risk: Different lock ordering in different mechanisms makes deadlock\n   analysis much harder.\n\nDRY eliminates this by standardizing on a single mechanism across the codebase."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// VIOLATION: Mixed mechanisms -- hard to reason about interactions\nclass ServiceA {\n    private synchronized void update() { /* uses intrinsic lock */ }\n}\nclass ServiceB {\n    private final Lock lock = new ReentrantLock();\n    void update() { lock.lock(); try { /*...*/ } finally { lock.unlock(); } }\n}\n\n// DRY: Consistent mechanism everywhere\nclass ServiceA {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    void update() { locker.withLockRun(() -> { /*...*/ }); }\n}\nclass ServiceB {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    void update() { locker.withLockRun(() -> { /*...*/ }); }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does a consistent counter abstraction prevent concurrency bugs?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Without DRY, different counters use different mechanisms:\n- Counter A: synchronized increment/get\n- Counter B: AtomicInteger.incrementAndGet()\n- Counter C: volatile int with non-atomic increment (BUG!)\n\nA single ConsistentCounter class using AtomicInteger ensures:\n1. All increments are atomic -- no lost updates.\n2. All reads see the latest value -- guaranteed by AtomicInteger's memory semantics.\n3. No lock contention -- AtomicInteger is lock-free.\n4. Consistent API -- increment(), decrement(), get(), reset().\n\nIf the team later decides to switch to LongAdder for high-contention scenarios,\nonly the ConsistentCounter class changes."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class ConsistentCounter {\n    private final AtomicInteger count = new AtomicInteger(0);\n\n    public int increment() { return count.incrementAndGet(); }\n    public int decrement() { return count.decrementAndGet(); }\n    public int get() { return count.get(); }\n    public void reset() { count.set(0); }\n}\n\n// All code uses the same counter -- consistent behavior guaranteed\nConsistentCounter requestCount = new ConsistentCounter();\nConsistentCounter errorCount = new ConsistentCounter();"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How does a thread-safe event bus demonstrate DRY benefits for concurrency?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: A SimpleEventBus centralizes publish-subscribe synchronization:\n\n1. ConcurrentHashMap for topic registration -- thread-safe without external locking.\n2. CopyOnWriteArrayList for listener lists -- safe iteration during concurrent modification.\n3. All event types use the same mechanism -- no inconsistency risk.\n\nWithout DRY, each component implements its own listener management:\n- ComponentA uses synchronized ArrayList\n- ComponentB uses CopyOnWriteArrayList\n- ComponentC uses unsynchronized ArrayList (BUG!)\n\nThe event bus ensures all publish-subscribe behavior is consistent and thread-safe."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class SimpleEventBus {\n    private final Map<String, List<Consumer<Object>>> listeners = new ConcurrentHashMap<>();\n\n    public void subscribe(String eventType, Consumer<Object> listener) {\n        listeners.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>()).add(listener);\n    }\n\n    public void publish(String eventType, Object event) {\n        List<Consumer<Object>> eventListeners = listeners.get(eventType);\n        if (eventListeners != null) {\n            eventListeners.forEach(l -> l.accept(event));\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What are the testing benefits of DRY concurrent code?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: DRY concurrent code dramatically reduces the testing burden:\n\n1. Test the shared utility once with stress tests (multiple threads, race conditions,\n   edge cases) and trust it everywhere.\n2. Consumer classes only need to test their business logic, not their synchronization.\n3. Easier to write deterministic tests -- mock or control the shared utility.\n4. Easier to achieve coverage -- one set of concurrency tests covers all consumers.\n\nWithout DRY, each class with its own locking needs its own concurrency tests.\nA codebase with 10 repositories each implementing ReadWriteLock needs 10 concurrent\ntest suites. With a shared ReadWriteLockedResource, you need 1."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Test the shared utility exhaustively ONCE\n@Test\nvoid readWriteLockedResource_concurrentAccess() throws Exception {\n    var resource = new ReadWriteLockedResource<>(new HashMap<String, String>());\n    int threads = 100;\n    ExecutorService executor = Executors.newFixedThreadPool(threads);\n\n    // Concurrent writes\n    for (int i = 0; i < threads; i++) {\n        final int idx = i;\n        executor.submit(() -> resource.writeVoid(m -> m.put(\"key\" + idx, \"val\" + idx)));\n    }\n    executor.shutdown();\n    executor.awaitTermination(5, TimeUnit.SECONDS);\n\n    // Verify all writes are visible\n    int size = resource.read(Map::size);\n    assertThat(size).isEqualTo(threads);\n}"
+      "text": "The cost is that the owner must offer every compound action callers need. A checkout that wants \"redeem these two codes together, or neither\" can't build it from two `tryRedeem` calls; the owner needs a new method, and with it a lock or a single holder for both counts. Each such method makes the owner larger, and merging actions that only look alike has its own failure, which unit 8.3.4 shows."
     },
     {
       "type": "heading",
@@ -277,17 +247,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 10,
-    "paras": 10,
-    "code": 10,
-    "tables": 0,
-    "lists": 9,
+    "headings": 9,
+    "paras": 18,
+    "code": 9,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 2,
     "disclosures": 0
   },
-  "content_sha256": "27cf6ccdc056bf0450f2e308a2476c4c3ce583163217b4587e12aaeee111a763"
+  "content_sha256": "189cc3b68d44cbf48aead9766dc80dab8deb0f6b4bc9c92f09a2ba241d9a70d4"
 }

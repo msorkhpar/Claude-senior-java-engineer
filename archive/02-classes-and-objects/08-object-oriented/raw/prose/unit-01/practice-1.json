@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A dog that barks, and still knows the animal sound",
+  "title": "Keep every team's migration on the safe path",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,20 @@
     },
     {
       "type": "para",
-      "text": "A subclass declared with `extends` inherits the superclass's non-private fields and methods, and adds its own. Constructors are **not** inherited: a subclass constructor hands its part of the state up with `super(...)`. An overriding method (marked `@Override`) runs in place of the superclass version, and `super.method()` still reaches the superclass version."
-    },
-    {
-      "type": "para",
-      "text": "`Animals` holds two nested classes, taken from the lesson's own example. Write their bodies:"
+      "text": "Every service applies its schema migrations on start. `Migrations.Migration` is the class each team extends, and each subclass writes the statements of one change. Three incidents this quarter came from the same place:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Animal(String name)` stores the name in the `protected` field `name`; `getName()` returns it; `makeSound()` returns `\"The animal makes a sound\"`.",
-        "`Dog(String name)` is an `Animal`. Its constructor gives the name to `Animal`: `Dog` declares **no** field of its own.",
-        "`Dog.makeSound()` overrides the sound: `\"<name> barks: Woof! Woof!\"`.",
-        "`Dog.makeAnimalSound()` returns the sound **`Animal`'s version** makes.",
-        "`Dog.wagTail()` returns `\"<name> is wagging its tail\"`."
+        "a team overrode `apply` to log timings, dropped the history check, and its change ran twice on the next deploy;",
+        "a deploy script called `migrate` on a migration it had loaded and ran the change with nobody holding the lock;",
+        "a change that failed halfway left the history locked, and every later deploy refused to start."
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Animal pet = new Dog(\"Rex\");\npet.makeSound()               -> \"Rex barks: Woof! Woof!\"\n((Dog) pet).wagTail()         -> \"Rex is wagging its tail\"\nnew Dog(\"Rex\").makeAnimalSound() -> \"The animal makes a sound\"\nnew Dog(\"Rex\").getName()      -> \"Rex\"\nnew Animal(\"Generic\").makeSound() -> \"The animal makes a sound\""
+      "type": "para",
+      "text": "Finish `src/main/java/practice/Migrations.java` so that a migration runs its change at most once per database and only while holding the history's lock, a change that throws is not recorded and releases the lock, and none of the three incidents can be repeated by a team's subclass or by code that holds a migration. Teams write their subclasses in their own packages and must keep being able to. About ten lines in total, most of them in `apply`."
     },
     {
       "type": "heading",
@@ -59,7 +47,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Animals {\n\n    public static class Animal {\n        protected final String name;\n\n        public Animal(String name) {\n            this.name = name;\n        }\n\n        public String getName() {\n            return name;\n        }\n\n        public String makeSound() {\n            return \"The animal makes a sound\";\n        }\n    }\n\n    public static class Dog extends Animal {\n\n        public Dog(String name) {\n            super(name);\n        }\n\n        @Override\n        public String makeSound() {\n            return name + \" barks: Woof! Woof!\";\n        }\n\n        /** The sound Animal's own version makes. */\n        public String makeAnimalSound() {\n            return super.makeSound();\n        }\n\n        public String wagTail() {\n            return name + \" is wagging its tail\";\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashSet;\nimport java.util.List;\nimport java.util.Set;\n\n/** Schema migrations: one base class, and one subclass per schema change, written by the teams. */\npublic class Migrations {\n\n    /** The database's record of applied versions, with a lock so two deploys never migrate at once. */\n    public static final class SchemaHistory {\n        private final Set<String> applied = new LinkedHashSet<>();\n        private final List<String> statements = new ArrayList<>();\n        private boolean locked;\n\n        public void lock() {\n            if (locked) throw new IllegalStateException(\"schema history is locked by another migration\");\n            locked = true;\n        }\n\n        public void unlock() { locked = false; }\n\n        public boolean isLocked() { return locked; }\n\n        public boolean isApplied(String version) { return applied.contains(version); }\n\n        public void record(String version) { applied.add(version); }\n\n        public List<String> appliedVersions() { return List.copyOf(applied); }\n\n        public void execute(String sql) { statements.add(sql); }\n\n        public List<String> statements() { return List.copyOf(statements); }\n    }\n\n    /** The class every team extends. */\n    public abstract static class Migration {\n        private final String version;\n\n        protected Migration(String version) { this.version = version; }\n\n        public String version() { return version; }\n\n        /**\n         * Brings the database up to this migration's version. Deploys call this for every\n         * migration, in order, on every start.\n         */\n        public final void apply(SchemaHistory history) {\n            if (history.isApplied(version)) return;\n            history.lock();\n            try {\n                migrate(history);\n                history.record(version);\n            } finally {\n                history.unlock();\n            }\n        }\n\n        /** The schema change itself: the statements this migration executes. */\n        protected abstract void migrate(SchemaHistory history);\n    }\n\n    public static class AddEmailColumn extends Migration {\n        public AddEmailColumn() { super(\"V7\"); }\n\n        @Override protected void migrate(SchemaHistory history) {\n            history.execute(\"ALTER TABLE customer ADD email VARCHAR(320)\");\n        }\n    }\n\n    public static class IndexEmail extends Migration {\n        public IndexEmail() { super(\"V8\"); }\n\n        @Override protected void migrate(SchemaHistory history) {\n            history.execute(\"CREATE INDEX customer_email ON customer(email)\");\n        }\n    }\n}\n"
         }
       ]
     },
@@ -71,16 +59,16 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Animals {\n\n    public static class Animal {\n        protected final String name;\n\n        public Animal(String name) {\n            throw new UnsupportedOperationException(\"write the Animal constructor\");\n        }\n\n        public String getName() {\n            throw new UnsupportedOperationException(\"write getName\");\n        }\n\n        public String makeSound() {\n            throw new UnsupportedOperationException(\"write Animal.makeSound\");\n        }\n    }\n\n    public static class Dog extends Animal {\n\n        public Dog(String name) {\n            super(null); // replace: hand Animal what it needs\n            throw new UnsupportedOperationException(\"write the Dog constructor\");\n        }\n\n        @Override\n        public String makeSound() {\n            throw new UnsupportedOperationException(\"write Dog.makeSound\");\n        }\n\n        /** The sound Animal's own version makes. */\n        public String makeAnimalSound() {\n            throw new UnsupportedOperationException(\"write makeAnimalSound\");\n        }\n\n        public String wagTail() {\n            throw new UnsupportedOperationException(\"write wagTail\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashSet;\nimport java.util.List;\nimport java.util.Set;\n\n/** Schema migrations: one base class, and one subclass per schema change, written by the teams. */\npublic class Migrations {\n\n    /** The database's record of applied versions, with a lock so two deploys never migrate at once. */\n    public static final class SchemaHistory {\n        private final Set<String> applied = new LinkedHashSet<>();\n        private final List<String> statements = new ArrayList<>();\n        private boolean locked;\n\n        public void lock() {\n            if (locked) throw new IllegalStateException(\"schema history is locked by another migration\");\n            locked = true;\n        }\n\n        public void unlock() { locked = false; }\n\n        public boolean isLocked() { return locked; }\n\n        public boolean isApplied(String version) { return applied.contains(version); }\n\n        public void record(String version) { applied.add(version); }\n\n        public List<String> appliedVersions() { return List.copyOf(applied); }\n\n        public void execute(String sql) { statements.add(sql); }\n\n        public List<String> statements() { return List.copyOf(statements); }\n    }\n\n    /** The class every team extends. */\n    public abstract static class Migration {\n        private final String version;\n\n        protected Migration(String version) { this.version = version; }\n\n        public String version() { return version; }\n\n        /**\n         * Brings the database up to this migration's version. Deploys call this for every\n         * migration, in order, on every start.\n         */\n        public void apply(SchemaHistory history) {\n            // TODO: run this migration's change once per database, holding the history's lock,\n            //  and leave the history telling the truth whatever the change does.\n            throw new IllegalStateException(\"TODO: apply the migration\");\n        }\n\n        /** The schema change itself: the statements this migration executes. */\n        public abstract void migrate(SchemaHistory history);\n    }\n\n    public static class AddEmailColumn extends Migration {\n        public AddEmailColumn() { super(\"V7\"); }\n\n        @Override public void migrate(SchemaHistory history) {\n            history.execute(\"ALTER TABLE customer ADD email VARCHAR(320)\");\n        }\n    }\n\n    public static class IndexEmail extends Migration {\n        public IndexEmail() { super(\"V8\"); }\n\n        @Override public void migrate(SchemaHistory history) {\n            history.execute(\"CREATE INDEX customer_email ON customer(email)\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
+    "headings": 3,
     "paras": 2,
-    "code": 2,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -90,11 +78,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b5f1f2ec59dbef625a071af2e412d5437d81d85cda9353da683f6cc838a1801b",
-  "starting_code": "package practice;\n\npublic class Animals {\n\n    public static class Animal {\n        protected final String name;\n\n        public Animal(String name) {\n            throw new UnsupportedOperationException(\"write the Animal constructor\");\n        }\n\n        public String getName() {\n            throw new UnsupportedOperationException(\"write getName\");\n        }\n\n        public String makeSound() {\n            throw new UnsupportedOperationException(\"write Animal.makeSound\");\n        }\n    }\n\n    public static class Dog extends Animal {\n\n        public Dog(String name) {\n            super(null); // replace: hand Animal what it needs\n            throw new UnsupportedOperationException(\"write the Dog constructor\");\n        }\n\n        @Override\n        public String makeSound() {\n            throw new UnsupportedOperationException(\"write Dog.makeSound\");\n        }\n\n        /** The sound Animal's own version makes. */\n        public String makeAnimalSound() {\n            throw new UnsupportedOperationException(\"write makeAnimalSound\");\n        }\n\n        public String wagTail() {\n            throw new UnsupportedOperationException(\"write wagTail\");\n        }\n    }\n}\n",
+  "content_sha256": "7cb465701a08a14b69878dc3782e6f09045edfac53e7f5d1169e66fcecd08cf0",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashSet;\nimport java.util.List;\nimport java.util.Set;\n\n/** Schema migrations: one base class, and one subclass per schema change, written by the teams. */\npublic class Migrations {\n\n    /** The database's record of applied versions, with a lock so two deploys never migrate at once. */\n    public static final class SchemaHistory {\n        private final Set<String> applied = new LinkedHashSet<>();\n        private final List<String> statements = new ArrayList<>();\n        private boolean locked;\n\n        public void lock() {\n            if (locked) throw new IllegalStateException(\"schema history is locked by another migration\");\n            locked = true;\n        }\n\n        public void unlock() { locked = false; }\n\n        public boolean isLocked() { return locked; }\n\n        public boolean isApplied(String version) { return applied.contains(version); }\n\n        public void record(String version) { applied.add(version); }\n\n        public List<String> appliedVersions() { return List.copyOf(applied); }\n\n        public void execute(String sql) { statements.add(sql); }\n\n        public List<String> statements() { return List.copyOf(statements); }\n    }\n\n    /** The class every team extends. */\n    public abstract static class Migration {\n        private final String version;\n\n        protected Migration(String version) { this.version = version; }\n\n        public String version() { return version; }\n\n        /**\n         * Brings the database up to this migration's version. Deploys call this for every\n         * migration, in order, on every start.\n         */\n        public void apply(SchemaHistory history) {\n            // TODO: run this migration's change once per database, holding the history's lock,\n            //  and leave the history telling the truth whatever the change does.\n            throw new IllegalStateException(\"TODO: apply the migration\");\n        }\n\n        /** The schema change itself: the statements this migration executes. */\n        public abstract void migrate(SchemaHistory history);\n    }\n\n    public static class AddEmailColumn extends Migration {\n        public AddEmailColumn() { super(\"V7\"); }\n\n        @Override public void migrate(SchemaHistory history) {\n            history.execute(\"ALTER TABLE customer ADD email VARCHAR(320)\");\n        }\n    }\n\n    public static class IndexEmail extends Migration {\n        public IndexEmail() { super(\"V8\"); }\n\n        @Override public void migrate(SchemaHistory history) {\n            history.execute(\"CREATE INDEX customer_email ON customer(email)\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-1/src/main/java/practice/Animals.java",
-    "test_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-1/src/test/java/practice/AnimalsTest.java",
+    "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-1/src/main/java/practice/Migrations.java",
+    "test_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-1/src/test/java/practice/MigrationsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,19 +103,39 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AnimalsTest#aDogBarksThroughAnAnimalReference",
+        "id": "practice.MigrationsTest#pendingMigrationsRunInOrderAndAreRecorded",
         "kind": "main",
-        "says": "A Dog seen through an Animal reference barks and wags its tail, and a plain Animal makes the generic sound."
+        "says": "pending migrations run their statements in order, are recorded, and leave the history unlocked"
       },
       {
-        "id": "practice.AnimalsTest#makeAnimalSoundRunsTheSuperclassVersion",
-        "kind": "edge",
-        "says": "makeAnimalSound() answers with Animal's version of the sound, not the dog's bark."
+        "id": "practice.MigrationsTest#aSecondDeployRunsNothingThatWasAlreadyApplied",
+        "kind": "main",
+        "says": "a migration whose version is already recorded runs nothing"
       },
       {
-        "id": "practice.AnimalsTest#theNameIsKeptByTheSuperclass",
+        "id": "practice.MigrationsTest#aMigrationDoesNotRunWhileAnotherDeployHoldsTheLock",
+        "kind": "main",
+        "says": "while another deploy holds the lock, a migration runs nothing and fails"
+      },
+      {
+        "id": "practice.MigrationsTest#noTeamCanReplaceTheWayAMigrationIsApplied",
         "kind": "edge",
-        "says": "The dog's name is stored once, in Animal, so Animal's getName() returns it."
+        "says": "no subclass can replace the sequence that applies a migration"
+      },
+      {
+        "id": "practice.MigrationsTest#aMigrationsStatementsCanOnlyBeRunThroughApply",
+        "kind": "edge",
+        "says": "a migration's change is reachable by subclasses but not by callers, so callers can only run it through apply"
+      },
+      {
+        "id": "practice.MigrationsTest#aMigrationThatFailsIsNotRecordedAsApplied",
+        "kind": "edge",
+        "says": "a migration whose change throws is not recorded as applied, and the exception reaches the caller"
+      },
+      {
+        "id": "practice.MigrationsTest#aMigrationThatFailsReleasesTheLock",
+        "kind": "edge",
+        "says": "a migration whose change throws leaves the history unlocked for the next deploy"
       }
     ],
     "report": {
@@ -136,14 +144,11 @@
     },
     "origin": {
       "path": "08-object-oriented/README_2.3.1.md",
-      "section": "2.3.1.2. Method overriding and super keyword"
+      "section": "A Class Open to Subclassing Needs a Final Skeleton and Protected Hooks; Otherwise Make It final"
     },
     "concepts": [
-      "A subclass declared with extends inherits the superclass's non-private fields and methods and adds its own.",
-      "A subclass field with the superclass field's name hides it rather than replacing it, so state belongs in one place.",
-      "An overriding method keeps the name and parameters, is marked @Override, and runs in place of the superclass version.",
-      "Constructors are not inherited: a subclass constructor hands the superclass its state with super(...).",
-      "super.method() calls the superclass version of a method the subclass overrides."
+      "A class open to subclassing keeps the sequence and its rules in a final method and lets subclasses fill in protected hooks, so no subclass can skip the rules and no caller can run a step on its own.",
+      "The skeleton's rules include what happens when a hook throws, so its cleanup goes in a finally."
     ]
   }
 }

@@ -1,17 +1,14 @@
-Casting a `double` to an `int` **truncates**: `(int) 19.99` is `19`, and
-`(int) -19.99` is `-19`. When the nearest whole number is wanted, the page's
-advice is `Math.round`, which rounds a half up (toward positive infinity) and
-returns a `long` for a `double`.
+The payments service keeps accounts by a 64-bit id. Events reach it through a decoder that turns
+each message into a `Map<String, Object>`, and old card terminals still check accounts with a
+32-bit id of their own. Since the mobile app started sending events, support hears two
+complaints: some events fail with a `ClassCastException`, and every old terminal reports
+"account closed" for accounts that are open.
 
-Write `Rounding.roundToWhole(double amount)`. It returns the nearest whole
-number, with a half rounded up. A result that does not fit in an `int` is
-refused with an `ArithmeticException`, never wrapped.
+`ownerOf` and `open` already work. Finish the two `TODO`s in
+`src/main/java/practice/AccountDirectory.java`:
 
-| amount | answer |
-|---|---|
-| `19.99` | `20` |
-| `3.14` | `3` |
-| `2.5` | `3` |
-| `-2.5` | `-2` |
-| `-19.99` | `-20` |
-| `3.0e9` | `ArithmeticException` |
+- `accountId(event)`: the id in the event's `"accountId"` field, whichever type the decoder chose
+  for it (see the class comment);
+- `isOpen(terminalAccountId)`: whether the terminal's id names an open account.
+
+About two lines in total.

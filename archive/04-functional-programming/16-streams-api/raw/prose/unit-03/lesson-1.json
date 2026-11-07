@@ -18,314 +18,448 @@
       "text": "4.4.3. Intermediate Operations (filter, map, flatMap)"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
-    },
-    {
       "type": "para",
-      "text": "Intermediate operations transform a stream into another stream. They are **lazy** — they do not execute until a terminal operation is invoked. This lets the stream implementation optimize the pipeline (e.g., fusion of operations into a single pass, short-circuit evaluation)."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Intermediate operations are like workstations on an assembly line. Each workstation takes the current item, applies its transformation or check, and passes the result to the next workstation. No final product is produced until the last workstation (the terminal operation) completes its work."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Categories of Intermediate Operations"
-    },
-    {
-      "type": "para",
-      "text": "**Filtering operations** — reduce the number of elements:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`filter(Predicate<T>)` — keep only elements matching the predicate",
-        "`distinct()` — remove duplicates (uses `equals()`/`hashCode()`)",
-        "`limit(long n)` — keep at most n elements (short-circuit, useful with infinite streams)",
-        "`skip(long n)` — skip the first n elements",
-        "`takeWhile(Predicate<T>)` (Java 9) — take elements while predicate is true, then stop",
-        "`dropWhile(Predicate<T>)` (Java 9) — drop elements while predicate is true, then pass the rest"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Mapping operations** — transform elements one-to-one or one-to-many:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`map(Function<T, R>)` — transform each element T to R (1:1)",
-        "`flatMap(Function<T, Stream<R>>)` — transform each element to a stream, then flatten (1:many)",
-        "`mapToInt/mapToLong/mapToDouble(ToIntFunction<T>)` — convert to primitive stream",
-        "`flatMapToInt/flatMapToLong/flatMapToDouble` — flatten to primitive stream"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Sorting/peeking operations** — reorder or observe elements:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`sorted()` — natural order (elements must be `Comparable`)",
-        "`sorted(Comparator<T>)` — custom order",
-        "`peek(Consumer<T>)` — observe each element without modifying (mainly for debugging)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "filter vs map vs flatMap at a Glance"
+      "text": "The plant dashboard's \"first three alarms\" panel, most severe on top, ran for a year against the nightly export of sensor readings. Pointed at the live feed, the request never returns, and the service's heap climbs until the container is killed:"
     },
     {
       "type": "code",
-      "lang": "",
-      "text": "filter:  [1, 2, 3, 4, 5] --filter(x > 2)--> [3, 4, 5]\nmap:     [\"a\", \"bb\", \"ccc\"] --map(length)--> [1, 2, 3]\nflatMap: [[\"a\",\"b\"], [\"c\"]] --flatMap--> [\"a\", \"b\", \"c\"]"
+      "lang": "java",
+      "text": "List<Reading> panel = feed.readings()       // a Stream that ends only when the feed closes\n        .filter(Reading::isAlarm)\n        .sorted(BY_SEVERITY)\n        .limit(3)\n        .toList();"
+    },
+    {
+      "type": "para",
+      "text": "Each call between the source and `toList()` is an intermediate operation. Most pass an element on at once; a few can't, and that difference decides what this code does. Every output below is from Java 21."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "map Gives One Result per Element; flatMap Splices a Stream per Element into One"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**`filter(Predicate<T>)`** keeps elements for which the predicate returns `true`; it is a 1:0-or-1 mapping.",
-        "**`map(Function<T, R>)`** transforms every element; the number of elements stays the same (1:1 mapping).",
-        "**`flatMap(Function<T, Stream<R>>)`** transforms each element into a stream, then flattens all those streams into one (1:many).",
-        "**`distinct()`** uses `equals()` and `hashCode()`; for custom objects, ensure these are properly overridden.",
-        "**`sorted()`** is a stateful operation — it must see all elements before producing output, so a short-circuiting operation after it (such as `findFirst()` or `limit()`) cannot stop the upstream elements from all being processed.",
-        "**`peek(Consumer<T>)`** is intended for debugging (e.g., printing elements mid-pipeline). Avoid relying on side effects.",
-        "**`limit(n)`** is a short-circuit intermediate operation — the pipeline upstream does not need to produce more elements than `n`.",
-        "**`takeWhile()` / `dropWhile()`** (Java 9) work best on ordered streams; behavior on unordered streams is nondeterministic.",
-        "**`mapToInt/mapToLong/mapToDouble`** convert to primitive streams — use to avoid boxing when working with numeric values.",
-        "Order of `filter`, `map`, and `sorted` matters for both correctness and performance — apply cheap filters before expensive maps."
+      "type": "para",
+      "text": "An order holds a list of SKUs, and the picking screen needs the SKUs. How many elements does each stream hold?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Order(String id, String customer, List<String> skus) {}\n\nList<Order> orders = List.of(\n        new Order(\"A-17\", \"c-1\", List.of(\"pen\", \"ink\")),\n        new Order(\"A-18\", \"c-2\", List.of()),\n        new Order(\"A-19\", \"c-3\", List.of(\"pad\", \"pen\", \"clip\")));\n\nStream<List<String>> skuLists = orders.stream().map(Order::skus);\nStream<String> skus = orders.stream().flatMap(o -> o.skus().stream());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "map:     [[pen, ink], [], [pad, pen, clip]]  count=3\nflatMap: [pen, ink, pad, pen, clip]  count=5"
+    },
+    {
+      "type": "para",
+      "text": "`map` calls its function once per element and passes on what it returns, so three orders give three lists, and the screen reports three items to pick where there are five. `flatMap` expects a stream from its function and passes on that stream's elements, one after another: two, none, three. The order without SKUs contributes nothing instead of an empty list."
+    },
+    {
+      "type": "para",
+      "text": "Because a stream can hold zero elements, `flatMap` is also how a pipeline drops missing values. `emailOf(customer)` returns an `Optional<String>`, and `c-2` has no address:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "orders.stream().map(o -> emailOf(o.customer()))\norders.stream().map(o -> emailOf(o.customer())).flatMap(Optional::stream)"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "map:     [Optional[ana@example.com], Optional.empty, Optional[li@example.com]]\nflatMap: [ana@example.com, li@example.com]"
+    },
+    {
+      "type": "para",
+      "text": "`Optional.stream()` has one element or none. Unwrapping with `orElse(null)` instead would put a `null` in the list, and the mailer would fail on it later, far from the lookup."
+    },
+    {
+      "type": "para",
+      "text": "A function given to `flatMap` may return `null`: the javadoc says an empty stream is used instead. The same `null` returned to `map` stays in the stream as an element:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "orders.stream().flatMap(o -> o.skus().isEmpty() ? null : o.skus().stream())\norders.stream().map(o -> o.skus().isEmpty() ? null : o.skus().get(0))"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "flatMap: [pen, ink, pad, pen, clip]\nmap:     [pen, null, pad]"
+    },
+    {
+      "type": "para",
+      "text": "Return `Stream.empty()` anyway: a reader of the code shouldn't need that javadoc sentence."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "map Stays on the Kind of Stream It Was Called On"
+    },
+    {
+      "type": "para",
+      "text": "`IntStream.map` takes an `IntUnaryOperator`, so its function must return an `int`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "bad/IntMap.java:5: error: incompatible types: bad return type in lambda expression\n        IntStream.rangeClosed(1, 3).map(i -> \"bay-\" + i).forEach(System.out::println);\n                                                    ^\n    String cannot be converted to int"
+    },
+    {
+      "type": "para",
+      "text": "`mapToObj` leaves a primitive stream and `mapToInt` enters one, mid-pipeline too. Here order-line quantities are filtered as `int`s and turned back into labels:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "lines.stream().mapToInt(Line::qty).filter(q -> q > 0).mapToObj(q -> \"qty \" + q).toList()"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[qty 2, qty 1]"
+    },
+    {
+      "type": "para",
+      "text": "Unit 4.4.2 covers what the primitive streams add (`sum`, `average`) and how `IntStream.sum()` overflows."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "mapMulti Emits Zero or More Results Without a Stream per Element, but javac Can't Infer What It Emits"
+    },
+    {
+      "type": "para",
+      "text": "Each order line becomes a pick task, plus a wrap task if it is gift-wrapped, and nothing if its quantity is 0. With `flatMap` that is a new `Stream.of(...)` for every line, usually of one element. `mapMulti` (Java 16) hands the function a `Consumer` instead, and each `accept` emits one result:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Line(String sku, int qty, boolean giftWrap) {}\n\nList<Line> lines = List.of(new Line(\"pen\", 2, true), new Line(\"ink\", 0, false), new Line(\"pad\", 1, false));\nList<String> tasks = lines.stream()\n        .<String>mapMulti((line, sink) -> {\n            if (line.qty() == 0) return;              // nothing to pick\n            sink.accept(\"pick \" + line.qty() + \" x \" + line.sku());\n            if (line.giftWrap()) sink.accept(\"wrap \" + line.sku());\n        })\n        .toList();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[pick 2 x pen, wrap pen, pick 1 x pad]"
+    },
+    {
+      "type": "para",
+      "text": "The javadoc recommends `mapMulti` over `flatMap` when each element yields a few results, possibly none, since it creates no `Stream` per group, or when an `if` or a loop is easier than building a stream. Without the `<String>`, the same code doesn't compile:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "bad/NoWitness.java:13: error: incompatible types: List<Object> cannot be converted to List<String>\n                .toList();\n                       ^"
+    },
+    {
+      "type": "para",
+      "text": "Among the arguments, the result type `R` appears only in the type of `sink`, a parameter of the lambda. javac doesn't infer it from the values the body passes to `accept`, and the `List<String>` on the left doesn't reach back through `.toList()`, so `R` becomes `Object`. Give the type argument, `.<String>mapMulti(...)`, or declare the lambda's parameters: `(Line line, Consumer<String> sink)`. Only when `mapMulti`'s result goes straight to a `Stream<String>` (an assignment, a return, an argument) does the target type decide `R`; add `.filter(s -> s.isEmpty())` after it and `s` is an `Object` again."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "filter and map Pass Each Element On; sorted Holds Every Element Before It Emits One"
+    },
+    {
+      "type": "para",
+      "text": "Unit 4.4.1 traced elements one at a time through a pipeline. With `sorted` in the middle, they wait:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Optional<Integer> first = Stream.of(30, 10, 20)\n        .peek(n -> System.out.println(\"  filter sees \" + n))\n        .filter(n -> n > 5)\n        .sorted()\n        .peek(n -> System.out.println(\"  after sorted \" + n))\n        .findFirst();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  filter sees 30\n  filter sees 10\n  filter sees 20\n  after sorted 10\nfindFirst -> 10"
+    },
+    {
+      "type": "para",
+      "text": "`filter` and `map` are stateless: each looks at one element and passes it on at once. `sorted` is stateful: it can't know which element comes first until it has seen the last, so it buffers everything and emits only when the source is exhausted. A `findFirst()` or `limit(3)` after it stops nothing upstream. On the dashboard's feed the source is never exhausted:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Stream.iterate(1, n -> n + 1).limit(3).sorted().toList()\nStream.iterate(1, n -> n + 1).peek(n -> pulled.incrementAndGet()).sorted().limit(3).toList()  // on a pool thread, get(2, SECONDS)"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "limit(3).sorted(): [1, 2, 3]\nsorted().limit(3): nothing after 2 s, 66,503,114 elements pulled"
+    },
+    {
+      "type": "para",
+      "text": "That buffer is where the dashboard's heap went. The two orders also mean different things on a finite list: `sorted().limit(3)` is the first three in sort order of everything, `limit(3).sorted()` is the first three to arrive, sorted. The panel wants the first three alarms, most severe on top, so `filter`, then `limit`, then `sorted`."
+    },
+    {
+      "type": "para",
+      "text": "`sorted()` without a comparator needs `Comparable` elements, and nothing checks that until the terminal operation compares two of them:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Ticket(String id, int priority) {}\n\nStream<Ticket> pipeline = Stream.of(new Ticket(\"T-9\", 2), new Ticket(\"T-4\", 1)).sorted();\nSystem.out.println(\"pipeline built\");\npipeline.toList();\nStream.of(new Ticket(\"T-9\", 2)).sorted().toList();                // one ticket"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "pipeline built\ntoList(): java.lang.ClassCastException: class Sorted$Ticket cannot be cast to class java.lang.Comparable (Sorted$Ticket is in unnamed module of loader 'app'; java.lang.Comparable is in module java.base of loader 'bootstrap')\none ticket: [Ticket[id=T-9, priority=2]]"
+    },
+    {
+      "type": "para",
+      "text": "One ticket sorts without complaint, because there is nothing to compare it with, so a one-row test passes. Pass a `Comparator`, such as `Comparator.comparingInt(Ticket::priority)`, for anything without a natural order."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Cheap filter Goes Before an Expensive map, Because map Runs for Every Element That Reaches It"
+    },
+    {
+      "type": "para",
+      "text": "A catalogue has 2,000 products, 40 of them in stock. `quote(product)` calls the pricing service, and a counter records the calls. Both pipelines return the same 40 quotes:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "catalog.stream().map(Cost::quote).filter(q -> q.product().inStock()).toList();\ncatalog.stream().filter(Product::inStock).map(Cost::quote).toList();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "map, then filter: 40 quotes, quote() ran 2000 times\nfilter, then map: 40 quotes, quote() ran 40 times"
+    },
+    {
+      "type": "para",
+      "text": "The stream fuses the stages into one pass, but it runs them in the order you wrote them, on the elements that reach each one. If a quote takes 15 ms, the first pipeline spends 30 seconds where 0.6 would do, and a pricing service that limits calls per second throttles it long before the end. When the condition needs the mapped value, split it: filter on what the source already knows, map, then filter again on the result."
+    },
+    {
+      "type": "para",
+      "text": "Moving `limit` changes the result, not only the cost. Before an expensive `map`, it caps how many elements reach the map; before a `filter`, it counts elements that the filter then throws away."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "distinct Uses equals and hashCode, So a Class Without Both Keeps Every Copy"
+    },
+    {
+      "type": "para",
+      "text": "A scanner reads the same SKU twice. Each scan builds its own object, as a parser would, and the pick list runs `distinct()` over three versions of the SKU class:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String[][] scans = {{\"acme\", \"P-100\"}, {\"acme\", \"P-200\"}, {\"acme\", \"P-100\"}};\nStream.of(scans).map(s -> new SkuRecord(s[0], s[1])).distinct().toList()      // record\nStream.of(scans).map(s -> new SkuPlain(s[0], s[1])).distinct().toList()       // class, no equals\nStream.of(scans).map(s -> new SkuEqualsOnly(s[0], s[1])).distinct().toList()  // equals, no hashCode"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "record:         [SkuRecord[vendor=acme, code=P-100], SkuRecord[vendor=acme, code=P-200]]\nplain class:    [acme/P-100, acme/P-200, acme/P-100]\nequals only:    [acme/P-100, acme/P-200, acme/P-100]"
+    },
+    {
+      "type": "para",
+      "text": "`distinct` remembers what it has passed in a hash set. A class without `equals` inherits identity from `Object`, so two scans of one SKU count as different. With `equals` but no `hashCode`, the two copies are equal but have different identity hash codes, and the set never gets as far as asking `equals`. A record generates both, from all of its components."
+    },
+    {
+      "type": "para",
+      "text": "On an ordered stream, `distinct` keeps the first of each group of equal elements, so the fields in `equals` decide what counts as a copy, and with it what survives. This `Scan` compares the SKU only, and keeps the 09:00 scan:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Scan(String sku, String at) {\n    @Override public boolean equals(Object o) { return o instanceof Scan s && sku.equals(s.sku); }\n    @Override public int hashCode() { return sku.hashCode(); }\n}\n\nList<Scan> kept = Stream.of(new Scan(\"P-100\", \"09:00\"), new Scan(\"P-200\", \"09:01\"),\n        new Scan(\"P-100\", \"09:05\")).distinct().toList();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[Scan[sku=P-100, at=09:00], Scan[sku=P-200, at=09:01]]"
+    },
+    {
+      "type": "para",
+      "text": "Drop the two overrides and the record compares all its components: the scan time joins the comparison, and two scans of one SKU differ again. For \"distinct by one field\" without changing `equals`, unit 4.2.4 builds a predicate that remembers keys."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "limit and skip Count in Encounter Order, and HashSet and Set.of Have None"
+    },
+    {
+      "type": "para",
+      "text": "`skip(page * size).limit(size)` cuts a page out of a stream. A `HashSet` has no encounter order, and `Set.of` changes its order from one JVM run to the next (unit 4.4.2). Pages of six regions, from one program run three times:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Set<String> regions = Set.of(\"north\", \"south\", \"east\", \"west\", \"central\", \"coast\");\nregions.stream().limit(2).toList()                     // first page\nregions.stream().skip(2).limit(2).toList()             // second page\nregions.stream().sorted().skip(2).limit(2).toList()    // second page, sorted first"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Set.of,  first page: [central, coast]  second page: [east, north]\nsorted,  first page: [central, coast]  second page: [east, north]\nSet.of,  first page: [south, west]  second page: [north, east]\nsorted,  first page: [central, coast]  second page: [east, north]\nSet.of,  first page: [north, east]  second page: [coast, central]\nsorted,  first page: [central, coast]  second page: [east, north]"
+    },
+    {
+      "type": "para",
+      "text": "`limit` and `skip` take the first elements in whatever order the stream has. Behind a load balancer, page one can come from one instance and page two from another: a user who got `[south, west]` and then `[coast, central]` never sees `north` or `east`. Sort first, then skip and limit. Sorting after paging only orders a page whose members were picked arbitrarily."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Parallel pipelines differ.** On an ordered parallel stream, `limit` and `skip` must still find the first n elements, which the javadoc calls \"quite expensive\"; `unordered()` lifts that constraint when any n will do. Unit 4.4.5 covers parallel streams."
+        }
       ]
     },
     {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**`takeWhile()` / `dropWhile()`** (Java 9): Allow prefix-based stream slicing.",
-        "**`mapMulti()`** (Java 16): A flexible alternative to `flatMap` that uses a `BiConsumer` for element expansion.",
-        "**Pattern matching in lambdas** (Java 16+, 21): Use in `filter()` and `map()` lambdas with modern `instanceof` patterns.",
-        "**`Stream<T>.mapToInt()`** has always been present; Java 21 continues to encourage using primitive streams to avoid auto-boxing overhead."
+        "**`map` gives one result per element; `flatMap` splices a stream per element.** `map` to a list gives a stream of lists; `flatMap(Optional::stream)` drops empties; a `null` stream counts as empty. `mapToInt` and `mapToObj` switch between object and primitive streams.",
+        "**`mapMulti` emits zero or more results through a `Consumer`.** Followed by another call, it needs `.<R>mapMulti` or typed lambda parameters, or `R` becomes `Object`.",
+        "**`sorted` holds every element before it emits one.** `limit` or `findFirst` after it doesn't stop the source, so on an endless stream it never returns. Non-`Comparable` elements fail at the terminal operation, and only once two are compared.",
+        "**A cheap `filter` goes before an expensive `map`.** The stream doesn't reorder stages, so `map` runs for every element that reaches it.",
+        "**`distinct` uses `equals` and `hashCode`.** Without both, every copy stays; the fields in `equals` decide what counts as a copy, and the first in encounter order survives.",
+        "**`limit` and `skip` count in encounter order.** Sort an unordered source before paging it."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "para",
+      "text": "**Which operations pass elements on** (sequential; `Stream.iterate(0, i -> i + 1)`, the operation, then `limit(3)`, with a 1 s timeout):"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Operation",
+        "Kind (javadoc, package summary)",
+        "Endless source, `limit(3)` after it"
+      ],
+      "rows": [
         [
-          "**Using `filter` after an expensive `map` when filter could come first**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// SLOW — maps every element, then filters\nlist.stream()\n    .map(this::expensiveTransform)\n    .filter(s -> s.startsWith(\"A\"))\n    .collect(Collectors.toList());"
-          },
-          "**Fix**: Filter first to reduce the work for the expensive operation.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// FAST — filters first, then maps only matching elements\nlist.stream()\n    .filter(s -> s.startsWith(\"A\"))\n    .map(this::expensiveTransform)\n    .collect(Collectors.toList());"
-          }
+          "`filter`, `map`, `flatMap`, `mapMulti`, `peek`",
+          "stateless",
+          "returns"
         ],
         [
-          "**Using `map` when `flatMap` is needed (nested collections)**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BROKEN — produces Stream<List<String>>, not Stream<String>\nList<List<String>> nested = List.of(List.of(\"a\",\"b\"), List.of(\"c\",\"d\"));\nStream<List<String>> wrong = nested.stream().map(l -> l);"
-          },
-          "**Fix**: Use `flatMap` to flatten.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Stream<String> flat = nested.stream().flatMap(Collection::stream);"
-          }
+          "`distinct`",
+          "stateful",
+          "returns once 3 different values have arrived"
         ],
         [
-          "**`distinct()` on objects without proper `equals()`/`hashCode()`**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BROKEN — all elements kept because Object.equals() uses reference equality\nclass Point { int x, y; Point(int x, int y) { this.x = x; this.y = y; } } // no equals/hashCode\nList.of(new Point(1,2), new Point(1,2)).stream().distinct().count(); // 2, not 1"
-          },
-          "**Fix**: Override `equals()` and `hashCode()`, or use records."
+          "`skip(n)`",
+          "stateful",
+          "returns"
         ],
-        "**Expecting `sorted()` to not affect performance in large parallel streams**: Sorted is stateful and requires collecting all elements before sorting — this is expensive in parallel. **Fix**: Drop `sorted()` when order is not needed; otherwise filter first so that fewer elements are sorted, or sort the collected result. Note that `parallel()`/`sequential()` set the mode of the whole pipeline (the last call wins), so one stage cannot be sequential while the others are parallel.",
         [
-          "**Misusing `peek()` for important side effects**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// RISKY — peek may not execute with short-circuit terminal operations\nlong count = list.stream()\n    .peek(s -> database.save(s)) // Will NOT save if short-circuit fires early\n    .filter(s -> s.length() > 3)\n    .findFirst()\n    .stream().count();"
-          },
-          "**Fix**: Use `forEach()` or collect first, then process."
+          "`limit(n)`",
+          "short-circuiting stateful",
+          "returns"
+        ],
+        [
+          "`sorted()`, `sorted(cmp)`",
+          "stateful",
+          "never returns; the same with `findFirst()`"
         ]
       ]
     },
     {
+      "type": "para",
+      "text": "**Mapping operations:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Operation",
+        "Its function returns",
+        "Results per element",
+        "Note"
+      ],
+      "rows": [
+        [
+          "`map`",
+          "`R`",
+          "one",
+          "a `null` result is an element"
+        ],
+        [
+          "`flatMap`",
+          "`Stream<R>`",
+          "zero or more",
+          "a `null` stream counts as empty; each stream is closed after use"
+        ],
+        [
+          "`mapMulti`",
+          "nothing; calls `accept`",
+          "zero or more",
+          "`R` must be spelled out unless the target type decides it"
+        ],
+        [
+          "`mapToInt`, `mapToLong`, `mapToDouble`",
+          "a primitive",
+          "one",
+          "enters a primitive stream"
+        ],
+        [
+          "`mapToObj` (on a primitive stream)",
+          "`R`",
+          "one",
+          "leaves it"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Order and nulls:** on an ordered stream `sorted` is stable and `distinct` keeps the first of equal elements; on an unordered one neither is promised (javadoc). `sorted()` throws `NullPointerException` once a `null` is compared (a lone `null` comes back as `[null]`); `sorted(Comparator.nullsFirst(Comparator.naturalOrder()))` puts nulls first (ran)."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Order operations for maximum efficiency**: `filter` → `map` → `sorted` → `limit`.",
-        "**Use `mapToInt/mapToLong/mapToDouble`** when converting to numeric values to avoid boxing overhead.",
-        "**Prefer `flatMap(Collection::stream)`** for flattening nested collections — clear and idiomatic.",
-        "**Use `mapMulti()`** (Java 16) for complex one-to-many transformations where `flatMap` would require creating many small intermediate streams.",
-        "**Keep lambdas in intermediate operations stateless** — do not read from or write to shared mutable state.",
-        "**Consider `distinct()` cost**: it maintains a `HashSet` internally, so it uses O(n) memory and O(1) amortized time per element.",
-        "**`sorted()` requires O(n log n)** time and O(n) space — avoid unnecessary sorting."
+        "A report needs a customer's ten most recent orders from a stream of all orders. Where do `filter`, `sorted` and `limit` go, and how many orders does the stream hold at its peak? What would a database query do differently?",
+        "Measure `flatMap` against `mapMulti` on ten million elements that each expand to zero or one result, then to fifty. At what size does the javadoc's advice stop mattering?",
+        "A `Customer` class is a `HashMap` key in one place and goes through `distinct()` in another. Its `equals` compares the email ignoring case. What must `hashCode` do, and what breaks if it hashes the email as stored?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**`filter` on empty stream**: Returns empty stream; no exception.",
-        "**`map` returning null**: Allowed, but downstream operations on null elements may throw `NullPointerException`. Use `filter(Objects::nonNull)` or handle nulls explicitly.",
-        "**`flatMap` with a function returning null**: No exception. A `null` result is treated as an empty stream, so that element contributes nothing. Returning `Stream.empty()` says so more clearly.",
-        "**`distinct()` on empty stream**: Returns empty stream.",
-        "**`sorted()` with `null` elements and natural ordering**: Throws `NullPointerException`. Sort with a null-safe comparator: `Comparator.nullsFirst(Comparator.naturalOrder())`.",
-        "**`limit(0)` / `skip(MAX_VALUE)`**: Returns empty stream; works correctly.",
-        "**`takeWhile` / `dropWhile` on unordered streams**: Behavior is nondeterministic — may take/drop different elements on each run."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why sorted Is the Barrier in a Lazy Pipeline"
     },
     {
       "type": "para",
-      "text": "Interviewers commonly focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The difference between `map` and `flatMap` (the most common interview question)",
-        "Performance ordering of operations",
-        "The fact that `sorted` is stateful and may break parallelism benefits",
-        "`distinct()` requiring proper `equals()`/`hashCode()`",
-        "When to use `mapToInt` vs `map`",
-        "`takeWhile`/`dropWhile` behavior on unordered streams"
-      ]
+      "text": "A stream pushes each element through every stage before it pulls the next, which is what lets `limit` and `findFirst` stop an endless source. A stateless operation needs no buffer. `sorted` can't do without one: the first element it emits may be the last one the source produces. The library gives it a buffer and a whole-input pass, and the package documentation says so: stateful operations \"may need to process the entire input before producing a result\"."
     },
     {
       "type": "para",
-      "text": "Tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"If you call `limit(5)` and `sorted()`, does `sorted()` process all elements or just 5?\" (It depends on the order: `sorted().limit(5)` sorts all elements, `limit(5).sorted()` sorts only the first 5)",
-        "\"What is the difference between `filter(x -> !list.contains(x))` and `distinct()`?\"",
-        "\"Can `flatMap` produce an empty stream for some elements?\" (Yes — return `Stream.empty()`)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the difference between `map` and `flatMap`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Both map and flatMap transform stream elements, but with a key difference in structure:\n\nmap(Function<T, R>): applies a function to each element and produces exactly one output element per\ninput element. The output is a Stream<R>. The result stream has the same number of elements as the input.\n\nflatMap(Function<T, Stream<R>>): applies a function to each element that returns a Stream<R>, then\n\"flattens\" all those streams into a single Stream<R>. The result can have more or fewer elements than\nthe input (including zero elements for any input element).\n\nMental model:\n- map: one element in → one element out\n- flatMap: one element in → zero or more elements out (via a sub-stream)\n\nCommon use case: flattening a list of lists, splitting strings into words, expanding an optional value."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "List<String> sentences = List.of(\"Hello World\", \"Java Streams\", \"FlatMap Example\");\n\n// map: each sentence becomes a String[] (produces Stream<String[]>)\nStream<String[]> withMap = sentences.stream()\n    .map(s -> s.split(\" \"));\n\n// flatMap: each sentence is split, arrays are flattened into individual words\nList<String> words = sentences.stream()\n    .flatMap(s -> Arrays.stream(s.split(\" \")))\n    .toList();\n// [\"Hello\", \"World\", \"Java\", \"Streams\", \"FlatMap\", \"Example\"]\n\n// Another example: flattening nested lists\nList<List<Integer>> nested = List.of(\n    List.of(1, 2, 3),\n    List.of(4, 5),\n    List.of(6, 7, 8, 9)\n);\nList<Integer> flat = nested.stream()\n    .flatMap(Collection::stream)\n    .toList();\n// [1, 2, 3, 4, 5, 6, 7, 8, 9]\n\n// flatMap with Optional (Java 9+: Optional.stream())\nList<Optional<String>> optionals = List.of(\n    Optional.of(\"a\"), Optional.empty(), Optional.of(\"c\")\n);\nList<String> present = optionals.stream()\n    .flatMap(Optional::stream) // only non-empty optionals\n    .toList();\n// [\"a\", \"c\"]"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does `filter` interact with laziness and short-circuit operations?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: filter() is a lazy intermediate operation. It does not examine any elements until a terminal operation\ntriggers the pipeline. This enables important optimizations:\n\n1. Short-circuiting: If the terminal operation is findFirst() or anyMatch(), the pipeline stops as soon as\n   the first element passes the filter, without examining remaining elements.\n\n2. Lazy composition: When filter() and map() are combined, the stream implementation runs them in a single\n   pass — each element is filtered, then mapped (or discarded), without building an intermediate collection.\n\n3. Order matters: Placing filter() before expensive operations (like map() with expensive transformations)\n   reduces the total work because elements are eliminated early."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "List<String> names = List.of(\"Alice\", \"Bob\", \"Anna\", \"Charlie\", \"Amanda\");\n\n// Short-circuit: stops after finding first name starting with 'C'\nOptional<String> first = names.stream()\n    .peek(s -> System.out.println(\"Checking: \" + s)) // observe traversal\n    .filter(s -> s.startsWith(\"C\"))\n    .findFirst();\n// Prints: Checking: Alice, Checking: Bob, Checking: Anna, Checking: Charlie\n// Stops after \"Charlie\" — \"Amanda\" is never checked\n\n// Performance: filter before expensive operation\nList<User> activeAdults = users.stream()\n    .filter(User::isActive)           // cheap: boolean field check\n    .filter(u -> u.age() >= 18)       // cheap: int comparison\n    .map(u -> enrichFromDatabase(u))   // expensive: DB call — only for filtered elements\n    .toList();"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is `distinct()` and what are its performance characteristics?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: distinct() is a stateful intermediate operation that removes duplicate elements from a stream,\nwhere duplicates are defined by Object.equals() and Object.hashCode().\n\nPerformance characteristics:\n- Time complexity: O(1) amortized per element (backed by a HashSet internally)\n- Space complexity: O(k) where k is the number of distinct elements seen so far\n- For ordered streams, distinct() preserves encounter order (first occurrence is kept)\n- For unordered streams (e.g., after calling unordered() or from a HashSet), it may be more efficient\n  since it doesn't need to track ordering\n\nRequirements on objects:\n- equals() and hashCode() must be consistently implemented (contract from Object)\n- For custom classes, override both equals() and hashCode(), or use records (which do this automatically)\n\nParallel consideration: distinct() in parallel streams requires coordination across threads to track\nseen elements, which can negate parallelism benefits for small datasets."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Basic usage\nList<Integer> numbers = List.of(1, 2, 3, 2, 1, 4, 5, 4);\nList<Integer> distinct = numbers.stream()\n    .distinct()\n    .toList(); // [1, 2, 3, 4, 5] — order preserved\n\n// With custom objects — requires equals/hashCode\nrecord Point(int x, int y) {} // Record auto-generates equals/hashCode\nList<Point> points = List.of(new Point(1,2), new Point(3,4), new Point(1,2));\nList<Point> distinctPoints = points.stream().distinct().toList();\n// [Point(1,2), Point(3,4)] — duplicates removed correctly\n\n// Without proper equals/hashCode — distinct() won't work as expected\nclass BadPoint { int x, y; BadPoint(int x, int y){ this.x=x; this.y=y; } }\n// Uses reference equality by default — distinct() keeps all instances"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: Explain `takeWhile()` and `dropWhile()` added in Java 9.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: takeWhile(Predicate<T>) and dropWhile(Predicate<T>) were added in Java 9 for prefix-based stream slicing.\n\ntakeWhile(predicate): Processes elements in order. As soon as one element does NOT match the predicate,\nprocessing stops and that element (and all subsequent elements) are excluded — even if later elements\nwould match the predicate.\n\ndropWhile(predicate): Skips elements as long as the predicate matches. Once the predicate fails, it\npasses that element and all remaining elements through — even if later elements would match the predicate.\n\nBoth are particularly useful with sorted/ordered streams. On unordered streams, behavior is nondeterministic.\n\nDifference from filter():\n- filter() checks every element independently\n- takeWhile()/dropWhile() operate on a prefix/suffix pattern"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// takeWhile: stop at first element that doesn't match\nList<Integer> numbers = List.of(1, 2, 3, 4, 5, 1, 2, 3);\nList<Integer> taken = numbers.stream()\n    .takeWhile(n -> n < 4)\n    .toList(); // [1, 2, 3] — stops at 4; the second 1,2,3 are never reached\n\n// dropWhile: skip until first element that doesn't match\nList<Integer> dropped = numbers.stream()\n    .dropWhile(n -> n < 4)\n    .toList(); // [4, 5, 1, 2, 3] — drops first three, passes rest\n\n// Comparison with filter (filter is independent per element):\nList<Integer> filtered = numbers.stream()\n    .filter(n -> n < 4)\n    .toList(); // [1, 2, 3, 1, 2, 3] — includes ALL elements < 4\n\n// Useful for sorted data: take the first N elements meeting a condition\nList<Integer> sorted = List.of(1, 2, 3, 5, 8, 13, 21);\nList<Integer> smallFibs = sorted.stream()\n    .takeWhile(n -> n < 10)\n    .toList(); // [1, 2, 3, 5, 8]"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is `mapMulti()` and when would you use it over `flatMap()`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: mapMulti() (introduced in Java 16) is an alternative to flatMap() for one-to-many element expansion.\nInstead of a function that returns a Stream<R>, mapMulti() takes a BiConsumer<T, Consumer<R>> — its second\nargument is a \"downstream\" consumer that you call once for each output element you want to emit.\n\nWhen to prefer mapMulti() over flatMap():\n1. When expanding a small or fixed number of elements: avoids creating a Stream object for each input.\n2. When the expansion logic is imperative (if/else, loops) — simpler to express with a consumer than\n   with stream creation.\n3. When performance is critical with many short streams: flatMap has overhead per sub-stream created.\n\nWhen to prefer flatMap():\n1. When you already have a stream or collection to flatten: flatMap(Collection::stream) is idiomatic.\n2. For readability: flatMap is well-known; mapMulti is less familiar to most developers."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// flatMap version: create a stream for each element\nList<Integer> doubled = List.of(1, 2, 3).stream()\n    .<Integer>flatMap(n -> Stream.of(n, n * 2))\n    .toList(); // [1, 2, 2, 4, 3, 6]\n\n// mapMulti version: emit elements via consumer — no intermediate Stream creation\nList<Integer> doubledMulti = List.of(1, 2, 3).stream()\n    .<Integer>mapMulti((n, downstream) -> {\n        downstream.accept(n);\n        downstream.accept(n * 2);\n    })\n    .toList(); // [1, 2, 2, 4, 3, 6] — same result, potentially faster\n\n// Useful for conditional expansion\nList<Object> mixed = List.of(1, \"hello\", 2, \"world\", 3);\nList<String> strings = mixed.stream()\n    .<String>mapMulti((obj, downstream) -> {\n        if (obj instanceof String s) downstream.accept(s);\n    })\n    .toList(); // [\"hello\", \"world\"]"
+      "text": "The cost is a pipeline whose behaviour depends on the order of its lines. Moving `limit` one line down, past `sorted`, turns a bounded job into one that holds every element. The compiler accepts both, and a test on a small input sees at most a different result, never the memory."
     },
     {
       "type": "heading",
@@ -345,17 +479,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 12,
-    "paras": 12,
-    "code": 11,
-    "tables": 0,
-    "lists": 11,
+    "headings": 13,
+    "paras": 33,
+    "code": 27,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "543e365091a63e207c82af8bc4a3ba293ad4593961ce7dc900c6f115f8a19191"
+  "content_sha256": "2b4b755d5647a7440275666d66ab5654c4fcdf51c1ccda65cb026864304501fa"
 }

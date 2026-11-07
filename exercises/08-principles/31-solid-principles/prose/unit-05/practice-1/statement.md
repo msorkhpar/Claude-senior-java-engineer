@@ -1,35 +1,19 @@
-**High-level modules should not depend on low-level modules; both should depend on
-abstractions.** Without that, a `NotificationManager` creates an `EmailSender` itself, and
-switching to SMS means editing the manager. The page's fix:
+The claims service pays approved insurance claims through the bank's API and keeps an audit
+line for every decision. Nobody has tested the payout rules since the bank integration went in:
+the CI machines have no `BANK_URL`, and the last person who ran the tests on a machine that had
+one paid a test claim for real.
 
-```java
-interface MessageSender {
-    void send(String recipient, String message);
-}
+The team has settled the shape in `src/main/java/practice/Payouts.java`: `PayoutPolicy` receives
+a `Transfers` and an `AuditTrail` in its constructor, and the code that starts the service passes
+it a `BankTransfers` and the real audit trail. `Registry` is how older parts of the service find
+shared objects; it is being retired.
 
-class NotificationManager {
-    private final MessageSender sender;
-    NotificationManager(MessageSender sender) {
-        this.sender = Objects.requireNonNull(sender);
-    }
-    void notifyUser(String user, String msg) {
-        sender.send(user, msg);
-    }
-}
+Finish the constructor, `payOne` and `skip`, so that the tests can run the payout rules with a
+fake bank and a list for an audit trail:
 
-var manager = new NotificationManager(new EmailSender());
-// Or swap to SMS without changing NotificationManager
-var smsManager = new NotificationManager(new SmsSender());
-```
+- an approved claim with a positive amount is paid and recorded as `paid <claim id> <reference>`;
+- any other claim is recorded as `skipped <claim id>`;
+- a policy wired up with something missing is refused while the service is starting, not when
+  the first claim comes in.
 
-In `Notify`, write the two details and the manager:
-
-- `EmailSender` records each message as `"EMAIL[<recipient>]: <message>"` and
-  `SmsSender` as `"SMS[<recipient>]: <message>"`, with the recipient and the message exactly
-  as given (no trimming, no change of case), one entry per send, repeats included;
-  `sentMessages()` lists them in order;
-- `NotificationManager(sender)` takes its sender through the constructor, rejects `null`
-  there with `Objects.requireNonNull`, and `notifyUser(user, message)` sends through it.
-
-The manager must work, unchanged, with **any** `MessageSender`, including one written
-after it, such as a push sender or a test's fake.
+About six lines in total.

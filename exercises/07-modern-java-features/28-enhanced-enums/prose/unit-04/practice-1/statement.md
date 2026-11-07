@@ -1,27 +1,15 @@
-`enum DataConverter<T>` is illegal, but a method of an enum may declare its
-own type parameter: `<T> T convert(Object input, Class<T> targetType)`. The
-type is chosen at each call, so one constant serves `Integer`, `Long` and
-`Double` callers alike. The page's pitfall is `return (T) obj;`: erasure makes
-that cast do nothing, so a wrong type surfaces later, elsewhere. Casting with
-the `Class<T>` token fails at once.
+The order-search endpoint reads its query string into a map, and every handler gets its
+parameters through `QueryParam`, as in `QueryParam.PAGE.get(query, Integer.class)`. The binding
+layer that fills a handler's arguments is generic code that passes the result on as an `Object`.
+Last week a handler declared its `limit` argument as a `String`. The request passed the binding
+layer, and the error turned up two services away, in a report job that read the stored value
+back.
 
-Fill in each constant's `convert`, and write `safeConvert`:
+Parsing already works. Finish the two `TODO`s in `src/main/java/practice/QueryParam.java`:
 
-- `STRING_TO_NUMBER`: parse `String.valueOf(input)` as the target type, one of
-  `Integer`, `Long`, `Double` or `Float`. Any other target throws
-  `UnsupportedOperationException`.
-- `TO_STRING`: `String.valueOf(input)`; a target other than `String` throws
-  `UnsupportedOperationException`.
-- `IDENTITY`: `input` itself, checked with `targetType`: a value of another type
-  throws `ClassCastException` inside `convert`.
-- `<T> Optional<T> safeConvert(Object input, Class<T> targetType)`: the
-  conversion, or an empty `Optional` if the conversion fails for any reason.
+- `get(...)`: hand the parsed value back as the type the caller asked for;
+- `boxed(...)`: the class whose instances a caller asking for `type` can be given.
 
-| call | answer |
-|---|---|
-| `STRING_TO_NUMBER.convert("42", Integer.class)` | `42` |
-| `STRING_TO_NUMBER.convert("10000000000", Long.class)` | `10000000000L` |
-| `TO_STRING.convert(42, String.class)` | `"42"` |
-| `IDENTITY.convert("hello", Integer.class)` | throws `ClassCastException` |
-| `STRING_TO_NUMBER.convert("1", Boolean.class)` | throws `UnsupportedOperationException` |
-| `STRING_TO_NUMBER.safeConvert("abc", Integer.class)` | `Optional.empty` |
+When you're done, a caller that asks for a type the parameter doesn't hold gets a
+`ClassCastException` from `get` itself, while callers that ask for `int`, `boolean`, or a wider
+type such as `Number` get their value. About four lines in total.

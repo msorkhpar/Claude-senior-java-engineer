@@ -1,31 +1,15 @@
-The page's second pitfall hand-writes a consumer with `wait` and `notify`:
+This practice continues the `Wallets` of the previous one: `publish()` and `balances()` are done,
+and `transfer(...)` is now yours to write.
 
-```java
-// VIOLATION: Manual wait/notify
-synchronized (queue) {
-    while (queue.isEmpty()) {
-        queue.wait();
-    }
-    return queue.remove(0);
-}
-```
+Players send each other credits in bursts, and the owner thread is often still busy with one
+transfer when the next ones are requested. Finance found two wallets below zero last month: each
+had been the source of two transfers requested within a few milliseconds, either of which it could
+cover alone.
 
-Replace it with a `BlockingQueue`, which does all of that waiting for you. Write the generic
-`Handoff<T>`:
+Write `transfer(from, to, credits)` in `src/main/java/practice/Wallets.java`. It returns at once
+with a `Future` that says whether the transfer went through. A wallet never goes below zero, and a
+transfer requested while an earlier one is still being applied sees that earlier one's result:
+credits it brings in can be spent, credits it takes out can't. About eight lines in total.
 
-- `Handoff(int capacity)` holds at most `capacity` items.
-- `produce(T item)` adds an item at the back. **When the hand-off is full, it waits** until
-  a consumer makes room: it neither drops the item nor lets the hand-off grow past its
-  capacity.
-- `consume()` removes and returns the oldest item. **When the hand-off is empty, it waits**
-  for an item: it never returns `null`.
-- `produce` and `consume` declare `InterruptedException`: **a wait that is interrupted
-  throws it** to the caller, rather than returning `null` or quietly dropping the item.
-- `next()` works like `consume()` but declares no checked exception. The page's rule for
-  thread interruption applies: when the wait is interrupted, **restore the interrupt flag**
-  with `Thread.currentThread().interrupt()` and throw an `IllegalStateException` whose cause
-  is the `InterruptedException`.
-- `size()` is the number of items waiting.
-
-Example: after `produce("item1")`, `produce("item2")`, `produce("item3")`, three calls to
-`consume()` return `"item1"`, `"item2"` and `"item3"`, in that order.
+The tests pause a transfer half-way through `Seam.midTransfer()`, so call it between taking the
+credits and adding them.

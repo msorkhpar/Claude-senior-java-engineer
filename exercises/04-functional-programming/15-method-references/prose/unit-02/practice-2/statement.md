@@ -1,19 +1,14 @@
-A **bound** reference (`rule::accepts`) fixes its receiver, so every call runs on that
-one object and can use its fields. A static method has no object and cannot read them.
+An office building's parcel robot is moving into a new tower that has two levels of underground
+parking, floors `-1` and `-2`, with a mail room on each. Before every run, `ParcelRun` groups the
+parcels by floor, hands the robot's display the parcel ids, and prints one delivery slip per
+parcel. When a recipient takes a parcel, the robot appends their signature to that parcel's slip.
 
-Complete `LengthRule`:
+`byFloor` already does the grouping. Finish the three `TODO`s in
+`src/main/java/practice/ParcelRun.java`:
 
-- `LengthRule(int min)` makes a rule with its own minimum length.
-- `boolean accepts(String word)` returns whether `word` is at least `min` characters long,
-  counting every character, spaces included (so a rule of `0` accepts `""`). `null` is never
-  accepted, through any of the methods below either.
-- `Predicate<String> asPredicate()` returns this rule's `accepts` as a predicate.
-- `List<String> keep(List<String> words)` returns the accepted words, in order.
+- `newFloor()`: the function that makes the list for a floor that has no parcel yet;
+- `displayIds(...)`: the ids, in input order, as a `String[]` (the display's API takes nothing else);
+- `slips(...)`: one slip per parcel, each starting as `deliver ` followed by the parcel id.
 
-| rule | call | result |
-|---|---|---|
-| `new LengthRule(5)` | `accepts("hello")` | `true` |
-| `new LengthRule(5)` | `asPredicate().test("hi")` | `false` |
-| `new LengthRule(3)` | `keep(["a", "abc", "abcd"])` | `["abc", "abcd"]` |
-
-A program may hold many rules at once, each with a different minimum.
+The run must work for every floor of the new tower, and a signature belongs on one slip only.
+About four lines in total.

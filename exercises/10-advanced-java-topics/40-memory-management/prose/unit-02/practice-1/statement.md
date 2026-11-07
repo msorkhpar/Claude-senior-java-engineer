@@ -1,21 +1,18 @@
-Mark-and-sweep in two phases, as on the page. **Mark**: starting from the GC
-roots, follow references and mark every object reached; **an already marked
-object is skipped**, which is how cycles end. **Sweep**: free every unmarked
-object and **clear the marks of survivors** for the next collection. So
-**reachability from roots decides, not reference counts**: two objects that
-point at each other but that no root reaches are both garbage.
+The checkout service traces every request: `SpanTable` keeps a span per request object, and the
+web layer calls `event(request, ...)` while it handles it. Since the tracer went in, the heap
+grows by a request body for every request served, and a heap dump shows finished requests still
+reachable from the tracer. An exporter also keeps finished spans for a while, to send them in
+batches, and needs their labels then.
 
-Write `Heap`, a simulation over named objects:
+`SpanTable` already records events and labels spans. Finish the two `TODO`s in
+`src/main/java/practice/SpanTable.java`:
 
-- `allocate(name)` adds an object (a name already used is refused with
-  `IllegalArgumentException`); `reference(from, to)` makes `from` point to `to`.
-- `addRoot(name)` / `removeRoot(name)`.
-- `collect()` runs mark and sweep and returns the names it freed, in allocation
-  order; freed objects are gone from `live()` (also in allocation order).
+- `newTable()`: the map from each request to its span;
+- `open(request)`: a new span labelled `"<method> <path>"`, for example `"POST /orders"`.
 
-| setup | `collect()` | `live()` |
-|---|---|---|
-| A, B, C, D; root A; A->B, B->D | `[C]` | `[A, B, D]` |
-| X, Y; X->Y, Y->X; no roots | `[X, Y]` | `[]` |
-| root A; A->B, B->A | `[]` | `[A, B]` |
-| then `removeRoot(A)`, `collect()` | `[A, B]` | `[]` |
+When you're done, the tracer holds a span for as long as the web layer holds its request, and
+not after; a span the exporter still holds gives its label without keeping its request in memory.
+About four lines in total.
+
+The tests ask the JVM for collections with `System.gc()` and wait, up to ten seconds, for a
+finished request to be collected.

@@ -1,18 +1,10 @@
-A cast to the wrong type throws `ClassCastException`, so a value of unknown type is tested
-with `instanceof` first, and cast only when the test passes:
+The gateway reads its CORS origins with `settings.strings("allowed-origins")`. The setting comes
+from three places: a YAML file (a `List`), the command line (a `String[]`), or a plugin written
+against an older API (an `Object[]`). Last week someone wrote a port number into the YAML list.
+Startup went fine, and the first browser request failed with a `ClassCastException` deep in the
+CORS filter.
 
-```java
-if (obj instanceof String) {
-    String str = (String) obj;
-    ...
-}
-```
-
-`instanceof` is `false` for `null`, so the same test also skips `null`.
-
-Write `sum(List<Object> items)` in `Numbers`. It adds up every item that is a `Number`
-(`Integer`, `Long`, `Double`, ...), as a `double`, and ignores every other item:
-
-- `sum(List.of(1, 2.5, 3L))` is `6.5`;
-- `sum(List.of(1, "two", 3))` is `4.0`;
-- `null` items are ignored: `sum(Arrays.asList(1, null, 2))` is `3.0`.
+Finish `stringList(Object value)` in `src/main/java/practice/Settings.java`. It returns the
+strings, in order, from a list or an array whose items are all strings, and throws
+`IllegalArgumentException` for any other value, so a bad setting stops the gateway at startup
+and never reaches the filter. About fifteen lines.

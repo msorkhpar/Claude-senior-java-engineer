@@ -18,281 +18,314 @@
       "text": "8.1.3. Liskov Substitution Principle (LSP)"
     },
     {
+      "type": "para",
+      "text": "The catalog service has a helper with a green test suite:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static List<String> normalizeTags(List<String> tags) {\n    tags.replaceAll(t -> t.trim().toLowerCase());\n    tags.sort(null);\n    for (int i = tags.size() - 1; i > 0; i--) {\n        if (tags.get(i).equals(tags.get(i - 1))) tags.remove(i);\n    }\n    return tags;\n}"
+    },
+    {
+      "type": "para",
+      "text": "A cleanup in the import job replaces `new ArrayList<>(Arrays.asList(csv.split(\",\")))` with `List.of(csv.split(\",\"))`, and the next import fails with `UnsupportedOperationException`. The method takes a `List`, and `List.of` returns a `List`. The Liskov substitution principle says code written against a type must keep working with every subtype of it. Which of the two broke it?"
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "javac Checks an Override's Signature; Only a Caller Run on Every Subtype Checks Its Contract"
     },
     {
       "type": "para",
-      "text": "The Liskov Substitution Principle states that **objects of a superclass should be replaceable with objects of a subclass without altering the correctness of the program**. If `S` is a subtype of `T`, then objects of type `T` can be replaced with objects of type `S` without breaking any desirable property of the program."
+      "text": "javac enforces the part of a contract it can read. An override that wants to report a disk error through a method that declares none doesn't compile:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.io.IOException;\nimport java.util.List;\n\ninterface Exporter {\n    Object export(List<String> rows);\n}\n\nclass FileExporter implements Exporter {\n    @Override\n    public String export(List<String> rows) throws IOException {   // wants to report a disk error\n        throw new IOException(\"disk full\");\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Exporter.java:10: error: export(List<String>) in FileExporter cannot implement export(List<String>) in Exporter\n    public String export(List<String> rows) throws IOException {   // wants to report a disk error\n                  ^\n  overridden method does not throw IOException\n1 error"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of a rental car company. You reserve a \"sedan.\" When you arrive, they give you a Toyota Camry, a Honda Accord, or a Hyundai Sonata. Each is a different subtype of \"sedan,\" but you can drive any of them the same way -- same steering, pedals, and gear shift. If they gave you a vehicle where the brake pedal accelerated, that would violate LSP, even though it's technically still a \"vehicle.\""
+      "text": "javac accepts the narrower return type, `String` for `Object`, and an `UncheckedIOException` in place of the checked one (unit 2.1.4 shows what such an override does to its callers). Which inputs a method accepts, what it returns for them and which unchecked exceptions it throws are written only in the javadoc. The one executable check is a caller written against the supertype and run on every implementation. The runs below use this helper:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Map;\nimport java.util.function.Function;\nimport java.util.function.Supplier;\n\n/** Runs one caller, written against a supertype, on every implementation and prints what each did. */\npublic final class Substitute {\n\n    public static <T> void check(String caller, Map<String, Supplier<T>> impls, Function<T, ?> call) {\n        System.out.println(caller);\n        impls.forEach((name, make) -> {\n            String outcome;\n            try {\n                outcome = String.valueOf(call.apply(make.get()));\n            } catch (RuntimeException e) {\n                outcome = e.getClass().getSimpleName();\n            }\n            System.out.printf(\"  %-30s %s%n\", name, outcome);\n        });\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Here it runs `normalizeTags` on `\"web\", \" Java\", \"java\", \"api\"`, built the five ways the service's callers build a `List<String>`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "normalizeTags\n  new ArrayList<>(...)           [api, java, web]\n  Arrays.asList(...)             UnsupportedOperationException\n  List.of(...)                   UnsupportedOperationException\n  unmodifiableList(...)          UnsupportedOperationException\n  stream().toList()              UnsupportedOperationException"
+    },
+    {
+      "type": "para",
+      "text": "The test suite built its input with `new ArrayList<>`, the one row that works. `Arrays.asList` is a fixed-size view of the array: it sorts in place and fails at `remove`. The others fail at the first change."
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "8.1.3.1. Definition and Purpose of LSP"
+      "level": 2,
+      "text": "List's Mutators Are Optional Operations, So the Caller That Changes Its Argument Is in Breach"
     },
     {
       "type": "para",
-      "text": "Barbara Liskov introduced the idea in her 1987 keynote \"Data Abstraction and Hierarchy\"; she and Jeannette Wing formalized it in 1994 (\"A Behavioral Notion of Subtyping\"). The formal definition includes:"
+      "text": "`List.add`, `remove` and `set` are each marked \"(optional operation)\" in the javadoc, and `Collection` says what that means: an implementation that doesn't support one throws `UnsupportedOperationException`. Throwing is part of `List`'s contract, so `List.of` keeps it. `normalizeTags` is the code in breach: it relies on a promise `List` never made, so its signature hides a precondition, \"pass a modifiable list\". The fix builds a new list and leaves the argument alone:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static List<String> normalizeTags(List<String> tags) {\n    return tags.stream().map(t -> t.trim().toLowerCase()).distinct().sorted().toList();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "normalizeTags, fixed\n  new ArrayList<>(...)           [api, java, web]\n  Arrays.asList(...)             [api, java, web]\n  List.of(...)                   [api, java, web]\n  unmodifiableList(...)          [api, java, web]\n  stream().toList()              [api, java, web]"
+    },
+    {
+      "type": "para",
+      "text": "Read methods have optional clauses too. `Collection.contains` may throw `NullPointerException` \"if the specified element is null and this collection does not permit null elements (optional)\". A gateway forwards a header if its name is on an allow-list, and a request arrives without the header:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static boolean forwarded(List<String> allowed, String header) {\n    return allowed.contains(header);\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "forwarded(allowed, null)\n  new ArrayList<>(...)           false\n  Arrays.asList(...)             false\n  List.of(...)                   NullPointerException\n  unmodifiableList(...)          false\n  stream().toList()              false"
+    },
+    {
+      "type": "para",
+      "text": "Moving the allow-list from `Arrays.asList` to `List.of` passes every test that sends the header and fails on the first request that doesn't. `Set.of` rejects a null query the same way."
+    },
+    {
+      "type": "para",
+      "text": "The JDK made these subtypes legal by weakening the supertype: `List` promises so little that an unmodifiable list keeps the contract. The cost moved to every caller, which must copy before changing a list it was given and check for null before asking."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Timestamp Breaks the Symmetry Object.equals Promises, So a Set of Dates Depends on Arrival Order"
+    },
+    {
+      "type": "para",
+      "text": "`Object.equals` makes a promise with no optional clause: `x.equals(y)` should be true exactly when `y.equals(x)` is. `java.sql.Timestamp` extends `java.util.Date` and breaks it. An audit job counts distinct event times; some come from `new Date()` in the service, others from `rs.getTimestamp(...)`, held as `Date`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static int distinctTimes(List<Date> times) {\n    return new HashSet<>(times).size();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "long millis = Instant.parse(\"2026-03-15T09:00:00.250Z\").toEpochMilli();\nDate fromApp = new Date(millis);              // new Date() in the service\nDate fromDb = new Timestamp(millis);          // rs.getTimestamp(\"created_at\")"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "fromApp.equals(fromDb): true\nfromDb.equals(fromApp): false\nsame hashCode:          true\ndistinctTimes, app first: 2, db first: 1"
+    },
+    {
+      "type": "para",
+      "text": "`Date.equals` compares milliseconds and accepts any `Date`. `Timestamp.equals` returns false for anything that isn't a `Timestamp`, even at the same millisecond: its javadoc gives the reason that a `Date`'s nanoseconds are unknown. A `HashSet` calls `equals` on the element being added, and the same moment counts once or twice depending on which source answered first. Timestamp's javadoc admits it: the inheritance \"really denotes implementation inheritance, and not type inheritance\", and code should not treat a `Timestamp` as a `Date`. The fix follows that advice and converts at the boundary, keying by `Instant`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static int distinctTimesFixed(List<Date> times) {\n    Set<Instant> seen = new HashSet<>();\n    for (Date d : times) seen.add(d.toInstant());\n    return seen.size();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "fixed,         app first: 1, db first: 1"
+    },
+    {
+      "type": "para",
+      "text": "The same reuse through `extends` gave `java.sql.Date` overrides that throw (unit 7.3.1) and `Properties` an inherited `put` its own methods can't read back (unit 2.3.1)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Subtype May Accept More and Promise More, Never Less"
+    },
+    {
+      "type": "para",
+      "text": "In your own hierarchy, the supertype's javadoc is the contract, and the caller test is written against the interface, next to that javadoc. Checkout takes any `Discount`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** A discount on a cart. */\ninterface Discount {\n    /**\n     * @param subtotalCents the cart's subtotal: any value from 0 (an empty cart) up\n     * @return the discount in cents, from 0 to subtotalCents\n     */\n    long discountCents(long subtotalCents);\n}\n\nrecord PercentOff(int percent) implements Discount {\n    public long discountCents(long subtotalCents) {\n        return subtotalCents * percent / 100;\n    }\n}\n\n/** \"5 euros off\". */\nrecord FlatCoupon(long cents) implements Discount {\n    public long discountCents(long subtotalCents) {\n        return cents;\n    }\n}\n\n/** \"5 euros off orders over 20 euros\". */\nrecord MinimumSpendCoupon(long cents, long minimumCents) implements Discount {\n    public long discountCents(long subtotalCents) {\n        if (subtotalCents < minimumCents) {\n            throw new IllegalArgumentException(\"subtotal below minimum spend\");\n        }\n        return cents;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Each coupon passed its own unit test, written with a cart big enough for it. The contract is checked once, against the interface:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static String contract(Discount d) {\n    StringBuilder broken = new StringBuilder();\n    for (long subtotal : new long[] {0, 300, 2_500, 90_000}) {\n        try {\n            long off = d.discountCents(subtotal);\n            if (off < 0 || off > subtotal) broken.append(\" \").append(subtotal).append(\"->\").append(off);\n        } catch (RuntimeException e) {\n            broken.append(\" \").append(subtotal).append(\"->\").append(e.getClass().getSimpleName());\n        }\n    }\n    return broken.isEmpty() ? \"keeps the contract\" : \"breaks it at\" + broken;\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Discount contract\n  PercentOff(10)                 keeps the contract\n  FlatCoupon(500)                breaks it at 0->500 300->500\n  MinimumSpendCoupon(500, 2000)  breaks it at 0->IllegalArgumentException 300->IllegalArgumentException"
+    },
+    {
+      "type": "para",
+      "text": "`FlatCoupon` weakens the postcondition: a 3-euro cart checks out at minus 2 euros. `MinimumSpendCoupon` strengthens the precondition: it rejects carts the interface says every discount accepts, so the cart page throws for an empty cart with a coupon applied. The fixes cap both coupons with `Math.min(cents, subtotalCents)`, and the minimum-spend one returns 0 below its minimum. The same check passes:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Discount contract, fixed\n  PercentOff(10)                 keeps the contract\n  FlatCoupon(500)                keeps the contract\n  MinimumSpendCoupon(500, 2000)  keeps the contract"
+    },
+    {
+      "type": "para",
+      "text": "The opposite changes pass. `PercentOff(10)` promises more than the interface, never above a tenth of the subtotal, and keeps the contract. A discount that also accepted a negative subtotal would break no caller, since none written against the interface sends one. An implementation that can't serve every input the interface allows needs an interface of its own (unit 8.1.4)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Preconditions cannot be strengthened**: A subtype cannot require more than the base type",
-        "**Postconditions cannot be weakened**: A subtype must deliver at least what the base type promises",
-        "**Invariants must be preserved**: Properties guaranteed by the base type must hold in the subtype",
-        "**History constraint**: Subtypes cannot allow state changes that the base type would not allow"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.3.2. Applying LSP in Concurrent Programming"
-    },
-    {
-      "type": "para",
-      "text": "In concurrent systems, LSP applies to thread-safe data structures:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "If `TaskQueue` promises that `offer()` never blocks and `poll()` returns `null` when empty, all subtypes must honor these contracts",
-        "A `BoundedTaskQueue` may return `false` from `offer()` when full (which is allowed -- the contract says `offer` returns a boolean)",
-        "An `UnboundedTaskQueue` always returns `true` from `offer()` -- also valid"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.3.3. Subtype Behavioral Consistency"
-    },
-    {
-      "type": "para",
-      "text": "The key test: write code that uses the base type, then substitute any subtype. If the code breaks or behaves unexpectedly, LSP is violated."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.3.4. LSP and Thread Safety in Inheritance Hierarchies"
-    },
-    {
-      "type": "para",
-      "text": "When a base class promises thread safety, all subtypes must maintain that guarantee. A common violation: a subclass that overrides a synchronized method without proper synchronization."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "LSP is about **behavioral subtyping**, not just structural (implements the interface)",
-        "The classic violation is `Square extends Rectangle` -- setting width independently of height breaks the rectangle contract",
-        "LSP violations often manifest as `instanceof` checks or type-casting in client code",
-        "In Java, `sealed` classes and `record` types help prevent LSP violations by making types immutable and exhaustive",
-        "LSP is tested by substituting subtypes in existing code and verifying nothing breaks",
-        "Composition (has-a) is often safer than inheritance (is-a) for LSP compliance"
+        "**javac checks an override's signature, not its contract.** Accepted inputs, results and unchecked exceptions are checked only by a caller test run on every implementation.",
+        "**`List`'s mutators are optional operations.** `List.of` keeps the contract by throwing; a method that changes the list it was given is the code in breach, and copies instead.",
+        "**`Timestamp` breaks `equals` symmetry with `Date`.** Mixed in one collection, the count of duplicates depends on arrival order; convert to `Instant` at the boundary.",
+        "**A subtype may accept more and promise more, never less.** Rejecting an input the supertype accepts, or returning outside its range, breaks every caller that trusted the supertype."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Sealed interfaces**: Define bounded hierarchies where each permitted type has a clear, distinct contract",
-        "**Records**: Immutable by default, preventing the mutable-state LSP violations common with inheritance",
-        "**Pattern matching for switch**: Enables handling each subtype explicitly, making behavioral differences visible",
-        "**Virtual threads**: LSP applies to thread-safe interfaces -- virtual thread implementations must honor the same contracts as platform thread implementations"
-      ]
+      "type": "para",
+      "text": "**What javac enforces on an override (Java 21):**"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Change in the override",
+        "javac"
+      ],
+      "rows": [
         [
-          "**Square extends Rectangle**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "class Rectangle {\n    void setWidth(int w) { this.width = w; }\n    void setHeight(int h) { this.height = h; }\n}\nclass Square extends Rectangle {\n    void setWidth(int w) { this.width = w; this.height = w; } // Violates postcondition!\n}"
-          },
-          "**Fix**: Use a sealed interface with distinct `Rectangle` and `Square` record types."
+          "return type narrowed (`String` for `Object`)",
+          "accepted"
         ],
         [
-          "**Subclass throwing UnsupportedOperationException**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "class ReadOnlyList extends ArrayList {\n    @Override public boolean add(Object o) {\n        throw new UnsupportedOperationException(); // Violates LSP\n    }\n}"
-          },
-          "**Fix**: Don't extend `ArrayList`; implement a read-only interface instead."
+          "a checked exception the overridden method doesn't declare",
+          "error: \"overridden method does not throw\""
         ],
         [
-          "**Strengthening preconditions**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "class Base { void process(int n) { /* works for any int */ } }\nclass Sub extends Base {\n    void process(int n) {\n        if (n < 0) throw new IllegalArgumentException(); // Strengthened precondition!\n    }\n}"
-          },
-          "**Fix**: Subtypes should accept at least the same range of inputs as the base type."
+          "access narrowed (`public` to package-private)",
+          "error: \"attempting to assign weaker access privileges\""
+        ],
+        [
+          "a new unchecked exception",
+          "accepted"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**JDK subtypes and the contract they keep (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Case",
+        "Behaviour",
+        "Contract"
+      ],
+      "rows": [
+        [
+          "`List.of`, `List.copyOf`, `stream().toList()`, `Collections.unmodifiableList`",
+          "every mutator throws `UnsupportedOperationException`",
+          "kept: mutators are optional"
+        ],
+        [
+          "`Arrays.asList`",
+          "`set` and `sort` work; `add` and `remove` throw",
+          "kept: fixed-size"
+        ],
+        [
+          "`List.of(...).contains(null)`, `Set.of(...).contains(null)`",
+          "`NullPointerException`",
+          "kept: marked optional"
+        ],
+        [
+          "`ArrayList.contains(null)`, `stream().toList().contains(null)`",
+          "`false`",
+          "kept"
+        ],
+        [
+          "`Timestamp.equals(Date)`",
+          "`false` where `Date.equals(Timestamp)` is `true`",
+          "broken: javadoc says not symmetric"
+        ],
+        [
+          "`TreeSet<Date>` given a `Date` and a `Timestamp` of the same millisecond with extra nanoseconds",
+          "2 elements or 1, by insertion order",
+          "broken: `compareTo` disagrees in the same way"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Prefer composition over inheritance -- it avoids most LSP issues",
-        "Use `sealed` interfaces with `record` implementations for type hierarchies",
-        "Write contract tests: test suites that run against the interface and can be parameterized with any implementation",
-        "Avoid mutable state in type hierarchies -- immutable objects trivially satisfy LSP",
-        "Document contracts explicitly: preconditions, postconditions, and invariants",
-        "Use the \"can I substitute this?\" mental test before creating inheritance relationships"
+        "A library method takes `Collection<String>` and must return it sorted without duplicates. Would you change the parameter type, copy, or document a precondition? What does each cost a caller?",
+        "Write the contract test for `Map.get` as your service uses it. Which of `HashMap`, `ConcurrentHashMap`, `Map.of` and `TreeMap` pass it with a null key?",
+        "Your team's `Repository` interface has a `delete` that one read-only implementation can't support. List the options and which callers each one breaks."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null inputs**: Both bounded and unbounded queues should reject null items consistently",
-        "**Empty collections**: `totalArea` of an empty shape list should return 0, `largestByArea` should throw",
-        "**Zero-value shapes**: A shape with zero dimensions is valid and has zero area -- all subtypes must handle this",
-        "**Boundary capacity**: A bounded queue at capacity returns `false` from `offer()`; an unbounded queue always returns `true` -- both honor the `boolean offer(T)` contract"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the Collection Interfaces Have Optional Operations"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The Rectangle/Square problem -- be ready to explain why it violates LSP",
-        "Asking you to identify LSP violations in code",
-        "Understanding the formal properties (preconditions, postconditions, invariants)",
-        "Relating LSP to real-world APIs (Collections framework, I/O streams)"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Does `ArrayList` implement `List` in an LSP-compliant way?\" (Yes, because the `List` interface doesn't promise constant-time access -- that's an implementation detail)",
-        "\"Is `Collections.unmodifiableList()` an LSP violation?\" (Controversial -- it implements `List` but throws on mutation. The Java community generally considers it acceptable because `List.add()` is documented as optional)",
-        "\"How does LSP relate to the Liskov substitution in the context of covariant return types?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the Liskov Substitution Principle and why does Square-extends-Rectangle violate it?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The Liskov Substitution Principle states that objects of a base type should be \nreplaceable with objects of any subtype without breaking program correctness.\n\nThe Square-extends-Rectangle violation:\n- Rectangle's contract: setWidth changes only width, setHeight changes only height\n- Square's override: setWidth also changes height (and vice versa)\n- Client code that sets width=5 and height=3 expects area=15\n- With a Square substituted, area becomes 9 (both dimensions set to 3)\n\nThis breaks the postcondition of setWidth: \"after setWidth(w), getWidth() == w \nAND getHeight() is unchanged.\"\n\nThe fix is to use a common Shape interface with separate Rectangle and Square \nimplementations, rather than having Square extend Rectangle."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// LSP violation\nclass Rectangle {\n    protected int width, height;\n    void setWidth(int w) { this.width = w; }\n    void setHeight(int h) { this.height = h; }\n    int area() { return width * height; }\n}\n\nclass Square extends Rectangle {\n    @Override void setWidth(int w) { this.width = w; this.height = w; }\n    @Override void setHeight(int h) { this.width = h; this.height = h; }\n}\n\n// Client code breaks with Square\nvoid resize(Rectangle r) {\n    r.setWidth(5);\n    r.setHeight(3);\n    assert r.area() == 15; // FAILS with Square! area = 9\n}\n\n// LSP-compliant solution\nsealed interface Shape permits LspRectangle, LspSquare {\n    double area();\n}\nrecord LspRectangle(double width, double height) implements Shape {\n    public double area() { return width * height; }\n}\nrecord LspSquare(double side) implements Shape {\n    public double area() { return side * side; }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does LSP apply to concurrent data structures?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: LSP is critical for concurrent data structures because client code must be \nable to swap implementations without changing synchronization assumptions.\n\nFor example, a TaskQueue interface with these contracts:\n- offer(item): adds item, returns true if successful, false if full\n- poll(): returns and removes head, or null if empty\n- size(): returns current count\n\nBoth BoundedTaskQueue and UnboundedTaskQueue must honor these contracts:\n- Bounded: offer returns false when at capacity (valid per contract)\n- Unbounded: offer always returns true (also valid -- exceeds the minimum guarantee)\n- Both: poll returns null when empty\n- Both: size returns accurate count\n\nA consumer that processes items from any TaskQueue will work correctly with either \nimplementation, which is the essence of LSP."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface TaskQueue<T> {\n    boolean offer(T item);  // Returns false if can't accept\n    T poll();               // Returns null if empty\n    int size();\n}\n\nclass BoundedTaskQueue<T> implements TaskQueue<T> {\n    private final ArrayBlockingQueue<T> queue;\n    BoundedTaskQueue(int cap) { queue = new ArrayBlockingQueue<>(cap); }\n    public boolean offer(T item) { return queue.offer(item); } // false when full\n    public T poll() { return queue.poll(); }\n    public int size() { return queue.size(); }\n}\n\nclass UnboundedTaskQueue<T> implements TaskQueue<T> {\n    private final ConcurrentLinkedQueue<T> queue = new ConcurrentLinkedQueue<>();\n    public boolean offer(T item) { queue.offer(item); return true; } // always true\n    public T poll() { return queue.poll(); }\n    public int size() { return queue.size(); }\n}\n\n// Client works with any TaskQueue -- LSP in action\nclass TaskConsumer<T> {\n    void drainAll(TaskQueue<T> queue) {\n        T item;\n        while ((item = queue.poll()) != null) { process(item); }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What are the formal properties that LSP requires?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: LSP requires four formal properties:\n\n1. Precondition rule: A subtype cannot STRENGTHEN preconditions\n   - If base accepts any integer, subtype cannot reject negatives\n   - Subtype can WEAKEN preconditions (accept more inputs)\n\n2. Postcondition rule: A subtype cannot WEAKEN postconditions\n   - If base guarantees sorted output, subtype must also guarantee it\n   - Subtype can STRENGTHEN postconditions (guarantee more)\n\n3. Invariant rule: All invariants of the base type must hold in the subtype\n   - If base guarantees size >= 0, subtype must also maintain this\n\n4. History constraint: Subtypes cannot introduce state changes that the base \n   type would not allow\n   - If base is immutable, subtype cannot add mutating methods\n\nThese rules ensure that any code written against the base type's contract \ncontinues to work correctly when a subtype is substituted."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating the four properties\ninterface SortedCollection<T extends Comparable<T>> {\n    void add(T item);           // Precondition: item != null\n    List<T> getAll();           // Postcondition: returned list is sorted\n    int size();                 // Invariant: size() >= 0\n}\n\n// Correct subtype: honors all properties\nclass SortedArrayList<T extends Comparable<T>> implements SortedCollection<T> {\n    private final List<T> items = new ArrayList<>();\n\n    @Override\n    public void add(T item) {\n        Objects.requireNonNull(item);    // Same precondition (not strengthened)\n        items.add(item);\n        items.sort(Comparator.naturalOrder());\n    }\n\n    @Override\n    public List<T> getAll() {\n        return Collections.unmodifiableList(items); // Postcondition: sorted\n    }\n\n    @Override\n    public int size() {\n        return items.size(); // Invariant: always >= 0\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How do you detect LSP violations in existing code?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: LSP violations manifest through these code smells:\n\n1. instanceof checks in client code:\n   if (shape instanceof Square) { /* special handling */ }\n   This means the subtype cannot be treated uniformly.\n\n2. Empty or throwing method overrides:\n   @Override public void add(E e) { throw new UnsupportedOperationException(); }\n   The subtype refuses to fulfill the base type's contract.\n\n3. Defensive null checks after calling subtype methods:\n   Result r = processor.process(input);\n   if (r == null) { /* shouldn't happen per contract, but... */ }\n\n4. Subclass methods that silently change behavior:\n   Base.setX() only sets X, but Sub.setX() also sets Y.\n\n5. Tests that need different assertions for different subtypes:\n   If your test says \"if BoundedQueue, expect X; if UnboundedQueue, expect Y\" \n   for the SAME operation, there's likely an LSP issue.\n\nPrevention:\n- Write \"contract tests\" that run against the interface\n- Use abstract test classes parameterized with different implementations\n- Prefer composition over inheritance\n- Use sealed interfaces with records for type safety"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// LSP violation detection: instanceof smell\nvoid processShape(Shape shape) {\n    if (shape instanceof Square s) {\n        // Special handling for Square -- LSP violation indicator!\n        System.out.println(\"Square side: \" + s.side());\n    } else if (shape instanceof Rectangle r) {\n        System.out.println(\"Rectangle: \" + r.width() + \"x\" + r.height());\n    }\n}\n\n// LSP-compliant: uniform handling through the interface\nvoid processShape(Shape shape) {\n    System.out.println(shape.description()); // Each shape describes itself\n    System.out.println(\"Area: \" + shape.area());\n    System.out.println(\"Perimeter: \" + shape.perimeter());\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How does LSP relate to the `Collections.unmodifiableList()` in Java?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: This is a well-known LSP gray area in Java:\n\nCollections.unmodifiableList() returns a List that throws \nUnsupportedOperationException for add(), remove(), set(), etc.\n\nArguments that it VIOLATES LSP:\n- The List interface defines add(), remove(), etc.\n- Client code using List expects these operations to work\n- The unmodifiable wrapper breaks this expectation\n\nArguments that it does NOT violate LSP:\n- The List interface documents add() as an \"optional operation\"\n- The Javadoc explicitly states that implementations may throw \n  UnsupportedOperationException\n- The contract includes the possibility of failure\n\nJava's approach is pragmatic:\n- The \"optional operations\" pattern is documented in the Collection interface\n- Real-world code handles this via convention (defensive programming)\n- Newer Java adds List.of() and List.copyOf(), which return truly unmodifiable \n  lists (not views of a mutable list) and are clearly documented as such -- \n  but they are still List implementations whose add()/remove() throw \n  UnsupportedOperationException\n\nBest practice: Use List.of() / List.copyOf() for unmodifiable lists, so the \nintent is visible where the list is created. This reduces the LSP ambiguity; \nit cannot remove it, because the static type is still List."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// The LSP gray area\nList<String> mutable = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\nList<String> unmodifiable = Collections.unmodifiableList(mutable);\n\n// This works\nString first = unmodifiable.get(0); // OK\n\n// This throws -- potential LSP violation\ntry {\n    unmodifiable.add(\"d\"); // UnsupportedOperationException\n} catch (UnsupportedOperationException e) {\n    // Expected if you know it's unmodifiable, but surprising if you only see List<String>\n}\n\n// Better approach in modern Java -- clearer intent at the creation site\nList<String> immutable = List.of(\"a\", \"b\", \"c\");\n// immutable.add(\"d\"); // Also throws, but List.of() is documented as unmodifiable\n\n// Best practice: use specific return types when possible\npublic List<String> getItems() {\n    return List.copyOf(internalList); // Caller knows this is an unmodifiable snapshot\n}"
+      "text": "The collections framework could have given each kind of collection several interfaces: modifiable, fixed-size, unmodifiable, null-tolerant, each for `List`, `Set` and `Map`. It kept one type per kind and marked the mutators optional, so one interface covers every list. The type then no longer says which calls will work, and a caller finds out at run time. Splitting an interface by what its clients need is unit 8.1.4."
     },
     {
       "type": "heading",
@@ -312,17 +345,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 14,
-    "paras": 13,
-    "code": 10,
-    "tables": 0,
-    "lists": 10,
+    "headings": 10,
+    "paras": 20,
+    "code": 18,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "44b0299dcb9647b5aa0282416aaa958b7ee1e646c92ff484a8e389bc4771c2a2"
+  "content_sha256": "9cea524ff83afa213a60354095e11a98b766beab745956b90280b294a4ac384b"
 }

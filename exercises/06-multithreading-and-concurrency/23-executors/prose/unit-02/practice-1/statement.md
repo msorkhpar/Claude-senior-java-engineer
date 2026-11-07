@@ -1,27 +1,16 @@
-The page's interview answer lists what `Future.get()` can throw:
-`ExecutionException` when the task failed (the real exception is its
-`getCause()`, even a checked one), `CancellationException` when the task was
-cancelled, `TimeoutException` from `get(timeout, unit)`, and
-`InterruptedException` when the waiting thread is interrupted. Its pitfalls add:
-always wait with a timeout, and handle the cause, not the wrapper.
+The finance team reads the nightly settlement report every morning. It has one line per merchant,
+and each merchant's day is settled with its bank on a pool, all at once. The line for every
+merchant whose bank call went wrong reads `failed: ExecutionException`, so nobody can tell a bank
+that timed out from a bug in the ledger. And on the night the ledger database ran out of
+connections, the report job died after the first failing merchant, and nobody got a report.
 
-Write `Outcomes.describe(future, timeout, unit)`, which waits at most `timeout`
-for the future and returns one line:
+`run(...)` already submits the settlements and builds the report. Finish the `TODO` in
+`src/main/java/practice/SettlementReport.java`:
 
-- `"value: " + value` when the task returned;
-- `"failed: " + SimpleClassName + ": " + message` of the exception **the task
-  threw**;
-- `"cancelled"` when the task was cancelled;
-- `"timed out"` when it did not finish in time.
+- `line(...)`: wait for one merchant's settlement and write its line.
 
-An interrupt of the waiting thread is not an outcome: let the
-`InterruptedException` out.
+When you're done, a failed merchant's line names what the bank call threw and its message, every
+merchant gets its line whatever happened to the others, and stopping the report job while it waits
+ends the job instead of filling the report with failures. About six lines in total.
 
-| the future's task | `describe(future, 1, SECONDS)` |
-|---|---|
-| returned `42` | `"value: 42"` |
-| threw `new IOException("File not found")` | `"failed: IOException: File not found"` |
-| was cancelled before it ran | `"cancelled"` |
-| finishes while `describe` is waiting (timeout 5 s) | `"value: late"` |
-| never finishes (timeout 50 ms) | `"timed out"` |
-| never finishes, and the calling thread is interrupted | throws `InterruptedException` |
+The tests settle merchants on a real `ExecutorService`.

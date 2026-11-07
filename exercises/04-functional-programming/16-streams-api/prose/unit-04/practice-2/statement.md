@@ -1,17 +1,12 @@
-`allMatch`, `anyMatch` and `noneMatch` answer a yes-or-no question about a whole stream, and each stops as soon
-as the answer is known.
+A marketplace shows how many listings carry each tag ("vegan", "handmade", ...). Small shops'
+numbers are right. For the large catalogues, which are tallied on a parallel stream, the numbers
+change from one page load to the next, run into the billions, some are negative, and now and then
+the tally fails with a `ConcurrentModificationException`.
 
-Write three static methods in `BatchChecks`:
+`TagTally.Counts` keeps one count per tag and is not thread-safe. Finish the two `TODO`s in
+`src/main/java/practice/TagTally.java`:
 
-1. `boolean allLongerThan(List<String> words, int minLength)`: every word has more than `minLength` characters.
-2. `boolean anyLongerThan(List<String> words, int minLength)`: at least one word has more than `minLength` characters.
-3. `boolean noneStartsWith(List<String> words, String prefix)`: no word starts with `prefix`.
+- `Counts.addAll(other)`: add another `Counts` into this one;
+- `tally(Stream<String>)`: count every tag of the stream into a `Counts`.
 
-| call | answer |
-|---|---|
-| `allLongerThan(["apple", "banana", "cherry"], 4)` | `true` |
-| `anyLongerThan(["apple", "banana", "cherry"], 6)` | `false` |
-| `noneStartsWith(["apple", "banana", "cherry"], "b")` | `false` |
-
-A length counts every character, spaces included, and "starts with" means `String.startsWith`: case-sensitive,
-at the very start of the word. A batch may be empty. Decide what each answer is then from what the question means, not from a special case.
+The tally must be exact whether its stream is sequential or parallel. About four lines in total.

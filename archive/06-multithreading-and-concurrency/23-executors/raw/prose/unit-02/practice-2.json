@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A result in time, or a fallback",
+  "title": "Fall back to the cached price without losing the pool",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,26 @@
     },
     {
       "type": "para",
-      "text": "The page's pitfalls: `future.get()` without a timeout can block forever, and a `get(timeout, unit)` that times out leaves the task **running in the background** unless you cancel it. Its interview answer shows the fix, `computeWithTimeout`: wait with a timeout, and on a timeout call `future.cancel(true)` and return a fallback."
+      "text": "A product page shows a price from the supplier's pricing API, asked on a pool that every product page shares. When the supplier is slow, the page is meant to show the last price we cached rather than wait. Last month the supplier stopped answering for one product line. Its pages showed the cached prices for a few minutes, as designed, and then every product page on the site, including those of other product lines, started showing cached prices too."
     },
     {
       "type": "para",
-      "text": "Write `Fallback.within(executor, task, timeout, unit, fallback)`:"
+      "text": "`priceOf(...)` already asks the supplier. Finish the `TODO` in `src/main/java/practice/PriceService.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "submit `task` to `executor` and wait at most `timeout` for its result;",
-        "on a timeout: cancel the task, interrupting it, and return `fallback`;",
-        "if the task failed: throw a `RuntimeException` whose **cause is the exception the task threw**;",
-        "if the calling thread is interrupted while it waits: cancel the task, restore the interrupt flag and return `fallback`."
+        "`priceOrCached(...)`: what the page gets back from the call it started."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "`task` (on a single-thread executor)",
-        "`within(executor, task, 200, MILLISECONDS, \"stale\")`"
-      ],
-      "rows": [
-        [
-          "`() -> \"fresh\"`",
-          "`\"fresh\"`"
-        ],
-        [
-          "a task that never finishes",
-          "`\"stale\"`, and the executor's thread is free again"
-        ],
-        [
-          "`() -> { throw new IOException(\"down\"); }`",
-          "throws a `RuntimeException` with cause that `IOException`"
-        ],
-        [
-          "any task, called from a thread that is already interrupted",
-          "`\"stale\"`, and the thread is still interrupted"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a page shows the supplier's price if it comes within the budget and the cached price otherwise, a supplier that fails gets the cached price too, and a supplier that stops answering doesn't keep the pool's threads from the pages after it. About eight lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run the pages on a real one-thread pool. Their supplier gives up when its thread is interrupted, as `HttpClient.send` does."
     },
     {
       "type": "heading",
@@ -73,7 +53,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\npublic final class Fallback {\n\n    private Fallback() {\n    }\n\n    /** The task's result if it arrives within the timeout, otherwise the fallback. */\n    public static <T> T within(ExecutorService executor, Callable<T> task, long timeout, TimeUnit unit, T fallback) {\n        Future<T> future = executor.submit(task);\n        try {\n            return future.get(timeout, unit);\n        } catch (TimeoutException e) {\n            future.cancel(true);\n            return fallback;\n        } catch (ExecutionException e) {\n            throw new RuntimeException(\"Task failed\", e.getCause());\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            future.cancel(true);\n            return fallback;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/**\n * The price shown on a product page. The supplier is asked on a shared pool; when it can't give a\n * price in time, the page shows the last price we cached for the product instead.\n */\npublic class PriceService {\n\n    /** The supplier's pricing API. A call can take as long as the supplier likes. */\n    public interface Supplier {\n        long price(String sku) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Supplier supplier;\n    private final Map<String, Long> cached;\n    private final long budgetMillis;\n\n    public PriceService(ExecutorService pool, Supplier supplier, Map<String, Long> cached, long budgetMillis) {\n        this.pool = pool;\n        this.supplier = supplier;\n        this.cached = cached;\n        this.budgetMillis = budgetMillis;\n    }\n\n    /** The price to show for the product, in cents. */\n    public long priceOf(String sku) throws InterruptedException {\n        Future<Long> call = pool.submit(() -> supplier.price(sku));\n        return priceOrCached(sku, call);\n    }\n\n    /**\n     * The supplier's price if it arrives within the page's budget of budgetMillis, otherwise the\n     * cached price. A supplier call that fails also falls back to the cached price.\n     */\n    long priceOrCached(String sku, Future<Long> call) throws InterruptedException {\n        try {\n            return call.get(budgetMillis, TimeUnit.MILLISECONDS);\n        } catch (TimeoutException e) {\n            call.cancel(true);\n            return cached.get(sku);\n        } catch (ExecutionException e) {\n            return cached.get(sku);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +65,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\npublic final class Fallback {\n\n    private Fallback() {\n    }\n\n    /** The task's result if it arrives within the timeout, otherwise the fallback. */\n    public static <T> T within(ExecutorService executor, Callable<T> task, long timeout, TimeUnit unit, T fallback) {\n        throw new UnsupportedOperationException(\"write within\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The price shown on a product page. The supplier is asked on a shared pool; when it can't give a\n * price in time, the page shows the last price we cached for the product instead.\n */\npublic class PriceService {\n\n    /** The supplier's pricing API. A call can take as long as the supplier likes. */\n    public interface Supplier {\n        long price(String sku) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Supplier supplier;\n    private final Map<String, Long> cached;\n    private final long budgetMillis;\n\n    public PriceService(ExecutorService pool, Supplier supplier, Map<String, Long> cached, long budgetMillis) {\n        this.pool = pool;\n        this.supplier = supplier;\n        this.cached = cached;\n        this.budgetMillis = budgetMillis;\n    }\n\n    /** The price to show for the product, in cents. */\n    public long priceOf(String sku) throws InterruptedException {\n        Future<Long> call = pool.submit(() -> supplier.price(sku));\n        return priceOrCached(sku, call);\n    }\n\n    /**\n     * The supplier's price if it arrives within the page's budget of budgetMillis, otherwise the\n     * cached price. A supplier call that fails also falls back to the cached price.\n     */\n    long priceOrCached(String sku, Future<Long> call) throws InterruptedException {\n        // TODO: Give the page the supplier's price, or the cached one, within the budget. The pool\n        //       is shared by every product page: a supplier that stops answering must not take\n        //       its threads away from the pages that come after.\n        throw new IllegalStateException(\"TODO: priceOrCached\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,9 +73,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -104,11 +84,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "58d90ada89583d7bae8295f3783492d695ed890b03c50d4b77ec9b01bcbeb807",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\npublic final class Fallback {\n\n    private Fallback() {\n    }\n\n    /** The task's result if it arrives within the timeout, otherwise the fallback. */\n    public static <T> T within(ExecutorService executor, Callable<T> task, long timeout, TimeUnit unit, T fallback) {\n        throw new UnsupportedOperationException(\"write within\");\n    }\n}\n",
+  "content_sha256": "c13b48b669af2602adbaa175754ca7e642cefcfe4904fc7ea6f731e67c4dddec",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The price shown on a product page. The supplier is asked on a shared pool; when it can't give a\n * price in time, the page shows the last price we cached for the product instead.\n */\npublic class PriceService {\n\n    /** The supplier's pricing API. A call can take as long as the supplier likes. */\n    public interface Supplier {\n        long price(String sku) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Supplier supplier;\n    private final Map<String, Long> cached;\n    private final long budgetMillis;\n\n    public PriceService(ExecutorService pool, Supplier supplier, Map<String, Long> cached, long budgetMillis) {\n        this.pool = pool;\n        this.supplier = supplier;\n        this.cached = cached;\n        this.budgetMillis = budgetMillis;\n    }\n\n    /** The price to show for the product, in cents. */\n    public long priceOf(String sku) throws InterruptedException {\n        Future<Long> call = pool.submit(() -> supplier.price(sku));\n        return priceOrCached(sku, call);\n    }\n\n    /**\n     * The supplier's price if it arrives within the page's budget of budgetMillis, otherwise the\n     * cached price. A supplier call that fails also falls back to the cached price.\n     */\n    long priceOrCached(String sku, Future<Long> call) throws InterruptedException {\n        // TODO: Give the page the supplier's price, or the cached one, within the budget. The pool\n        //       is shared by every product page: a supplier that stops answering must not take\n        //       its threads away from the pages that come after.\n        throw new IllegalStateException(\"TODO: priceOrCached\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-2/src/main/java/practice/Fallback.java",
-    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-2/src/test/java/practice/FallbackTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-2/src/main/java/practice/PriceService.java",
+    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-2/src/test/java/practice/PriceServiceTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,34 +109,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FallbackTest#returnsTheResultInTime",
+        "id": "practice.PriceServiceTest#aSupplierThatAnswersInTimeSetsThePrice",
         "kind": "main",
-        "says": "A task that finishes in time gives its own result."
+        "says": "a supplier that answers within the budget sets the price the page shows"
       },
       {
-        "id": "practice.FallbackTest#aTimeoutCancelsTheTask",
+        "id": "practice.PriceServiceTest#aSupplierThatStopsAnsweringGetsTheCachedPrice",
         "kind": "edge",
-        "says": "On a timeout the fallback is returned and the task is cancelled, so it no longer holds a pool thread."
+        "says": "a supplier that never answers gets the cached price shown once the budget is spent"
       },
       {
-        "id": "practice.FallbackTest#aFailureKeepsItsCause",
+        "id": "practice.PriceServiceTest#aStuckSupplierCallGivesItsThreadBackToThePool",
         "kind": "edge",
-        "says": "A failed task ends in an exception whose cause is the task's own exception, not the ExecutionException."
+        "says": "after the budget runs out, the stuck supplier call is interrupted and its pool thread serves the next page"
       },
       {
-        "id": "practice.FallbackTest#anInterruptedCallerKeepsItsFlag",
+        "id": "practice.PriceServiceTest#aSupplierThatFailsGetsTheCachedPrice",
         "kind": "edge",
-        "says": "A caller interrupted while it waits gets the fallback, cancels the task and keeps its interrupt flag set."
-      },
-      {
-        "id": "practice.FallbackTest#theTimeoutUnitIsHonoured",
-        "kind": "edge",
-        "says": "A timeout of 3 SECONDS is read in seconds: a task that answers after 0.5 s is in time."
-      },
-      {
-        "id": "practice.FallbackTest#anUncheckedFailureIsWrappedToo",
-        "kind": "edge",
-        "says": "A task that throws an IllegalStateException also comes out as a RuntimeException whose cause is that exception."
+        "says": "a supplier call that fails gets the cached price shown"
       }
     ],
     "report": {
@@ -165,11 +135,10 @@
     },
     "origin": {
       "path": "23-executors/README_6.4.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Timed get() Ends the Wait, Not the Task"
     },
     "concepts": [
-      "A get() that times out leaves the task running, so the caller cancels it with cancel(true) and falls back to a default.",
-      "A thread interrupted while it waits in get() restores its interrupt flag and cancels the task it abandons."
+      "A timed get() that runs out ends only the caller's wait; the task keeps its pool thread until cancel(true) interrupts a task that answers interrupts."
     ]
   }
 }

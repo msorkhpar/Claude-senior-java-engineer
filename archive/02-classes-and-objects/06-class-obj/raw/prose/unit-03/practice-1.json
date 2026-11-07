@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Count the tickets a class issues",
+  "title": "Keep one packer's label out of another's",
   "blocks": [
     {
       "type": "heading",
@@ -19,30 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A **static** field belongs to the class: there is one copy, shared by every object. An **instance** field belongs to one object: every object has its own. The page's `InstanceCounter` uses a static field to count the objects created."
+      "text": "The warehouse prints shipping labels on several packing lines. Each line has one `LabelPrinter`, and every packer on the line renders labels with it from their own thread. Last month someone made the printer reuse a single buffer for every label \"to save allocations\". Since then a few parcels a day go out with one customer's name above another customer's street. The postcode lookup goes to a remote service and can take seconds, so a label waiting for its city must not hold up the other packers."
     },
     {
       "type": "para",
-      "text": "Write `Ticket`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/LabelPrinter.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`static int issued()` returns how many tickets have been created so far. It is called on the class, with no ticket needed.",
-        "Every new `Ticket` raises that count by one and takes the count's new value as **its own** number, returned by `number()`: the first ticket is 1, the next 2, and so on.",
-        "A ticket's number never changes afterwards.",
-        "The page warns that static mutable fields are shared by every thread: tickets created by many threads at the same moment must all be counted, and no two tickets may get the same number. Guard the shared count with **the class's own lock**: a `static synchronized` method, or a `synchronized (Ticket.class)` block. While another thread holds that lock, creating a ticket waits."
+        "`render(...)`: the three lines of one label, counted for the dashboard;",
+        "`renderedByAll()`: the number the dashboard shows, every label that any printer has rendered since the service started."
       ]
     },
     {
       "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Ticket.issued()   -> 0\na = new Ticket()  -> a.number() == 1\nb = new Ticket()  -> b.number() == 2, a.number() == 1\nTicket.issued()   -> 2"
+      "text": "About eight lines in total. The tests render labels from several threads on one printer, and on several printers one after the other."
     },
     {
       "type": "heading",
@@ -57,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Ticket {\n    private static int issued;\n\n    private final int number;\n\n    public Ticket() {\n        this.number = nextNumber();\n    }\n\n    private static synchronized int nextNumber() {\n        issued++;\n        return issued;\n    }\n\n    public static synchronized int issued() {\n        return issued;\n    }\n\n    public int number() {\n        return number;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicLong;\n\n/**\n * Renders the address block of a shipping label. The warehouse creates one printer per packing\n * line, and every packer on that line renders labels with it from their own thread.\n */\npublic class LabelPrinter {\n\n    /** Finds the city for a postcode. It asks a remote service and can take seconds. */\n    public interface Cities {\n        String cityOf(String postcode);\n    }\n\n    private static final AtomicLong RENDERED = new AtomicLong();\n\n    private final Cities cities;\n\n    public LabelPrinter(Cities cities) {\n        this.cities = cities;\n    }\n\n    /** Three lines: the name, the street, and the postcode followed by its city. */\n    public String render(String name, String street, String postcode) {\n        StringBuilder label = new StringBuilder(96);\n        label.append(name).append('\\n')\n                .append(street).append('\\n')\n                .append(postcode).append(' ').append(cities.cityOf(postcode));\n        RENDERED.incrementAndGet();\n        return label.toString();\n    }\n\n    /** How many labels all printers in this JVM have rendered so far. */\n    public static long renderedByAll() {\n        return RENDERED.get();\n    }\n}\n"
         }
       ]
     },
@@ -69,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Ticket {\n\n    public Ticket() {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public static int issued() {\n        throw new UnsupportedOperationException(\"write issued\");\n    }\n\n    public int number() {\n        throw new UnsupportedOperationException(\"write number\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Renders the address block of a shipping label. The warehouse creates one printer per packing\n * line, and every packer on that line renders labels with it from their own thread.\n */\npublic class LabelPrinter {\n\n    /** Finds the city for a postcode. It asks a remote service and can take seconds. */\n    public interface Cities {\n        String cityOf(String postcode);\n    }\n\n    private final Cities cities;\n\n    public LabelPrinter(Cities cities) {\n        this.cities = cities;\n    }\n\n    /** Three lines: the name, the street, and the postcode followed by its city. */\n    public String render(String name, String street, String postcode) {\n        // TODO: Build the three lines, for example \"Ana Silva\\n4 Harbour Road\\nAB1 2CD Aberdeen\",\n        //       asking `cities` for the city. Every packer on the line calls this on the same\n        //       printer at the same time, and each must get only their own customer's lines.\n        //       Count the label for renderedByAll().\n        throw new IllegalStateException(\"TODO: render\");\n    }\n\n    /** How many labels all printers in this JVM have rendered so far. */\n    public static long renderedByAll() {\n        // TODO: The warehouse dashboard shows one number for all packing lines: every label any\n        //       printer has rendered since the service started.\n        throw new IllegalStateException(\"TODO: renderedByAll\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -78,7 +71,7 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -88,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f52bd4df85090a241893db63092e7bb6ffa93b8dd786583878ed570fd3531732",
-  "starting_code": "package practice;\n\npublic class Ticket {\n\n    public Ticket() {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public static int issued() {\n        throw new UnsupportedOperationException(\"write issued\");\n    }\n\n    public int number() {\n        throw new UnsupportedOperationException(\"write number\");\n    }\n}\n",
+  "content_sha256": "7d4b59c345a7cbf5a42f80991cc7c3d77c49fec77819fe133231577ba4206ed6",
+  "starting_code": "package practice;\n\n/**\n * Renders the address block of a shipping label. The warehouse creates one printer per packing\n * line, and every packer on that line renders labels with it from their own thread.\n */\npublic class LabelPrinter {\n\n    /** Finds the city for a postcode. It asks a remote service and can take seconds. */\n    public interface Cities {\n        String cityOf(String postcode);\n    }\n\n    private final Cities cities;\n\n    public LabelPrinter(Cities cities) {\n        this.cities = cities;\n    }\n\n    /** Three lines: the name, the street, and the postcode followed by its city. */\n    public String render(String name, String street, String postcode) {\n        // TODO: Build the three lines, for example \"Ana Silva\\n4 Harbour Road\\nAB1 2CD Aberdeen\",\n        //       asking `cities` for the city. Every packer on the line calls this on the same\n        //       printer at the same time, and each must get only their own customer's lines.\n        //       Count the label for renderedByAll().\n        throw new IllegalStateException(\"TODO: render\");\n    }\n\n    /** How many labels all printers in this JVM have rendered so far. */\n    public static long renderedByAll() {\n        // TODO: The warehouse dashboard shows one number for all packing lines: every label any\n        //       printer has rendered since the service started.\n        throw new IllegalStateException(\"TODO: renderedByAll\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-1/src/main/java/practice/Ticket.java",
-    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-1/src/test/java/practice/TicketTest.java",
+    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-1/src/main/java/practice/LabelPrinter.java",
+    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-1/src/test/java/practice/LabelPrinterTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,19 +106,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TicketTest#countsEveryTicketAndNumbersThemInOrder",
+        "id": "practice.LabelPrinterTest#rendersEachLabelAndCountsIt",
         "kind": "main",
-        "says": "Each new ticket raises the shared count by one and gets the next number."
+        "says": "each label has the name, the street, and the postcode with its city, and every label adds one to the count"
       },
       {
-        "id": "practice.TicketTest#eachTicketKeepsItsOwnNumber",
+        "id": "practice.LabelPrinterTest#aLabelRenderedWhileAnotherWaitsForItsCityKeepsItsOwnLines",
         "kind": "edge",
-        "says": "A ticket's number does not change when later tickets are issued."
+        "says": "a label rendered while another packer's label waits for its city comes out complete, and the waiting label keeps its own lines"
       },
       {
-        "id": "practice.TicketTest#ticketsIssuedAtOnceAreAllCounted",
+        "id": "practice.LabelPrinterTest#theCountCoversEveryPrinterNotJustTheNewestOne",
         "kind": "edge",
-        "says": "Issuing a ticket takes the class's own lock, so creation waits while another thread holds it, and tickets created by several threads are all counted with distinct numbers."
+        "says": "the count includes the labels of every printer, also those rendered before another printer was created"
       }
     ],
     "report": {
@@ -134,12 +127,11 @@
     },
     "origin": {
       "path": "06-class-obj/README_2.1.3.md",
-      "section": "Interview-specific Insights"
+      "section": "A Static Field Is One Variable Shared by Every Object and Every Thread"
     },
     "concepts": [
-      "A static counter raised in the constructor counts the objects a class has created, and is read without any instance.",
-      "A static field has one copy shared by the whole class, while every object has its own copy of an instance field.",
-      "Static mutable fields are shared by every thread, so their updates must be thread-safe."
+      "final on a static field fixes the reference, not the object, so a mutable object in it is shared by concurrent callers; immutable or concurrent objects are safe there.",
+      "A static field is one variable for the whole class, read and written by every object and every thread that uses the class."
     ]
   }
 }

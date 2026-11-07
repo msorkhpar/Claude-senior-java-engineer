@@ -1,18 +1,10 @@
-Building a log message (formatting, joining, `toString()` on big objects) costs time even when the message is then
-thrown away. A logger that takes a `Supplier<String>` builds the text only when it will be used. A feature switch
-is a natural `BooleanSupplier`: `boolean getAsBoolean()`, no boxing.
+The outdoor-gear chain's nightly report says which products sold in which region. Several report
+threads share one `RegionReport`, and to save allocations each thread renders into a buffer it
+keeps between reports. The test data had a single region and the report looked right; the first
+real night, regional managers complained that their section listed products they don't stock, and
+one report came out with half of another report's lines in it.
 
-Write the class `LazyLog`:
-
-- `LazyLog(BooleanSupplier enabled)` remembers the switch.
-- `debug(Supplier<String> message)` records `message.get()` if the switch is on at that moment.
-- `lines()` returns the recorded messages, oldest first.
-
-| switch | calls | `lines()` |
-|---|---|---|
-| on | `debug(() -> "a")`, `debug(() -> "b")` | `["a", "b"]` |
-| off | `debug(() -> "a")` | `[]` |
-
-The switch may change while the program runs. Each enabled `debug` builds its message exactly once and records it as
-it is, repeats and `null` included. `lines()` returns a snapshot: later `debug` calls do not change a list it
-returned earlier.
+Finish `skusByRegion` and `newScratch` in `src/main/java/practice/RegionReport.java`. Each region
+lists only its own SKUs, sorted and without repeats, and each rendering thread has a buffer that
+no other thread touches and that it reuses from one report to the next. About three lines in
+total.

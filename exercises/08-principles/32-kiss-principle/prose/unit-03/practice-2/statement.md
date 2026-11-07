@@ -1,22 +1,11 @@
-The page's advice for any shared collection: **return an immutable snapshot**. A snapshot is
-a consistent view of one moment, callers can iterate it while other threads keep logging,
-and nobody can change the shared state through it.
+The nightly settlement jobs all append to one ledger file, so each job runs through a `Gate`
+that lets one job in at a time. Last night settlement hung. The ops dashboard, which reads
+`ThreadMXBean`, showed six job threads `RUNNABLE` at full CPU inside `Gate.inside` and no thread
+owning anything; it took an hour of reading stacks to find `settle-eu`, the job that was inside,
+waiting on a file share. The same week, a job that threw on a malformed ledger line was
+followed by a gate nobody could get through.
 
-```java
-public List<String> getEvents() {
-    return Collections.unmodifiableList(new ArrayList<>(events));
-}
-```
-
-Write `EventLog`. The page keeps its events in a `CopyOnWriteArrayList`, so that many threads
-can log at once; do the same (the tests cannot race threads, so they check the snapshot
-rules below, not the list you choose):
-
-- `log(String event)` records an event, every time: an event logged twice appears twice;
-- `events()` returns the events so far, oldest first, as a snapshot that is both:
-  - **unmodifiable**: `add`, `remove` or `set` on it throws `UnsupportedOperationException`;
-  - **a copy**: events logged, or a `clear()`, after the snapshot was taken do not show in it;
-- `clear()` forgets every event.
-
-Example: after `log("first")`, a snapshot holds `["first"]`, and it still does after
-`log("second")`.
+Rewrite `inside` in `src/main/java/practice/Gate.java`. When you're done, jobs still run one at a
+time; a thread waiting at the gate is reported by `ThreadMXBean` as waiting for a lock, held by
+the thread of the job that is inside; and a job that throws passes its exception to its caller
+without keeping the gate closed for the next job. About three lines.

@@ -1,21 +1,12 @@
-Spring's step 6 (Q1) calls `@PostConstruct` methods after creating a bean
-and `@PreDestroy` methods before discarding it. The page's version reads both
-annotations through reflection and runs the methods sorted by their `order()`.
+The HTTP server reads its route table from `practice.generated.Routes`, which
+`RouteIndexProcessor` writes at compile time from every class marked `@Route("/path")`. The team
+has just added a client generator to the build: another annotation processor that writes handler
+classes of its own, also marked `@Route`. Since then the route table has been the problem.
 
-`@PostConstruct(order)` and `@PreDestroy(order)` are given. Write:
+Finish `record(...)` and `timeToWrite(...)` in `src/main/java/practice/RouteIndexProcessor.java`.
+Both are called on every call of `process`. The table must list every handler of the build, the
+ones in the sources and the ones other processors generate, and writing it must never fail the
+build. About four lines in total.
 
-- `initialize(Object target)`: call every no-argument method `target`'s class
-  declares with `@PostConstruct`, lowest `order` first.
-- `destroy(Object target)`: the same for `@PreDestroy`.
-
-Callbacks may be `private`, and **private callbacks run too**. When a callback
-throws, `Method.invoke` wraps the exception in `InvocationTargetException`;
-**rethrow the callback's own exception** instead.
-
-| class | call | log |
-|---|---|---|
-| `@PostConstruct(order = 2) authenticate()`, `@PostConstruct(order = 3) bindPorts()`, `@PostConstruct(order = 1) connect()` | `initialize` | `[connect, authenticate, bindPorts]` |
-| seven callbacks with orders 0 to 6, declared in another order | `initialize` | lowest `order` first |
-| `@PreDestroy(order = 2) closeConnections()`, `@PreDestroy(order = 1) flushBuffers()` | `destroy` | `[flushBuffers, closeConnections]` |
-| `@PostConstruct private void prepare()` | `initialize` | `[prepare]` |
-| `@PostConstruct void load()` throws `IllegalStateException("no config")` | `initialize` | `IllegalStateException: no config` |
+The tests compile handler classes with `javax.tools.JavaCompiler`, your processor, and a stand-in
+for the client generator.

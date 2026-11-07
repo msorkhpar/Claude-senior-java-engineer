@@ -10,167 +10,181 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Encryption and compression layers whose order decides what is stored",
+  "title": "Check yourself: decorators",
   "blocks": [
     {
       "type": "heading",
       "level": 2,
-      "text": "Problem statement"
+      "text": "Check yourself"
     },
     {
       "type": "para",
-      "text": "The page's Q5 stacks an encryption layer and a compression layer on one data source. Each layer changes the data on `write` and undoes the change on `read`, and the outermost layer is applied first on the way in, so **the order of the layers decides what is stored**."
-    },
-    {
-      "type": "para",
-      "text": "Given: `DataSource` (`read()`, `write(data)`) and `InMemoryDataSource`. Write two decorators:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`EncryptionDecorator(wrappee, shift)`: writes each character shifted up by `shift`, and shifts back down on read.",
-        "`CompressionDecorator(wrappee)`: run-length encoding. A run of `n > 1` equal characters is written as the character followed by `n` in decimal, and **a run of one is written without a count**. On read, **a run length of several digits is read whole** (`a12` is twelve a's). Because counts are digits, **data containing digits is refused** with `IllegalArgumentException` and nothing is written."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Both layers keep no copy of the data: **`read` asks the wrapped source every time**."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "stack (shift 3)",
-        "`write(\"aaabbcc\")` stores",
-        "`read()`"
-      ],
-      "rows": [
-        [
-          "`Compression(Encryption(store))`",
-          "`d6e5f5`",
-          "`aaabbcc`"
-        ],
-        [
-          "`Encryption(Compression(store))`",
-          "`d3e2f2`",
-          "`aaabbcc`"
-        ],
-        [
-          "`Compression(store)`, `write(\"abc\")`",
-          "`abc`",
-          "`abc`"
-        ],
-        [
-          "`Compression(store)`, `write(\"a2\")`",
-          "nothing, `IllegalArgumentException`",
-          "-"
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Lesson"
-    },
-    {
-      "type": "disclosure",
-      "summary": "Show a worked solution",
-      "open": false,
-      "blocks": [
-        {
-          "type": "code",
-          "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class DataSources {\n\n    private DataSources() {\n    }\n\n    public interface DataSource {\n        String read();\n\n        void write(String data);\n    }\n\n    /** The concrete component: keeps the last text written. */\n    public static final class InMemoryDataSource implements DataSource {\n        private String data = \"\";\n\n        @Override\n        public String read() {\n            return data;\n        }\n\n        @Override\n        public void write(String data) {\n            this.data = Objects.requireNonNull(data, \"data must not be null\");\n        }\n    }\n\n    public static final class EncryptionDecorator implements DataSource {\n\n        private final DataSource wrappee;\n        private final int shift;\n\n        public EncryptionDecorator(DataSource wrappee, int shift) {\n            this.wrappee = Objects.requireNonNull(wrappee, \"data source must not be null\");\n            this.shift = shift;\n        }\n\n        @Override\n        public String read() {\n            return shifted(wrappee.read(), -shift);\n        }\n\n        @Override\n        public void write(String data) {\n            Objects.requireNonNull(data, \"data must not be null\");\n            wrappee.write(shifted(data, shift));\n        }\n\n        private static String shifted(String text, int by) {\n            StringBuilder sb = new StringBuilder(text.length());\n            for (int i = 0; i < text.length(); i++) {\n                sb.append((char) (text.charAt(i) + by));\n            }\n            return sb.toString();\n        }\n    }\n\n    public static final class CompressionDecorator implements DataSource {\n\n        private final DataSource wrappee;\n\n        public CompressionDecorator(DataSource wrappee) {\n            this.wrappee = Objects.requireNonNull(wrappee, \"data source must not be null\");\n        }\n\n        @Override\n        public String read() {\n            return decompress(wrappee.read());\n        }\n\n        @Override\n        public void write(String data) {\n            Objects.requireNonNull(data, \"data must not be null\");\n            wrappee.write(compress(data));\n        }\n\n        private static String compress(String data) {\n            if (data.chars().anyMatch(Character::isDigit)) {\n                throw new IllegalArgumentException(\"run-length encoding cannot store digits\");\n            }\n            StringBuilder sb = new StringBuilder();\n            int i = 0;\n            while (i < data.length()) {\n                char c = data.charAt(i);\n                int run = 1;\n                while (i + run < data.length() && data.charAt(i + run) == c) {\n                    run++;\n                }\n                sb.append(c);\n                if (run > 1) {\n                    sb.append(run);\n                }\n                i += run;\n            }\n            return sb.toString();\n        }\n\n        private static String decompress(String data) {\n            StringBuilder sb = new StringBuilder();\n            int i = 0;\n            while (i < data.length()) {\n                char c = data.charAt(i++);\n                int start = i;\n                while (i < data.length() && Character.isDigit(data.charAt(i))) {\n                    i++;\n                }\n                int run = start == i ? 1 : Integer.parseInt(data.substring(start, i));\n                sb.append(String.valueOf(c).repeat(run));\n            }\n            return sb.toString();\n        }\n    }\n}\n"
-        }
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Starting code"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class DataSources {\n\n    private DataSources() {\n    }\n\n    public interface DataSource {\n        String read();\n\n        void write(String data);\n    }\n\n    /** The concrete component: keeps the last text written. */\n    public static final class InMemoryDataSource implements DataSource {\n        private String data = \"\";\n\n        @Override\n        public String read() {\n            return data;\n        }\n\n        @Override\n        public void write(String data) {\n            this.data = Objects.requireNonNull(data, \"data must not be null\");\n        }\n    }\n\n    public static final class EncryptionDecorator implements DataSource {\n\n        public EncryptionDecorator(DataSource wrappee, int shift) {\n        }\n\n        @Override\n        public String read() {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        @Override\n        public void write(String data) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n    }\n\n    public static final class CompressionDecorator implements DataSource {\n\n        public CompressionDecorator(DataSource wrappee) {\n        }\n\n        @Override\n        public String read() {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        @Override\n        public void write(String data) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n    }\n}\n"
+      "text": "Questions on what this page has just taught. Choose one answer for each."
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 3,
-    "paras": 3,
-    "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "headings": 1,
+    "paras": 1,
+    "code": 0,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
     "html": 0,
-    "disclosures": 1
+    "disclosures": 0
   },
-  "content_sha256": "99d96c648d96bafe699b3c673c4f7d03d730ab6adfc3b37a2af665b03d4405ca",
-  "starting_code": "package practice;\n\nimport java.util.Objects;\n\npublic final class DataSources {\n\n    private DataSources() {\n    }\n\n    public interface DataSource {\n        String read();\n\n        void write(String data);\n    }\n\n    /** The concrete component: keeps the last text written. */\n    public static final class InMemoryDataSource implements DataSource {\n        private String data = \"\";\n\n        @Override\n        public String read() {\n            return data;\n        }\n\n        @Override\n        public void write(String data) {\n            this.data = Objects.requireNonNull(data, \"data must not be null\");\n        }\n    }\n\n    public static final class EncryptionDecorator implements DataSource {\n\n        public EncryptionDecorator(DataSource wrappee, int shift) {\n        }\n\n        @Override\n        public String read() {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        @Override\n        public void write(String data) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n    }\n\n    public static final class CompressionDecorator implements DataSource {\n\n        public CompressionDecorator(DataSource wrappee) {\n        }\n\n        @Override\n        public String read() {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        @Override\n        public void write(String data) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n    }\n}\n",
+  "content_sha256": "01381f530bdd3fd2ea9a42929589b34280a234f0332b7b83c66b27688cf7ac41",
   "exercise": {
-    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/src/main/java/practice/DataSources.java",
-    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/src/test/java/practice/DataSourcesTest.java",
-    "run_command": [
-      "mvn",
-      "-o",
-      "-q",
-      "-f",
-      "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/pom.xml",
-      "compile"
-    ],
-    "test_command": [
-      "mvn",
-      "-o",
-      "-q",
-      "-f",
-      "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/pom.xml",
-      "test"
-    ],
     "provenance": "generated",
     "trust": "advisory",
-    "cases": [
+    "kind": "quiz",
+    "questions": [
       {
-        "id": "practice.DataSourcesTest#layersRoundTripAndOrderDecidesTheStoredForm",
-        "kind": "main",
-        "says": "Both stackings read back what was written, and the stored text is encrypt(compress(x)) for Compression(Encryption(store)) and compress(encrypt(x)) for Encryption(Compression(store))."
+        "id": "q-finish-under-writer",
+        "stem": "A service streams a CSV report over a socket it keeps open for later messages. It builds `GZIPOutputStream gz = new GZIPOutputStream(socketOut)` and `BufferedWriter w = new BufferedWriter(new OutputStreamWriter(gz, UTF_8))`, writes 3,000 rows with `w.write(...)`, then calls `gz.finish()` and returns. What can the receiver do with the bytes it got?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Decompress them without an error and find the last rows missing, since rows still held by the writer never reached the compressor",
+            "correct": true,
+            "says": "finish() completes only what has reached the compressor; the writer above it still held the last rows, so the data is valid but short"
+          },
+          {
+            "id": "b",
+            "text": "Decompress them without an error and find every row, since finish() takes what the writer holds before it writes the trailer",
+            "correct": false,
+            "says": "finish() has no reference to the layers above it; it completes only what it has already received"
+          },
+          {
+            "id": "c",
+            "text": "Fail to decompress them, since finish() leaves the GZIP trailer in the writer's buffer until the writer is flushed",
+            "correct": false,
+            "says": "the trailer goes down into socketOut, the stream the compressor wraps; the writer sits above the compressor"
+          },
+          {
+            "id": "d",
+            "text": "Fail to decompress them, since GZIP data is only complete once the stream under the compressor has been closed",
+            "correct": false,
+            "says": "finish() writes the rest of the data and the trailer without closing the stream below"
+          }
+        ],
+        "origin": {
+          "path": "37-structural-patterns/README_9.2.2.md",
+          "section": "finish() Completes the GZIP Data Without Closing, but Only What Has Reached the Compressor"
+        }
       },
       {
-        "id": "practice.DataSourcesTest#aRunOfOneHasNoCount",
-        "kind": "edge",
-        "says": "A character that is not repeated is stored alone: \"abc\" is stored as \"abc\"."
+        "id": "q-data-output-buffer",
+        "stem": "A job writes 1,000,000 `long` values, one `writeLong` call each, into `new DataOutputStream(new GZIPOutputStream(new BufferedOutputStream(fileOut)))`. A profile shows most of the time in the `Deflater`. Which change makes the `Deflater` run fewer times?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add a BufferedOutputStream between the GZIPOutputStream and the existing buffer, since the compressor then gets fewer writes",
+            "correct": false,
+            "says": "that buffer is below the compressor: it collects the compressor's output and changes nothing about the writes going into the Deflater"
+          },
+          {
+            "id": "b",
+            "text": "Add a BufferedOutputStream between the existing buffer and fileOut, since the compressor then gets fewer writes",
+            "correct": false,
+            "says": "a buffer under the compressor changes the writes into the file, not the writes the Deflater is given"
+          },
+          {
+            "id": "c",
+            "text": "Add a BufferedOutputStream between the DataOutputStream and the GZIPOutputStream, since the compressor then gets fewer writes",
+            "correct": true,
+            "says": "a buffer above the compressor turns many small writes into few large ones before they reach the Deflater"
+          },
+          {
+            "id": "d",
+            "text": "Enlarge the existing buffer between the GZIPOutputStream and fileOut, since the compressor then gets fewer writes",
+            "correct": false,
+            "says": "the existing buffer is below the compressor; a larger one cuts file writes, not the writes the Deflater is given"
+          }
+        ],
+        "origin": {
+          "path": "37-structural-patterns/README_9.2.2.md",
+          "section": "Buffer Above the Compressor: the Order Decides How Many Calls Reach Each Layer"
+        }
       },
       {
-        "id": "practice.DataSourcesTest#aLongRunKeepsAllItsDigits",
-        "kind": "edge",
-        "says": "Twelve a's are stored as \"a12\" and read back as twelve a's."
+        "id": "q-merge-through-decorator",
+        "stem": "Per-client request counts live in a `ConcurrentHashMap<String, Long>`, wrapped in `AuditedMap extends AbstractMap`, which logs each write and forwards to the map the methods `AbstractMap` needs. Eight threads each call `counts.merge(\"client-7\", 1L, Long::sum)` 10,000 times on the `AuditedMap`. What does `counts.get(\"client-7\")` return afterwards?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Always 80,000, since merge goes to ConcurrentHashMap.merge, which locks the key for the whole get-and-put",
+            "correct": false,
+            "says": "AuditedMap doesn't override merge, so Map's default runs on the decorator and ConcurrentHashMap's merge is never called"
+          },
+          {
+            "id": "b",
+            "text": "Always 80,000, since the merge AbstractMap inherits locks the wrapper for the whole get-and-put",
+            "correct": false,
+            "says": "the default makes no guarantees about synchronization or atomicity; nothing holds a lock between its get and its put"
+          },
+          {
+            "id": "c",
+            "text": "Usually less than 80,000, since merge runs Map's get-and-put on the wrapper, with no lock between the two",
+            "correct": true,
+            "says": "the default merge runs on the decorator as separate get and put calls, so concurrent increments overwrite each other"
+          },
+          {
+            "id": "d",
+            "text": "Usually less than 80,000, since put on the wrapper runs outside ConcurrentHashMap's lock, so two puts can tear",
+            "correct": false,
+            "says": "each forwarded put is still one atomic put on the ConcurrentHashMap; the updates are lost between the get and the put"
+          }
+        ],
+        "origin": {
+          "path": "37-structural-patterns/README_9.2.2.md",
+          "section": "A Decorator That Doesn't Override a Default Method Runs the Interface's Code, Not the Wrapped Object's"
+        }
       },
       {
-        "id": "practice.DataSourcesTest#dataWithDigitsIsRefused",
-        "kind": "edge",
-        "says": "Writing \"a2\" or \"7\" through the compression layer throws IllegalArgumentException and stores nothing."
-      },
-      {
-        "id": "practice.DataSourcesTest#readsGoThroughTheWrappedSource",
-        "kind": "edge",
-        "says": "After the wrapped store is written directly with \"y3\", reading through the compression layer gives \"yyy\", not the last text written through it."
+        "id": "q-synchronized-collection-set",
+        "stem": "A registry keeps a `HashSet<Collection<String>>` of topic lists that are already subscribed. A client registers `Collections.synchronizedCollection(topics)` twice, with the same `topics` list object both times. How many entries does the set hold?",
+        "options": [
+          {
+            "id": "a",
+            "text": "One, since both wrappers pass equals and hashCode on to the topics list",
+            "correct": false,
+            "says": "synchronizedCollection keeps Object's identity equals and hashCode; only the List, Set and Map wrappers forward them"
+          },
+          {
+            "id": "b",
+            "text": "One, since both calls return the same wrapper object for the same list",
+            "correct": false,
+            "says": "each call creates a new wrapper object around the list"
+          },
+          {
+            "id": "c",
+            "text": "Two, since both wrappers keep Object's equals and hashCode, and are two objects",
+            "correct": true,
+            "says": "a Collection wrapper can't tell whether its contents follow List or Set equality, so it keeps identity, and the two wrappers are two objects"
+          },
+          {
+            "id": "d",
+            "text": "Two, since both wrappers pass equals on to the list but keep Object's hashCode",
+            "correct": false,
+            "says": "synchronizedCollection forwards neither equals nor hashCode; both are Object's"
+          }
+        ],
+        "origin": {
+          "path": "37-structural-patterns/README_9.2.2.md",
+          "section": "A Decorator Is Another Object: equals Is Forwarded Only Where the Interface Defines It"
+        }
       }
     ],
-    "report": {
-      "format": "junit",
-      "path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/target/surefire-reports"
-    },
-    "origin": {
-      "path": "37-structural-patterns/README_9.2.2.md",
-      "section": "Interview Q&A Section"
-    },
     "concepts": [
-      "The order of decorators changes the result: the outermost runs first on the way in, so compress-then-encrypt stores different data from encrypt-then-compress."
+      "Map's default compound methods make no atomicity guarantee, so through a decorator that doesn't override them, concurrent updates are lost.",
+      "A decorator is a different object: the JDK's List, Set and Map wrappers forward equals and hashCode, while unmodifiableCollection and synchronizedCollection keep Object's identity.",
+      "A decorator acts on the calls it receives: a buffer above a compressor cuts the calls into it, and a buffer below it cuts the writes reaching the file."
     ]
   }
 }

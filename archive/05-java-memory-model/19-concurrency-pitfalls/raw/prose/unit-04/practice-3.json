@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Compute outside the lock, store inside it",
+  "title": "Tell the tank's subscribers without freezing the panel",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page's `WideLock` runs a 500 ms computation while holding its lock, so every other thread waits. Its fix: **compute outside, mutate inside**. Hold the lock only for the state change. And a method that returns internal state returns a **defensive copy**, or callers change it outside the lock."
+      "text": "The tank farm's `TankLevel` keeps the level its sensor last reported and passes every reading to its subscribers: the control panel, the overflow alarm, the pump controllers. Each of those belongs to another team, takes its own locks, and may call back into the tank."
     },
     {
       "type": "para",
-      "text": "Write `ResultLog`, a thread-safe log of results:"
+      "text": "Three incidents came from the same method. The control panel froze, and its thread dump showed the sensor thread waiting for the panel while the panel waited for the tank. A pump controller that subscribes on its first reading made that delivery fail halfway. And the overflow alarm missed a spike of 25,400 litres, because the overflow valve had already reported the level after opening."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`processAndStore(String input, UnaryOperator<String> transform)` computes `transform.apply(input)` **without holding the lock**, then appends the result to the log under the lock, and returns it.",
-        "`results()` returns the log in the order results were stored, as a list the caller owns: changing it does not touch the log, and later stores do not show up in it."
-      ]
+      "type": "para",
+      "text": "Write `update(...)` in `src/main/java/practice/TankLevel.java`. It records the reading and passes it to every subscriber, which hears each reading it is told about, with that reading's value. Nothing a subscriber does can freeze the tank for its other callers or break a delivery in progress. About six lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "`results()`"
-      ],
-      "rows": [
-        [
-          "`processAndStore(\"a\", String::toUpperCase)`, then `processAndStore(\"b\", s -> s + \"!\")`",
-          "`[A, b!]`"
-        ],
-        [
-          "`results().add(\"x\")`, then `results()`",
-          "still `[A, b!]`"
-        ],
-        [
-          "thread 1's `transform` is still running",
-          "thread 2's `processAndStore` still finishes"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests run the sensor on daemon threads and ask the JVM's deadlock detector what is stuck, so a deadlock fails a test instead of hanging it."
     },
     {
       "type": "heading",
@@ -67,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.locks.ReentrantLock;\nimport java.util.function.UnaryOperator;\n\npublic final class ResultLog {\n\n    private final ReentrantLock lock = new ReentrantLock();\n    private final List<String> results = new ArrayList<>();\n\n    /** Transforms the input outside the lock, then appends the result under the lock and returns it. */\n    public String processAndStore(String input, UnaryOperator<String> transform) {\n        String result = transform.apply(input);\n        lock.lock();\n        try {\n            results.add(result);\n        } finally {\n            lock.unlock();\n        }\n        return result;\n    }\n\n    /** The stored results, in order, as a copy the caller owns. */\n    public List<String> results() {\n        lock.lock();\n        try {\n            return new ArrayList<>(results);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The level of one storage tank, as its sensor last reported it. Subscribers (the control panel,\n * the overflow alarm, pump controllers) hear every new reading. Any thread may call any method.\n */\npublic class TankLevel {\n\n    private final Object lock = new Object();\n    private long litres;                                       // guarded by lock\n    private final List<LongConsumer> subscribers = new ArrayList<>();   // guarded by lock\n\n    public void subscribe(LongConsumer subscriber) {\n        synchronized (lock) {\n            subscribers.add(subscriber);\n        }\n    }\n\n    public long litres() {\n        synchronized (lock) {\n            return litres;\n        }\n    }\n\n    /** Records a new reading and tells every subscriber about it. */\n    public void update(long newLitres) {\n        List<LongConsumer> toTell;\n        synchronized (lock) {\n            litres = newLitres;\n            toTell = List.copyOf(subscribers);\n        }\n        for (LongConsumer s : toTell) s.accept(newLitres);\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.UnaryOperator;\n\npublic final class ResultLog {\n\n    /** Transforms the input outside the lock, then appends the result under the lock and returns it. */\n    public String processAndStore(String input, UnaryOperator<String> transform) {\n        throw new UnsupportedOperationException(\"write processAndStore\");\n    }\n\n    /** The stored results, in order, as a copy the caller owns. */\n    public List<String> results() {\n        throw new UnsupportedOperationException(\"write results\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The level of one storage tank, as its sensor last reported it. Subscribers (the control panel,\n * the overflow alarm, pump controllers) hear every new reading. Any thread may call any method.\n */\npublic class TankLevel {\n\n    private final Object lock = new Object();\n    private long litres;                                       // guarded by lock\n    private final List<LongConsumer> subscribers = new ArrayList<>();   // guarded by lock\n\n    public void subscribe(LongConsumer subscriber) {\n        synchronized (lock) {\n            subscribers.add(subscriber);\n        }\n    }\n\n    public long litres() {\n        synchronized (lock) {\n            return litres;\n        }\n    }\n\n    /** Records a new reading and tells every subscriber about it. */\n    public void update(long newLitres) {\n        // TODO: Store the reading and pass it to every subscriber. Subscribers are other teams'\n        //       code: they may read this tank, subscribe, or report a reading of their own.\n        throw new IllegalStateException(\"TODO: update\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -87,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "473de5abb9f33c5c08ac6a1a5a518ec1dee75c9fed7e5c4f8af730c64307c33d",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.UnaryOperator;\n\npublic final class ResultLog {\n\n    /** Transforms the input outside the lock, then appends the result under the lock and returns it. */\n    public String processAndStore(String input, UnaryOperator<String> transform) {\n        throw new UnsupportedOperationException(\"write processAndStore\");\n    }\n\n    /** The stored results, in order, as a copy the caller owns. */\n    public List<String> results() {\n        throw new UnsupportedOperationException(\"write results\");\n    }\n}\n",
+  "content_sha256": "836bd36ac6accd66071fe5e7e3243f4c15f66b1d7df61bfbf94b7d074b6e5c68",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The level of one storage tank, as its sensor last reported it. Subscribers (the control panel,\n * the overflow alarm, pump controllers) hear every new reading. Any thread may call any method.\n */\npublic class TankLevel {\n\n    private final Object lock = new Object();\n    private long litres;                                       // guarded by lock\n    private final List<LongConsumer> subscribers = new ArrayList<>();   // guarded by lock\n\n    public void subscribe(LongConsumer subscriber) {\n        synchronized (lock) {\n            subscribers.add(subscriber);\n        }\n    }\n\n    public long litres() {\n        synchronized (lock) {\n            return litres;\n        }\n    }\n\n    /** Records a new reading and tells every subscriber about it. */\n    public void update(long newLitres) {\n        // TODO: Store the reading and pass it to every subscriber. Subscribers are other teams'\n        //       code: they may read this tank, subscribe, or report a reading of their own.\n        throw new IllegalStateException(\"TODO: update\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/src/main/java/practice/ResultLog.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/src/test/java/practice/ResultLogTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/src/main/java/practice/TankLevel.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/src/test/java/practice/TankLevelTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,19 +102,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ResultLogTest#storesEachTransformedInput",
+        "id": "practice.TankLevelTest#everySubscriberHearsEachReading",
         "kind": "main",
-        "says": "processAndStore(input, transform) returns transform(input) and appends it to the log, and results() lists the log in order."
+        "says": "every subscriber hears each reading in turn, and the tank reports the last one"
       },
       {
-        "id": "practice.ResultLogTest#aSlowTransformDoesNotHoldUpOthers",
-        "kind": "edge",
-        "says": "While one thread's transform is still running, another thread's processAndStore completes, because the transform runs outside the lock."
+        "id": "practice.TankLevelTest#aReadingWithNoSubscribersIsStillRecorded",
+        "kind": "main",
+        "says": "a reading is recorded when nobody has subscribed"
       },
       {
-        "id": "practice.ResultLogTest#resultsIsASnapshot",
+        "id": "practice.TankLevelTest#aPanelThatReadsTheTankUnderItsOwnLockDoesNotFreezeTheSensor",
         "kind": "edge",
-        "says": "results() returns a copy: changing it does not change the log, and later stores do not change it."
+        "says": "a reading reaches a panel whose own lock is held by a redraw that reads the tank, and neither thread deadlocks"
+      },
+      {
+        "id": "practice.TankLevelTest#aSubscriberThatSubscribesAnotherDuringADeliveryDoesNotBreakIt",
+        "kind": "edge",
+        "says": "a subscriber that subscribes another while hearing a reading doesn't break that delivery, and the new one hears the next reading"
+      },
+      {
+        "id": "practice.TankLevelTest#eachSubscriberHearsTheReadingItIsToldAbout",
+        "kind": "edge",
+        "says": "when a subscriber reports a new reading while hearing one, every subscriber still hears both readings"
       }
     ],
     "report": {
@@ -144,11 +133,11 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.4.md",
-      "section": "3. Holding locks during expensive operations"
+      "section": "A Call to Another Object Under Your Lock Adds That Object's Locks to Your Lock Order"
     },
     "concepts": [
-      "A method returning internal state returns a copy, so callers cannot change it outside the lock.",
-      "Expensive work is done outside the lock and only the state change is made under it."
+      "Calling another object's method while holding your lock adds its locks to your lock order, so two classes that each take only their own lock can deadlock.",
+      "An open call holds the lock only to change state and copy what the call needs, and makes the call after releasing it."
     ]
   }
 }

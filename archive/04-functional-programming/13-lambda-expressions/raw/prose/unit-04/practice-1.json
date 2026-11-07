@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Extract a long filter lambda into a named rule",
+  "title": "Stop paying for rates and log lines nobody uses",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A `filter` lambda with five `if` statements in it is a puzzle. Moving the rules into a named method turns the pipeline into a sentence: `filter(ItemRules::isValidItem)`."
+      "text": "The exchange-rate service keeps rates in memory in front of a rates API that bills every call. This month's invoice from the API provider lists a call for every lookup the service made, including the many for pairs it already had. A profile of the same service, running with debug output switched off, shows it spending noticeable time copying and sorting its cache."
     },
     {
       "type": "para",
-      "text": "The file declares `enum Status { ACTIVE, DELETED }`, `record Owner(String name, boolean verified)` and `record Item(String id, int value, boolean active, Status status, Owner owner)`. Write two static methods of `ItemRules`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/RateService.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`boolean isValidItem(Item item)`: the item is not `null`, its value is above zero, it is active, its status is not `DELETED` (a `null` status is not `DELETED`, so it passes this rule), and it has an owner who is verified.",
-        "`List<String> validIds(List<Item> items)`: the ids of the valid items, in order. Passing `isValidItem` as a method reference reads best, though the tests check only the ids."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "item",
-        "valid?"
-      ],
-      "rows": [
-        [
-          "`Item(\"a\", 10, true, ACTIVE, Owner(\"Ann\", true))`",
-          "yes"
-        ],
-        [
-          "`Item(\"b\", 10, false, ACTIVE, Owner(\"Ann\", true))`",
-          "no: inactive"
-        ],
-        [
-          "`Item(\"c\", -5, true, ACTIVE, Owner(\"Ann\", true))`",
-          "no: value not above zero"
-        ],
-        [
-          "`Item(\"d\", 10, true, ACTIVE, Owner(\"Ben\", false))`",
-          "no: owner not verified"
-        ]
+        "`cachedOrFetched(pair)`: the cached rate, or one fetched from the API and cached when there is none. `cached` and `fetchAndCache` already exist.",
+        "`trace(pair, rate)`: a debug line with the pair, its rate and `cacheSnapshot()`."
       ]
     },
     {
       "type": "para",
-      "text": "Every rule on the page's list counts, including the ones about things that may be missing."
+      "text": "When you're done, each pair costs one API call, and a service with debug output off never takes a snapshot. About two lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\nenum Status { ACTIVE, DELETED }\n\nrecord Owner(String name, boolean verified) {\n}\n\nrecord Item(String id, int value, boolean active, Status status, Owner owner) {\n}\n\npublic final class ItemRules {\n\n    private ItemRules() {\n    }\n\n    public static boolean isValidItem(Item item) {\n        return item != null\n                && item.value() > 0\n                && item.active()\n                && item.status() != Status.DELETED\n                && item.owner() != null\n                && item.owner().verified();\n    }\n\n    public static List<String> validIds(List<Item> items) {\n        return items.stream()\n                .filter(ItemRules::isValidItem)\n                .map(Item::id)\n                .toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.function.Supplier;\n\n/** Exchange rates, cached in memory in front of a rates API that bills every call. */\npublic class RateService {\n\n    /** The remote rates API: slow, and billed per call. */\n    public interface RateApi {\n        BigDecimal fetch(String pair);\n    }\n\n    /** A debug log that may be switched off. */\n    public interface DebugLog {\n        /** Logs a message the caller has already built. */\n        void debug(String message);\n\n        /** Logs a message, asking the supplier for it only when debug output is on. */\n        void debug(Supplier<String> message);\n    }\n\n    private final Map<String, BigDecimal> cache = new HashMap<>();\n    private final RateApi api;\n    private final DebugLog log;\n    int snapshotsTaken;\n\n    public RateService(RateApi api, DebugLog log) {\n        this.api = api;\n        this.log = log;\n    }\n\n    /** The rate for a currency pair such as \"GBP/JPY\". */\n    public BigDecimal rate(String pair) {\n        BigDecimal rate = cachedOrFetched(pair);\n        trace(pair, rate);\n        return rate;\n    }\n\n    Optional<BigDecimal> cached(String pair) {\n        return Optional.ofNullable(cache.get(pair));\n    }\n\n    BigDecimal fetchAndCache(String pair) {\n        BigDecimal rate = api.fetch(pair);\n        cache.put(pair, rate);\n        return rate;\n    }\n\n    /** A copy of the whole cache, sorted: useful when debugging, and not cheap. */\n    String cacheSnapshot() {\n        snapshotsTaken++;\n        return new TreeMap<>(cache).toString();\n    }\n\n    /** The cached rate for the pair, or one fetched from the API (and cached) when there is none. */\n    BigDecimal cachedOrFetched(String pair) {\n        return cached(pair).orElseGet(() -> fetchAndCache(pair));\n    }\n\n    /** Writes a debug line: the pair, its rate and a snapshot of the cache. */\n    void trace(String pair, BigDecimal rate) {\n        log.debug(() -> pair + \" = \" + rate + \", cache \" + cacheSnapshot());\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\nenum Status { ACTIVE, DELETED }\n\nrecord Owner(String name, boolean verified) {\n}\n\nrecord Item(String id, int value, boolean active, Status status, Owner owner) {\n}\n\npublic final class ItemRules {\n\n    private ItemRules() {\n    }\n\n    public static boolean isValidItem(Item item) {\n        throw new UnsupportedOperationException(\"write isValidItem\");\n    }\n\n    public static List<String> validIds(List<Item> items) {\n        throw new UnsupportedOperationException(\"write validIds\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.function.Supplier;\n\n/** Exchange rates, cached in memory in front of a rates API that bills every call. */\npublic class RateService {\n\n    /** The remote rates API: slow, and billed per call. */\n    public interface RateApi {\n        BigDecimal fetch(String pair);\n    }\n\n    /** A debug log that may be switched off. */\n    public interface DebugLog {\n        /** Logs a message the caller has already built. */\n        void debug(String message);\n\n        /** Logs a message, asking the supplier for it only when debug output is on. */\n        void debug(Supplier<String> message);\n    }\n\n    private final Map<String, BigDecimal> cache = new HashMap<>();\n    private final RateApi api;\n    private final DebugLog log;\n    int snapshotsTaken;\n\n    public RateService(RateApi api, DebugLog log) {\n        this.api = api;\n        this.log = log;\n    }\n\n    /** The rate for a currency pair such as \"GBP/JPY\". */\n    public BigDecimal rate(String pair) {\n        BigDecimal rate = cachedOrFetched(pair);\n        trace(pair, rate);\n        return rate;\n    }\n\n    Optional<BigDecimal> cached(String pair) {\n        return Optional.ofNullable(cache.get(pair));\n    }\n\n    BigDecimal fetchAndCache(String pair) {\n        BigDecimal rate = api.fetch(pair);\n        cache.put(pair, rate);\n        return rate;\n    }\n\n    /** A copy of the whole cache, sorted: useful when debugging, and not cheap. */\n    String cacheSnapshot() {\n        snapshotsTaken++;\n        return new TreeMap<>(cache).toString();\n    }\n\n    /** The cached rate for the pair, or one fetched from the API (and cached) when there is none. */\n    BigDecimal cachedOrFetched(String pair) {\n        throw new IllegalStateException(\"TODO: the cached rate, or a fetched one\");\n    }\n\n    /** Writes a debug line: the pair, its rate and a snapshot of the cache. */\n    void trace(String pair, BigDecimal rate) {\n        throw new IllegalStateException(\"TODO: the debug line\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -106,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "36a7db478480bf66e1e29a76064f1e0636de00e6e7d94be67e55cdf7903b68e6",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\nenum Status { ACTIVE, DELETED }\n\nrecord Owner(String name, boolean verified) {\n}\n\nrecord Item(String id, int value, boolean active, Status status, Owner owner) {\n}\n\npublic final class ItemRules {\n\n    private ItemRules() {\n    }\n\n    public static boolean isValidItem(Item item) {\n        throw new UnsupportedOperationException(\"write isValidItem\");\n    }\n\n    public static List<String> validIds(List<Item> items) {\n        throw new UnsupportedOperationException(\"write validIds\");\n    }\n}\n",
+  "content_sha256": "ac457d6752e7e178da4b12e2427736f677eb123ea43bde853b6f599cbc34e78c",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.function.Supplier;\n\n/** Exchange rates, cached in memory in front of a rates API that bills every call. */\npublic class RateService {\n\n    /** The remote rates API: slow, and billed per call. */\n    public interface RateApi {\n        BigDecimal fetch(String pair);\n    }\n\n    /** A debug log that may be switched off. */\n    public interface DebugLog {\n        /** Logs a message the caller has already built. */\n        void debug(String message);\n\n        /** Logs a message, asking the supplier for it only when debug output is on. */\n        void debug(Supplier<String> message);\n    }\n\n    private final Map<String, BigDecimal> cache = new HashMap<>();\n    private final RateApi api;\n    private final DebugLog log;\n    int snapshotsTaken;\n\n    public RateService(RateApi api, DebugLog log) {\n        this.api = api;\n        this.log = log;\n    }\n\n    /** The rate for a currency pair such as \"GBP/JPY\". */\n    public BigDecimal rate(String pair) {\n        BigDecimal rate = cachedOrFetched(pair);\n        trace(pair, rate);\n        return rate;\n    }\n\n    Optional<BigDecimal> cached(String pair) {\n        return Optional.ofNullable(cache.get(pair));\n    }\n\n    BigDecimal fetchAndCache(String pair) {\n        BigDecimal rate = api.fetch(pair);\n        cache.put(pair, rate);\n        return rate;\n    }\n\n    /** A copy of the whole cache, sorted: useful when debugging, and not cheap. */\n    String cacheSnapshot() {\n        snapshotsTaken++;\n        return new TreeMap<>(cache).toString();\n    }\n\n    /** The cached rate for the pair, or one fetched from the API (and cached) when there is none. */\n    BigDecimal cachedOrFetched(String pair) {\n        throw new IllegalStateException(\"TODO: the cached rate, or a fetched one\");\n    }\n\n    /** Writes a debug line: the pair, its rate and a snapshot of the cache. */\n    void trace(String pair, BigDecimal rate) {\n        throw new IllegalStateException(\"TODO: the debug line\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-1/src/main/java/practice/ItemRules.java",
-    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-1/src/test/java/practice/ItemRulesTest.java",
+    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-1/src/main/java/practice/RateService.java",
+    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-1/src/test/java/practice/RateServiceTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,29 +106,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ItemRulesTest#keepsOnlyValidItems",
+        "id": "practice.RateServiceTest#returnsRatesAndLogsEachLookupWhenDebugIsOn",
         "kind": "main",
-        "says": "Only active, positive, undeleted items with a verified owner are kept, in order."
+        "says": "every lookup returns the pair's rate, and with debug on each lookup writes one line naming the pair, its rate and the cache"
       },
       {
-        "id": "practice.ItemRulesTest#nullItemsAreSkipped",
+        "id": "practice.RateServiceTest#aPairAlreadyInTheCacheCostsNoApiCall",
         "kind": "edge",
-        "says": "A null item is simply not valid; it never throws."
+        "says": "the rates API is called once per pair; lookups of a cached pair don't call it"
       },
       {
-        "id": "practice.ItemRulesTest#anItemWithNoOwnerIsNotValid",
+        "id": "practice.RateServiceTest#withDebugOffNoSnapshotOfTheCacheIsTaken",
         "kind": "edge",
-        "says": "An item whose owner is null is not valid; it never throws."
-      },
-      {
-        "id": "practice.ItemRulesTest#deletedItemsAreNotValid",
-        "kind": "edge",
-        "says": "An item with status DELETED is not valid, in isValidItem and validIds alike; a null status is not DELETED."
-      },
-      {
-        "id": "practice.ItemRulesTest#zeroValueIsNotValid",
-        "kind": "edge",
-        "says": "A value must be above zero; zero itself is not valid."
+        "says": "with debug output off, no snapshot of the cache is taken"
       }
     ],
     "report": {
@@ -162,10 +127,10 @@
     },
     "origin": {
       "path": "13-lambda-expressions/README_4.1.4.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "The Method You Pass a Lambda To Decides When, How Often, and Whether It Runs"
     },
     "concepts": [
-      "A lambda with several rules in it is extracted to a named method and passed as a method reference."
+      "An argument such as orElse's is evaluated before the call on every call; a Supplier overload (orElseGet, Logger.fine(Supplier)) runs the lambda only when the value is needed."
     ]
   }
 }

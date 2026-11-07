@@ -18,395 +18,406 @@
       "text": "4.2.2. Supplier — Supplying Values On-Demand"
     },
     {
+      "type": "para",
+      "text": "The pricing service builds one `Supplier<RateTable>` at startup and hands it to every request handler, \"so the rate table loads lazily, once\". The database dashboard shows the rates query running 1,200 times a minute, about once per request. No handler calls the query directly."
+    },
+    {
+      "type": "para",
+      "text": "Six rules, one per heading, say what `Supplier<T>` and its one method, `T get()`, promise and what they don't."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Supplier Runs Its Body on Every get() and Remembers Nothing"
     },
     {
       "type": "para",
-      "text": "`Supplier<T>` is the functional interface that takes **no arguments** and **returns a value** of type `T`. Where a `Consumer` is about putting something in, a `Supplier` is about pulling something out — on demand, and only when asked."
-    },
-    {
-      "type": "para",
-      "text": "The defining power of `Supplier` is **lazy evaluation**: the computation wrapped inside a Supplier is deferred until the `get()` method is called. This is fundamentally different from passing the value directly, where the value is computed eagerly at the call site regardless of whether it is ever needed."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of a Supplier like a vending machine. The machine doesn't produce your snack until you press the button (`get()`). If you never press the button, no snack is produced and no resources are consumed. This is in contrast to someone handing you a snack the moment you walk up to the machine (eager evaluation) — you receive it whether you want it or not."
-    },
-    {
-      "type": "para",
-      "text": "The interface definition:"
+      "text": "Wrapping a computation in a `Supplier` defers it to `get()`, and runs it on every `get()`. The code below calls `get()` three times. How many queries reach the database?"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "@FunctionalInterface\npublic interface Supplier<T> {\n    T get();\n}"
+      "text": "Supplier<RateTable> rates = () -> loadRates();      // loadRates() runs the SELECT and counts it in queries\nSystem.out.println(\"after creating the supplier: \" + queries.get() + \" queries\");\nRateTable a = rates.get();\nRateTable b = rates.get();\nRateTable c = rates.get();\nSystem.out.println(\"after three get() calls:     \" + queries.get() + \" queries\");\nSystem.out.println(\"same object each time:       \" + (a == b && b == c));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "after creating the supplier: 0 queries\nafter three get() calls:     3 queries\nsame object each time:       false"
     },
     {
       "type": "para",
-      "text": "`Supplier` has no `andThen()` or chaining method because it produces output with no input — composition is done by wrapping one Supplier inside another."
+      "text": "Creating the lambda ran nothing; each `get()` ran the body again and returned a new table. The interface has no field to keep a result in, and its javadoc says there is \"no requirement that a new or distinct result be returned each time the supplier is invoked\". So every handler's `get()` paid for the query, and two `get()` calls in one method worked on two different tables. Code that wants the result once calls `get()` once and keeps the value, or wraps the supplier in a memo."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Memo Written as Check-Then-Compute Loads Twice When Two Threads Arrive Together"
     },
     {
       "type": "para",
-      "text": "**Primitive specializations** avoid boxing overhead:"
+      "text": "The obvious memo keeps the result in a field. Spot the problem:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.function.Supplier;\n\nfinal class NaiveMemo<T> implements Supplier<T> {\n    private final Supplier<T> source;\n    private boolean done;\n    private T value;\n\n    NaiveMemo(Supplier<T> source) { this.source = source; }\n\n    @Override\n    public T get() {\n        if (!done) {                 // (1)\n            value = source.get();    // (2)\n            done = true;             // (3)\n        }\n        return value;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "On one thread it loads once. At startup many handler threads ask for the table together, and two can pass (1) before either reaches (3); both then run (2). The test below forces that without sleeps. `race(name, memo)` wraps a load in `memo`, here `NaiveMemo::new`, and calls it from two threads. The load counts itself in `loads`, then waits (up to a second) on a latch until the other caller is inside the load too, as a slow query would."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "CountDownLatch bothInside = new CountDownLatch(2);\nSupplier<String> rates = memo.apply(() -> {\n    int load = loads.incrementAndGet();\n    bothInside.countDown();\n    try {\n        bothInside.await(1, TimeUnit.SECONDS);   // the load takes a while: wait for the other caller\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    }\n    return \"rates#\" + load;\n});\nString[] seen = new String[2];\nThread a = new Thread(() -> seen[0] = rates.get());\nThread b = new Thread(() -> seen[1] = rates.get());\na.start(); b.start();\na.join(); b.join();\nSystem.out.printf(\"%-8s loads: %d, callers saw %s and %s%n\", name, loads.get(), seen[0], seen[1]);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "naive    loads: 2, callers saw rates#1 and rates#2"
+    },
+    {
+      "type": "para",
+      "text": "The pair of tables varies from run to run (`rates#1 and rates#1` also came up), because which write to `value` each thread reads last is a race too. On a cold start every thread that arrives during the first load runs its own, which a rate-limited upstream rejects, and two requests in the same second can price from two versions of the table."
+    },
+    {
+      "type": "para",
+      "text": "A memo whose `get()` runs `cached.compareAndSet(null, source.get())` on an `AtomicReference` and returns `cached.get()` fixes only the inconsistency: in the same test both callers always saw the same table, and the load still ran twice."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Safe Memo Chooses What It Pays: a Lock, Class Initialisation, or Startup Time"
+    },
+    {
+      "type": "para",
+      "text": "Three forms load exactly once."
+    },
+    {
+      "type": "para",
+      "text": "**Double-checked locking.** The first check skips the lock once the value exists. The second, under the lock, stops a thread that waited for the lock from loading again:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.function.Supplier;\n\nfinal class LockedMemo<T> implements Supplier<T> {\n    private final Supplier<T> source;\n    private volatile boolean done;           // written after value, so a reader that sees true sees value\n    private T value;\n\n    LockedMemo(Supplier<T> source) { this.source = source; }\n\n    @Override\n    public T get() {\n        if (!done) {                         // once loaded, no lock is taken\n            synchronized (this) {\n                if (!done) {                 // a caller that waited for the lock finds it loaded\n                    value = source.get();    // if this throws, done stays false and the next call retries\n                    done = true;\n                }\n            }\n        }\n        return value;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The same test, with `LockedMemo::new`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "locked   loads: 1, callers saw rates#1 and rates#1"
+    },
+    {
+      "type": "para",
+      "text": "The second caller blocked on the lock until the first load finished (after its one-second latch timeout), then found `done` set. Without `volatile`, the first check would read `done` with no lock and no ordering, and a reader could see `done == true` before it sees the write to `value` (reordering is unit 5.1.4). The separate `done` flag also lets the memo keep a `null` result; a memo that tests `value == null` loads again on every call when the source returns `null`."
+    },
+    {
+      "type": "para",
+      "text": "**The holder class.** For a value that belongs to a class rather than an object, the JVM already has a lock that runs code once: class initialisation. A nested class is initialised the first time it is used, and every other thread that uses it meanwhile waits for that to finish:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "final class Rates {\n    static boolean databaseUp = false;\n\n    static String loadRates() {\n        if (!databaseUp) throw new IllegalStateException(\"database unavailable\");\n        return \"rates\";\n    }\n\n    private static final class Holder {\n        static final String TABLE = loadRates();   // runs once, on the first table() call\n    }\n\n    static String table() { return Holder.TABLE; }\n}"
+    },
+    {
+      "type": "para",
+      "text": "No lock, no `volatile`, and later reads are plain field reads. The price comes on failure. With the database down we call `Rates.table()` and a `LockedMemo` of `Rates::loadRates`, then bring the database back and call both again:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "holder, 1st: java.lang.ExceptionInInitializerError\nlocked, 1st: java.lang.IllegalStateException: database unavailable\nholder, 2nd: java.lang.NoClassDefFoundError: Could not initialize class Rates$Holder\nlocked, 2nd: rates"
+    },
+    {
+      "type": "para",
+      "text": "A class whose initialiser threw is marked as failed, and the JVM never runs it again. Every later `table()` throws `NoClassDefFoundError` until the process restarts, so a database that was down for one second at startup takes the service down until someone redeploys."
+    },
+    {
+      "type": "para",
+      "text": "**Computing eagerly.** A `final` field set in the constructor, or a `static final` field, needs no memo: the value exists before any thread can ask for it. It pays when the object or class is created, usually at startup, even in deployments that never read the table, and a failed load fails there too. That is often what you want, since a service that can't price shouldn't accept requests."
+    },
+    {
+      "type": "para",
+      "text": "Choose by what a failure should do. A value the service can't work without is loaded eagerly and fails the startup. A value that is optional, or whose source may recover, goes behind double-checked locking. The holder class fits a static value whose load can't fail, or whose failure should end the process anyway."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The JDK Takes a Supplier Where the Work May Not Be Needed"
+    },
+    {
+      "type": "para",
+      "text": "Several JDK methods take a `Supplier` for a value they need on one path only. The common one is a null check's message. An order validator builds a detailed message with `describe(order)`, which formats the whole order and counts itself in `built`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "for (Order o : orders) Objects.requireNonNull(o.customer(), describe(o));\nSystem.out.println(\"String message:   built \" + built.getAndSet(0) + \" times for 3 valid orders\");\n\nfor (Order o : orders) Objects.requireNonNull(o.customer(), () -> describe(o));\nSystem.out.println(\"Supplier message: built \" + built.getAndSet(0) + \" times for 3 valid orders\");\n\ntry {\n    Order bad = new Order(\"A-4\", null);\n    Objects.requireNonNull(bad.customer(), () -> describe(bad));\n} catch (NullPointerException e) {\n    System.out.println(\"on the null one:  built \" + built.get() + \", \" + e.getMessage());\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "String message:   built 3 times for 3 valid orders\nSupplier message: built 0 times for 3 valid orders\non the null one:  built 1, order A-4 has no customer: Order[id=A-4, customer=null]"
+    },
+    {
+      "type": "para",
+      "text": "Java evaluates arguments before the call, so the `String` overload formats a message for every valid order. The `Supplier` overload builds one only when the check fails: two messages instead of a million for a validator that runs a million times an hour and fails twice. The javadoc warns that the supplier has a cost too: this lambda captures `o`, so creating it is an allocation, and for a constant message the `String` overload costs less."
+    },
+    {
+      "type": "para",
+      "text": "`Optional.orElseThrow(Supplier)` does the same for an exception: on a hit the supplier never runs, and no exception, with its stack trace, is created. `Optional.orElse` against `orElseGet`, and loggers that take a `Supplier<String>`, follow the same idea; unit 4.1.4 runs both. `CompletableFuture.supplyAsync(Supplier)` is a different use: it calls `get()` later, on a pool thread (concurrency is part 6)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Factory Supplier Must Return a New Object on Every Call"
+    },
+    {
+      "type": "para",
+      "text": "The other use is a factory: the method calls `get()` each time it needs a fresh object. `Collectors.toCollection` takes one, and `TreeSet::new` makes a new sorted set per group. A sales report groups SKUs by region; the second version passes a lambda that returns a list it already made:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<Sale> sales = List.of(new Sale(\"north\", \"kettle\"), new Sale(\"south\", \"toaster\"),\n        new Sale(\"north\", \"blender\"), new Sale(\"south\", \"kettle\"));\n\nMap<String, TreeSet<String>> fresh = sales.stream().collect(Collectors.groupingBy(Sale::region,\n        Collectors.mapping(Sale::sku, Collectors.toCollection(TreeSet::new))));\n\nList<String> shared = new ArrayList<>();\nMap<String, List<String>> same = sales.stream().collect(Collectors.groupingBy(Sale::region,\n        Collectors.mapping(Sale::sku, Collectors.toCollection(() -> shared))));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "TreeSet::new     {south=[kettle, toaster], north=[blender, kettle]}\n() -> shared     {south=[kettle, toaster, blender, kettle], north=[kettle, toaster, blender, kettle]}"
+    },
+    {
+      "type": "para",
+      "text": "`groupingBy` called the supplier once per region and added each sale to the list it got back. Both regions got the same list, so each shows every sale. Nothing failed: it compiles, and with one region in the test data the output is right."
+    },
+    {
+      "type": "para",
+      "text": "`ThreadLocal.withInitial(Supplier)` is a factory on another schedule: it calls the supplier on a thread's first `get()` and keeps the result for that thread."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ThreadLocal<SimpleDateFormat> fmt = ThreadLocal.withInitial(() -> {\n    formatters.incrementAndGet();\n    return new SimpleDateFormat(\"yyyy-MM-dd\");\n});\nRunnable work = () -> { for (int i = 0; i < 1000; i++) fmt.get(); };\nThread t1 = new Thread(work), t2 = new Thread(work);\nt1.start(); t2.start(); t1.join(); t2.join();\nSystem.out.println(\"withInitial: 2 threads x 1000 get() -> \" + formatters.get() + \" formatters\");"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "withInitial: 2 threads x 1000 get() -> 2 formatters"
+    },
+    {
+      "type": "para",
+      "text": "`SimpleDateFormat`'s javadoc says it isn't synchronized and recommends an instance per thread, which is what the supplier gives, as long as it returns a new one."
+    },
+    {
+      "type": "para",
+      "text": "`Stream.generate(Supplier)` calls `get()` once per element, and its javadoc calls the stream it returns \"infinite\". Only a short-circuiting step such as `limit` ends it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Supplier<String> ids = () -> \"id-\" + calls.incrementAndGet();\nSystem.out.println(\"limit(3)         \" + Stream.generate(ids).limit(3).toList() + \", calls: \" + calls.get());\ncalls.set(0);\nThread counting = new Thread(() -> System.out.println(Stream.generate(ids).count()));\ncounting.setDaemon(true);\ncounting.start();\ncounting.join(1000);\nSystem.out.println(\"count() with no limit: still running after 1 s: \" + counting.isAlive()\n        + \", calls so far: \" + calls.get());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "limit(3)         [id-1, id-2, id-3], calls: 3\ncount() with no limit: still running after 1 s: true, calls so far: 81065068"
+    },
+    {
+      "type": "para",
+      "text": "Without `limit`, `count()` has no point at which it would stop."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "IntSupplier and Its Siblings Return Primitives and Are Not Suppliers"
+    },
+    {
+      "type": "para",
+      "text": "`IntSupplier`, `LongSupplier`, `DoubleSupplier` and `BooleanSupplier` return primitives (`getAsInt()` and so on). They are separate interfaces, not subtypes of `Supplier`, so one doesn't go where the other is expected. With `static int sum(Supplier<Integer> s)`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "AtomicInteger seq = new AtomicInteger();\nIntSupplier next = seq::incrementAndGet;\nSystem.out.println(IntStream.generate(next).limit(3).sum());\n// sum(next);                      // does not compile: IntSupplier is not a Supplier<Integer>\nSystem.out.println(sum(next::getAsInt));"
+    },
+    {
+      "type": "para",
+      "text": "The two `println` calls print `6` and `9`. Uncommenting `sum(next)`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Primitives.java:13: error: incompatible types: IntSupplier cannot be converted to Supplier<Integer>"
+    },
+    {
+      "type": "para",
+      "text": "A method reference adapts one to the other, `next::getAsInt`, and boxes each value on the way. `BooleanSupplier` suits a switch read when asked, such as a feature flag. When the boxing matters is unit 4.1.3's subject."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`BooleanSupplier` — `boolean getAsBoolean()`",
-        "`IntSupplier` — `int getAsInt()`",
-        "`LongSupplier` — `long getAsLong()`",
-        "`DoubleSupplier` — `double getAsDouble()`"
+        "**A `Supplier` runs its body on every `get()` and keeps nothing.** Wrapping a load in one defers it; it doesn't make it happen once.",
+        "**A check-then-compute memo loads twice under contention**, and the `compareAndSet` memo keeps one result but still loads twice.",
+        "**A safe memo chooses its cost.** Double-checked locking needs `volatile` and retries after a failure; the holder class needs no code but turns one failed load into `NoClassDefFoundError` until restart; loading eagerly pays, and fails, at startup.",
+        "**The JDK takes a `Supplier` for work it may skip**: `requireNonNull`'s message, `orElseThrow`'s exception.",
+        "**A factory supplier returns a new object per call.** `() -> shared` makes every group or thread share one object; `Stream.generate` never ends without `limit` or another short-circuit.",
+        "**Primitive suppliers are separate interfaces**, adapted with a method reference."
       ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
     },
     {
       "type": "para",
-      "text": "**Key use sites in the JDK:**"
+      "text": "**JDK methods that take a `Supplier`** (from the javadoc):"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Optional.orElseGet(Supplier<T>)` — lazy default value",
-        "`Optional.orElseThrow(Supplier<X extends Throwable>)` — lazy exception construction",
-        "`Stream.generate(Supplier<T>)` — infinite stream from a Supplier",
-        "`Objects.requireNonNullElseGet(T, Supplier<T>)` — null-safe lazy default (Java 9+)",
-        "`Logger.info(Supplier<String>)` — lazy log message construction (avoid string formatting overhead)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`Supplier<T>` has one abstract method: `T get()` — it takes no arguments and returns a value.",
-        "Suppliers enable **lazy evaluation**: the computation does not run until `get()` is called.",
-        "`Optional.orElseGet(Supplier)` is lazy — the Supplier is only invoked when the Optional is empty. `orElse(T)` is eager — the default is always computed.",
-        "`Stream.generate(Supplier)` produces an infinite stream; always pair it with `limit()` or another short-circuiting operation.",
-        "A Supplier can represent a **factory**: `ArrayList::new` is a `Supplier<List<String>>` that creates a fresh list each call.",
-        "A Supplier can represent a **memoized/cached computation**: compute once, cache the result, return the cached value on subsequent calls.",
-        "Primitive specializations (`IntSupplier`, `LongSupplier`, `DoubleSupplier`, `BooleanSupplier`) avoid autoboxing.",
-        "Unlike `Callable<T>`, `Supplier<T>` cannot throw checked exceptions. Wrap checked exceptions in `RuntimeException` if needed."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Java 8**: `Supplier<T>` and all primitive specializations introduced in `java.util.function`.",
-        "**Java 8**: `Optional.orElseGet(Supplier)` and `Stream.generate(Supplier)` are the primary JDK use sites.",
-        "**Java 9**: `Objects.requireNonNullElseGet(T obj, Supplier<T> supplier)` — returns `obj` if non-null, otherwise calls the Supplier.",
-        "**Java 9**: `Optional.or(Supplier<Optional<T>>)` — returns the optional if present, otherwise calls the Supplier to produce a new Optional.",
-        "**Java 9**: `Optional.ifPresentOrElse(Consumer, Runnable)` — for two-branch handling without a Supplier, contrast with `orElseGet`.",
-        "**Java 11**: `Predicate.not(Predicate)` does not involve Supplier, but `Optional.orElseThrow(Supplier)` is commonly paired with it.",
-        "**Java 16+**: Records used as DTOs can be supplied via a lambda such as `() -> new PersonRecord(\"Alice\", 30)` (or a constructor reference like `PersonRecord::new` where the target interface's parameters match a constructor).",
-        "**Java 21**: Virtual threads benefit from Supplier-based lazy initialization — the Supplier wraps expensive resource creation (DB connections, HTTP clients) and is only invoked when the virtual thread actually needs it."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Method",
+        "When it calls `get()`"
+      ],
+      "rows": [
         [
-          "**`orElse` vs `orElseGet` — the classic mistake** — `orElse(T value)` evaluates its argument **always**, even when the Optional is present, because Java evaluates method arguments eagerly before the call.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Broken: computeExpensiveDefault() runs even when optional is present\nOptional<String> opt = Optional.of(\"existing\");\nString result = opt.orElse(computeExpensiveDefault()); // method called!"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: use orElseGet — the Supplier is only called when opt is empty\nString result = opt.orElseGet(() -> computeExpensiveDefault());\n// computeExpensiveDefault() is NOT called because opt is present"
-          }
+          "`Objects.requireNonNull(T, Supplier<String>)`",
+          "only when the object is `null` (Java 8)"
         ],
         [
-          "**Forgetting `limit()` on `Stream.generate()`** — `Stream.generate(Supplier)` produces an infinite stream. Without a terminal short-circuit operation, it runs forever.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Broken: runs forever, eventually OOM\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .collect(Collectors.toList()); // infinite!"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: always limit infinite streams\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .limit(10)\n    .collect(Collectors.toList());"
-          }
+          "`Objects.requireNonNullElseGet(T, Supplier<? extends T>)`",
+          "only when the object is `null` (Java 9)"
         ],
         [
-          "**Memoization without thread safety** — A naive memoizing Supplier using a local flag is not thread-safe. Multiple threads may each see the \"not yet computed\" state and compute the value concurrently.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Broken: not thread-safe under concurrent access\nObject[] cached = {null};\nboolean[] computed = {false};\nSupplier<String> memo = () -> {\n    if (!computed[0]) { // race condition here\n        cached[0] = expensiveComputation();\n        computed[0] = true;\n    }\n    return (String) cached[0];\n};"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: synchronize the check-and-compute so it runs at most once\nObject lock = new Object();\nObject[] cached = {null};\nSupplier<String> threadSafeMemo = () -> {\n    synchronized (lock) {\n        if (cached[0] == null) {\n            cached[0] = expensiveComputation();\n        }\n        return (String) cached[0];\n    }\n};\n// Note: AtomicReference.updateAndGet(v -> v != null ? v : expensiveComputation()) publishes a single value\n// safely, but under contention it may call expensiveComputation() more than once (its function can be retried)."
-          }
+          "`Optional.orElseGet(Supplier)`, `orElseThrow(Supplier)`",
+          "only when empty (Java 8)"
         ],
         [
-          "**Using `Supplier` where `Callable` is needed** — `Supplier.get()` cannot throw checked exceptions. If the computation throws a checked exception, use `Callable<T>` instead.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Broken: IOException is checked, Supplier cannot throw it\nSupplier<String> reader = () -> Files.readString(Path.of(\"file.txt\")); // compile error"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix 1: use Callable (for ExecutorService, etc.)\nCallable<String> reader = () -> Files.readString(Path.of(\"file.txt\"));\n\n// Fix 2: wrap in unchecked exception\nSupplier<String> reader = () -> {\n    try { return Files.readString(Path.of(\"file.txt\")); }\n    catch (IOException e) { throw new UncheckedIOException(e); }\n};"
-          }
+          "`Optional.or(Supplier<Optional>)`",
+          "only when empty (Java 9)"
         ],
         [
-          "**Capturing mutable state that changes between `get()` calls** — If a Supplier captures a mutable variable that is modified externally, it may return different values across calls unexpectedly.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Tricky: 'prefix' is effectively final, but what if it pointed to a mutable object?\nStringBuilder prefix = new StringBuilder(\"Hello\");\nSupplier<String> greeter = () -> prefix + \" World\";\nprefix.append(\"!!!\"); // greeter will now return \"Hello!!! World\""
-          }
+          "`ThreadLocal.withInitial(Supplier)`",
+          "on each thread's first `get()`, and again after `remove()`"
+        ],
+        [
+          "`Collectors.toCollection(Supplier)`",
+          "each time it needs a new collection (once per group under `groupingBy`)"
+        ],
+        [
+          "`Stream.generate(Supplier)`",
+          "once per element, without end"
+        ],
+        [
+          "`CompletableFuture.supplyAsync(Supplier)`",
+          "once, asynchronously (by default in the common pool)"
         ]
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "type": "para",
+      "text": "**Memo forms** (Java 21, run in this unit):"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Prefer `orElseGet(Supplier)` over `orElse(value)` when the default involves any computation** — even simple string formatting or object construction.",
+      "type": "table",
+      "headers": [
+        "Form",
+        "Loads when two threads arrive together",
+        "After a failed load",
+        "Cost or limit"
+      ],
+      "rows": [
         [
-          "**Use constructor references as Suppliers for factory patterns.** `ArrayList::new` is cleaner and more expressive than `() -> new ArrayList<>()`.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Supplier<List<String>> listFactory = ArrayList::new;\nSupplier<Map<String, Integer>> mapFactory = HashMap::new;"
-          }
+          "check-then-compute, no lock",
+          "2",
+          "retries",
+          "none, and wrong"
         ],
         [
-          "**Implement the initialization-on-demand pattern with Supplier.** Wrap expensive one-time initialization in a Supplier that is stored as a field and called once.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "private Supplier<HeavyResource> resourceSupplier = () -> new HeavyResource(); // not yet created\n// Later, when actually needed:\nHeavyResource resource = resourceSupplier.get();"
-          }
+          "`AtomicReference.compareAndSet`",
+          "2, one kept",
+          "retries",
+          "none"
         ],
-        "**Use Supplier for dependency injection in tests.** Instead of creating the real object, inject a Supplier that returns a stub or mock — easy to swap without frameworks.",
-        "**Use primitive specializations for numeric suppliers in tight loops.** `IntSupplier.getAsInt()` avoids boxing each return value.",
         [
-          "**Use `Optional.or(Supplier<Optional<T>>)` (Java 9+) for chaining Optional fallbacks** without nesting.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Optional<String> result = primary.or(() -> secondary).or(() -> tertiary);"
-          }
+          "double-checked locking, `volatile`",
+          "1",
+          "retries",
+          "a lock until loaded"
+        ],
+        [
+          "holder class",
+          "1",
+          "`NoClassDefFoundError` until restart",
+          "static values only"
+        ],
+        [
+          "eager instance field",
+          "1, before any caller",
+          "the constructor throws",
+          "paid at startup"
+        ],
+        [
+          "eager `static final` field",
+          "1, before any caller",
+          "like the holder class",
+          "paid when the class is first used"
         ]
       ]
     },
     {
+      "type": "para",
+      "text": "**Primitive suppliers:** `BooleanSupplier.getAsBoolean()`, `IntSupplier.getAsInt()`, `LongSupplier.getAsLong()`, `DoubleSupplier.getAsDouble()`; none extends `Supplier`."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        [
-          "**Supplier returning `null`** — `Supplier<T>` can return `null`. If the consumer of the Supplier does not expect null, a `NullPointerException` may follow. Use `Optional.ofNullable(supplier.get())` to handle this safely.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Supplier<String> mayBeNull = () -> null;\nString value = Optional.ofNullable(mayBeNull.get()).orElse(\"default\");"
-          }
-        ],
-        "**Supplier that throws `RuntimeException`** — The exception propagates out of `get()` to the caller. This is the only way for a `Supplier` to signal failure.",
-        [
-          "**Supplier used with `Stream.generate` producing the same object reference each time** — If the Supplier returns the same mutable object (not a copy), the stream will contain references to the same mutated object.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Dangerous: all elements point to the same list\nList<String> shared = new ArrayList<>();\nList<List<String>> bad = Stream.generate(() -> shared).limit(3).collect(toList());\n// bad.get(0) == bad.get(1) == bad.get(2) (same reference)\n\n// Safe: create a new instance per call\nList<List<String>> good = Stream.generate(ArrayList::new).limit(3).collect(toList());"
-          }
-        ],
-        "**BooleanSupplier** — Returns `boolean`, not `Boolean`. No boxing. Use `getAsBoolean()` instead of `get()`.",
-        "**Calling `get()` multiple times** — Unless you explicitly memoize, each call to `get()` re-executes the lambda. For expensive one-shot computations, store the result after the first call."
+        "A memo holds a token that expires after an hour. Extend `LockedMemo` to reload it, and decide what callers get while one thread reloads: the old token, or a wait.",
+        "The upstream allows one rate-table request per second. Measure how many loads each memo form makes when 200 threads start together, and how long the slowest caller waits.",
+        "Your library takes a `Supplier<Connection>` from its caller. Write down, in its javadoc, how often you call `get()` and whether the caller may return the same object each time."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why Supplier Has No memoize()"
     },
     {
       "type": "para",
-      "text": "Interviewers focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The `orElse` vs `orElseGet` distinction — this is one of the most commonly asked Java interview questions.",
-        "Understanding that `Stream.generate` is infinite and requires `limit()`.",
-        "Distinguishing Supplier (no-arg, returns value) from all other functional interfaces.",
-        "Lazy evaluation concept and where it matters for performance.",
-        "Memoization pattern using Supplier.",
-        "`Callable<T>` vs `Supplier<T>` — both take no args and return a value, but Callable is for concurrent tasks and allows checked exceptions."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Common tricky questions:**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What is the difference between `Supplier<T>` and `Callable<T>`?\" (Both return a value with no args; Callable is in `java.util.concurrent`, supports checked exceptions, used with ExecutorService. Supplier is in `java.util.function`, no checked exceptions, used for lazy evaluation.)",
-        "\"In `optional.orElse(computeDefault())`, when is `computeDefault()` executed?\" (Always — before `orElse` is even called, because Java uses strict evaluation.)",
-        "\"Can a Supplier produce different values on each call?\" (Yes — a Supplier wrapping `Math.random()` or `new ArrayList<>()` returns a new value each time.)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the key difference between `Optional.orElse(T)` and `Optional.orElseGet(Supplier<T>)`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: orElse(T value) is eager: the argument expression is evaluated before orElse is called,\nregardless of whether the Optional is present or empty. This is standard Java argument\nevaluation — the value is computed and then passed.\n\norElseGet(Supplier<T> supplier) is lazy: the Supplier's get() is only called when the\nOptional is empty. If the Optional is present, get() is never invoked.\n\nThis matters when the \"default\" is expensive to compute (database query, HTTP call, complex\nobject construction). Using orElse with an expensive call wastes resources when the Optional\nis already present.\n\nRule of thumb:\n- orElse(constant) — fine for constants, literals, already-computed values\n- orElseGet(() -> compute()) — preferred for any non-trivial default"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Optional<String> opt = Optional.of(\"found\");\n\n// orElse: computeDefault() ALWAYS runs\nString a = opt.orElse(computeDefault());   // computeDefault() executes, result discarded\n\n// orElseGet: computeDefault() only runs if opt is empty\nString b = opt.orElseGet(() -> computeDefault()); // computeDefault() NOT called\n\n// Demonstration with side effect to prove the point\nint[] callCount = {0};\nSupplier<String> countingSupplier = () -> {\n    callCount[0]++;\n    return \"default\";\n};\n\nOptional.of(\"present\").orElseGet(countingSupplier);\nSystem.out.println(callCount[0]); // 0 — Supplier was NOT called\n\nOptional.<String>empty().orElseGet(countingSupplier);\nSystem.out.println(callCount[0]); // 1 — Supplier WAS called"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How is `Supplier<T>` used with `Stream.generate()` and what must you remember?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Stream.generate(Supplier<T>) creates an infinite, unordered, sequential Stream<T>.\nEach call to the stream pipeline requests the next element by calling Supplier.get().\n\nBecause the stream is infinite, you MUST use a short-circuiting or limiting operation:\n- limit(n)         — take exactly n elements\n- findFirst()      — take one element\n- anyMatch(pred)   — stop as soon as a match is found\n- takeWhile(pred)  — take while condition holds (Java 9+)\n\nIf no limiting operation is used and collect() or forEach() is called, the stream will\nattempt to process infinite elements — resulting in an infinite loop or OutOfMemoryError."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Generate 10 random numbers between 0 and 99\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .limit(10)\n    .collect(Collectors.toList());\n\n// Generate UUIDs\nList<String> uuids = Stream.generate(() -> UUID.randomUUID().toString())\n    .limit(5)\n    .collect(Collectors.toList());\n\n// Generate incrementing sequence using a stateful Supplier\nint[] counter = {0};\nSupplier<Integer> incrementing = () -> counter[0]++;\nList<Integer> sequence = Stream.generate(incrementing).limit(5).collect(Collectors.toList());\n// [0, 1, 2, 3, 4]\n\n// Java 9+: takeWhile for condition-based stopping\nStream.generate(() -> (int)(Math.random() * 10))\n    .takeWhile(n -> n != 0)     // stop at first 0\n    .forEach(System.out::println);"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: Explain the memoization (caching) pattern using `Supplier<T>`.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Memoization is an optimization where the result of an expensive computation is cached\nafter the first call, and all subsequent calls return the cached result without recomputing.\n\nA Supplier is a natural fit: it represents \"produce this value when asked\". By wrapping it\nin a memoizing layer, we change its semantics to \"produce this value once, then cache it\".\n\nThere are two common implementations:\n1. Single-threaded: use a boolean flag and a result holder.\n2. Thread-safe: use AtomicReference with compareAndSet. This guarantees that every caller sees the\n   same cached value, but two threads racing on the first call may both run the computation (only\n   one result is kept). If the computation must run at most once, use synchronization instead."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Thread-safe memoizing Supplier\npublic static <T> Supplier<T> memoize(Supplier<T> supplier) {\n    AtomicReference<T> cached = new AtomicReference<>();\n    return () -> {\n        T value = cached.get();\n        if (value == null) {\n            // compareAndSet is atomic: only one thread's result is stored. Several threads racing here\n            // may each call supplier.get(); the losers' results are discarded.\n            cached.compareAndSet(null, supplier.get());\n            value = cached.get();\n        }\n        return value;\n    };\n}\n\n// Usage\nSupplier<String> expensive = memoize(() -> {\n    System.out.println(\"Computing...\");\n    return \"result-\" + System.currentTimeMillis();\n});\n\nSystem.out.println(expensive.get()); // \"Computing...\" then \"result-...\"\nSystem.out.println(expensive.get()); // returns cached value — no \"Computing...\"\nSystem.out.println(expensive.get()); // still cached\n\n// Instance-level memoization pattern (simple, single-threaded)\npublic class Config {\n    private String cachedValue;\n\n    private final Supplier<String> valueSupplier = () -> {\n        if (cachedValue == null) cachedValue = loadFromDisk();\n        return cachedValue;\n    };\n\n    public String getValue() { return valueSupplier.get(); }\n    private String loadFromDisk() { return \"value-from-disk\"; }\n}"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How does `Supplier<T>` differ from `Callable<T>`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Both Supplier<T> and Callable<T> are zero-argument functional interfaces that return a\nvalue of type T. The key differences are:\n\n1. Package: Supplier is in java.util.function (functional programming). Callable is in\n   java.util.concurrent (concurrency).\n\n2. Checked exceptions: Supplier.get() cannot throw checked exceptions. Callable.call()\n   declares \"throws Exception\" — any checked exception is allowed.\n\n3. Use sites: Supplier is used with Optional, Stream.generate, lazy initialization.\n   Callable is used with ExecutorService.submit(), FutureTask, and other concurrency APIs.\n\n4. Nullability: Both can return null, but Supplier is often expected to return non-null\n   in Optional.orElseGet.\n\nUse Supplier for lazy evaluation and functional composition.\nUse Callable when submitting tasks to an executor or when checked exceptions must be propagated."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Supplier: no checked exceptions\nSupplier<String> supplier = () -> \"hello\";\nString s = supplier.get();\n\n// Callable: allows checked exceptions, used with ExecutorService\nCallable<String> callable = () -> Files.readString(Path.of(\"file.txt\")); // checked IOException ok\nExecutorService exec = Executors.newSingleThreadExecutor();\nFuture<String> future = exec.submit(callable);\nString content = future.get(); // may throw ExecutionException wrapping IOException\n\n// Converting Supplier to Callable (trivial)\nCallable<String> asCallable = supplier::get;\n\n// Converting Callable to Supplier (requires exception wrapping)\nSupplier<String> asSupplier = () -> {\n    try { return callable.call(); }\n    catch (Exception e) { throw new RuntimeException(e); }\n};"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: Demonstrate the factory pattern and dependency injection using `Supplier<T>`.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: A Supplier is an excellent fit for the factory pattern: you pass a Supplier<T> instead of\na concrete T, giving the receiver control over when and how many instances are created. This\ndecouples creation from use, makes testing easier (inject a Supplier returning a mock), and\nenables lazy creation.\n\nIn dependency injection contexts, a Supplier replaces the container's role for lightweight\nscenarios — the caller provides \"how to create the dependency\" and the callee calls get()\nonly when it needs it."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Factory pattern: method accepts a Supplier to create instances on demand\npublic <T> List<T> createN(int n, Supplier<T> factory) {\n    List<T> result = new ArrayList<>();\n    for (int i = 0; i < n; i++) {\n        result.add(factory.get());  // new instance created each time\n    }\n    return result;\n}\n\n// Usage with different factories\nList<ArrayList<String>> lists = createN(3, ArrayList::new);\nList<StringBuilder> builders = createN(5, StringBuilder::new);\nList<String> uuids = createN(10, () -> UUID.randomUUID().toString());\n\n// Dependency injection via Supplier (no framework needed)\npublic class UserService {\n    private final Supplier<DatabaseConnection> connectionSupplier;\n\n    public UserService(Supplier<DatabaseConnection> connectionSupplier) {\n        this.connectionSupplier = connectionSupplier;\n    }\n\n    public User findUser(String id) {\n        DatabaseConnection conn = connectionSupplier.get(); // lazy, only when needed\n        return conn.query(\"SELECT * FROM users WHERE id = ?\", id);\n    }\n}\n\n// In tests, inject a Supplier returning a mock\nDatabaseConnection mockConn = mock(DatabaseConnection.class);\nUserService service = new UserService(() -> mockConn);\n\n// In production, inject a Supplier returning a real pooled connection\nUserService prodService = new UserService(() -> connectionPool.borrow());"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How do primitive Supplier specializations work and when should you use them?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Generic Supplier<T> requires T to be a reference type. When T is Integer, Long, or Double,\neach call to get() returns a boxed object, requiring heap allocation. Primitive specializations\navoid this:\n\n- IntSupplier.getAsInt()       — returns int (no boxing)\n- LongSupplier.getAsLong()     — returns long (no boxing)\n- DoubleSupplier.getAsDouble() — returns double (no boxing)\n- BooleanSupplier.getAsBoolean() — returns boolean (no boxing)\n\nUse primitive specializations when:\n- Supplying values in tight loops or high-frequency code paths\n- Working with IntStream, LongStream, DoubleStream\n- The allocation overhead of boxing is measurable in your profiling"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Generic: each call boxes the int to Integer\nSupplier<Integer> genericRandom = () -> (int)(Math.random() * 100);\nInteger boxed = genericRandom.get(); // Integer object allocated on heap\n\n// Primitive: no boxing\nIntSupplier primitiveRandom = () -> (int)(Math.random() * 100);\nint primitive = primitiveRandom.getAsInt(); // no allocation\n\n// With IntStream — requires IntSupplier\nIntStream.generate(primitiveRandom).limit(10).sum();\n\n// BooleanSupplier — common for feature flags and lazy checks\nBooleanSupplier featureEnabled = () -> System.getProperty(\"feature.x\") != null;\nif (featureEnabled.getAsBoolean()) {\n    enableFeature();\n}\n\n// LongSupplier — for timestamps and large counters\nLongSupplier timestampMs = System::currentTimeMillis;\nlong start = timestampMs.getAsLong();"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q7: Show how `Optional.or(Supplier<Optional<T>>)` (Java 9+) enables clean fallback chains.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A7: Optional.or(Supplier<Optional<T>>) introduced in Java 9 allows you to chain multiple\nOptional sources without nesting. If the first Optional is empty, the Supplier is called\nto produce another Optional, which may itself be empty (triggering further fallbacks).\n\nThis is cleaner than nested orElseGet calls and reads like a natural \"try this, then try that\"\nchain. Unlike orElseGet which produces a plain value, or() produces an Optional, allowing\nthe final stage to still apply orElse/orElseThrow."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Without or() — nested and hard to read\nOptional<String> result = primaryCache.get(key)\n    .map(Optional::of)\n    .orElseGet(() -> secondaryCache.get(key)\n        .map(Optional::of)\n        .orElseGet(() -> database.find(key)));\n\n// With or() — clean and readable chain (Java 9+)\nOptional<String> result = primaryCache.get(key)\n    .or(() -> secondaryCache.get(key))\n    .or(() -> database.find(key))\n    .or(() -> Optional.of(\"default\"));\n\n// Each Supplier is only called if the previous Optional was empty\n// If primaryCache returns a value, the remaining Suppliers are never invoked\n\n// Practical example: multi-tier configuration lookup\nString config = Optional.ofNullable(System.getProperty(\"app.timeout\"))\n    .or(() -> Optional.ofNullable(System.getenv(\"APP_TIMEOUT\")))\n    .or(() -> readFromConfigFile(\"app.timeout\"))\n    .orElse(\"30\"); // final default if all sources are empty"
+      "text": "`Function` has `andThen` and `Predicate` has `and`, but `Supplier` has no default methods at all, and Java 21's JDK has no memoizing supplier. A memo has to settle what this page shows has no single answer: whether a failure is remembered or retried, whether `null` is a value, whether a waiting caller blocks, and whether the value ever expires. The JDK left those choices to the caller; the cost is that each codebase writes its own memo."
     },
     {
       "type": "heading",
@@ -426,17 +437,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 10,
-    "paras": 16,
-    "code": 15,
-    "tables": 0,
-    "lists": 10,
+    "headings": 12,
+    "paras": 33,
+    "code": 19,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
-    "rules": 6,
+    "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "1750b1162490c40d0b5042fd5e518d9cedcbd145c09ca0ca8fd23b9496c3ebc5"
+  "content_sha256": "91d0d721bc2342f9ff2bb096e34e45a1aa162a6da2768f214429989164bf528a"
 }

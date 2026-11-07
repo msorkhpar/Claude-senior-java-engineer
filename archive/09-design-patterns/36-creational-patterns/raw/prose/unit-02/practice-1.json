@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Notifications whose creator lets subclasses decide",
+  "title": "Stop allocating a new key for every span attribute",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page's `NotificationFactory` is a **creator**: its `notify(message)` calls the abstract **factory method** `createNotification()` and sends through whatever product comes back. Each subclass decides the product, so adding a new channel means adding a subclass and **never editing the creator**."
+      "text": "The service's tracing library records a span for every database call and every HTTP request, and each span asks `AttributeKey.of(...)` for the keys of its attributes. An allocation profile of the checkout service shows `AttributeKey` among the top three allocated classes: hundreds of thousands of keys a minute, nearly all of them for the four names in `STANDARD`."
     },
     {
       "type": "para",
-      "text": "`Notification` (given) has `String send(String message)`. Write:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`NotificationFactory.notify(message)`: create the product through `createNotification()` and return what its `send` returns. A factory method that returns `null` is a design error: throw `IllegalStateException`.",
-        "`EmailFactory`, whose product sends `\"Email: \" + message`.",
-        "`SmsFactory`, whose product sends `\"SMS: \" + message`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "creator",
-        "`notify(\"hi\")`"
-      ],
-      "rows": [
-        [
-          "`new EmailFactory()`",
-          "`Email: hi`"
-        ],
-        [
-          "`new SmsFactory()`",
-          "`SMS: hi`"
-        ],
-        [
-          "any new subclass, e.g. push",
-          "what its own product returns"
-        ],
-        [
-          "a subclass returning `null`",
-          "`IllegalStateException`"
-        ]
-      ]
+      "text": "Finish `of(...)` in `src/main/java/practice/AttributeKey.java`. When you're done, every call for a standard name returns the same key object, wherever the name string came from. Any other name still gets a key with that name, and nothing of it is kept afterwards, however many different names the application sends. Keep the shared keys in `KEYS`, which `kept()` reports. About two lines in total."
     },
     {
       "type": "heading",
@@ -72,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface Notification {\n        String send(String message);\n    }\n\n    public abstract static class NotificationFactory {\n\n        /** The factory method: each subclass decides the product. */\n        protected abstract Notification createNotification();\n\n        /** Sends the message through the product the factory method creates. */\n        public final String notify(String message) {\n            Notification notification = createNotification();\n            if (notification == null) {\n                throw new IllegalStateException(getClass().getSimpleName() + \" created no notification\");\n            }\n            return notification.send(message);\n        }\n    }\n\n    public static final class EmailFactory extends NotificationFactory {\n        @Override\n        protected Notification createNotification() {\n            return message -> \"Email: \" + message;\n        }\n    }\n\n    public static final class SmsFactory extends NotificationFactory {\n        @Override\n        protected Notification createNotification() {\n            return message -> \"SMS: \" + message;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The name of a span attribute in the tracing library. Every span the service records asks for\n * the keys of its attributes, many thousands of times a second, from many threads.\n */\npublic final class AttributeKey {\n\n    /** The attribute names the library defines; nearly every span uses them. */\n    static final List<String> STANDARD = List.of(\"db.system\", \"http.route\", \"net.peer.port\", \"service.name\");\n\n    /** The keys this class keeps for reuse. */\n    private static final Map<String, AttributeKey> KEYS = new ConcurrentHashMap<>();\n\n    private final String name;\n\n    private AttributeKey(String name) {\n        this.name = name;\n    }\n\n    /** The key for an attribute name. */\n    public static AttributeKey of(String name) {\n        if (STANDARD.contains(name)) return KEYS.computeIfAbsent(name, AttributeKey::new);\n        return new AttributeKey(name);\n    }\n\n    public String name() {\n        return name;\n    }\n\n    /** How many keys this class is keeping for reuse. */\n    static int kept() {\n        return KEYS.size();\n    }\n\n    @Override\n    public boolean equals(Object o) {\n        return o instanceof AttributeKey other && other.name.equals(name);\n    }\n\n    @Override\n    public int hashCode() {\n        return name.hashCode();\n    }\n\n    @Override\n    public String toString() {\n        return name;\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface Notification {\n        String send(String message);\n    }\n\n    public abstract static class NotificationFactory {\n\n        /** The factory method: each subclass decides the product. */\n        protected abstract Notification createNotification();\n\n        /** Sends the message through the product the factory method creates. */\n        public final String notify(String message) {\n            throw new UnsupportedOperationException(\"write notify\");\n        }\n    }\n\n    public static final class EmailFactory extends NotificationFactory {\n        @Override\n        protected Notification createNotification() {\n            throw new UnsupportedOperationException(\"write createNotification\");\n        }\n    }\n\n    public static final class SmsFactory extends NotificationFactory {\n        @Override\n        protected Notification createNotification() {\n            throw new UnsupportedOperationException(\"write createNotification\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The name of a span attribute in the tracing library. Every span the service records asks for\n * the keys of its attributes, many thousands of times a second, from many threads.\n */\npublic final class AttributeKey {\n\n    /** The attribute names the library defines; nearly every span uses them. */\n    static final List<String> STANDARD = List.of(\"db.system\", \"http.route\", \"net.peer.port\", \"service.name\");\n\n    /** The keys this class keeps for reuse. */\n    private static final Map<String, AttributeKey> KEYS = new ConcurrentHashMap<>();\n\n    private final String name;\n\n    private AttributeKey(String name) {\n        this.name = name;\n    }\n\n    /** The key for an attribute name. */\n    public static AttributeKey of(String name) {\n        // TODO: Spans ask for the same few keys over and over, and every call currently costs an\n        //       allocation. Hand out one shared key per standard name. Names outside STANDARD\n        //       come from application code and request data, so there is no telling how many\n        //       there will be.\n        throw new IllegalStateException(\"TODO: of\");\n    }\n\n    public String name() {\n        return name;\n    }\n\n    /** How many keys this class is keeping for reuse. */\n    static int kept() {\n        return KEYS.size();\n    }\n\n    @Override\n    public boolean equals(Object o) {\n        return o instanceof AttributeKey other && other.name.equals(name);\n    }\n\n    @Override\n    public int hashCode() {\n        return name.hashCode();\n    }\n\n    @Override\n    public String toString() {\n        return name;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -94,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -103,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "baa35c0aac551c300ea69f96c369476fa041a87bed510256a7e8f8d0f38f5b8a",
-  "starting_code": "package practice;\n\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface Notification {\n        String send(String message);\n    }\n\n    public abstract static class NotificationFactory {\n\n        /** The factory method: each subclass decides the product. */\n        protected abstract Notification createNotification();\n\n        /** Sends the message through the product the factory method creates. */\n        public final String notify(String message) {\n            throw new UnsupportedOperationException(\"write notify\");\n        }\n    }\n\n    public static final class EmailFactory extends NotificationFactory {\n        @Override\n        protected Notification createNotification() {\n            throw new UnsupportedOperationException(\"write createNotification\");\n        }\n    }\n\n    public static final class SmsFactory extends NotificationFactory {\n        @Override\n        protected Notification createNotification() {\n            throw new UnsupportedOperationException(\"write createNotification\");\n        }\n    }\n}\n",
+  "content_sha256": "2e5ba8f4c1152d0da71f9919f8c0c27513c0e9d9d49a56ec00a64359c9fae51a",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The name of a span attribute in the tracing library. Every span the service records asks for\n * the keys of its attributes, many thousands of times a second, from many threads.\n */\npublic final class AttributeKey {\n\n    /** The attribute names the library defines; nearly every span uses them. */\n    static final List<String> STANDARD = List.of(\"db.system\", \"http.route\", \"net.peer.port\", \"service.name\");\n\n    /** The keys this class keeps for reuse. */\n    private static final Map<String, AttributeKey> KEYS = new ConcurrentHashMap<>();\n\n    private final String name;\n\n    private AttributeKey(String name) {\n        this.name = name;\n    }\n\n    /** The key for an attribute name. */\n    public static AttributeKey of(String name) {\n        // TODO: Spans ask for the same few keys over and over, and every call currently costs an\n        //       allocation. Hand out one shared key per standard name. Names outside STANDARD\n        //       come from application code and request data, so there is no telling how many\n        //       there will be.\n        throw new IllegalStateException(\"TODO: of\");\n    }\n\n    public String name() {\n        return name;\n    }\n\n    /** How many keys this class is keeping for reuse. */\n    static int kept() {\n        return KEYS.size();\n    }\n\n    @Override\n    public boolean equals(Object o) {\n        return o instanceof AttributeKey other && other.name.equals(name);\n    }\n\n    @Override\n    public int hashCode() {\n        return name.hashCode();\n    }\n\n    @Override\n    public String toString() {\n        return name;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-02/practice-1/src/main/java/practice/Notifications.java",
-    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-02/practice-1/src/test/java/practice/NotificationsTest.java",
+    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-02/practice-1/src/main/java/practice/AttributeKey.java",
+    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-02/practice-1/src/test/java/practice/AttributeKeyTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,24 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NotificationsTest#emailFactorySendsAnEmail",
+        "id": "practice.AttributeKeyTest#everyKeyCarriesItsName",
         "kind": "main",
-        "says": "notify() on an EmailFactory sends through the product its factory method creates, giving Email: <message>."
+        "says": "every key carries the name it was asked for, and equal names give equal keys"
       },
       {
-        "id": "practice.NotificationsTest#smsFactorySendsAnSms",
+        "id": "practice.AttributeKeyTest#aStandardNameGivesTheSameKeyEveryTime",
         "kind": "edge",
-        "says": "notify() on an SmsFactory sends through an SMS product, so the creator does not fix the product type."
+        "says": "a standard name gives the same key object on every call, even when the name is built at run time"
       },
       {
-        "id": "practice.NotificationsTest#aNewCreatorNeedsNoChangeToTheBase",
+        "id": "practice.AttributeKeyTest#namesOutsideTheStandardOnesAreNotKept",
         "kind": "edge",
-        "says": "A creator subclass the base has never seen (defined in the test) works through the same notify()."
-      },
-      {
-        "id": "practice.NotificationsTest#aNullProductIsReported",
-        "kind": "edge",
-        "says": "When a factory method returns null, notify() throws IllegalStateException instead of a NullPointerException."
+        "says": "ten thousand different non-standard names leave nothing more kept than the standard keys"
       }
     ],
     "report": {
@@ -154,12 +115,10 @@
     },
     "origin": {
       "path": "36-creational-patterns/README_9.1.2.md",
-      "section": "The Problem It Solves"
+      "section": "new Always Allocates; a Static Factory Can Hand Back an Object It Already Made"
     },
     "concepts": [
-      "A factory that returns null is a design error, so the null is caught with an exception rather than passed on.",
-      "A new product type is added with a new product and a new creator subclass, without changing the creator, where a type conditional would have to be edited.",
-      "In the Factory Method pattern the creator's own logic calls an abstract factory method, and each subclass overrides it to decide the concrete product."
+      "A static factory can hand back an object it already made where new must allocate; sharing is safe only for immutable objects, and a cache keyed by caller input must stay bounded."
     ]
   }
 }

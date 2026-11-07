@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Reading legacy date fields",
+  "title": "Keep a shipment's dispatch time from moving",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A legacy `java.util.Date` reports its year as years since 1900 (`getYear()` is `124` for 2024), and both `Date.getMonth()` and `Calendar.MONTH` count months from 0 (January is `0`, December is `11`). A lenient `Calendar` also accepts impossible values and silently rolls them over: month index `12` becomes January of the next year, and February 30 becomes early March."
+      "text": "The warehouse service records each parcel's dispatch moment from an old carrier API that still speaks `java.util.Date`, and the type has to stay. Two bugs came in. The scanning station creates shipments in a loop and reuses one `Date` object for every scan; at the end of a shift every parcel of the batch shows the dispatch time of the last one. And since the daily report started adding two hours to the times it prints, late-dispatch alerts fire for parcels that left on time."
     },
     {
       "type": "para",
-      "text": "You receive such legacy fields from an old system. Write `LegacyFields`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`static LocalDate fromLegacy(int yearsSince1900, int zeroBasedMonth, int dayOfMonth)` returns the calendar date the fields name.",
-        "`static int[] toLegacy(LocalDate date)` returns the three legacy fields `{yearsSince1900, zeroBasedMonth, dayOfMonth}` for `date`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`fromLegacy(124, 2, 15)`",
-          "`2024-03-15`"
-        ],
-        [
-          "`fromLegacy(99, 11, 31)`",
-          "`1999-12-31`"
-        ],
-        [
-          "`toLegacy(LocalDate.of(2024, 3, 15))`",
-          "`{124, 2, 15}`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Fields that name no real date are an error, not a date to guess at: `fromLegacy` **throws** `java.time.DateTimeException` for them and never rolls them over the way a lenient `Calendar` does."
+      "text": "Finish the two `TODO` methods in `src/main/java/practice/Shipment.java`: `keep(...)`, which the constructor calls with the caller's `Date`, and `handOut(...)`, which `dispatchedAt()` calls. When you are done, no caller can change a shipment's dispatch moment through a `Date` it passed in or got back. About two lines in total."
     },
     {
       "type": "heading",
@@ -71,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.time.LocalDate;\n\npublic final class LegacyFields {\n\n    private LegacyFields() {\n    }\n\n    /** Returns the date named by legacy fields: years since 1900, a 0-based month and a day of month. */\n    public static LocalDate fromLegacy(int yearsSince1900, int zeroBasedMonth, int dayOfMonth) {\n        // LocalDate.of validates every field, so an impossible date throws instead of rolling over\n        return LocalDate.of(yearsSince1900 + 1900, zeroBasedMonth + 1, dayOfMonth);\n    }\n\n    /** Returns {yearsSince1900, zeroBasedMonth, dayOfMonth} for the date. */\n    public static int[] toLegacy(LocalDate date) {\n        return new int[] {date.getYear() - 1900, date.getMonthValue() - 1, date.getDayOfMonth()};\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Date;\n\n/** A parcel handed to the carrier. The dispatch moment comes from an old carrier API as a Date. */\npublic class Shipment {\n\n    private final String trackingId;\n    private final Date dispatchedAt;\n\n    public Shipment(String trackingId, Date dispatchedAt) {\n        this.trackingId = trackingId;\n        this.dispatchedAt = keep(dispatchedAt);\n    }\n\n    public String trackingId() {\n        return trackingId;\n    }\n\n    /** The moment the parcel left the warehouse. */\n    public Date dispatchedAt() {\n        return handOut(dispatchedAt);\n    }\n\n    /** True when the parcel left the warehouse before the given cut-off. */\n    public boolean dispatchedBefore(Date cutoff) {\n        return dispatchedAt.before(cutoff);\n    }\n\n    // TODO: called once by the constructor with the caller's Date. Return what the shipment stores,\n    // so that nothing the caller does to its own Date later changes this shipment.\n    Date keep(Date fromCaller) {\n        return new Date(fromCaller.getTime());\n    }\n\n    // TODO: called by dispatchedAt() with the stored Date. Return what the caller receives,\n    // so that nothing the caller does to the returned Date changes this shipment.\n    Date handOut(Date stored) {\n        return new Date(stored.getTime());\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.LocalDate;\n\npublic final class LegacyFields {\n\n    private LegacyFields() {\n    }\n\n    /** Returns the date named by legacy fields: years since 1900, a 0-based month and a day of month. */\n    public static LocalDate fromLegacy(int yearsSince1900, int zeroBasedMonth, int dayOfMonth) {\n        throw new UnsupportedOperationException(\"write fromLegacy\");\n    }\n\n    /** Returns {yearsSince1900, zeroBasedMonth, dayOfMonth} for the date. */\n    public static int[] toLegacy(LocalDate date) {\n        throw new UnsupportedOperationException(\"write toLegacy\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Date;\n\n/** A parcel handed to the carrier. The dispatch moment comes from an old carrier API as a Date. */\npublic class Shipment {\n\n    private final String trackingId;\n    private final Date dispatchedAt;\n\n    public Shipment(String trackingId, Date dispatchedAt) {\n        this.trackingId = trackingId;\n        this.dispatchedAt = keep(dispatchedAt);\n    }\n\n    public String trackingId() {\n        return trackingId;\n    }\n\n    /** The moment the parcel left the warehouse. */\n    public Date dispatchedAt() {\n        return handOut(dispatchedAt);\n    }\n\n    /** True when the parcel left the warehouse before the given cut-off. */\n    public boolean dispatchedBefore(Date cutoff) {\n        return dispatchedAt.before(cutoff);\n    }\n\n    // TODO: called once by the constructor with the caller's Date. Return what the shipment stores,\n    // so that nothing the caller does to its own Date later changes this shipment.\n    Date keep(Date fromCaller) {\n        throw new IllegalStateException(\"TODO: keep the dispatch moment\");\n    }\n\n    // TODO: called by dispatchedAt() with the stored Date. Return what the caller receives,\n    // so that nothing the caller does to the returned Date changes this shipment.\n    Date handOut(Date stored) {\n        throw new IllegalStateException(\"TODO: hand out the dispatch moment\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6b0034d28b6af2d99ae30deb495f8df53af2910b3897f170a12c286dc35a9544",
-  "starting_code": "package practice;\n\nimport java.time.LocalDate;\n\npublic final class LegacyFields {\n\n    private LegacyFields() {\n    }\n\n    /** Returns the date named by legacy fields: years since 1900, a 0-based month and a day of month. */\n    public static LocalDate fromLegacy(int yearsSince1900, int zeroBasedMonth, int dayOfMonth) {\n        throw new UnsupportedOperationException(\"write fromLegacy\");\n    }\n\n    /** Returns {yearsSince1900, zeroBasedMonth, dayOfMonth} for the date. */\n    public static int[] toLegacy(LocalDate date) {\n        throw new UnsupportedOperationException(\"write toLegacy\");\n    }\n}\n",
+  "content_sha256": "ed5e409a7c621bb9cecdf699306e8fdaadb6c0776254a5d9dad7f56b2f7808df",
+  "starting_code": "package practice;\n\nimport java.util.Date;\n\n/** A parcel handed to the carrier. The dispatch moment comes from an old carrier API as a Date. */\npublic class Shipment {\n\n    private final String trackingId;\n    private final Date dispatchedAt;\n\n    public Shipment(String trackingId, Date dispatchedAt) {\n        this.trackingId = trackingId;\n        this.dispatchedAt = keep(dispatchedAt);\n    }\n\n    public String trackingId() {\n        return trackingId;\n    }\n\n    /** The moment the parcel left the warehouse. */\n    public Date dispatchedAt() {\n        return handOut(dispatchedAt);\n    }\n\n    /** True when the parcel left the warehouse before the given cut-off. */\n    public boolean dispatchedBefore(Date cutoff) {\n        return dispatchedAt.before(cutoff);\n    }\n\n    // TODO: called once by the constructor with the caller's Date. Return what the shipment stores,\n    // so that nothing the caller does to its own Date later changes this shipment.\n    Date keep(Date fromCaller) {\n        throw new IllegalStateException(\"TODO: keep the dispatch moment\");\n    }\n\n    // TODO: called by dispatchedAt() with the stored Date. Return what the caller receives,\n    // so that nothing the caller does to the returned Date changes this shipment.\n    Date handOut(Date stored) {\n        throw new IllegalStateException(\"TODO: hand out the dispatch moment\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-1/src/main/java/practice/LegacyFields.java",
-    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-1/src/test/java/practice/LegacyFieldsTest.java",
+    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-1/src/main/java/practice/Shipment.java",
+    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-1/src/test/java/practice/ShipmentTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,19 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LegacyFieldsTest#convertsBothWays",
+        "id": "practice.ShipmentTest#reportsTheDispatchMomentItWasGiven",
         "kind": "main",
-        "says": "Legacy fields (years since 1900, a 0-based month, a day) become the right LocalDate, and back."
+        "says": "a shipment reports the dispatch moment it was created with and compares it with a cut-off"
       },
       {
-        "id": "practice.LegacyFieldsTest#monthIndexTwelveIsRefused",
+        "id": "practice.ShipmentTest#aCallerReusingItsDateForTheNextParcelLeavesThisOneAlone",
         "kind": "edge",
-        "says": "Month index 12 is refused with a DateTimeException instead of rolling over into January of the next year."
+        "says": "a caller that changes the Date it passed in, to reuse it for another parcel, does not change this shipment"
       },
       {
-        "id": "practice.LegacyFieldsTest#februaryThirtiethIsRefused",
+        "id": "practice.ShipmentTest#shiftingTheReturnedDateLeavesTheShipmentAlone",
         "kind": "edge",
-        "says": "February 30 is refused with a DateTimeException instead of rolling over into March."
+        "says": "a caller that changes the Date it got back does not change the shipment"
       }
     ],
     "report": {
@@ -148,12 +115,10 @@
     },
     "origin": {
       "path": "29-date-time-api/README_7.3.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Date Is a Mutable Moment, So Anyone Holding It Can Move It"
     },
     "concepts": [
-      "A lenient Calendar rolls impossible fields such as February 30 or month 12 over into another date, where java.time throws a DateTimeException.",
-      "Date.getYear() counts years since 1900, so 2024 is 124 and 1900 must be added back.",
-      "Calendar and Date count months from 0, so month index 2 is March, while java.time counts from 1."
+      "A java.util.Date can be changed with setTime by anyone holding it, so a class that keeps one copies it on the way in and on the way out."
     ]
   }
 }

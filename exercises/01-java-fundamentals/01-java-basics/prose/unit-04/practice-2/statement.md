@@ -1,14 +1,12 @@
-`int` arithmetic overflows silently: `65536 * 65536` is `0`. For checked
-arithmetic, the page points at `Math.addExact`, `Math.multiplyExact` and friends,
-which throw an `ArithmeticException` instead of wrapping.
+The catalog service applies the supplier's price feed every night and republishes the catalog
+when any price changed. The feed is not trusted: some lines name no SKU, and some carry a price
+of zero or less. Both kinds must be skipped, and neither may stop the sync.
 
-Write `CheckedArithmetic.multiplyAdd(int a, int b, int c)`. It returns
-`a * b + c`, or throws an `ArithmeticException` when **either step** overflows
-the `int` range. A result exactly at a limit is fine.
+`CatalogSync` already reads the feed, applies a single change and reports. Finish the two `TODO`
+methods in `src/main/java/practice/CatalogSync.java`:
 
-| a, b, c | answer |
-|---|---|
-| `2, 3, 4` | `10` |
-| `65536, 65536, 0` | `ArithmeticException` |
-| `Integer.MAX_VALUE, 1, 1` | `ArithmeticException` |
-| `Integer.MAX_VALUE, 1, 0` | `2147483647` |
+- `acceptable(change)`: whether a line of the feed may be applied, as its comment defines it;
+- `step(changedSoFar, change)`: one step of the sync, called once per line, in order.
+
+When you're done, every acceptable line reaches the catalog, no other line touches it, and
+`sync` returns `true` exactly when some price changed. About two lines in total.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Cache Method lookups",
+  "title": "Stop the admin console looking its operations up on every request",
   "blocks": [
     {
       "type": "heading",
@@ -19,51 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Looking a member up (`getDeclaredMethod`) is the most expensive part of reflection; invoking a `Method` you already hold is cheap. So frameworks look up once and cache, keyed by `className#methodName(paramTypes)`, and call `setAccessible(true)` once, at lookup, not on every call."
+      "text": "The admin console lets operators run operations on live service objects by name: `resize` with an `int` on a thread pool, `restart` on a worker, `drain` (a private method) before a deploy. A profile of the console under a load test shows most of its time in `Class.getDeclaredMethod`, called once per request, although the console only knows a few dozen operations."
     },
     {
       "type": "para",
-      "text": "Write `MethodCache`. Its constructor takes a `Finder` (given) that does the real lookup; the tests count its calls."
+      "text": "Finish the two `TODO`s in `src/main/java/practice/OperationCache.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`get(type, name, params...)` returns the method from the cache, or asks the finder **once** and caches it.",
-        "The key tells apart **overloads** (the parameter types are part of it) and **classes whose simple names are equal** (it names the class by its full name).",
-        "A returned method is **already accessible**: it was made so when it was looked up.",
-        "`size()` is the number of cached methods."
+        "`method(...)`: the method a request needs, ready to invoke;",
+        "`key(...)`: what the method is cached under."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "finder calls",
-        "result"
-      ],
-      "rows": [
-        [
-          "`get(Target.class, \"value\")` twice",
-          "1",
-          "the same `Method`"
-        ],
-        [
-          "`get(Calc.class, \"add\", int.class, int.class)`, then `double.class, double.class`",
-          "2",
-          "two methods, `size()` 2"
-        ],
-        [
-          "`get(Shop.Item.class, \"price\")`, `get(Store.Item.class, \"price\")`",
-          "2",
-          "declared by `Shop.Item` and `Store.Item`"
-        ],
-        [
-          "`get(Vault.class, \"secret\")`, `secret` private",
-          "1",
-          "invokable at once"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, each operation is looked up on its first request only, every request still runs the method it names, and private operations run. About eight lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests count the lookups through the `Finder` the constructor takes."
     },
     {
       "type": "heading",
@@ -78,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.Arrays;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class MethodCache {\n\n    /** Does the real lookup. */\n    public interface Finder {\n        Method find(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException;\n    }\n\n    private final Finder finder;\n    private final Map<String, Method> cache = new ConcurrentHashMap<>();\n\n    public MethodCache(Finder finder) {\n        this.finder = finder;\n    }\n\n    /** The cached method, looked up through the finder on first request. */\n    public Method get(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException {\n        String key = type.getName() + \"#\" + name + Arrays.toString(params);\n        Method method = cache.get(key);\n        if (method == null) {\n            method = finder.find(type, name, params);\n            method.setAccessible(true);\n            cache.put(key, method);\n        }\n        return method;\n    }\n\n    /** How many methods are cached. */\n    public int size() {\n        return cache.size();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The admin console runs operations on live service objects by name: \"resize\" with an int on the\n * thread pool, \"restart\" on a worker. Every request finds the operation's method through this\n * class.\n */\npublic class OperationCache {\n\n    /** Finds a method a class declares. In production this is Class::getDeclaredMethod. */\n    public interface Finder {\n        Method find(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException;\n    }\n\n    private final Finder finder;\n    private final Map<Object, Method> methods = new ConcurrentHashMap<>();\n\n    public OperationCache(Finder finder) {\n        this.finder = finder;\n    }\n\n    public OperationCache() {\n        this(Class::getDeclaredMethod);\n    }\n\n    /** Runs one request: the named operation on the target, with these parameter types and arguments. */\n    public Object run(Object target, String name, Class<?>[] params, Object... args)\n            throws ReflectiveOperationException {\n        return method(target.getClass(), name, params).invoke(target, args);\n    }\n\n    /** Number of methods the cache holds. */\n    public int size() {\n        return methods.size();\n    }\n\n    /** The method that runs this operation, ready to invoke whatever its access level. */\n    Method method(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException {\n        Object key = key(type, name, params);\n        Method m = methods.get(key);\n        if (m == null) {\n            m = finder.find(type, name, params);\n            m.setAccessible(true);\n            methods.put(key, m);\n        }\n        return m;\n    }\n\n    /** The key the method for this operation is cached under. */\n    Object key(Class<?> type, String name, Class<?>... params) {\n        return List.of(type, name, List.of(params));\n    }\n}\n"
         }
       ]
     },
@@ -90,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.lang.reflect.Method;\n\npublic final class MethodCache {\n\n    /** Does the real lookup. */\n    public interface Finder {\n        Method find(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException;\n    }\n\n    public MethodCache(Finder finder) {\n    }\n\n    /** The cached method, looked up through the finder on first request. */\n    public Method get(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** How many methods are cached. */\n    public int size() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The admin console runs operations on live service objects by name: \"resize\" with an int on the\n * thread pool, \"restart\" on a worker. Every request finds the operation's method through this\n * class.\n */\npublic class OperationCache {\n\n    /** Finds a method a class declares. In production this is Class::getDeclaredMethod. */\n    public interface Finder {\n        Method find(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException;\n    }\n\n    private final Finder finder;\n    private final Map<Object, Method> methods = new ConcurrentHashMap<>();\n\n    public OperationCache(Finder finder) {\n        this.finder = finder;\n    }\n\n    public OperationCache() {\n        this(Class::getDeclaredMethod);\n    }\n\n    /** Runs one request: the named operation on the target, with these parameter types and arguments. */\n    public Object run(Object target, String name, Class<?>[] params, Object... args)\n            throws ReflectiveOperationException {\n        return method(target.getClass(), name, params).invoke(target, args);\n    }\n\n    /** Number of methods the cache holds. */\n    public int size() {\n        return methods.size();\n    }\n\n    /** The method that runs this operation, ready to invoke whatever its access level. */\n    Method method(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException {\n        // TODO: Return the method for this operation, ready to invoke even when it is private.\n        //       The console serves thousands of requests a minute for a few dozen operations.\n        throw new IllegalStateException(\"TODO: method\");\n    }\n\n    /** The key the method for this operation is cached under. */\n    Object key(Class<?> type, String name, Class<?>... params) {\n        // TODO: A key that two requests share exactly when they need the same method.\n        throw new IllegalStateException(\"TODO: key\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -98,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -109,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5a1c0abcea740c9b1277bf9b59e5c6b98c7fab7e0e03e5cf721de91832f9ee73",
-  "starting_code": "package practice;\n\nimport java.lang.reflect.Method;\n\npublic final class MethodCache {\n\n    /** Does the real lookup. */\n    public interface Finder {\n        Method find(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException;\n    }\n\n    public MethodCache(Finder finder) {\n    }\n\n    /** The cached method, looked up through the finder on first request. */\n    public Method get(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** How many methods are cached. */\n    public int size() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "7aef1235d0912d848e75d3f48c2e2c923e8d58f28d9a330552f5625880c2992c",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The admin console runs operations on live service objects by name: \"resize\" with an int on the\n * thread pool, \"restart\" on a worker. Every request finds the operation's method through this\n * class.\n */\npublic class OperationCache {\n\n    /** Finds a method a class declares. In production this is Class::getDeclaredMethod. */\n    public interface Finder {\n        Method find(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException;\n    }\n\n    private final Finder finder;\n    private final Map<Object, Method> methods = new ConcurrentHashMap<>();\n\n    public OperationCache(Finder finder) {\n        this.finder = finder;\n    }\n\n    public OperationCache() {\n        this(Class::getDeclaredMethod);\n    }\n\n    /** Runs one request: the named operation on the target, with these parameter types and arguments. */\n    public Object run(Object target, String name, Class<?>[] params, Object... args)\n            throws ReflectiveOperationException {\n        return method(target.getClass(), name, params).invoke(target, args);\n    }\n\n    /** Number of methods the cache holds. */\n    public int size() {\n        return methods.size();\n    }\n\n    /** The method that runs this operation, ready to invoke whatever its access level. */\n    Method method(Class<?> type, String name, Class<?>... params) throws NoSuchMethodException {\n        // TODO: Return the method for this operation, ready to invoke even when it is private.\n        //       The console serves thousands of requests a minute for a few dozen operations.\n        throw new IllegalStateException(\"TODO: method\");\n    }\n\n    /** The key the method for this operation is cached under. */\n    Object key(Class<?> type, String name, Class<?>... params) {\n        // TODO: A key that two requests share exactly when they need the same method.\n        throw new IllegalStateException(\"TODO: key\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-1/src/main/java/practice/MethodCache.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-1/src/test/java/practice/MethodCacheTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-1/src/main/java/practice/OperationCache.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-1/src/test/java/practice/OperationCacheTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -134,24 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.MethodCacheTest#looksUpOnceAndReusesTheMethod",
+        "id": "practice.OperationCacheTest#aRepeatedOperationIsLookedUpOnce",
         "kind": "main",
-        "says": "Two get calls for the same method make one lookup through the finder and return the same Method."
+        "says": "an operation requested again, on the same object or another of its class, reuses the method found the first time"
       },
       {
-        "id": "practice.MethodCacheTest#overloadsAreCachedApart",
-        "kind": "edge",
-        "says": "add(int,int) and add(double,double) are two entries and two lookups."
+        "id": "practice.OperationCacheTest#aPrivateOperationRuns",
+        "kind": "main",
+        "says": "a private operation runs, and runs again without a second lookup"
       },
       {
-        "id": "practice.MethodCacheTest#classesWithTheSameSimpleNameAreCachedApart",
+        "id": "practice.OperationCacheTest#overloadsAreSeparateOperations",
         "kind": "edge",
-        "says": "Shop.Item.price and Store.Item.price are two entries, each declared by its own class."
+        "says": "two operations with the same name and different parameter types each run their own method"
       },
       {
-        "id": "practice.MethodCacheTest#aCachedPrivateMethodIsReadyToInvoke",
+        "id": "practice.OperationCacheTest#servicesWhoseClassesShareASimpleNameAreKeptApart",
         "kind": "edge",
-        "says": "The Method returned for a private method can be invoked at once."
+        "says": "operations of two classes with the same simple name in different outer classes each run their own method"
       }
     ],
     "report": {
@@ -160,10 +136,10 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.4.md",
-      "section": "Interview Q&A Section"
+      "section": "Looking a Method Up Costs More Than Calling It, So Look Up Once"
     },
     "concepts": [
-      "Member lookup is the most expensive reflective operation, so a Method is looked up once and cached under a key of class, name and parameter types."
+      "Looking a method up costs several times the call and returns a new Method each time, so a cache keyed by class, name and parameter types looks each method up once and stores it already accessible."
     ]
   }
 }

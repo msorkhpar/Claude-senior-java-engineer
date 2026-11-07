@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Setup shared by every constructor, run once",
+  "title": "Start the disk alarm from a complete object",
   "blocks": [
     {
       "type": "heading",
@@ -19,34 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's best practices: use **initialisation blocks** for logic common to all constructors, and **chain** constructors with `this(...)`. In a chain of constructors, an instance initialiser (like a field initialiser) runs **once**, just before the body of the constructor that does not start with `this(...)`. It runs after `super()` and before that constructor's own statements."
+      "text": "The ops team watches disk usage through a monitoring feed. A `DiskAlarm` raises an alarm for each reading of its volume at or above its limit. The feed sends a new listener the latest reading of every volume as soon as it subscribes, so an alarm started while a disk is already at 97 % should raise at once."
     },
     {
       "type": "para",
-      "text": "Write `Gadget`. Every gadget keeps a log of its construction, `steps()`, a `List<String>`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Gadget()`: name `unnamed`, colour `grey`;",
-        "`Gadget(String name)`: colour `grey`;",
-        "`Gadget(String name, String colour)`: records the step `named:<name>`;",
-        "`getName()`, `getColour()`, `steps()`."
-      ]
+      "text": "Two complaints came in about the old version: an alarm started on a full disk stayed silent until the next reading, and an alarm whose limit was typed as `0` was refused with an error, yet the feed's listener count kept growing with every such attempt."
     },
     {
       "type": "para",
-      "text": "Whichever constructor is used, the step `setup` is recorded **exactly once**, and **before** the `named:` step. Put the work shared by every constructor where it runs once for any constructor."
-    },
-    {
-      "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new Gadget().steps()               -> [\"setup\", \"named:unnamed\"]\nnew Gadget(\"lamp\").getColour()     -> \"grey\"\nnew Gadget(\"lamp\", \"red\").steps()  -> [\"setup\", \"named:lamp\"]"
+      "text": "Finish the private constructor and `watch(...)` in `src/main/java/practice/DiskAlarm.java`. When you're done, `watch` either returns an alarm that hears every reading from the latest ones on, or throws `IllegalArgumentException` for a limit outside 1 to 99 and leaves the feed as it was. About six lines in total."
     },
     {
       "type": "heading",
@@ -61,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic class Gadget {\n    private final List<String> steps = new ArrayList<>();\n    private final String name;\n    private final String colour;\n\n    {\n        steps.add(\"setup\");\n    }\n\n    public Gadget() {\n        this(\"unnamed\");\n    }\n\n    public Gadget(String name) {\n        this(name, \"grey\");\n    }\n\n    public Gadget(String name, String colour) {\n        this.name = name;\n        this.colour = colour;\n        steps.add(\"named:\" + name);\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public String getColour() {\n        return colour;\n    }\n\n    public List<String> steps() {\n        return List.copyOf(steps);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Raises an alarm when a volume's usage reaches a limit. Created with DiskAlarm.watch(...). */\npublic final class DiskAlarm {\n\n    /** Receives disk readings. */\n    public interface Listener {\n        void onReading(String volume, int percentFull);\n    }\n\n    /**\n     * The monitoring feed. A new listener is sent the latest reading of every volume at once,\n     * so a dashboard opened late still shows the current state.\n     */\n    public static final class Feed {\n        private final List<Listener> listeners = new ArrayList<>();\n        private final Map<String, Integer> latest = new HashMap<>();\n\n        public void subscribe(Listener listener) {\n            listeners.add(listener);\n            latest.forEach(listener::onReading);\n        }\n\n        public void publish(String volume, int percentFull) {\n            latest.put(volume, percentFull);\n            for (Listener l : List.copyOf(listeners)) l.onReading(volume, percentFull);\n        }\n\n        public int listeners() {\n            return listeners.size();\n        }\n    }\n\n    private final String volume;\n    private final int limit;\n    private final List<String> raised = new ArrayList<>();\n\n    private DiskAlarm(String volume, int limit) {\n        if (limit < 1 || limit > 99) throw new IllegalArgumentException(\"limit must be 1 to 99: \" + limit);\n        this.volume = volume;\n        this.limit = limit;\n    }\n\n    /** Starts watching a volume on the feed: an alarm for every reading at or above the limit. */\n    public static DiskAlarm watch(Feed feed, String volume, int limit) {\n        DiskAlarm alarm = new DiskAlarm(volume, limit);\n        feed.subscribe(alarm::onReading);\n        return alarm;\n    }\n\n    void onReading(String volume, int percentFull) {\n        if (volume.equals(this.volume) && percentFull >= limit) raised.add(volume + \" at \" + percentFull + \"%\");\n    }\n\n    /** The alarms raised so far. */\n    public List<String> raised() {\n        return List.copyOf(raised);\n    }\n}\n"
         }
       ]
     },
@@ -73,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic class Gadget {\n\n    public Gadget() {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public Gadget(String name) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public Gadget(String name, String colour) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public String getName() {\n        throw new UnsupportedOperationException(\"write getName\");\n    }\n\n    public String getColour() {\n        throw new UnsupportedOperationException(\"write getColour\");\n    }\n\n    public List<String> steps() {\n        throw new UnsupportedOperationException(\"write steps\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Raises an alarm when a volume's usage reaches a limit. Created with DiskAlarm.watch(...). */\npublic final class DiskAlarm {\n\n    /** Receives disk readings. */\n    public interface Listener {\n        void onReading(String volume, int percentFull);\n    }\n\n    /**\n     * The monitoring feed. A new listener is sent the latest reading of every volume at once,\n     * so a dashboard opened late still shows the current state.\n     */\n    public static final class Feed {\n        private final List<Listener> listeners = new ArrayList<>();\n        private final Map<String, Integer> latest = new HashMap<>();\n\n        public void subscribe(Listener listener) {\n            listeners.add(listener);\n            latest.forEach(listener::onReading);\n        }\n\n        public void publish(String volume, int percentFull) {\n            latest.put(volume, percentFull);\n            for (Listener l : List.copyOf(listeners)) l.onReading(volume, percentFull);\n        }\n\n        public int listeners() {\n            return listeners.size();\n        }\n    }\n\n    private final String volume;\n    private final int limit;\n    private final List<String> raised = new ArrayList<>();\n\n    private DiskAlarm(String volume, int limit) {\n        // TODO: A limit is a percentage from 1 to 99; refuse anything else with an\n        //       IllegalArgumentException.\n        throw new IllegalStateException(\"TODO: DiskAlarm(String, int)\");\n    }\n\n    /** Starts watching a volume on the feed: an alarm for every reading at or above the limit. */\n    public static DiskAlarm watch(Feed feed, String volume, int limit) {\n        // TODO: Return an alarm that hears the feed from now on, including the latest readings\n        //       the feed sends a new listener.\n        throw new IllegalStateException(\"TODO: watch\");\n    }\n\n    void onReading(String volume, int percentFull) {\n        if (volume.equals(this.volume) && percentFull >= limit) raised.add(volume + \" at \" + percentFull + \"%\");\n    }\n\n    /** The alarms raised so far. */\n    public List<String> raised() {\n        return List.copyOf(raised);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -81,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -92,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c29de1799233a7f83dc926674b44e914ab32decd2dd0d82532e2c2815223de37",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic class Gadget {\n\n    public Gadget() {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public Gadget(String name) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public Gadget(String name, String colour) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public String getName() {\n        throw new UnsupportedOperationException(\"write getName\");\n    }\n\n    public String getColour() {\n        throw new UnsupportedOperationException(\"write getColour\");\n    }\n\n    public List<String> steps() {\n        throw new UnsupportedOperationException(\"write steps\");\n    }\n}\n",
+  "content_sha256": "d691899484db8d7cd1538ea32c48a35958ecd56ec67dc9f827cbc7b81088bafd",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Raises an alarm when a volume's usage reaches a limit. Created with DiskAlarm.watch(...). */\npublic final class DiskAlarm {\n\n    /** Receives disk readings. */\n    public interface Listener {\n        void onReading(String volume, int percentFull);\n    }\n\n    /**\n     * The monitoring feed. A new listener is sent the latest reading of every volume at once,\n     * so a dashboard opened late still shows the current state.\n     */\n    public static final class Feed {\n        private final List<Listener> listeners = new ArrayList<>();\n        private final Map<String, Integer> latest = new HashMap<>();\n\n        public void subscribe(Listener listener) {\n            listeners.add(listener);\n            latest.forEach(listener::onReading);\n        }\n\n        public void publish(String volume, int percentFull) {\n            latest.put(volume, percentFull);\n            for (Listener l : List.copyOf(listeners)) l.onReading(volume, percentFull);\n        }\n\n        public int listeners() {\n            return listeners.size();\n        }\n    }\n\n    private final String volume;\n    private final int limit;\n    private final List<String> raised = new ArrayList<>();\n\n    private DiskAlarm(String volume, int limit) {\n        // TODO: A limit is a percentage from 1 to 99; refuse anything else with an\n        //       IllegalArgumentException.\n        throw new IllegalStateException(\"TODO: DiskAlarm(String, int)\");\n    }\n\n    /** Starts watching a volume on the feed: an alarm for every reading at or above the limit. */\n    public static DiskAlarm watch(Feed feed, String volume, int limit) {\n        // TODO: Return an alarm that hears the feed from now on, including the latest readings\n        //       the feed sends a new listener.\n        throw new IllegalStateException(\"TODO: watch\");\n    }\n\n    void onReading(String volume, int percentFull) {\n        if (volume.equals(this.volume) && percentFull >= limit) raised.add(volume + \" at \" + percentFull + \"%\");\n    }\n\n    /** The alarms raised so far. */\n    public List<String> raised() {\n        return List.copyOf(raised);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-02/practice-2/src/main/java/practice/Gadget.java",
-    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-02/practice-2/src/test/java/practice/GadgetTest.java",
+    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-02/practice-2/src/main/java/practice/DiskAlarm.java",
+    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-02/practice-2/src/test/java/practice/DiskAlarmTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -117,19 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.GadgetTest#everyConstructorSetsItsFields",
+        "id": "practice.DiskAlarmTest#anAlarmRaisesForItsOwnVolumeAtOrAboveTheLimit",
         "kind": "main",
-        "says": "Each of the three constructors gives the gadget the name and colour it asks for, with the defaults filled in."
+        "says": "an alarm raises once per reading of its own volume at or above its limit, and ignores other volumes"
       },
       {
-        "id": "practice.GadgetTest#theSharedSetupRunsOnceWhateverTheConstructor",
+        "id": "practice.DiskAlarmTest#aWatchStartedAfterAHighReadingRaisesItAtOnce",
         "kind": "edge",
-        "says": "The shared setup step is recorded exactly once, even for a constructor that chains to another."
+        "says": "the latest reading the feed sends a new listener is judged with the alarm's real volume and limit"
       },
       {
-        "id": "practice.GadgetTest#theSharedSetupRunsBeforeAnyConstructorBody",
+        "id": "practice.DiskAlarmTest#aRefusedWatchLeavesNothingListeningOnTheFeed",
         "kind": "edge",
-        "says": "The shared setup step is recorded before the step the constructor body records."
+        "says": "a watch refused for its limit leaves no listener on the feed"
       }
     ],
     "report": {
@@ -138,10 +119,11 @@
     },
     "origin": {
       "path": "06-class-obj/README_2.1.2.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "A Constructor That Hands Out this Lets Others Use a Half-Built Object"
     },
     "concepts": [
-      "An instance initializer block holds logic common to every constructor and runs once, before the constructor body, even through a chain of this(...) calls."
+      "An object that hands out this from its constructor can be called before its fields are assigned, final ones included, and stays referenced even when the constructor then throws.",
+      "A private constructor that validates and assigns, with a static factory that publishes the finished object, keeps half-built and refused objects out of other code."
     ]
   }
 }

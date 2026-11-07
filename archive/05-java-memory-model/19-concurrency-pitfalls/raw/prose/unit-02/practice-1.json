@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Count words from many threads without losing a count",
+  "title": "Give out each launch voucher exactly once",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`counter++` is not atomic: it is a read, an add and a write, and two threads can both read the same old value, so one update is lost. The same is true of a count kept in a map: `map.put(w, map.getOrDefault(w, 0) + 1)` is a read-modify-write even on a `ConcurrentHashMap`, whose single calls are each thread-safe. The page's fix is to make the whole compound step one atomic operation."
+      "text": "The app's launch gives a voucher to the first sign-ups, as many as the campaign's `Quota` allows. Vouchers are numbered in the order they are granted, and each one is emailed to its customer. After launch morning, support had three kinds of tickets: customers with two voucher emails, two customers holding the same voucher number, and more vouchers redeemed than the campaign allowed. On a quiet staging server none of it happens."
     },
     {
       "type": "para",
-      "text": "Write `WordCounter`. Its constructor takes the `ConcurrentHashMap<String, Integer>` to keep counts in. `add(word)` adds one to the word's count, as **one atomic step** on that map; `count(word)` returns the count, `0` for a word never added."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`add(\"to\")`, `add(\"be\")`, `add(\"to\")`",
-          ""
-        ],
-        [
-          "`count(\"to\")`, `count(\"be\")`, `count(\"or\")`",
-          "`2`, `1`, `0`"
-        ],
-        [
-          "`add(\"word\")` 300 times",
-          "`count(\"word\")` is `300`"
-        ],
-        [
-          "two threads call `add(\"x\")` at the same moment",
-          "`count(\"x\")` is `2`"
-        ]
-      ]
+      "text": "Finish `claim(...)` in `src/main/java/practice/LaunchVouchers.java`. Sign-ups arrive on many request threads at once. The quota check sometimes calls the campaign service and takes a while, and one slow check must not hold up other sign-ups. When you're done, every granted voucher has its own number and exactly one email, and no more are granted than the quota allows. About seven lines in total."
     },
     {
       "type": "para",
-      "text": "The tests hand you a map that can hold a read open, to make two adds meet in the middle."
+      "text": "The tests make one customer's quota check slow and let another customer sign up while it waits."
     },
     {
       "type": "heading",
@@ -67,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class WordCounter {\n\n    private final ConcurrentHashMap<String, Integer> counts;\n\n    public WordCounter(ConcurrentHashMap<String, Integer> counts) {\n        this.counts = counts;\n    }\n\n    /** Adds one to the word's count, atomically. */\n    public void add(String word) {\n        counts.merge(word, 1, Integer::sum);\n    }\n\n    /** Returns the word's count, 0 when it was never added. */\n    public int count(String word) {\n        return counts.getOrDefault(word, 0);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Hands out the launch vouchers. Sign-ups arrive on many request threads at once. Vouchers are\n * numbered 1, 2, 3, ... in the order they are granted, and each one is emailed to its customer.\n */\npublic class LaunchVouchers {\n\n    /** Decides whether one more voucher may go out, given how many have been granted so far. */\n    public interface Quota {\n        boolean allows(int grantedSoFar);\n    }\n\n    /** Sends the voucher email. Each call is one email in a customer's inbox. */\n    public interface Mailer {\n        void sendVoucher(String customer, int voucherNumber);\n    }\n\n    private final AtomicInteger granted = new AtomicInteger();\n    private final Quota quota;\n    private final Mailer mailer;\n\n    public LaunchVouchers(Quota quota, Mailer mailer) {\n        this.quota = quota;\n        this.mailer = mailer;\n    }\n\n    /** Grants the customer the next voucher if the quota allows one more. True when they got one. */\n    public boolean claim(String customer) {\n        while (true) {\n            int n = granted.get();\n            if (!quota.allows(n)) return false;\n            if (granted.compareAndSet(n, n + 1)) {\n                mailer.sendVoucher(customer, n + 1);\n                return true;\n            }\n        }\n    }\n\n    /** How many vouchers have been granted. */\n    public int granted() {\n        return granted.get();\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class WordCounter {\n\n    public WordCounter(ConcurrentHashMap<String, Integer> counts) {\n    }\n\n    /** Adds one to the word's count, atomically. */\n    public void add(String word) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Returns the word's count, 0 when it was never added. */\n    public int count(String word) {\n        throw new UnsupportedOperationException(\"write count\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Hands out the launch vouchers. Sign-ups arrive on many request threads at once. Vouchers are\n * numbered 1, 2, 3, ... in the order they are granted, and each one is emailed to its customer.\n */\npublic class LaunchVouchers {\n\n    /** Decides whether one more voucher may go out, given how many have been granted so far. */\n    public interface Quota {\n        boolean allows(int grantedSoFar);\n    }\n\n    /** Sends the voucher email. Each call is one email in a customer's inbox. */\n    public interface Mailer {\n        void sendVoucher(String customer, int voucherNumber);\n    }\n\n    private final AtomicInteger granted = new AtomicInteger();\n    private final Quota quota;\n    private final Mailer mailer;\n\n    public LaunchVouchers(Quota quota, Mailer mailer) {\n        this.quota = quota;\n        this.mailer = mailer;\n    }\n\n    /** Grants the customer the next voucher if the quota allows one more. True when they got one. */\n    public boolean claim(String customer) {\n        // TODO: Grant the next voucher if the quota allows it, and email it to the customer.\n        //       Many sign-ups run this at the same moment, and a quota check can be slow; a slow\n        //       check must not hold up other sign-ups.\n        throw new IllegalStateException(\"TODO: claim\");\n    }\n\n    /** How many vouchers have been granted. */\n    public int granted() {\n        return granted.get();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,7 +64,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -98,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "033043daf1b491c0c32135d382a5f11cfb5d5358453e2627fcf324be9bd42f43",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class WordCounter {\n\n    public WordCounter(ConcurrentHashMap<String, Integer> counts) {\n    }\n\n    /** Adds one to the word's count, atomically. */\n    public void add(String word) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Returns the word's count, 0 when it was never added. */\n    public int count(String word) {\n        throw new UnsupportedOperationException(\"write count\");\n    }\n}\n",
+  "content_sha256": "6ceb8de1f5f5fa391e7de9bff8d8e48df2644afabb094ff42ed39afc0e1dde20",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Hands out the launch vouchers. Sign-ups arrive on many request threads at once. Vouchers are\n * numbered 1, 2, 3, ... in the order they are granted, and each one is emailed to its customer.\n */\npublic class LaunchVouchers {\n\n    /** Decides whether one more voucher may go out, given how many have been granted so far. */\n    public interface Quota {\n        boolean allows(int grantedSoFar);\n    }\n\n    /** Sends the voucher email. Each call is one email in a customer's inbox. */\n    public interface Mailer {\n        void sendVoucher(String customer, int voucherNumber);\n    }\n\n    private final AtomicInteger granted = new AtomicInteger();\n    private final Quota quota;\n    private final Mailer mailer;\n\n    public LaunchVouchers(Quota quota, Mailer mailer) {\n        this.quota = quota;\n        this.mailer = mailer;\n    }\n\n    /** Grants the customer the next voucher if the quota allows one more. True when they got one. */\n    public boolean claim(String customer) {\n        // TODO: Grant the next voucher if the quota allows it, and email it to the customer.\n        //       Many sign-ups run this at the same moment, and a quota check can be slow; a slow\n        //       check must not hold up other sign-ups.\n        throw new IllegalStateException(\"TODO: claim\");\n    }\n\n    /** How many vouchers have been granted. */\n    public int granted() {\n        return granted.get();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-1/src/main/java/practice/WordCounter.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-1/src/test/java/practice/WordCounterTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-1/src/main/java/practice/LaunchVouchers.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-1/src/test/java/practice/LaunchVouchersTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,14 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.WordCounterTest#countsWords",
+        "id": "practice.LaunchVouchersTest#grantsVouchersInOrderUntilTheQuotaIsReached",
         "kind": "main",
-        "says": "Each added word's count goes up by one, and a word never added counts zero."
+        "says": "sign-ups get vouchers numbered 1, 2, 3 and an email each until the quota refuses, and later sign-ups get nothing"
       },
       {
-        "id": "practice.WordCounterTest#racingAddsOfOneWordBothCount",
+        "id": "practice.LaunchVouchersTest#aCustomerWhoseSignUpMetAnotherIsEmailedOnce",
         "kind": "edge",
-        "says": "When two threads add the same word at once, the count goes up by two: the read, the add and the write are one atomic step."
+        "says": "when two sign-ups meet, each customer receives exactly one voucher email"
+      },
+      {
+        "id": "practice.LaunchVouchersTest#twoSignUpsThatMeetGetTwoDifferentVouchers",
+        "kind": "edge",
+        "says": "when two sign-ups meet, both grants are counted and the two vouchers have different numbers"
+      },
+      {
+        "id": "practice.LaunchVouchersTest#aSignUpThatMeetsAnotherStillGetsAVoucherWhileTheQuotaAllows",
+        "kind": "edge",
+        "says": "a sign-up that meets another still gets a voucher when the quota allows one more"
+      },
+      {
+        "id": "practice.LaunchVouchersTest#theLastVoucherGoesToOnlyOneOfTwoSignUpsThatMeet",
+        "kind": "edge",
+        "says": "when two sign-ups meet over the last voucher, only one of them gets it"
       }
     ],
     "report": {
@@ -139,10 +129,11 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.2.md",
-      "section": "1. Non-atomic compound operations on shared state"
+      "section": "An Atomic Update Retries Until Its compareAndSet Wins, So Its Function Can Run Many Times"
     },
     "concepts": [
-      "A read-modify-write such as counter++ or a map get-then-put is several steps, and must be made one atomic operation."
+      "A hand-written compareAndSet loop reads, decides and swaps, and after a failed swap decides again on the new value; a decision kept from the first attempt is a check-then-act.",
+      "An atomic class's updateAndGet, getAndUpdate or accumulateAndGet is a compare-and-set retried until it wins, so the function passed to it can run several times per call; a side effect belongs after the update, decided from the value it returned."
     ]
   }
 }

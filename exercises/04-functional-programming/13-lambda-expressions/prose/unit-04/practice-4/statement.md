@@ -1,21 +1,11 @@
-A lambda inside `filter` or `map` should compute, not change things outside itself. A counter
-bumped inside `filter` counts what the filter *looked at*, and a counter bumped inside `peek`
-may never run at all: since Java 9, `list.stream().peek(...).count()` can answer from the
-list's size without running `peek`. Collect the result, then measure it.
+The operations console opens a dashboard per team, and each open dashboard forwards its team's
+alerts (`"billing: 12 failed captures"`) to the team's chat channel. By design, the forwarding
+keeps going after a dashboard is closed: the team still wants its alerts, and the alert feed has
+no way to remove a listener. A heap dump after a day of use shows every dashboard ever opened
+still in memory, 32 MB each.
 
-The file declares `record Entry(String id, boolean valid)` and
-`record Report(List<String> validIds, long validCount, long seen)`. Write
-`static Report audit(List<Entry> entries)` in `Audit`:
+Write `alertForwarder()` in `src/main/java/practice/Dashboard.java`: the listener that sends each
+alert about the dashboard's team to its channel.
 
-- `validIds`: the ids of the valid entries, in entry order, however many there are;
-- `validCount`: how many entries are valid;
-- `seen`: how many entries there are in all.
-
-Ids may repeat: every entry counts on its own, so a repeated id appears and is counted again.
-
-| entries | report |
-|---|---|
-| `a` valid, `b` invalid, `c` valid | `Report([a, c], 2, 3)` |
-| none | `Report([], 0, 0)` |
-
-Each number must be right on its own; no lambda in your pipeline needs to touch a variable outside it.
+When you're done, a team's alerts reach its channel and nothing else's, and a closed dashboard can
+be garbage-collected while its alerts keep arriving. About five lines.

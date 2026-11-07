@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Decorate a runner with logging and a lock",
+  "title": "Open each tenant's pool once",
   "blocks": [
     {
       "type": "heading",
@@ -19,25 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A hierarchy such as `BaseTask -> LoggingTask -> SynchronizedLoggingTask` needs a new class for every combination, and each level may add its own synchronization. The page's alternative is **decorators**: every concern implements the same `TaskRunner` interface, holds the runner it wraps, and adds one thing."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "TaskRunner runner = new SynchronizedTaskRunner(\n    new LoggingTaskRunner(\n        new UpperCaseRunner()\n    )\n);"
+      "text": "A reporting service keeps one connection pool per tenant in `TenantPools`, and every request asks for its tenant's pool. Opening a pool connects to the tenant's database and takes a while. The database team reports that after each deploy some tenants get two or three pools' worth of connections, and that once, after an admin reset a tenant's pool by hand, a pool the health check had just opened was closed under running reports."
     },
     {
       "type": "para",
-      "text": "`UpperCaseRunner` is given. Write the two decorators and the factory in `TaskRunners`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/TenantPools.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`LoggingTaskRunner(delegate, log)` adds `\"START: \" + input` to `log`, runs the delegate, then adds `\"SUCCESS: \" + result` and returns the result. If the delegate throws, it adds `\"ERROR: \" + message` and **rethrows that same exception**: logging must not swallow a failure;",
-        "`SynchronizedTaskRunner(delegate)` holds a lock around the delegate call, so **one call at a time** runs inside the runner it wraps; a second caller waits until the first returns;",
-        "`compose(base, log, logging, threadSafe)` applies exactly the decorators asked for: a `LoggingTaskRunner` alone, a `SynchronizedTaskRunner` alone (which writes nothing to `log`), both, or `base` itself when neither is asked for. The page warns that **decorator order matters**: `compose` puts the lock outermost, so logging happens inside the lock and the log lists each call's lines in the order the calls ran. `compose(new UpperCaseRunner(), log, true, true)` turns `\"hello\"` into `\"HELLO\"` and logs `START: hello`, `SUCCESS: HELLO`."
+        "`poolFor(tenant)`: the tenant's pool, opened with the `opener` the store was given when the tenant has none;",
+        "`discard(tenant, pool)`: forget that pool, unless the tenant's pool is already a different one, and say whether it was discarded."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, every request for a tenant gets the same pool, a tenant's pool is opened once however many requests arrive while it opens, and discarding a pool that was already replaced leaves the replacement alone. About three lines in total."
     },
     {
       "type": "heading",
@@ -52,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Task runners composed from decorators instead of a deep class hierarchy. */\npublic final class TaskRunners {\n\n    private TaskRunners() {\n    }\n\n    public interface TaskRunner {\n        String run(String input) throws Exception;\n    }\n\n    /** The base runner: pure business logic. */\n    public static final class UpperCaseRunner implements TaskRunner {\n        @Override\n        public String run(String input) {\n            return input.toUpperCase();\n        }\n    }\n\n    /** Logs \"START: input\", then \"SUCCESS: result\" or \"ERROR: message\", around its delegate. */\n    public static final class LoggingTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final List<String> log;\n\n        public LoggingTaskRunner(TaskRunner delegate, List<String> log) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.log = Objects.requireNonNull(log, \"log\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            log.add(\"START: \" + input);\n            try {\n                String result = delegate.run(input);\n                log.add(\"SUCCESS: \" + result);\n                return result;\n            } catch (Exception e) {\n                log.add(\"ERROR: \" + e.getMessage());\n                throw e;\n            }\n        }\n    }\n\n    /** Lets one call at a time into its delegate. */\n    public static final class SynchronizedTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final ReentrantLock lock = new ReentrantLock();\n\n        public SynchronizedTaskRunner(TaskRunner delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            lock.lock();\n            try {\n                return delegate.run(input);\n            } finally {\n                lock.unlock();\n            }\n        }\n    }\n\n    /** Wraps base in the decorators asked for: logging inside, the lock outermost. */\n    public static TaskRunner compose(TaskRunner base, List<String> log, boolean logging, boolean threadSafe) {\n        TaskRunner runner = base;\n        if (logging) {\n            runner = new LoggingTaskRunner(runner, log);\n        }\n        if (threadSafe) {\n            runner = new SynchronizedTaskRunner(runner);\n        }\n        return runner;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\n/**\n * One connection pool per tenant of a reporting service. Request threads ask for their tenant's\n * pool on every request; an admin action or a failed health check discards a pool, and the next\n * request opens a fresh one.\n */\npublic class TenantPools {\n\n    /** A tenant's pool. Opening one connects to the tenant's database, which takes a while. */\n    public static final class Pool {\n        private final String tenant;\n\n        public Pool(String tenant) {\n            this.tenant = tenant;\n        }\n\n        public String tenant() {\n            return tenant;\n        }\n    }\n\n    private final ConcurrentHashMap<String, Pool> pools = new ConcurrentHashMap<>();\n    private final Function<String, Pool> opener;\n\n    /** opener opens a new pool for a tenant. */\n    public TenantPools(Function<String, Pool> opener) {\n        this.opener = opener;\n    }\n\n    /**\n     * Returns the tenant's pool, opening it if the tenant has none. Every caller asking for the\n     * same tenant gets the same pool, and a tenant's pool is opened once, not once per request.\n     */\n    public Pool poolFor(String tenant) {\n        return pools.computeIfAbsent(tenant, opener);\n    }\n\n    /**\n     * Discards the given pool of the tenant, if it is still the tenant's pool. Returns whether\n     * it was discarded. A caller holding a pool that was already replaced must not discard the\n     * replacement.\n     */\n    public boolean discard(String tenant, Pool pool) {\n        return pools.remove(tenant, pool);\n    }\n\n    public int size() {\n        return pools.size();\n    }\n}\n"
         }
       ]
     },
@@ -64,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Task runners composed from decorators instead of a deep class hierarchy. */\npublic final class TaskRunners {\n\n    private TaskRunners() {\n    }\n\n    public interface TaskRunner {\n        String run(String input) throws Exception;\n    }\n\n    /** The base runner: pure business logic. */\n    public static final class UpperCaseRunner implements TaskRunner {\n        @Override\n        public String run(String input) {\n            return input.toUpperCase();\n        }\n    }\n\n    /** Logs \"START: input\", then \"SUCCESS: result\" or \"ERROR: message\", around its delegate. */\n    public static final class LoggingTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final List<String> log;\n\n        public LoggingTaskRunner(TaskRunner delegate, List<String> log) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.log = Objects.requireNonNull(log, \"log\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            throw new UnsupportedOperationException(\"write LoggingTaskRunner.run\");\n        }\n    }\n\n    /** Lets one call at a time into its delegate. */\n    public static final class SynchronizedTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final ReentrantLock lock = new ReentrantLock();\n\n        public SynchronizedTaskRunner(TaskRunner delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            throw new UnsupportedOperationException(\"write SynchronizedTaskRunner.run\");\n        }\n    }\n\n    /** Wraps base in the decorators asked for: logging inside, the lock outermost. */\n    public static TaskRunner compose(TaskRunner base, List<String> log, boolean logging, boolean threadSafe) {\n        throw new UnsupportedOperationException(\"write compose\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\n/**\n * One connection pool per tenant of a reporting service. Request threads ask for their tenant's\n * pool on every request; an admin action or a failed health check discards a pool, and the next\n * request opens a fresh one.\n */\npublic class TenantPools {\n\n    /** A tenant's pool. Opening one connects to the tenant's database, which takes a while. */\n    public static final class Pool {\n        private final String tenant;\n\n        public Pool(String tenant) {\n            this.tenant = tenant;\n        }\n\n        public String tenant() {\n            return tenant;\n        }\n    }\n\n    private final ConcurrentHashMap<String, Pool> pools = new ConcurrentHashMap<>();\n    private final Function<String, Pool> opener;\n\n    /** opener opens a new pool for a tenant. */\n    public TenantPools(Function<String, Pool> opener) {\n        this.opener = opener;\n    }\n\n    /**\n     * Returns the tenant's pool, opening it if the tenant has none. Every caller asking for the\n     * same tenant gets the same pool, and a tenant's pool is opened once, not once per request.\n     */\n    public Pool poolFor(String tenant) {\n        // TODO: the tenant's pool, opened with opener when the tenant has none\n        throw new IllegalStateException(\"TODO: poolFor\");\n    }\n\n    /**\n     * Discards the given pool of the tenant, if it is still the tenant's pool. Returns whether\n     * it was discarded. A caller holding a pool that was already replaced must not discard the\n     * replacement.\n     */\n    public boolean discard(String tenant, Pool pool) {\n        // TODO: discard the pool, unless the tenant's pool is already another one\n        throw new IllegalStateException(\"TODO: discard\");\n    }\n\n    public int size() {\n        return pools.size();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -72,8 +70,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -83,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9783eaa3262c5d07a55797c1f0d2171da7c546e2e169ff5cc762b5946e765648",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Task runners composed from decorators instead of a deep class hierarchy. */\npublic final class TaskRunners {\n\n    private TaskRunners() {\n    }\n\n    public interface TaskRunner {\n        String run(String input) throws Exception;\n    }\n\n    /** The base runner: pure business logic. */\n    public static final class UpperCaseRunner implements TaskRunner {\n        @Override\n        public String run(String input) {\n            return input.toUpperCase();\n        }\n    }\n\n    /** Logs \"START: input\", then \"SUCCESS: result\" or \"ERROR: message\", around its delegate. */\n    public static final class LoggingTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final List<String> log;\n\n        public LoggingTaskRunner(TaskRunner delegate, List<String> log) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.log = Objects.requireNonNull(log, \"log\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            throw new UnsupportedOperationException(\"write LoggingTaskRunner.run\");\n        }\n    }\n\n    /** Lets one call at a time into its delegate. */\n    public static final class SynchronizedTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final ReentrantLock lock = new ReentrantLock();\n\n        public SynchronizedTaskRunner(TaskRunner delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            throw new UnsupportedOperationException(\"write SynchronizedTaskRunner.run\");\n        }\n    }\n\n    /** Wraps base in the decorators asked for: logging inside, the lock outermost. */\n    public static TaskRunner compose(TaskRunner base, List<String> log, boolean logging, boolean threadSafe) {\n        throw new UnsupportedOperationException(\"write compose\");\n    }\n}\n",
+  "content_sha256": "46fed5bdc4eca72f957546ecbd0a46b5958545a1a2753d747fb64583604f6b2b",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\n/**\n * One connection pool per tenant of a reporting service. Request threads ask for their tenant's\n * pool on every request; an admin action or a failed health check discards a pool, and the next\n * request opens a fresh one.\n */\npublic class TenantPools {\n\n    /** A tenant's pool. Opening one connects to the tenant's database, which takes a while. */\n    public static final class Pool {\n        private final String tenant;\n\n        public Pool(String tenant) {\n            this.tenant = tenant;\n        }\n\n        public String tenant() {\n            return tenant;\n        }\n    }\n\n    private final ConcurrentHashMap<String, Pool> pools = new ConcurrentHashMap<>();\n    private final Function<String, Pool> opener;\n\n    /** opener opens a new pool for a tenant. */\n    public TenantPools(Function<String, Pool> opener) {\n        this.opener = opener;\n    }\n\n    /**\n     * Returns the tenant's pool, opening it if the tenant has none. Every caller asking for the\n     * same tenant gets the same pool, and a tenant's pool is opened once, not once per request.\n     */\n    public Pool poolFor(String tenant) {\n        // TODO: the tenant's pool, opened with opener when the tenant has none\n        throw new IllegalStateException(\"TODO: poolFor\");\n    }\n\n    /**\n     * Discards the given pool of the tenant, if it is still the tenant's pool. Returns whether\n     * it was discarded. A caller holding a pool that was already replaced must not discard the\n     * replacement.\n     */\n    public boolean discard(String tenant, Pool pool) {\n        // TODO: discard the pool, unless the tenant's pool is already another one\n        throw new IllegalStateException(\"TODO: discard\");\n    }\n\n    public int size() {\n        return pools.size();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/src/main/java/practice/TaskRunners.java",
-    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/src/test/java/practice/TaskRunnersTest.java",
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/src/main/java/practice/TenantPools.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/src/test/java/practice/TenantPoolsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -108,29 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TaskRunnersTest#decoratorsWrapAnyRunner",
+        "id": "practice.TenantPoolsTest#sameTenantGetsTheSamePool",
         "kind": "main",
-        "says": "compose with logging and a lock turns \"hello\" into \"HELLO\" and logs START and SUCCESS."
+        "says": "asking twice for one tenant returns the same pool; another tenant gets its own"
       },
       {
-        "id": "practice.TaskRunnersTest#loggingRecordsAFailureAndRethrowsIt",
-        "kind": "edge",
-        "says": "A failing delegate is logged as \"ERROR: boom\" and its own exception is rethrown."
+        "id": "practice.TenantPoolsTest#aDiscardedPoolIsReplacedOnTheNextRequest",
+        "kind": "main",
+        "says": "after its pool is discarded, the tenant's next request gets a new pool"
       },
       {
-        "id": "practice.TaskRunnersTest#theSynchronizedRunnerLetsOneCallInAtATime",
+        "id": "practice.TenantPoolsTest#aRequestArrivingWhileThePoolOpensGetsThatSamePool",
         "kind": "edge",
-        "says": "While one call is inside the synchronized runner, a second call waits and never runs alongside it."
+        "says": "a request for a tenant whose pool is still being opened gets that pool, and no second one is opened"
       },
       {
-        "id": "practice.TaskRunnersTest#composePutsTheLockOutsideTheLog",
+        "id": "practice.TenantPoolsTest#repeatedRequestsOpenThePoolOnce",
         "kind": "edge",
-        "says": "A call waiting for compose's lock has logged nothing yet: the lock is outside the logging."
+        "says": "requests for a tenant that already has a pool open nothing"
       },
       {
-        "id": "practice.TaskRunnersTest#eachRunnerHasItsOwnLock",
+        "id": "practice.TenantPoolsTest#discardingAPoolThatWasAlreadyReplacedKeepsTheReplacement",
         "kind": "edge",
-        "says": "Each SynchronizedTaskRunner has its own lock: a call waiting inside one runner does not hold up a call to another."
+        "says": "discarding a pool that was already replaced leaves the replacement in place"
       }
     ],
     "report": {
@@ -139,13 +137,11 @@
     },
     "origin": {
       "path": "34-composition-inheritance/README_8.4.2.md",
-      "section": "Interview Q&A Section"
+      "section": "When the Class Already Has the Compound Action, Call It"
     },
     "concepts": [
-      "The order decorators are applied in matters, so a factory method makes it explicit.",
-      "Cross-cutting concerns such as logging and synchronization are independent decorators around one interface, combined in any order instead of a deep class hierarchy.",
-      "Each decorator decides whether to catch, wrap or propagate an exception; a logging decorator records the failure and rethrows it.",
-      "A synchronizing decorator makes the lock explicit: it lets one call at a time into the runner it wraps."
+      "putIfAbsent receives a value already built, so its construction runs on every call; computeIfAbsent runs its function only when the key is absent, once per call.",
+      "When the class already offers the compound action (addIfAbsent, computeIfAbsent, remove(key, value)), calling it is atomic against the class's own methods; get-then-put on a ConcurrentHashMap hands some callers different values."
     ]
   }
 }

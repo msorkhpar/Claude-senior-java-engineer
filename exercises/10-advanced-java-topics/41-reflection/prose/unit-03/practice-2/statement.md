@@ -1,22 +1,15 @@
-A reflective factory maps names to classes and creates instances on demand,
-so a new shape needs a registration, not a new `switch` branch. Two habits
-make it robust: **validate at registration** (find the no-arg constructor
-then, and keep it) rather than when the first `create` fails, and compare
-names ignoring case **with `Locale.ROOT`**: `toLowerCase()` uses the default
-locale, and in Turkish `"CIRCLE".toLowerCase()` is `"cırcle"`.
+The order service starts six integration connectors when it boots, and each connector's
+constructor opens its own connection. Last Tuesday the customs partner's API was down for an
+hour, and every restart in that hour failed: one connector that couldn't reach its partner kept
+the other five from starting. The week before, a connector with a plain bug in its constructor
+was skipped silently, and nobody noticed for two days.
 
-Write `ShapeFactory` for the nested interface `ShapeFactory.Shape` (given):
+`ConnectorFactory.createAll` already starts connectors and skips the ones that fail with a
+`ConnectorException`. Finish the `TODO` in `src/main/java/practice/ConnectorFactory.java`:
 
-- `register(name, type)`: remembers `type` under `name`, ignoring case. A
-  `type` with **no no-arg constructor** is refused at once with
-  `IllegalArgumentException`.
-- `create(name)`: a **new** instance of the class registered under `name`
-  (any case). An unknown name is `IllegalArgumentException`.
+- `create(type)`: a new connector made with the class's no-argument constructor.
 
-| calls | result |
-|---|---|
-| `register("circle", Circle.class)`, `create("circle").area()` | `4π` |
-| `register("square", Square.class)`, `create("Square").area()` | `16.0` |
-| `register("CIRCLE", Circle.class)` in a Turkish default locale, `create("circle")` | a circle |
-| `register("sized", Sized.class)`, `Sized` has only `Sized(double)` | `IllegalArgumentException` |
-| `create("hexagon")` | `IllegalArgumentException` |
+When you're done, a connector whose constructor fails with a checked exception is skipped and
+the others still start, the `ConnectorException` carries the constructor's own exception as its
+cause, and an unchecked exception or an `Error` from a constructor reaches the caller exactly as
+it was thrown. About ten lines in total.

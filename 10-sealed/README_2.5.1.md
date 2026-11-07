@@ -1,123 +1,139 @@
 # 2.5.1 Defining Sealed Classes and Interfaces
 
-Sealed classes and interfaces, introduced in Java 15 and finalized in Java 17, provide a way to restrict which other
-classes or interfaces may extend or implement them. This feature enhances control over class hierarchies and enables
-more precise modeling of domain-specific relationships.
+The payments library exports an interface `Payment` and two records, `Card` and `Transfer`. The
+ledger books a payment through an `instanceof` chain whose last branch throws `unknown payment`. A
+partner team implemented `Payment` for its gift cards, and at month end 312 gift-card payments sat
+in the dead-letter queue. Sealed types (Java 17) let a type's owner name its direct subtypes. Outputs are
+from Java 21.
 
-## Key Points
-
-1. Sealed classes and interfaces are defined using the `sealed` modifier.
-2. They must specify their permitted subclasses or subinterfaces using the `permits` clause.
-3. Permitted subclasses must have one of three modifiers: `final`, `sealed`, or `non-sealed`.
-4. Sealed classes and interfaces must be in the same module or package as their permitted subclasses.
-
-## Syntax
+## A Sealed Type Names Its Direct Subtypes, and javac Refuses Any Other
 
 ```java
-public sealed class Shape permits Circle, Square, Triangle { }
-
-public sealed interface Vehicle permits Car, Motorcycle, Truck { }
+public sealed interface Payment permits Card, Transfer {}
+record Card(String last4, long cents) implements Payment {}
+record Transfer(String iban, long cents) implements Payment {}
 ```
 
-## Benefits
-
-1. **Controlled Inheritance**: Explicitly define which classes can extend or implement a sealed type.
-2. **Pattern Matching**: Enables exhaustive pattern matching in switch expressions.
-3. **Domain Modeling**: Better represents closed sets of subtypes in domain models.
-4. **API Design**: Allows library designers to restrict how their APIs can be extended.
-
-## Common Pitfalls
-
-1. Forgetting to specify all permitted subclasses in the `permits` clause.
-2. Not applying the required modifier (`final`, `sealed`, or `non-sealed`) to permitted subclasses.
-3. Placing permitted subclasses in a different package or module than the sealed class.
-
-## Best Practices
-
-1. Use sealed classes when you want to represent a fixed set of subtypes.
-2. Consider using sealed interfaces for API design to control how clients can implement your interfaces.
-3. Combine sealed classes with pattern matching in switch expressions for type-safe, exhaustive handling of subtypes.
-
-## Interview Insights
-
-Interviewers often ask about:
-
-- The purpose and benefits of sealed classes
-- How sealed classes differ from final classes or enums
-- The relationship between sealed classes and pattern matching
-- Use cases for sealed classes in API design and domain modeling
-
-Q1: What is the primary purpose of sealed classes in Java?
-
-```text
-A1: The primary purpose of sealed classes in Java is to restrict which other classes can extend them. This allows developers to have more control over class hierarchies and enables more precise modeling of domain-specific relationships. Sealed classes provide a middle ground between regular inheritance (which is completely open) and final classes (which prevent any inheritance).
-```
-
-Q2: How do you define a sealed class and its permitted subclasses?
+The partner's record, in its own file, no longer compiles:
 
 ```java
-public sealed class Animal permits Dog, Cat, Bird {
-    // Class body
-}
-
-final class Dog extends Animal {
-    // Class body
-}
-
-final class Cat extends Animal {
-    // Class body
-}
-
-non-sealed class Bird extends Animal {
-    // Class body
-}
+public record GiftCard(String code, long cents) implements Payment {}
 ```
-
-Q3: What are the rules for subclasses of a sealed class?
 
 ```text
-A3: Subclasses of a sealed class must adhere to the following rules:
-1. They must be declared in the same module as the sealed class (or in the same package if the sealed class is in the unnamed module).
-2. They must have one of three permitted modifiers:
-   - final: The subclass cannot be further extended.
-   - sealed: The subclass is itself a sealed class and must specify its own permitted subclasses.
-   - non-sealed: The subclass can be freely extended by any other class.
-3. They must extend the sealed class directly.
+GiftCard.java:1: error: class is not allowed to extend sealed class: Payment (as it is not listed in its 'permits' clause)
+public record GiftCard(String code, long cents) implements Payment {}
+       ^
 ```
 
-Q4: How do sealed classes differ from enums?
+`sealed` works on a class or an interface, and `permits` lists every direct subtype. A record is
+implicitly `final`, so it qualifies as it is; a class needs `final`, `sealed` or `non-sealed`, and
+every subtype must sit in the sealed type's module or package (unit 2.5.2).
+
+An anonymous class is refused too, and so is a lambda: a sealed interface isn't a functional
+interface.
+
+### The JVM Checks the List When It Loads a Subtype
+
+javac stores the list in the class file. We compiled `GiftCard` against the unsealed `Payment`,
+then ran it with the sealed library:
 
 ```text
-A4: While both sealed classes and enums represent a fixed set of possibilities, they differ in several ways:
-1. Instances: Enum constants are singleton instances, while sealed classes can have multiple instances of each subclass.
-2. Inheritance: Enum constants cannot extend other classes (they implicitly extend java.lang.Enum), while sealed class subclasses can extend the sealed class and potentially other interfaces.
-3. Functionality: Sealed classes can have different implementations and state for each subclass, while enum constants are more limited in this regard.
-4. Use cases: Enums are typically used for simple sets of constants, while sealed classes are better suited for more complex hierarchies with varying behavior between subclasses.
+Exception in thread "main" java.lang.IncompatibleClassChangeError: class GiftCard cannot implement sealed interface Payment
 ```
 
-Q5: Can you demonstrate how sealed classes improve pattern matching in switch expressions?
+Sealing a published type is a breaking change: the partner's build fails, and an upgrade without
+a rebuild fails when the class loads.
+
+## Without permits, the Subtypes in the Same File Are the List
 
 ```java
-public String describeShape(Shape shape) {
-    return switch (shape) {
-        case Circle c -> "A circle with radius " + c.getRadius();
-        case Square s -> "A square with side length " + s.getSide();
-        case Triangle t -> "A triangle with base " + t.getBase() + " and height " + t.getHeight();
-    };
+public sealed interface Payment {
+    record Card(String last4, long cents) implements Payment {}
+    record Transfer(String iban, long cents) implements Payment {}
+    record TestPayment(long cents) implements Payment {}   // added for a demo, months later
 }
 ```
 
-Q6: What are some practical use cases for sealed classes in real-world applications?
+`Payment.class.getPermittedSubclasses()` returns:
 
 ```text
-A6: Sealed classes are useful in various scenarios:
-1. Domain modeling: Representing a fixed set of subtypes in a domain model, such as different types of financial transactions or document types.
-2. State machines: Modeling states in a state machine where transitions between states are well-defined and limited.
-3. Abstract syntax trees: Representing nodes in a compiler or interpreter's abstract syntax tree.
-4. API design: Allowing library designers to restrict how their APIs can be extended, ensuring better control over the behavior of the system.
-5. Pattern matching: Enabling exhaustive pattern matching in switch expressions, which can lead to more robust and maintainable code.
-6. Algebraic data types: Implementing sum types or tagged unions in a type-safe manner.
+[class Payment$Card, class Payment$Transfer, class Payment$TestPayment]
 ```
+
+javac takes every direct subtype declared in the same source file; a `Voucher` in
+another file of the same package gets the `not listed in its 'permits' clause` error.
+
+Without `permits`, whatever someone adds to the file joins the closed set, and no review sees a
+list change. The demo's `TestPayment` is now a payment that every exhaustive switch (unit 1.5.4)
+must handle. Write `permits` on a type other code depends on; leave it out for a small hierarchy
+nested in one file.
+
+## At Run Time, getPermittedSubclasses() Lists the Direct Subtypes Only
+
+```java
+sealed interface Payment permits Card, BankTransfer {}
+record Card(String last4, long cents) implements Payment {}
+sealed interface BankTransfer extends Payment permits Sepa, Wire {}
+record Sepa(String iban, long cents) implements BankTransfer {}
+record Wire(String swift, long cents) implements BankTransfer {}
+```
+
+Printing `isSealed()` and the simple names of what `getPermittedSubclasses()` returns:
+
+```text
+Payment: isSealed() = true, getPermittedSubclasses() = [Card, BankTransfer]
+BankTransfer: isSealed() = true, getPermittedSubclasses() = [Sepa, Wire]
+Card: isSealed() = false, getPermittedSubclasses() = null
+```
+
+`Sepa` and `Wire` don't appear under `Payment`. Code that needs every concrete type, a decoder or
+a test that each type has a handler, walks down through each sealed subtype. For a type that
+isn't sealed the method returns `null`, not an empty array, and the javadoc leaves the order of
+the array unspecified.
+
+<!-- practice 1 -->
+
+<!-- practice 2 -->
+
+## Summary
+
+- **`sealed ... permits` names the direct subtypes, and javac refuses any other**, anonymous
+  classes and lambdas included. Records qualify as they are.
+- **The JVM checks the list again when it loads a subtype**, so an implementation compiled before
+  the sealing fails with `IncompatibleClassChangeError`.
+- **Without `permits`, the list is every direct subtype in the same file**, never the package.
+- **`getPermittedSubclasses()` returns the direct subtypes only**, and `null` for a type that
+  isn't sealed.
+
+## Reference
+
+**More javac 21 errors:**
+
+| Code | Error |
+|---|---|
+| `new Payment() {}` | `anonymous classes must not extend sealed classes` |
+| a lambda for a sealed interface `Rule` with one abstract method | `incompatible types: Rule is not a functional interface` |
+| `permits Wallet`, where `Wallet` doesn't implement it | `invalid permits clause` (`subclass Wallet must extend sealed class`) |
+| a permitted class without `final`, `sealed` or `non-sealed` | `sealed, non-sealed or final modifiers expected` |
+| no `permits` and no subtype in the file | `sealed class must have subclasses` |
+
+## Challenges
+
+1. Four services you don't own implement your library's `Event`. What would you release, and in
+   what order, to seal it?
+2. Forty tests stub `Payment` with anonymous classes. After sealing, what replaces them?
+3. Write a test that fails when a permitted subtype of `Payment` has no handler in the ledger.
+   Which part could the compiler check instead?
+
+## Design Note: Why the List Lives in the Type
+
+Before Java 17 a library closed a hierarchy by hiding it: a package-private constructor stops
+other packages from extending an abstract class, but an interface has no constructor, and nobody
+could read off which subtypes existed. Sealing makes the list part of the type, read by javac for
+exhaustive switches, by the JVM to refuse a stranger, and by tools through reflection. The cost is
+that the list becomes public API: adding a subtype breaks the build of every exhaustive switch without a `default`, and removing
+one breaks the clients that name it.
 
 ## Code Examples
 

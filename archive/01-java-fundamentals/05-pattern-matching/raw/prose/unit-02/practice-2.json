@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Match a subclass before its superclass",
+  "title": "Send every alert to the channel it belongs in",
   "blocks": [
     {
       "type": "heading",
@@ -19,21 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Every `ElectricCar` is also a `Car`, so `vehicle instanceof Car car` matches electric cars too. In a chain of patterns over a hierarchy, the subclass is tested first; otherwise its branch is never reached."
+      "text": "The monitoring service routes alerts to the on-call pager, to email, or to a dashboard. Two complaints came in this week: disk alerts below the paging level never arrive anywhere, and the on-call engineer was woken at night by a read replica, which is supposed to send email only."
     },
     {
       "type": "para",
-      "text": "`Garage` holds a small hierarchy: `Vehicle`, `Car implements Vehicle` (`drive()`), `ElectricCar extends Car` (`charge()` as well) and `Bicycle implements Vehicle` (`pedal()`). Write `use(Vehicle vehicle)` in `Garage`. It returns what the vehicle does:"
+      "text": "`AlertRouter.routeAll(...)` already groups a batch by channel. Write `channelFor(...)` in `src/main/java/practice/AlertRouter.java` so that each alert goes where its javadoc says. A `ReplicaDiskAlert` is a `DiskAlert` too."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "an electric car: `drive()` and `charge()` joined by `+`, that is `\"drive+charge\"`;",
-        "any other car: `\"drive\"`;",
-        "a bicycle: `\"pedal\"`;",
-        "anything else, `null` included: `\"unknown\"`."
-      ]
+      "type": "para",
+      "text": "About five lines in total."
     },
     {
       "type": "heading",
@@ -48,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Garage {\n\n    /** Anything that moves people. */\n    public interface Vehicle {\n    }\n\n    /** A car drives. */\n    public static class Car implements Vehicle {\n        public String drive() {\n            return \"drive\";\n        }\n    }\n\n    /** An electric car drives, and also charges. */\n    public static class ElectricCar extends Car {\n        public String charge() {\n            return \"charge\";\n        }\n    }\n\n    /** A bicycle is pedalled. */\n    public static class Bicycle implements Vehicle {\n        public String pedal() {\n            return \"pedal\";\n        }\n    }\n\n    private Garage() {\n    }\n\n    /** Returns what the vehicle does. */\n    public static String use(Vehicle vehicle) {\n        if (vehicle instanceof ElectricCar electricCar) {\n            return electricCar.drive() + \"+\" + electricCar.charge();\n        } else if (vehicle instanceof Car car) {\n            return car.drive();\n        } else if (vehicle instanceof Bicycle bicycle) {\n            return bicycle.pedal();\n        }\n        return \"unknown\";\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Sends each monitoring alert to a channel: \"pager\" wakes the on-call engineer, \"email\" and\n * \"dashboard\" wait for office hours, \"unrouted\" collects what the router doesn't recognise.\n */\npublic class AlertRouter {\n\n    /** A disk on a primary host is filling up. */\n    public static class DiskAlert {\n        private final String host;\n        private final int percentFull;\n\n        public DiskAlert(String host, int percentFull) {\n            this.host = host;\n            this.percentFull = percentFull;\n        }\n\n        public String host() { return host; }\n\n        public int percentFull() { return percentFull; }\n\n        @Override\n        public String toString() { return getClass().getSimpleName() + \"(\" + host + \", \" + percentFull + \"%)\"; }\n    }\n\n    /** A disk on a read replica is filling up; a replica can be rebuilt, so it never pages. */\n    public static class ReplicaDiskAlert extends DiskAlert {\n        public ReplicaDiskAlert(String host, int percentFull) {\n            super(host, percentFull);\n        }\n    }\n\n    /** A service's 99th-percentile latency over the last five minutes. */\n    public record LatencyAlert(String service, long p99Millis) {\n    }\n\n    /** Groups the alerts by channel, in the order they arrived. */\n    public Map<String, List<Object>> routeAll(List<?> alerts) {\n        Map<String, List<Object>> byChannel = new LinkedHashMap<>();\n        for (Object alert : alerts) {\n            byChannel.computeIfAbsent(channelFor(alert), c -> new ArrayList<>()).add(alert);\n        }\n        return byChannel;\n    }\n\n    /**\n     * The channel for one alert:\n     * a disk alert at 90% or more goes to \"pager\", below that to \"email\";\n     * a replica's disk alert goes to \"email\" however full the disk is;\n     * a latency alert above 2000 ms goes to \"pager\", otherwise to \"dashboard\";\n     * anything else, null included, goes to \"unrouted\".\n     */\n    String channelFor(Object alert) {\n        if (alert instanceof ReplicaDiskAlert) return \"email\";\n        if (alert instanceof DiskAlert disk) return disk.percentFull() >= 90 ? \"pager\" : \"email\";\n        if (alert instanceof LatencyAlert latency) return latency.p99Millis() > 2000 ? \"pager\" : \"dashboard\";\n        return \"unrouted\";\n    }\n}\n"
         }
       ]
     },
@@ -60,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Garage {\n\n    /** Anything that moves people. */\n    public interface Vehicle {\n    }\n\n    /** A car drives. */\n    public static class Car implements Vehicle {\n        public String drive() {\n            return \"drive\";\n        }\n    }\n\n    /** An electric car drives, and also charges. */\n    public static class ElectricCar extends Car {\n        public String charge() {\n            return \"charge\";\n        }\n    }\n\n    /** A bicycle is pedalled. */\n    public static class Bicycle implements Vehicle {\n        public String pedal() {\n            return \"pedal\";\n        }\n    }\n\n    private Garage() {\n    }\n\n    /** Returns what the vehicle does. */\n    public static String use(Vehicle vehicle) {\n        throw new UnsupportedOperationException(\"write use\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Sends each monitoring alert to a channel: \"pager\" wakes the on-call engineer, \"email\" and\n * \"dashboard\" wait for office hours, \"unrouted\" collects what the router doesn't recognise.\n */\npublic class AlertRouter {\n\n    /** A disk on a primary host is filling up. */\n    public static class DiskAlert {\n        private final String host;\n        private final int percentFull;\n\n        public DiskAlert(String host, int percentFull) {\n            this.host = host;\n            this.percentFull = percentFull;\n        }\n\n        public String host() { return host; }\n\n        public int percentFull() { return percentFull; }\n\n        @Override\n        public String toString() { return getClass().getSimpleName() + \"(\" + host + \", \" + percentFull + \"%)\"; }\n    }\n\n    /** A disk on a read replica is filling up; a replica can be rebuilt, so it never pages. */\n    public static class ReplicaDiskAlert extends DiskAlert {\n        public ReplicaDiskAlert(String host, int percentFull) {\n            super(host, percentFull);\n        }\n    }\n\n    /** A service's 99th-percentile latency over the last five minutes. */\n    public record LatencyAlert(String service, long p99Millis) {\n    }\n\n    /** Groups the alerts by channel, in the order they arrived. */\n    public Map<String, List<Object>> routeAll(List<?> alerts) {\n        Map<String, List<Object>> byChannel = new LinkedHashMap<>();\n        for (Object alert : alerts) {\n            byChannel.computeIfAbsent(channelFor(alert), c -> new ArrayList<>()).add(alert);\n        }\n        return byChannel;\n    }\n\n    /**\n     * The channel for one alert:\n     * a disk alert at 90% or more goes to \"pager\", below that to \"email\";\n     * a replica's disk alert goes to \"email\" however full the disk is;\n     * a latency alert above 2000 ms goes to \"pager\", otherwise to \"dashboard\";\n     * anything else, null included, goes to \"unrouted\".\n     */\n    String channelFor(Object alert) {\n        // TODO: Choose the channel for this alert, as described above. Every kind of alert the\n        //       router knows must reach its own channel, whatever its numbers say.\n        throw new IllegalStateException(\"TODO: channelFor\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -68,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -79,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "775910a523f4a51cc3ebc8b3bcd84d214998a932b8c35d5e779bee7959a149bd",
-  "starting_code": "package practice;\n\npublic final class Garage {\n\n    /** Anything that moves people. */\n    public interface Vehicle {\n    }\n\n    /** A car drives. */\n    public static class Car implements Vehicle {\n        public String drive() {\n            return \"drive\";\n        }\n    }\n\n    /** An electric car drives, and also charges. */\n    public static class ElectricCar extends Car {\n        public String charge() {\n            return \"charge\";\n        }\n    }\n\n    /** A bicycle is pedalled. */\n    public static class Bicycle implements Vehicle {\n        public String pedal() {\n            return \"pedal\";\n        }\n    }\n\n    private Garage() {\n    }\n\n    /** Returns what the vehicle does. */\n    public static String use(Vehicle vehicle) {\n        throw new UnsupportedOperationException(\"write use\");\n    }\n}\n",
+  "content_sha256": "ae88adbe59a431dfee93a235adb88e88027b311caa2662ff7933e3cc02cbe603",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Sends each monitoring alert to a channel: \"pager\" wakes the on-call engineer, \"email\" and\n * \"dashboard\" wait for office hours, \"unrouted\" collects what the router doesn't recognise.\n */\npublic class AlertRouter {\n\n    /** A disk on a primary host is filling up. */\n    public static class DiskAlert {\n        private final String host;\n        private final int percentFull;\n\n        public DiskAlert(String host, int percentFull) {\n            this.host = host;\n            this.percentFull = percentFull;\n        }\n\n        public String host() { return host; }\n\n        public int percentFull() { return percentFull; }\n\n        @Override\n        public String toString() { return getClass().getSimpleName() + \"(\" + host + \", \" + percentFull + \"%)\"; }\n    }\n\n    /** A disk on a read replica is filling up; a replica can be rebuilt, so it never pages. */\n    public static class ReplicaDiskAlert extends DiskAlert {\n        public ReplicaDiskAlert(String host, int percentFull) {\n            super(host, percentFull);\n        }\n    }\n\n    /** A service's 99th-percentile latency over the last five minutes. */\n    public record LatencyAlert(String service, long p99Millis) {\n    }\n\n    /** Groups the alerts by channel, in the order they arrived. */\n    public Map<String, List<Object>> routeAll(List<?> alerts) {\n        Map<String, List<Object>> byChannel = new LinkedHashMap<>();\n        for (Object alert : alerts) {\n            byChannel.computeIfAbsent(channelFor(alert), c -> new ArrayList<>()).add(alert);\n        }\n        return byChannel;\n    }\n\n    /**\n     * The channel for one alert:\n     * a disk alert at 90% or more goes to \"pager\", below that to \"email\";\n     * a replica's disk alert goes to \"email\" however full the disk is;\n     * a latency alert above 2000 ms goes to \"pager\", otherwise to \"dashboard\";\n     * anything else, null included, goes to \"unrouted\".\n     */\n    String channelFor(Object alert) {\n        // TODO: Choose the channel for this alert, as described above. Every kind of alert the\n        //       router knows must reach its own channel, whatever its numbers say.\n        throw new IllegalStateException(\"TODO: channelFor\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-2/src/main/java/practice/Garage.java",
-    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-2/src/test/java/practice/GarageTest.java",
+    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-2/src/main/java/practice/AlertRouter.java",
+    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-2/src/test/java/practice/AlertRouterTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -104,19 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.GarageTest#usesEachVehicle",
+        "id": "practice.AlertRouterTest#routesEachKindOfAlert",
         "kind": "main",
-        "says": "A car drives and a bicycle is pedalled."
+        "says": "a full primary disk and a slow service page, a fast service goes to the dashboard, and anything unknown, null included, is unrouted"
       },
       {
-        "id": "practice.GarageTest#anElectricCarAlsoCharges",
-        "kind": "edge",
-        "says": "An electric car is \"drive+charge\": its pattern comes before Car's."
+        "id": "practice.AlertRouterTest#routesABatchByChannel",
+        "kind": "main",
+        "says": "a batch of alerts is grouped by the channel of each alert"
       },
       {
-        "id": "practice.GarageTest#nullIsUnknown",
+        "id": "practice.AlertRouterTest#aDiskAlertBelowThePagingLevelGoesToEmail",
         "kind": "edge",
-        "says": "use(null) is \"unknown\"."
+        "says": "a disk alert that fails the paging condition still goes to its own type's channel, not to the branch after it"
+      },
+      {
+        "id": "practice.AlertRouterTest#aReplicaDiskAlertNeverPages",
+        "kind": "edge",
+        "says": "a replica's disk alert reaches the replica branch even though it is also a disk alert"
       }
     ],
     "report": {
@@ -125,10 +124,10 @@
     },
     "origin": {
       "path": "05-pattern-matching/README_1.5.2.md",
-      "section": "Interview-specific Insights"
+      "section": "A Condition Joined with && Sends a Matching Object That Fails It to the Next Branch"
     },
     "concepts": [
-      "In a type hierarchy, the subclass is matched before its superclass, or the superclass branch catches it."
+      "When a condition is joined to a pattern with &&, an object of that type that fails the condition goes on to the next branch, and in an if chain the first matching pattern wins, so a supertype tested first takes its subtypes."
     ]
   }
 }

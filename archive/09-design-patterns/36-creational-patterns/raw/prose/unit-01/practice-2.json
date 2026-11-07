@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A registry built by the Holder idiom",
+  "title": "Give every plugin the host's one quota",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The Holder idiom (Bill Pugh) **keeps the instance in a private static nested class**. The JVM initializes that nested class **only when `getInstance()` first reads it**, and class initialization is thread-safe, so the instance is lazy without any lock. Using the outer class for anything else creates nothing."
+      "text": "The integration host runs partner plugins, and every plugin's calls to the partner API must come out of one budget, `PluginHost.Quota.INSTANCE`. Each plugin gets a class loader of its own, and that loader is meant to look in the plugin's jar first, so a plugin runs with the library versions it bundles. Plugins are compiled against the host API (the nested types of `PluginHost`), and their build copies that API into the jar."
     },
     {
       "type": "para",
-      "text": "Write `ServiceRegistry` that way:"
+      "text": "The partner reports that the host goes over its budget whenever more than one plugin is installed. Finish the two `TODO`s in `src/main/java/practice/PluginHost.java`, in the plugin loader:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`getInstance()` returns the one registry.",
-        "`created()` (given) counts how many times the constructor has run.",
-        "`describe()` (given) is another static method; calling it must **not** create the instance.",
-        "The private constructor **refuses to run a second time** with an `IllegalStateException`, because reflection can call a private constructor."
+        "`loadClass(name, resolve)`: which loader defines each class a plugin asks for;",
+        "`sharedWithHost(name)`: which classes a plugin must get from the host, whatever its jar holds."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls, in order",
-        "`created()` after it"
-      ],
-      "rows": [
-        [
-          "`describe()`",
-          "`0`"
-        ],
-        [
-          "`getInstance()`",
-          "`1`"
-        ],
-        [
-          "`getInstance()` again",
-          "`1`, same object"
-        ],
-        [
-          "the constructor through reflection",
-          "`IllegalStateException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, every plugin draws on the host's one quota, and two plugins never share the static state of their own classes. About twelve lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests build each plugin from a directory that holds both the plugin classes and the host's classes, as a plugin jar does."
     },
     {
       "type": "heading",
@@ -73,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class ServiceRegistry {\n\n    private static int created;\n\n    private ServiceRegistry() {\n        if (Holder.INSTANCE != null) {\n            throw new IllegalStateException(\"Use getInstance()\");\n        }\n        created++;\n    }\n\n    private static final class Holder {\n        private static final ServiceRegistry INSTANCE = new ServiceRegistry();\n    }\n\n    /** Returns the one registry, creating it on the first call. */\n    public static ServiceRegistry getInstance() {\n        return Holder.INSTANCE;\n    }\n\n    /** How many times the constructor has run. */\n    public static int created() {\n        return created;\n    }\n\n    /** Another static method: it must not create the instance. */\n    public static String describe() {\n        return \"service-registry\";\n    }\n}\n"
+          "text": "package practice;\n\nimport java.net.URL;\nimport java.net.URLClassLoader;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Runs plugins. Each plugin gets a class loader of its own and is loaded child-first, so a plugin\n * can bundle the library versions it was built with. Plugins are compiled against the host's API,\n * the nested types of this class, and their jars carry a copy of it.\n */\npublic final class PluginHost {\n\n    private PluginHost() {}\n\n    /** What the host calls on a plugin. */\n    public interface Plugin {\n        String run();\n    }\n\n    /** The partner API's budget, which every plugin in the process draws on. */\n    public static final class Quota {\n        public static final Quota INSTANCE = new Quota();\n        private final AtomicInteger left = new AtomicInteger(1_000);\n\n        private Quota() {}\n\n        public boolean tryTake() {\n            return left.getAndDecrement() > 0;\n        }\n\n        public int left() {\n            return Math.max(left.get(), 0);\n        }\n    }\n\n    /** Loads one plugin from its jar and builds it. */\n    public static Plugin load(URL[] pluginJar, String pluginClass) throws ReflectiveOperationException {\n        ClassLoader loader = new PluginLoader(pluginJar, PluginHost.class.getClassLoader());\n        Object plugin = loader.loadClass(pluginClass).getConstructor().newInstance();\n        return (Plugin) plugin;\n    }\n\n    /** One plugin's loader: its own classes first, then the host's. */\n    static final class PluginLoader extends URLClassLoader {\n\n        PluginLoader(URL[] pluginJar, ClassLoader host) {\n            super(pluginJar, host);\n        }\n\n        @Override\n        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {\n            synchronized (getClassLoadingLock(name)) {\n                Class<?> c = findLoadedClass(name);\n                if (c == null) {\n                    if (sharedWithHost(name)) {\n                        c = getParent().loadClass(name);\n                    } else {\n                        try {\n                            c = findClass(name);\n                        } catch (ClassNotFoundException notInThePlugin) {\n                            c = getParent().loadClass(name);\n                        }\n                    }\n                }\n                if (resolve) resolveClass(c);\n                return c;\n            }\n        }\n\n        /** Whether the class must be the host's own, never the plugin's copy. */\n        static boolean sharedWithHost(String name) {\n            return name.equals(\"practice.PluginHost\") || name.startsWith(\"practice.PluginHost$\");\n        }\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class ServiceRegistry {\n\n    private static int created;\n\n    private ServiceRegistry() {\n        created++;\n    }\n\n    /** Returns the one registry, creating it on the first call. */\n    public static ServiceRegistry getInstance() {\n        throw new UnsupportedOperationException(\"write getInstance\");\n    }\n\n    /** How many times the constructor has run. */\n    public static int created() {\n        return created;\n    }\n\n    /** Another static method: it must not create the instance. */\n    public static String describe() {\n        return \"service-registry\";\n    }\n}\n"
+      "text": "package practice;\n\nimport java.net.URL;\nimport java.net.URLClassLoader;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Runs plugins. Each plugin gets a class loader of its own and is loaded child-first, so a plugin\n * can bundle the library versions it was built with. Plugins are compiled against the host's API,\n * the nested types of this class, and their jars carry a copy of it.\n */\npublic final class PluginHost {\n\n    private PluginHost() {}\n\n    /** What the host calls on a plugin. */\n    public interface Plugin {\n        String run();\n    }\n\n    /** The partner API's budget, which every plugin in the process draws on. */\n    public static final class Quota {\n        public static final Quota INSTANCE = new Quota();\n        private final AtomicInteger left = new AtomicInteger(1_000);\n\n        private Quota() {}\n\n        public boolean tryTake() {\n            return left.getAndDecrement() > 0;\n        }\n\n        public int left() {\n            return Math.max(left.get(), 0);\n        }\n    }\n\n    /** Loads one plugin from its jar and builds it. */\n    public static Plugin load(URL[] pluginJar, String pluginClass) throws ReflectiveOperationException {\n        ClassLoader loader = new PluginLoader(pluginJar, PluginHost.class.getClassLoader());\n        Object plugin = loader.loadClass(pluginClass).getConstructor().newInstance();\n        return (Plugin) plugin;\n    }\n\n    /** One plugin's loader: its own classes first, then the host's. */\n    static final class PluginLoader extends URLClassLoader {\n\n        PluginLoader(URL[] pluginJar, ClassLoader host) {\n            super(pluginJar, host);\n        }\n\n        @Override\n        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {\n            // TODO: Load the plugin's own classes from its jar before asking the host, so that a\n            //       plugin runs with the libraries it bundles. Classes the jar doesn't have come\n            //       from the host. Use sharedWithHost(name) for the classes that must be the host's.\n            throw new IllegalStateException(\"TODO: loadClass\");\n        }\n\n        /** Whether the class must be the host's own, never the plugin's copy. */\n        static boolean sharedWithHost(String name) {\n            // TODO: The plugin's jar carries a copy of the host API. Which classes must the\n            //       plugin get from the host instead?\n            throw new IllegalStateException(\"TODO: sharedWithHost\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -104,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6884a94c4cb55c5b7521cd08336a2a04ea34921e3ab24253d3db2a1e4f83c568",
-  "starting_code": "package practice;\n\npublic final class ServiceRegistry {\n\n    private static int created;\n\n    private ServiceRegistry() {\n        created++;\n    }\n\n    /** Returns the one registry, creating it on the first call. */\n    public static ServiceRegistry getInstance() {\n        throw new UnsupportedOperationException(\"write getInstance\");\n    }\n\n    /** How many times the constructor has run. */\n    public static int created() {\n        return created;\n    }\n\n    /** Another static method: it must not create the instance. */\n    public static String describe() {\n        return \"service-registry\";\n    }\n}\n",
+  "content_sha256": "a7f3497688ab1fe0fa421dd04fb3ccc858955514c64b3ed554481a8db716dcf5",
+  "starting_code": "package practice;\n\nimport java.net.URL;\nimport java.net.URLClassLoader;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Runs plugins. Each plugin gets a class loader of its own and is loaded child-first, so a plugin\n * can bundle the library versions it was built with. Plugins are compiled against the host's API,\n * the nested types of this class, and their jars carry a copy of it.\n */\npublic final class PluginHost {\n\n    private PluginHost() {}\n\n    /** What the host calls on a plugin. */\n    public interface Plugin {\n        String run();\n    }\n\n    /** The partner API's budget, which every plugin in the process draws on. */\n    public static final class Quota {\n        public static final Quota INSTANCE = new Quota();\n        private final AtomicInteger left = new AtomicInteger(1_000);\n\n        private Quota() {}\n\n        public boolean tryTake() {\n            return left.getAndDecrement() > 0;\n        }\n\n        public int left() {\n            return Math.max(left.get(), 0);\n        }\n    }\n\n    /** Loads one plugin from its jar and builds it. */\n    public static Plugin load(URL[] pluginJar, String pluginClass) throws ReflectiveOperationException {\n        ClassLoader loader = new PluginLoader(pluginJar, PluginHost.class.getClassLoader());\n        Object plugin = loader.loadClass(pluginClass).getConstructor().newInstance();\n        return (Plugin) plugin;\n    }\n\n    /** One plugin's loader: its own classes first, then the host's. */\n    static final class PluginLoader extends URLClassLoader {\n\n        PluginLoader(URL[] pluginJar, ClassLoader host) {\n            super(pluginJar, host);\n        }\n\n        @Override\n        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {\n            // TODO: Load the plugin's own classes from its jar before asking the host, so that a\n            //       plugin runs with the libraries it bundles. Classes the jar doesn't have come\n            //       from the host. Use sharedWithHost(name) for the classes that must be the host's.\n            throw new IllegalStateException(\"TODO: loadClass\");\n        }\n\n        /** Whether the class must be the host's own, never the plugin's copy. */\n        static boolean sharedWithHost(String name) {\n            // TODO: The plugin's jar carries a copy of the host API. Which classes must the\n            //       plugin get from the host instead?\n            throw new IllegalStateException(\"TODO: sharedWithHost\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-2/src/main/java/practice/ServiceRegistry.java",
-    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-2/src/test/java/practice/ServiceRegistryTest.java",
+    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-2/src/main/java/practice/PluginHost.java",
+    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-2/src/test/java/practice/PluginHostTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,24 +110,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ServiceRegistryTest#returnsOneInstance",
+        "id": "practice.PluginHostTest#aPluginRunsThroughTheHost",
         "kind": "main",
-        "says": "getInstance() returns the same registry every time, and the constructor has run once."
+        "says": "a plugin loaded through its own loader runs and is usable as the host's Plugin type"
       },
       {
-        "id": "practice.ServiceRegistryTest#usingTheClassDoesNotCreateTheInstance",
+        "id": "practice.PluginHostTest#everyPluginDrawsOnTheHostsQuota",
         "kind": "edge",
-        "says": "Calling another static method of ServiceRegistry does not create the instance; the first getInstance() does."
+        "says": "calls made by two separately loaded plugins are taken from the host's one Quota, although each plugin jar carries a copy of the class"
       },
       {
-        "id": "practice.ServiceRegistryTest#aReflectiveSecondInstanceIsRefused",
+        "id": "practice.PluginHostTest#eachPluginKeepsItsOwnStaticState",
         "kind": "edge",
-        "says": "Calling the private constructor through reflection after getInstance() fails with IllegalStateException."
-      },
-      {
-        "id": "practice.ServiceRegistryTest#theInstanceLivesInAPrivateNestedHolder",
-        "kind": "edge",
-        "says": "The instance sits in a static final field of a private static nested class, and the outer class keeps no static ServiceRegistry field."
+        "says": "two loads of the same plugin class get separate static state, because each plugin's own classes come from its own loader"
       }
     ],
     "report": {
@@ -155,12 +131,11 @@
     },
     "origin": {
       "path": "36-creational-patterns/README_9.1.1.md",
-      "section": "Interview Q&A Section"
+      "section": "Each Class Loader Has Its Own Singleton, Enum Included"
     },
     "concepts": [
-      "The Holder idiom creates the instance only when getInstance first reads the nested holder class, because class initialization is lazy and thread-safe.",
-      "A Singleton has a private constructor, a static field holding its one instance and a static method that returns it.",
-      "Reflection can call a private constructor, so a class-based Singleton's constructor refuses to run a second time."
+      "A class is identified by its name and its defining loader, so two loaders that define the same singleton class hold two instances and two states, and casting one to the other's type fails.",
+      "A singleton stays one per process only when one shared parent loader defines it; a child-first loader must send the shared API to the parent."
     ]
   }
 }

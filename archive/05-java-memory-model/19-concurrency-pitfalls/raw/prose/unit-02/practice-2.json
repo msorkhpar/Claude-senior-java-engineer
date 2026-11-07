@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Sell tickets with a compare-and-set retry loop",
+  "title": "Move stock between bins without losing a unit",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`if (sold < capacity) sold++` is a check-then-act: two threads can both pass the check for the last ticket. The page's fix is a **compare-and-set retry loop**: read the current value, decide, then `compareAndSet(current, next)`. The CAS fails when another thread changed the value in between, so the update loops: it re-reads, **re-checks its condition** (the page's `incrementIfPositive` gives up when the condition no longer holds), and tries again."
+      "text": "The warehouse keeps its stock in one `ConcurrentHashMap`: for each SKU, how many units sit in each bin. Pickers move units between bins all day. The same map is read by the hourly stock count and updated by the order service, which ships units straight from it with its own `compute` calls. Lately the stock count has reported units missing that turned up an hour later, a bin once showed -6 units, and a shipment of glue reappeared on the shelf in the system but not in the aisle."
     },
     {
       "type": "para",
-      "text": "Write `TicketCounter`. It counts sold tickets in a `Cell`, a tiny interface with `get()` and `compareAndSet(expected, next)`; `Cell.atomic()` is one backed by an `AtomicInteger` (already written for you). The constructor takes the cell and the capacity."
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`sell()` sells one ticket and returns `true`, or returns `false` when all `capacity` tickets are sold. Update the cell **only** with `compareAndSet`, in a retry loop.",
-        "`sold()` returns how many tickets are sold."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls (capacity 2)",
-        "answer",
-        "`sold()`"
-      ],
-      "rows": [
-        [
-          "`sell()`",
-          "`true`",
-          "1"
-        ],
-        [
-          "`sell()`",
-          "`true`",
-          "2"
-        ],
-        [
-          "`sell()`",
-          "`false`",
-          "2"
-        ]
-      ]
+      "text": "Finish `move(...)` in `src/main/java/practice/Warehouse.java`. The `Bins` record and the reading methods are done. The order service won't change, so whatever `move` does must hold against its calls on the map. When you're done, a stock count taken at any moment finds every unit, no bin goes below zero, and no shipment is undone. About seven lines in total."
     },
     {
       "type": "para",
-      "text": "The tests hand you a cell whose first `compareAndSet` loses to a sale made by \"another thread\", to check what your loop does next."
+      "text": "The tests hold the picker's thread right after it reads the map, or right after it first changes it, and meanwhile take a stock count or ship from the same bin."
     },
     {
       "type": "heading",
@@ -75,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic final class TicketCounter {\n\n    /** A counter cell that can only be changed by compare-and-set. */\n    public interface Cell {\n        int get();\n\n        boolean compareAndSet(int expected, int next);\n\n        /** A cell backed by an AtomicInteger, starting at 0. */\n        static Cell atomic() {\n            AtomicInteger value = new AtomicInteger();\n            return new Cell() {\n                @Override\n                public int get() {\n                    return value.get();\n                }\n\n                @Override\n                public boolean compareAndSet(int expected, int next) {\n                    return value.compareAndSet(expected, next);\n                }\n            };\n        }\n    }\n\n    private final Cell sold;\n    private final int capacity;\n\n    public TicketCounter(Cell sold, int capacity) {\n        this.sold = sold;\n        this.capacity = capacity;\n    }\n\n    /** Sells one ticket; false when all tickets are sold. */\n    public boolean sell() {\n        int current;\n        do {\n            current = sold.get();\n            if (current >= capacity) {\n                return false;\n            }\n        } while (!sold.compareAndSet(current, current + 1));\n        return true;\n    }\n\n    /** Returns how many tickets are sold. */\n    public int sold() {\n        return sold.get();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Stock of the warehouse: for each SKU, how many units sit in each bin. The map is shared: the\n * order service ships units straight from it with its own compute calls, and stock counts read it\n * at any time.\n */\npublic class Warehouse {\n\n    /** The units of one SKU in each of its bins. Immutable; a bin not listed holds 0. */\n    public record Bins(Map<String, Integer> units) {\n        public Bins {\n            units = Map.copyOf(units);\n        }\n\n        public int in(String bin) {\n            return units.getOrDefault(bin, 0);\n        }\n\n        public Bins with(String bin, int count) {\n            Map<String, Integer> changed = new HashMap<>(units);\n            changed.put(bin, count);\n            return new Bins(changed);\n        }\n\n        public int total() {\n            return units.values().stream().mapToInt(Integer::intValue).sum();\n        }\n    }\n\n    private final ConcurrentHashMap<String, Bins> stock;\n\n    public Warehouse(ConcurrentHashMap<String, Bins> stock) {\n        this.stock = stock;\n    }\n\n    /** All units of the SKU, in every bin; 0 for a SKU the warehouse doesn't hold. */\n    public int units(String sku) {\n        Bins bins = stock.get(sku);\n        return bins == null ? 0 : bins.total();\n    }\n\n    /** Units of the SKU in one bin. */\n    public int unitsIn(String sku, String bin) {\n        Bins bins = stock.get(sku);\n        return bins == null ? 0 : bins.in(bin);\n    }\n\n    /**\n     * Moves units of a SKU from one bin to another. Returns false, and moves nothing, when the\n     * SKU is unknown or the from-bin holds fewer units than asked.\n     */\n    public boolean move(String sku, String from, String to, int count) {\n        boolean[] moved = {false};\n        stock.compute(sku, (k, bins) -> {\n            if (bins == null || bins.in(from) < count) return bins;\n            moved[0] = true;\n            return bins.with(from, bins.in(from) - count).with(to, bins.in(to) + count);\n        });\n        return moved[0];\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic final class TicketCounter {\n\n    /** A counter cell that can only be changed by compare-and-set. */\n    public interface Cell {\n        int get();\n\n        boolean compareAndSet(int expected, int next);\n\n        /** A cell backed by an AtomicInteger, starting at 0. */\n        static Cell atomic() {\n            AtomicInteger value = new AtomicInteger();\n            return new Cell() {\n                @Override\n                public int get() {\n                    return value.get();\n                }\n\n                @Override\n                public boolean compareAndSet(int expected, int next) {\n                    return value.compareAndSet(expected, next);\n                }\n            };\n        }\n    }\n\n    public TicketCounter(Cell sold, int capacity) {\n    }\n\n    /** Sells one ticket; false when all tickets are sold. */\n    public boolean sell() {\n        throw new UnsupportedOperationException(\"write sell\");\n    }\n\n    /** Returns how many tickets are sold. */\n    public int sold() {\n        throw new UnsupportedOperationException(\"write sold\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Stock of the warehouse: for each SKU, how many units sit in each bin. The map is shared: the\n * order service ships units straight from it with its own compute calls, and stock counts read it\n * at any time.\n */\npublic class Warehouse {\n\n    /** The units of one SKU in each of its bins. Immutable; a bin not listed holds 0. */\n    public record Bins(Map<String, Integer> units) {\n        public Bins {\n            units = Map.copyOf(units);\n        }\n\n        public int in(String bin) {\n            return units.getOrDefault(bin, 0);\n        }\n\n        public Bins with(String bin, int count) {\n            Map<String, Integer> changed = new HashMap<>(units);\n            changed.put(bin, count);\n            return new Bins(changed);\n        }\n\n        public int total() {\n            return units.values().stream().mapToInt(Integer::intValue).sum();\n        }\n    }\n\n    private final ConcurrentHashMap<String, Bins> stock;\n\n    public Warehouse(ConcurrentHashMap<String, Bins> stock) {\n        this.stock = stock;\n    }\n\n    /** All units of the SKU, in every bin; 0 for a SKU the warehouse doesn't hold. */\n    public int units(String sku) {\n        Bins bins = stock.get(sku);\n        return bins == null ? 0 : bins.total();\n    }\n\n    /** Units of the SKU in one bin. */\n    public int unitsIn(String sku, String bin) {\n        Bins bins = stock.get(sku);\n        return bins == null ? 0 : bins.in(bin);\n    }\n\n    /**\n     * Moves units of a SKU from one bin to another. Returns false, and moves nothing, when the\n     * SKU is unknown or the from-bin holds fewer units than asked.\n     */\n    public boolean move(String sku, String from, String to, int count) {\n        // TODO: Move the units. Stock counts and the order service use the map while moves run.\n        throw new IllegalStateException(\"TODO: move\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "17453b4b09eadc11026ce7c05b526ed6e52bccb76575f8ce69fcb97fd53810db",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic final class TicketCounter {\n\n    /** A counter cell that can only be changed by compare-and-set. */\n    public interface Cell {\n        int get();\n\n        boolean compareAndSet(int expected, int next);\n\n        /** A cell backed by an AtomicInteger, starting at 0. */\n        static Cell atomic() {\n            AtomicInteger value = new AtomicInteger();\n            return new Cell() {\n                @Override\n                public int get() {\n                    return value.get();\n                }\n\n                @Override\n                public boolean compareAndSet(int expected, int next) {\n                    return value.compareAndSet(expected, next);\n                }\n            };\n        }\n    }\n\n    public TicketCounter(Cell sold, int capacity) {\n    }\n\n    /** Sells one ticket; false when all tickets are sold. */\n    public boolean sell() {\n        throw new UnsupportedOperationException(\"write sell\");\n    }\n\n    /** Returns how many tickets are sold. */\n    public int sold() {\n        throw new UnsupportedOperationException(\"write sold\");\n    }\n}\n",
+  "content_sha256": "1d121c82cdc0a65c37961695a5f07dbf1a2ddb42dd74f86f72a247015011a87c",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Stock of the warehouse: for each SKU, how many units sit in each bin. The map is shared: the\n * order service ships units straight from it with its own compute calls, and stock counts read it\n * at any time.\n */\npublic class Warehouse {\n\n    /** The units of one SKU in each of its bins. Immutable; a bin not listed holds 0. */\n    public record Bins(Map<String, Integer> units) {\n        public Bins {\n            units = Map.copyOf(units);\n        }\n\n        public int in(String bin) {\n            return units.getOrDefault(bin, 0);\n        }\n\n        public Bins with(String bin, int count) {\n            Map<String, Integer> changed = new HashMap<>(units);\n            changed.put(bin, count);\n            return new Bins(changed);\n        }\n\n        public int total() {\n            return units.values().stream().mapToInt(Integer::intValue).sum();\n        }\n    }\n\n    private final ConcurrentHashMap<String, Bins> stock;\n\n    public Warehouse(ConcurrentHashMap<String, Bins> stock) {\n        this.stock = stock;\n    }\n\n    /** All units of the SKU, in every bin; 0 for a SKU the warehouse doesn't hold. */\n    public int units(String sku) {\n        Bins bins = stock.get(sku);\n        return bins == null ? 0 : bins.total();\n    }\n\n    /** Units of the SKU in one bin. */\n    public int unitsIn(String sku, String bin) {\n        Bins bins = stock.get(sku);\n        return bins == null ? 0 : bins.in(bin);\n    }\n\n    /**\n     * Moves units of a SKU from one bin to another. Returns false, and moves nothing, when the\n     * SKU is unknown or the from-bin holds fewer units than asked.\n     */\n    public boolean move(String sku, String from, String to, int count) {\n        // TODO: Move the units. Stock counts and the order service use the map while moves run.\n        throw new IllegalStateException(\"TODO: move\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-2/src/main/java/practice/TicketCounter.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-2/src/test/java/practice/TicketCounterTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-2/src/main/java/practice/Warehouse.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-2/src/test/java/practice/WarehouseTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,19 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TicketCounterTest#sellsUpToCapacity",
+        "id": "practice.WarehouseTest#movesUnitsBetweenBinsAndRefusesWhatABinDoesNotHold",
         "kind": "main",
-        "says": "Tickets sell until the capacity is reached, and then sales are refused."
+        "says": "a move shifts units from one bin to another, and a move that asks for more than the bin holds, or for an unknown SKU, changes nothing"
       },
       {
-        "id": "practice.TicketCounterTest#aLostCompareAndSetIsRetried",
+        "id": "practice.WarehouseTest#aStockCountDuringAMoveFindsEveryUnit",
         "kind": "edge",
-        "says": "When another sale wins the compare-and-set, the sale re-reads the count and tries again instead of failing."
+        "says": "a stock count taken while a move is in progress finds every unit of the SKU"
       },
       {
-        "id": "practice.TicketCounterTest#aRetryChecksTheCapacityAgain",
+        "id": "practice.WarehouseTest#aMoveNeverTakesUnitsThatWereShippedMeanwhile",
         "kind": "edge",
-        "says": "A retry re-checks the capacity, so a sale that lost its race to the last ticket is refused rather than overselling."
+        "says": "units shipped while a move is deciding are not moved as well, so no bin goes negative"
+      },
+      {
+        "id": "practice.WarehouseTest#aMoveNeverUndoesAShipmentMadeMeanwhile",
+        "kind": "edge",
+        "says": "a move that runs alongside a shipment never puts the shipped units back"
       }
     ],
     "report": {
@@ -152,10 +124,10 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.2.md",
-      "section": "2. Failed compareAndSet and retry loops"
+      "section": "compute and merge Are Atomic for One Key, Not for an Action Across Keys"
     },
     "concepts": [
-      "A compare-and-set update runs in a loop that re-reads the value and re-checks its condition after every failed CAS."
+      "ConcurrentHashMap.compute and merge are atomic for one call on one key; an action made of two calls can be seen half done, so values that must agree go under one key."
     ]
   }
 }

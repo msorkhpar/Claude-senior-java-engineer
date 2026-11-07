@@ -1,17 +1,14 @@
-Record patterns nest, so one pattern can take apart a record and the records inside it:
+The plant's nightly temperature report stops at the first sensor that has not been calibrated
+yet. The `Reading` record was written by another team: its `celsius()` refuses to hand out the
+value of an uncalibrated sensor, and also refuses a temperature below absolute zero, which only
+a broken feed can produce. The report prints nothing that night, and the morning shift has no
+temperatures at all.
 
-```java
-if (rect instanceof Rectangle(Point(int x1, int y1), Point(int x2, int y2))) { ... }
-```
+Finish `safeLine(...)` in `src/main/java/practice/SensorReport.java`:
 
-`var` can stand for each component's type. A nested pattern such as `Point(var x, var y)`
-does not match a `null` component, so a rectangle missing a corner simply does not match.
+- an uncalibrated sensor gets the line `<sensor> uncalibrated`, for example `boiler-9 uncalibrated`,
+  and the report goes on with the next event;
+- any other failure, a temperature below absolute zero included, still fails the report, and the
+  reason it gives is the record's own.
 
-`Boxes` holds `record Point(int x, int y)` and `record Rectangle(Point topLeft, Point
-bottomRight)`. Write `area(Object shape)` in `Boxes`:
-
-- the area of a rectangle, whichever order its two corners come in:
-  `Rectangle(Point(1, 2), Point(3, 5))` has area `6`, and so does
-  `Rectangle(Point(3, 5), Point(1, 2))`;
-- `-1` for anything else: something that is not a rectangle, `null`, or a rectangle with a
-  `null` corner.
+Leave `Reading` and `line(...)` as they are: other reports use them. About six lines in total.

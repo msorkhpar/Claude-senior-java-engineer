@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "The narrowest integer type",
+  "title": "Size and place a tenant's storage",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,23 @@
     },
     {
       "type": "para",
-      "text": "Java has four signed integer types, and each has a fixed size and a fixed range: `byte` (8 bits), `short` (16), `int` (32) and `long` (64)."
+      "text": "The storage service places every new tenant: it gives the tenant a quota in bytes and picks the shard that holds each of the tenant's keys. Two reports came in after the last onboarding wave. A tenant with 4,000 users was given a negative quota and could store nothing. And one key of one tenant, out of millions, fails on every write with an `ArrayIndexOutOfBoundsException` from the shard router."
     },
     {
       "type": "para",
-      "text": "Write `NarrowestType.narrowestType(long value)`. It returns the name of the **narrowest** of those four types that can hold `value` exactly: `\"byte\"`, `\"short\"`, `\"int\"` or `\"long\"`."
+      "text": "`TenantStorage.place` already puts the two answers together. Finish the two `TODO`s in `src/main/java/practice/TenantStorage.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "value",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`100`",
-          "`\"byte\"`"
-        ],
-        [
-          "`1000`",
-          "`\"short\"`"
-        ],
-        [
-          "`100000`",
-          "`\"int\"`"
-        ],
-        [
-          "`10000000000L`",
-          "`\"long\"`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`quotaBytes(users, mbPerUser)`: the exact quota for any tenant the service accepts, up to tens of thousands of users with up to a hundred gigabytes each;",
+        "`shardFor(key)`: a shard from `0` to `shards - 1` for every key, the same one each time."
       ]
     },
     {
       "type": "para",
-      "text": "Mind the ends of every range: both bounds belong to the type, and the negative end of a two's-complement range reaches one further than the positive end. The wrapper classes (`Byte`, `Short`, `Integer`, `Long`) name each bound."
+      "text": "About two lines in total."
     },
     {
       "type": "heading",
@@ -67,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class NarrowestType {\n\n    private NarrowestType() {\n    }\n\n    /** Returns \"byte\", \"short\", \"int\" or \"long\": the narrowest integer type that holds {@code value}. */\n    public static String narrowestType(long value) {\n        if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {\n            return \"byte\";\n        }\n        if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {\n            return \"short\";\n        }\n        if (value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {\n            return \"int\";\n        }\n        return \"long\";\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Places a new tenant: how many bytes it may store, and which shard holds each of its keys.\n */\npublic class TenantStorage {\n\n    /** Where a tenant's key lives and how much the tenant may store. */\n    public record Placement(int shard, long quotaBytes) {}\n\n    private static final int BYTES_PER_MB = 1024 * 1024;\n\n    private final int shards;\n\n    public TenantStorage(int shards) {\n        if (shards <= 0) throw new IllegalArgumentException(\"shards must be positive: \" + shards);\n        this.shards = shards;\n    }\n\n    /** Places one key of a tenant that has {@code users} users with {@code mbPerUser} megabytes each. */\n    public Placement place(String key, int users, int mbPerUser) {\n        return new Placement(shardFor(key), quotaBytes(users, mbPerUser));\n    }\n\n    /** The tenant's quota in bytes: users times megabytes per user times BYTES_PER_MB. */\n    long quotaBytes(int users, int mbPerUser) {\n        return (long) users * mbPerUser * BYTES_PER_MB;\n    }\n\n    /** The shard, from 0 to shards - 1, that holds this key; the same key always gets the same shard. */\n    int shardFor(String key) {\n        return Math.floorMod(key.hashCode(), shards);\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class NarrowestType {\n\n    private NarrowestType() {\n    }\n\n    /** Returns \"byte\", \"short\", \"int\" or \"long\": the narrowest integer type that holds {@code value}. */\n    public static String narrowestType(long value) {\n        throw new UnsupportedOperationException(\"write narrowestType\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Places a new tenant: how many bytes it may store, and which shard holds each of its keys.\n */\npublic class TenantStorage {\n\n    /** Where a tenant's key lives and how much the tenant may store. */\n    public record Placement(int shard, long quotaBytes) {}\n\n    private static final int BYTES_PER_MB = 1024 * 1024;\n\n    private final int shards;\n\n    public TenantStorage(int shards) {\n        if (shards <= 0) throw new IllegalArgumentException(\"shards must be positive: \" + shards);\n        this.shards = shards;\n    }\n\n    /** Places one key of a tenant that has {@code users} users with {@code mbPerUser} megabytes each. */\n    public Placement place(String key, int users, int mbPerUser) {\n        return new Placement(shardFor(key), quotaBytes(users, mbPerUser));\n    }\n\n    /** The tenant's quota in bytes: users times megabytes per user times BYTES_PER_MB. */\n    long quotaBytes(int users, int mbPerUser) {\n        // TODO: The biggest tenants have tens of thousands of users with up to a hundred\n        //       gigabytes each. Return the exact number of bytes for every tenant.\n        throw new IllegalStateException(\"TODO: quotaBytes\");\n    }\n\n    /** The shard, from 0 to shards - 1, that holds this key; the same key always gets the same shard. */\n    int shardFor(String key) {\n        // TODO: Spread keys over the shards by their hashCode(). Every key, whatever its\n        //       hash, must land on a shard that exists.\n        throw new IllegalStateException(\"TODO: shardFor\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,8 +72,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4a0f9d1f903742702be60905cdb45d12fb166692cfa430f4ee46fc7c1fc56eb2",
-  "starting_code": "package practice;\n\npublic final class NarrowestType {\n\n    private NarrowestType() {\n    }\n\n    /** Returns \"byte\", \"short\", \"int\" or \"long\": the narrowest integer type that holds {@code value}. */\n    public static String narrowestType(long value) {\n        throw new UnsupportedOperationException(\"write narrowestType\");\n    }\n}\n",
+  "content_sha256": "f0ad943ac915d3dcfc2d4332b6e2d1f62d3ebd1d295aea04143f2d1ce865854e",
+  "starting_code": "package practice;\n\n/**\n * Places a new tenant: how many bytes it may store, and which shard holds each of its keys.\n */\npublic class TenantStorage {\n\n    /** Where a tenant's key lives and how much the tenant may store. */\n    public record Placement(int shard, long quotaBytes) {}\n\n    private static final int BYTES_PER_MB = 1024 * 1024;\n\n    private final int shards;\n\n    public TenantStorage(int shards) {\n        if (shards <= 0) throw new IllegalArgumentException(\"shards must be positive: \" + shards);\n        this.shards = shards;\n    }\n\n    /** Places one key of a tenant that has {@code users} users with {@code mbPerUser} megabytes each. */\n    public Placement place(String key, int users, int mbPerUser) {\n        return new Placement(shardFor(key), quotaBytes(users, mbPerUser));\n    }\n\n    /** The tenant's quota in bytes: users times megabytes per user times BYTES_PER_MB. */\n    long quotaBytes(int users, int mbPerUser) {\n        // TODO: The biggest tenants have tens of thousands of users with up to a hundred\n        //       gigabytes each. Return the exact number of bytes for every tenant.\n        throw new IllegalStateException(\"TODO: quotaBytes\");\n    }\n\n    /** The shard, from 0 to shards - 1, that holds this key; the same key always gets the same shard. */\n    int shardFor(String key) {\n        // TODO: Spread keys over the shards by their hashCode(). Every key, whatever its\n        //       hash, must land on a shard that exists.\n        throw new IllegalStateException(\"TODO: shardFor\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-01/practice-1/src/main/java/practice/NarrowestType.java",
-    "test_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-01/practice-1/src/test/java/practice/NarrowestTypeTest.java",
+    "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-01/practice-1/src/main/java/practice/TenantStorage.java",
+    "test_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-01/practice-1/src/test/java/practice/TenantStorageTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NarrowestTypeTest#picksTheNarrowestType",
+        "id": "practice.TenantStorageTest#placesASmallTenantOnAnExistingShardWithItsQuota",
         "kind": "main",
-        "says": "It names the narrowest type for ordinary values."
+        "says": "a small tenant gets its exact quota, and each of its keys gets the same existing shard every time"
       },
       {
-        "id": "practice.NarrowestTypeTest#upperBoundsBelongToTheType",
+        "id": "practice.TenantStorageTest#aQuotaAboveTwoGigabytesIsExact",
         "kind": "edge",
-        "says": "A type's largest value still belongs to that type."
+        "says": "a quota whose byte count is above Integer.MAX_VALUE is exact, although users times megabytes fits in an int"
       },
       {
-        "id": "practice.NarrowestTypeTest#negativeRangesReachOneFurther",
+        "id": "practice.TenantStorageTest#aTenantWithManyUsersAndLargeAllowancesGetsItsExactQuota",
         "kind": "edge",
-        "says": "The negative end of each range reaches one further than the positive end, so -128 is a byte."
+        "says": "a quota is exact even when users times megabytes is already above Integer.MAX_VALUE"
       },
       {
-        "id": "practice.NarrowestTypeTest#longExtremesAreLong",
+        "id": "practice.TenantStorageTest#everyKeyLandsOnAShardThatExists",
         "kind": "edge",
-        "says": "Long.MIN_VALUE and Long.MAX_VALUE are longs; Math.abs(Long.MIN_VALUE) is still negative."
+        "says": "a key whose hashCode() is Integer.MIN_VALUE still gets a shard from 0 to shards - 1"
       }
     ],
     "report": {
@@ -149,10 +132,11 @@
     },
     "origin": {
       "path": "01-java-basics/README_1.1.1.md",
-      "section": "Key Points:"
+      "section": "Integer Arithmetic Wraps Without an Error, Even When the Result Goes Into a long"
     },
     "concepts": [
-      "Each integer primitive has a fixed size and a fixed, asymmetric range."
+      "int's range is asymmetric, so Math.abs(Integer.MIN_VALUE) is negative and Math.abs(hash) % n can be a negative index; Math.floorMod takes the divisor's sign.",
+      "Integer arithmetic is done in the operands' type and wraps without an error, even when the result is assigned to a long; a long operand widens only the operations after it."
     ]
   }
 }

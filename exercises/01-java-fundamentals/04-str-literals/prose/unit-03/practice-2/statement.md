@@ -1,11 +1,10 @@
-`charAt` reads one character in constant time, from index `0` to `length() - 1`. Two indices
-walking toward each other, one from each end, check a palindrome without building any new
-String.
+The catalogue import reads exports from several suppliers. Each supplier has its own delimiter
+character and a fixed number of columns, and any column may be left empty. The import has been
+fine with the suppliers that use commas and semicolons. A new supplier's file was rejected line
+by line, and lines from the old ones whose last column is empty end up on the review list.
 
-Write `isPalindrome(String s)` in `Palindrome`. It says whether `s` reads the same forwards
-and backwards, ignoring upper and lower case:
+Finish the `TODO` in `src/main/java/practice/DelimitedFile.java`: `fields(line)` returns the
+line's fields when it has exactly one per column, and nothing otherwise.
 
-- `isPalindrome("level")` and `isPalindrome("abba")` are `true`; `isPalindrome("hello")` is
-  `false`;
-- case does not matter: `isPalindrome("Level")` is `true`;
-- `isPalindrome("")` and `isPalindrome("x")` are `true`.
+When you're done, every supplier's well-formed lines are read, whatever the delimiter, and only
+lines with the wrong number of fields are rejected. About three lines in total.

@@ -1,193 +1,248 @@
 # 1.4.1 String Creation and Initialization in Java
 
-## Concept Explanation
+The catalogue service loads a supplier's nightly feed, a million products, into memory. Each line
+arrives as a `byte[]`, becomes a `String`, and is split on `;` into SKU, name, currency and
+country. After the service moved from Java 17 to Java 21, the shop shows `Caf� cr�me`, and the heap
+the catalogue holds grew from 192 MB to 217 MB. Neither the feed nor the code changed. To win the
+memory back, someone proposes calling `intern()` on every field.
 
-In Java, a String is an immutable sequence of characters. The String class is a fundamental part of the Java language
-and is widely used in almost every Java program. Understanding how to create and initialize Strings is crucial for
-effective Java programming.
+## Bytes Become Text Only Through a Charset, and new String(bytes) Picks One for You
 
-## Key Points to Remember
-
-1. Strings are immutable objects in Java.
-2. There are multiple ways to create and initialize Strings.
-3. The String pool is a special memory area for String literals.
-4. String objects can be created without using the `new` keyword.
-
-## String Creation Methods
-
-### 1. String Literals
-
-The most common way to create a String is by using string literals:
+Decoding bytes into characters needs a charset that says which bytes stand for which character.
+The supplier's feed is Latin-1 (ISO-8859-1), where `é` is the single byte `0xE9`. The import, run
+on Java 21 first with the Latin-1 default that Java 17 took from the servers' locale, then with
+Java 21's own default:
 
 ```java
-String name = "John Doe";
-```
-
-When you create a String like this, Java checks the String pool. If an identical String already exists, it returns a
-reference to that String. If not, it creates a new String object and adds it to the pool.
-
-### 2. Using the `new` Keyword
-
-You can explicitly create a new String object using the `new` keyword:
-
-```java
-String city = new String("New York");
-```
-
-This always creates a new String object in heap memory, separate from the String pool.
-
-### 3. Character Array
-
-Strings can be created from a character array:
-
-```java
-char[] charArray = {'H', 'e', 'l', 'l', 'o'};
-String greeting = new String(charArray);
-```
-
-### 4. Byte Array
-
-You can create a String from a byte array, which is useful when working with encoded data:
-
-```java
-byte[] byteArray = {72, 101, 108, 108, 111};
-String message = new String(byteArray);
-```
-
-### 5. StringBuffer or StringBuilder
-
-You can create a String from StringBuffer or StringBuilder:
-
-```java
-StringBuilder sb = new StringBuilder("Dynamic ");
-sb.append("String");
-String dynamic = sb.toString();
-```
-
-## Java 21 Features
-
-While String creation hasn't changed significantly in Java 21, it's worth noting that Java 21 includes performance
-improvements in String handling and memory usage.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Unnecessary String object creation**: Avoid using `new String("literal")` unless you specifically need a new
-   object. Use string literals instead.
-
-2. **Ignoring String immutability**: Remember that Strings are immutable. Operations like concatenation create new
-   String objects.
-
-3. **Misunderstanding String pool**: Be aware that `==` compares object references, not String contents. Use `equals()`
-   for content comparison.
-
-## Best Practices and Optimization Techniques
-
-1. Use string literals for constant Strings to take advantage of the String pool.
-2. For dynamic String creation, use StringBuilder (non-thread-safe) or StringBuffer (thread-safe).
-3. When working with large amounts of text data, consider using char[] for mutable operations.
-
-## Edge Cases and Their Handling
-
-1. **Null Strings**: Always check for null before performing operations on Strings.
-2. **Empty Strings**: Be aware of the difference between null and empty Strings.
-3. **Interning Strings**: Use `String.intern()` carefully to force a String into the pool.
-
-## Interview-specific Insights
-
-- Be prepared to explain the difference between creating Strings with and without the `new` keyword.
-- Understand the concept of the String pool and its implications on memory usage.
-- Know how to efficiently handle String manipulations in performance-critical scenarios.
-
-Q1: What are the different ways to create a String in Java?
-A1: There are several ways to create a String in Java:
-
-1. Using string literals: `String s = "Hello";`
-2. Using the `new` keyword: `String s = new String("Hello");`
-3. From a char array: `char[] chars = {'H', 'e', 'l', 'l', 'o'}; String s = new String(chars);`
-4. From a byte array: `byte[] bytes = {72, 101, 108, 108, 111}; String s = new String(bytes);`
-5. From StringBuilder or StringBuffer: `StringBuilder sb = new StringBuilder("Hello"); String s = sb.toString();`
-
-Q2: What is the String pool in Java, and how does it work?
-A2: The String pool, also known as the String intern pool, is a special memory area in Java's heap memory. When you
-create a String using a string literal, Java first checks if an identical String already exists in the pool. If it does,
-Java returns a reference to that existing String instead of creating a new object. This mechanism helps conserve memory
-by reusing String objects. For example:
-
-```java
-String s1 = "Hello";
-String s2 = "Hello";
-System.out.println(s1 == s2); // This will print true
-```
-
-In this case, both `s1` and `s2` refer to the same String object in the pool.
-
-Q3: What's the difference between creating a String with and without the `new` keyword?
-A3:
-
-- Without `new` (string literal): `String s = "Hello";`
-  This checks the String pool and returns a reference to an existing String if one exists, or creates a new String in
-  the pool if it doesn't.
-- With `new`: `String s = new String("Hello");`
-  This always creates a new String object in heap memory, separate from the String pool.
-
-Here's an example to illustrate:
-
-```java
-String s1 = "Hello";
-String s2 = "Hello";
-String s3 = new String("Hello");
-
-System.out.println(s1 == s2);  // true (same object from String pool)
-System.out.println(s1 == s3);  // false (different objects)
-System.out.println(s1.equals(s3));  // true (same content)
-```
-
-Q4: What is String interning, and when would you use it?
-A4: String interning is the process of adding a String to the String pool. You can manually intern a String using the
-`intern()` method. This is useful when you have many String objects with the same content and want to save memory by
-ensuring only one instance exists in memory. Here's an example:
-
-```java
-String s1 = new String("Hello").intern();
-String s2 = "Hello";
-System.out.println(s1 == s2);  // true
-```
-
-You might use interning when working with a large number of Strings that are likely to have duplicate values, such as
-in data processing or when parsing large text files.
-
-Q5: How do you handle null or empty Strings in Java?
-A5: It's important to distinguish between null and empty Strings:
-
-```java
-String nullString = null;
-String emptyString = "";
-
-// Checking for null
-if (nullString == null) {
-    System.out.println("String is null");
-}
-
-// Checking for empty
-if (emptyString.isEmpty()) {
-    System.out.println("String is empty");
-}
-
-// Safe way to check for both null and empty
-if (emptyString == null || emptyString.isEmpty()) {
-    System.out.println("String is null or empty");
-}
-
-// Using Java 11+ isBlank() method (true for empty or whitespace-only; it does NOT check null, hence the null test)
-if (emptyString == null || emptyString.isBlank()) {
-    System.out.println("String is null, empty, or blank");
+static String[] importLine(byte[] line) {
+    return new String(line).split(";");
 }
 ```
 
-Always check for null before calling methods on a String to avoid NullPointerExceptions.
+```text
+$ java -Dfile.encoding=ISO-8859-1 Feed default asis
+default ISO-8859-1: Café crème 250 g, ganze Bohne | catalogue: 192 MB
+$ java Feed default asis
+default UTF-8:    Caf� cr�me 250 g, ganze Bohne | catalogue: 217 MB
+```
 
-These examples and explanations should provide a comprehensive understanding of String creation and initialization in
-Java, suitable for a senior Java engineer interview preparation.
+`new String(byte[])` decodes with the default charset. Up to Java 17 that came from the operating
+system's locale; since Java 18 it is UTF-8 by default on every platform (JEP 400). In UTF-8,
+`0xE9` opens a three-byte sequence and the next byte doesn't continue it, so there is no character to make.
+`new String` doesn't throw: on Java 21 it puts the replacement character U+FFFD (`�`) in its place
+and carries on. Nothing is logged. Every accented name reaches the database and the search index
+broken, and `�` can't be turned back into `é`.
+
+Name the charset the data is in, and decide what happens to bytes that aren't valid in it:
+
+```java
+byte[] latin1 = "Café Müller".getBytes(StandardCharsets.ISO_8859_1);  // é is 0xE9
+byte[] utf8 = "Café Müller".getBytes(StandardCharsets.UTF_8);         // é is 0xC3 0xA9
+Path latin1File = Files.write(Path.of("out", "latin1.txt"), latin1);
+
+show("new String(latin1)", () -> new String(latin1));
+show("new String(latin1, ISO_8859_1)", () -> new String(latin1, StandardCharsets.ISO_8859_1));
+show("new String(utf8, ISO_8859_1)", () -> new String(utf8, StandardCharsets.ISO_8859_1));
+show("REPORT decoder", () -> StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(latin1)).toString());
+show("Files.readString", () -> Files.readString(latin1File));
+```
+
+```text
+new String(latin1)              Caf� M�ller
+new String(latin1, ISO_8859_1)  Café Müller
+new String(utf8, ISO_8859_1)    CafÃ© MÃ¼ller
+REPORT decoder                  java.nio.charset.MalformedInputException: Input length = 1
+Files.readString                java.nio.charset.MalformedInputException: Input length = 3
+```
+
+Latin-1 has a character for every byte, so UTF-8 read as Latin-1 gives `Ã©` without an error, and
+`new String(bytes, charset)` replaces whatever it can't decode. A `CharsetDecoder` set to `REPORT`
+throws instead, and so do `Files.readString` and
+`Files.readAllLines`, which read UTF-8 unless told otherwise. At a boundary you want that: a feed in
+the wrong charset is rejected, not stored.
+
+Take the feed's charset from its header, byte order mark or contract, and pass it on. Charsets that
+look alike aren't: byte `0x80` is `€` in windows-1252 and a control character in ISO-8859-1.
+Encoding has its own trap: `getBytes(ISO_8859_1)` turns `€` into `?`.
+
+> **The old default can come back.** `-Dfile.encoding=COMPAT` on Java 18 or later restores the
+> locale's charset; with a `C` locale the default then read `US-ASCII`.
+
+<!-- practice 1 -->
+
+## A String Keeps Latin-1 Text at One Byte per Character, and One Character Beyond Latin-1 Doubles It
+
+Heap held per string, after a full GC, for 100,000 strings of 1,000 characters (each built with
+`new String(char[])`; the figures vary by a few bytes from run to run):
+
+```java
+String base = "a".repeat(LENGTH - 1);
+measure("1,000 x 'a'", base + "a");
+measure("999 x 'a' + 'é' (U+00E9)", base + "é");
+measure("999 x 'a' + '€' (U+20AC)", base + "€");
+measure("999 x 'a' + U+FFFD", base + "�");
+measure("empty", "");
+```
+
+```text
+1,000 x 'a'                 1,045 bytes per string
+999 x 'a' + 'é' (U+00E9)    1,044 bytes per string
+999 x 'a' + '€' (U+20AC)    2,042 bytes per string
+999 x 'a' + U+FFFD          2,045 bytes per string
+empty                          23 bytes per string
+```
+
+Since Java 9 (JEP 254, compact strings) a `String` keeps its characters in a `byte[]` in one of
+two encodings, chosen for the whole string when it is created. If every character is at most
+U+00FF, it uses Latin-1, one byte per character. Otherwise it uses UTF-16, two bytes for every
+character. `é` is inside Latin-1 and costs nothing extra. `€` is not, and neither is U+FFFD: one of
+them moves all 1,000 characters to two bytes. The 40-odd bytes on top are the array's header (16)
+and the `String` object (24, the empty line: an empty string has no array of its own).
+
+Every accented product name got a U+FFFD and doubled; ASCII names didn't. That is the extra 25 MB.
+Heap size isn't UTF-8 size either: `é` takes two bytes in UTF-8 and one in the heap, and `€` three
+in UTF-8 and two in the heap, along with every other character of its string.
+
+> **Compact strings can be turned off.** `-XX:-CompactStrings` stores every string as UTF-16: all four long strings above
+> then measured about 2,050 bytes.
+
+<!-- practice 2 -->
+
+## Equal Strings Built at Run Time Are Separate Objects; intern() Shares One Only with Code That Keeps Its Result
+
+With the charset named, the catalogue holds about 192 MB again, and half of it is two fields. `split` creates
+new strings at run time (unit 1.1.2), so each row has its own `"EUR"` and its own `"DE"`: about 48
+bytes each, two million of them.
+
+The JVM keeps one table of shared strings, the string pool, and every string literal refers to a
+string in it, which is why equal literals are one object. `s.intern()` looks `s` up there and
+returns the pooled string with the same characters, adding `s` if there is none. It can't change
+`s`, because nothing can change a `String` (next section). The feed, with four ways to load the
+two codes, the last through a `HashMap<String, String> table`:
+
+```java
+case "asis" -> s -> s;
+case "dropped" -> s -> { s.intern(); return s; };
+case "intern" -> String::intern;
+case "map" -> s -> { String c = table.putIfAbsent(s, s); return c == null ? s : c; };
+```
+
+```text
+codes asis:       Café crème 250 g, ganze Bohne | catalogue: 191 MB
+codes dropped:    Café crème 250 g, ganze Bohne | catalogue: 192 MB
+codes intern:     Café crème 250 g, ganze Bohne | catalogue: 96 MB
+codes map:        Café crème 250 g, ganze Bohne | catalogue: 95 MB
+```
+
+`s.intern();` as a statement returned the pooled `"EUR"` and threw it away; the row kept its own
+copy. A `HashMap` from each string to itself does the same job and belongs to the component: it
+goes away with the catalogue, and its size counts the distinct codes.
+
+Interning every field, as proposed, does nothing for values that are unique, such as SKUs. A
+million distinct ids, interned and kept, as `jcmd <pid> VM.stringtable` reports them:
+
+```text
+Number of entries       :   1000026 =  16000416 bytes, each 16
+Number of literals      :   1000026 =  55921800 bytes, avg  55.000
+```
+
+Each id got a 16-byte table entry outside the heap, on top of the string itself, and shared
+nothing. With the list dropped and a GC, the `Number of literals` bytes fell to 1,736: the
+collector reclaims pooled strings that nothing refers to, and the table clears their entries in the
+background. Intern or map the fields with few distinct values, never the ids.
+
+<!-- practice 3 -->
+
+## A String Copies What It Is Built From, So Nothing Changes It Afterwards
+
+A fixed-width reader fills one `char[]` buffer per line and cuts its fields out of it:
+
+```java
+char[] buffer = "ORD-7;EUR;DE".toCharArray();
+String id = new String(buffer, 0, 5);
+String currency = new String(buffer, 6, 3);
+Arrays.fill(buffer, 'x');                       // the reader reuses its buffer for the next line
+System.out.println(id + " " + currency + " | buffer now " + new String(buffer));
+```
+
+```text
+ORD-7 EUR | buffer now xxxxxxxxxxxx
+```
+
+The constructor copied the characters, so refilling the buffer doesn't reach the fields. Every
+constructor that takes an array copies it, and `toCharArray()` hands out a copy too. No code
+outside `java.lang` holds a reference to a string's array, so a `String` can't change once it
+exists. The third argument is a count, not an end index: `new String(chars, 6, 9)` on the same
+12 characters throws `StringIndexOutOfBoundsException: Range [6, 6 + 9) out of bounds for length 12`.
+
+The copy costs memory: a `String` built from a million Latin-1 characters allocated 1,000,040 bytes. Because the text
+can't change, a `String` computes its hash code once and keeps it: on 100 million characters the
+first `hashCode()` took 73,322 µs and the second 0 µs.
+
+A password in a `String` can't be erased: it stays in the heap until the memory is reused, and a
+heap dump shows it. That is why `Console.readPassword()` returns a `char[]`, which
+its javadoc tells the caller to zero after use.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **Bytes become text only through a charset.** `new String(bytes)` uses the default, UTF-8 since
+  Java 18, and silently replaces what it can't decode; name the charset, and use a `REPORT` decoder
+  where bad input must be rejected.
+- **A string is Latin-1 at one byte per character or UTF-16 at two.** One character above U+00FF,
+  a U+FFFD included, doubles the whole string.
+- **Strings built at run time are separate objects.** `intern()` or a map shares one copy only
+  where the code stores what it returns, and pays only for fields with few distinct values.
+- **A `String` copies what it is built from and never changes.** Its fields are safe from the
+  buffer it came from, its hash is computed once, and a secret in it can't be wiped.
+
+## Reference
+
+**Building a `String` (Java 21):**
+
+| Call | What you get |
+|---|---|
+| `"EUR"` | the pooled object, the same for every equal literal |
+| `new String(s)` | a new object sharing `s`'s array: 24 bytes allocated for a million-character `s` |
+| `new String(char[])`, `new String(char[], offset, count)`, `String.valueOf(char[])` | a copy of the characters |
+| `new String(byte[])` | decoded with the default charset; the javadoc leaves invalid bytes unspecified |
+| `new String(byte[], Charset)` | invalid bytes replaced with U+FFFD |
+| `s.intern()` | the pooled string with `s`'s characters; `s` itself is added if there is none |
+| `s.toCharArray()` | a copy; changing it leaves `s` as it was |
+
+**Decoding and encoding:**
+
+| Call | Bytes or characters the charset can't handle |
+|---|---|
+| `new String(bytes, cs)`, `new InputStreamReader(in, cs)` | replaced with U+FFFD |
+| `cs.newDecoder().onMalformedInput(CodingErrorAction.REPORT)` | `MalformedInputException` |
+| `Files.readString`, `Files.readAllLines`, `Files.newBufferedReader` | `MalformedInputException`; UTF-8 unless a charset is passed |
+| `s.getBytes(cs)` | characters it can't encode replaced with `?` |
+| `s.getBytes(ISO_8859_1)` of `€`, byte `0x80` decoded | `?` (63); `0x80` is `€` in windows-1252, U+0080 in ISO-8859-1 |
+
+## Challenges
+
+1. Your API decodes request bodies with the charset in the `Content-Type` header. What do you do
+   when the header names a charset the JVM doesn't support, or none at all?
+2. A heap dump shows a third of the heap in strings' `byte[]` arrays. How do you tell whether
+   duplicates, UTF-16 strings or plain volume are the cause, and what would each fix cost?
+3. Measure `intern()` against a `HashMap` canonicalizer for 10 million lookups, once with 50
+   distinct values and once with 10 million. Then try `-XX:+UseStringDeduplication` on the
+   feed: what does it save, and does `==` between two equal codes change?
+
+## Design Note: Why a String Can Never Change
+
+Java shares one string between unrelated code. The pool hands one `"EUR"` to every literal in every class, a
+`HashMap` files a `String` key under a hash it computed once, and a security check validates a file
+name before the code opens it. Each is safe only because nobody can change the string afterwards:
+the class is `final` and nothing hands its array out.
+
+The cost falls on code that builds text: every change is a new string, which units 1.4.2 and
+1.4.5 deal with, and a secret can't be erased. Compact strings rely on the same choice: a string's
+encoding is fixed when it is created, because nothing can later add a character that doesn't fit.
 
 ## Code Examples
 

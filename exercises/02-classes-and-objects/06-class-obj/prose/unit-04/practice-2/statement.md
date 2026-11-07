@@ -1,28 +1,10 @@
-Constructors are not inherited: a subclass constructor starts by calling a
-superclass constructor with `super(...)`. The page lists **forgetting to call
-`super(...)`** as a pitfall. If you leave it out, Java quietly calls the no-argument
-constructor instead, and the superclass's own checks are skipped. `protected`
-members of the superclass are visible to the subclass.
+The price cache is a `TreeMap` from SKU to price in cents, and the cache dashboard plots how many
+prices callers write. Other code uses the cache as a `NavigableMap`, so it has to stay a
+`TreeMap`. Prices arrive one at a time through `put`, and in batches through `putAll`: the
+nightly reload copies yesterday's sorted snapshot into a fresh cache, and the pricing service
+sends whatever map it has built.
 
-Write `Vehicle` and its nested static subclass `Vehicle.Truck`:
-
-`Vehicle`:
-
-- `protected Vehicle()` makes an unregistered vehicle, whose plate is `UNREGISTERED`;
-- `Vehicle(String plate)` refuses a `null` or blank plate with
-  `IllegalArgumentException`;
-- `getPlate()`, and a `protected` field or getter subclasses may use.
-
-`Truck(String plate, int capacityTonnes)` extends `Vehicle`:
-
-- it is registered with the plate through the superclass's checks;
-- a capacity below `1` is refused with `IllegalArgumentException`;
-- `getCapacity()`, and `describe()` returns `Truck <plate> (<capacity>t)`.
-
-**Examples**
-
-```
-new Vehicle.Truck("AB-123", 12).describe()  -> "Truck AB-123 (12t)"
-new Vehicle.Truck(" ", 12)                  -> IllegalArgumentException
-new Vehicle.Truck("AB-123", 0)              -> IllegalArgumentException
-```
+Finish the two `TODO`s in `src/main/java/practice/CountingStore.java`, `put` and `putAll`, so that
+the cache stores prices exactly as a `TreeMap` does and `writes()` counts one write per entry
+written, overwrites included, for any batch, sorted or not, into an empty cache or a full one.
+About six lines in total.

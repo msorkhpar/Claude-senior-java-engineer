@@ -1,23 +1,13 @@
-Cleanup that must happen whatever the outcome belongs in a `finally` block. A
-`java.util.concurrent.locks.ReentrantLock` is not `AutoCloseable`, so try-with-resources cannot
-release it: that is still `finally`'s job.
+The nightly reconciliation export holds an export lock while it queries the ledger and writes the
+file. Three problems reached the on-call engineer this month:
 
-Write the class `Vault`, holding a balance behind a lock:
+- an alert read `quota exceeded on /exports`, and the ledger's timeout that actually ended the
+  run only turned up the next day, in the database's own log;
+- after one such night, no export started again until the service was restarted;
+- one file was missing its last rows, and the run had reported success.
 
-- `Vault(int balance)` starts with that balance (which may be negative, for an overdrawn vault);
-- `int withdraw(int amount)` takes the lock, releases it in `finally`, and:
-  - throws `IllegalArgumentException("amount must be positive")` when `amount <= 0`;
-  - throws `IllegalStateException("insufficient funds")` when `amount` is more than the balance;
-  - otherwise lowers the balance by `amount` and returns the new balance;
-- `int balance()` returns the balance, and `boolean isLocked()` says whether the lock is held.
-
-| calls on `new Vault(100)` | answer |
-|---|---|
-| `withdraw(30)` | `70` |
-| then `isLocked()` | `false` |
-| then `withdraw(500)` | throws `IllegalStateException("insufficient funds")` |
-
-The tests run on one thread, so they make no thread-safety claim (which statements sit inside the
-locked region is not graded); they check what one caller sees: the results above, and that however
-`withdraw` ends, the lock is free afterwards and a refused withdrawal leaves the balance as it was,
-whatever the numbers (compare `amount` with the balance; a subtraction can overflow).
+`run(...)` already passes `release(...)` whatever ended the export. Finish `release(...)` in
+`src/main/java/practice/ReconciliationExport.java`, which closes the writer and releases the
+lock, so that none of the three can happen again: the caller of `run(...)` gets the failure that
+ended the export, with any failure of the close kept on it, a failure of the close alone is not
+hidden, and the lock is free afterwards whatever failed. About eight lines.

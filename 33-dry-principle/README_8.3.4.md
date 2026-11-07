@@ -1,269 +1,323 @@
 # 8.3.4. Balancing DRY with Other Principles (e.g., SRP)
 
-## Concept Explanation
+On Monday the catalog import rejects every product whose name holds an inch mark, such as
+`Monitor 27"`. Friday's deploy changed only the bank-statement import: the bank had started
+putting payee names in quotes, and the bank team's tests passed. Nobody on that team opened the
+catalog code. Both imports call one method, `Fields.split`, extracted a year earlier because the
+two importers had the same loop.
 
-DRY is a powerful principle, but applying it too aggressively can conflict with other important principles -- particularly SRP (Single Responsibility Principle), KISS (Keep It Simple, Stupid), and YAGNI (You Ain't Gonna Need It). Balancing DRY means knowing **when to extract** and **when to tolerate duplication**.
+Removing duplication (DRY) and keeping each actor's rules apart (SRP, unit 8.1.1) pull against each
+other when two pieces of code look alike.
 
-**Real-world analogy**: A Swiss Army knife combines a blade, screwdriver, corkscrew, and scissors into one tool. It's DRY -- one tool instead of four. But a surgeon, electrician, sommelier, and tailor each prefer their own specialized tool because their requirements diverge. Over-DRYing by forcing everyone to use the Swiss Army knife sacrifices effectiveness for generality.
+## Merging Look-Alike Code Ties Two Formats Together, and a Change for One Breaks the Other
 
-The key tensions:
-- **DRY vs. SRP**: Extracting shared logic into a utility can couple unrelated domains. If `calculateTax()` and `calculateCommission()` look identical today but serve different business rules, merging them violates SRP.
-- **DRY vs. KISS**: An elaborate generic abstraction to eliminate two lines of duplication adds complexity that hurts readability.
-- **DRY vs. YAGNI**: Abstracting after seeing only one instance is premature -- the Rule of Three says wait.
-
-## Key Points to Remember
-
-- **Incidental duplication** (code looks similar but represents different domain concepts) should NOT be eliminated.
-- **Intentional duplication** (same business rule in multiple places) SHOULD be eliminated.
-- The **Rule of Three** heuristic: tolerate duplication until you see it three times.
-- Ask: "If one copy changes, must the other change too?" If yes, it's a DRY violation. If no, it's incidental.
-- Shared validation utilities (null checks, range checks) are good DRY candidates -- they're truly cross-cutting.
-- Domain-specific validators that USE those utilities respect both DRY and SRP.
-- Over-DRY creates **wrong abstractions** -- harder to fix than duplication.
-
-## Relevant Java 21 Features
-
-- **Records**: Separate records for `EmployeeAddress` and `CustomerAddress` even if they look identical -- they represent different domains that may diverge.
-- **Pattern matching for switch**: Reduces type-checking boilerplate without creating artificial shared abstractions.
-- **Sealed classes**: Enable exhaustive matching, reducing the need for generic catch-all utilities.
-- **Default methods in interfaces**: Allow shared behavior in a type-safe way that respects interface segregation.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Merging unrelated business rules into a "generic" method**
-   ```java
-   // OVER-DRY: Couples tax and discount logic
-   double genericCalculation(double amount, double rate, boolean isTax) {
-       return isTax ? amount * (1 + rate) : amount * (1 - rate);
-   }
-   ```
-   **Solution**: Keep `calculateTax()` and `calculateDiscount()` separate -- they're different business rules.
-
-2. **Creating deeply generic utilities for two use cases**
-   ```java
-   // OVER-DRY: GenericProcessor<T,R,S,U> after seeing two similar methods
-   ```
-   **Solution**: Wait for the Rule of Three before abstracting.
-
-3. **Sharing validation logic across incompatible domains**
-   ```java
-   // Validator handles orders, employees, invoices -- too many responsibilities
-   ```
-   **Solution**: Use shared primitive utilities (`isNonBlank`, `isPositive`) but domain-specific validators.
-
-4. **Premature abstraction that becomes a bottleneck**
-   ```java
-   // A "universal data accessor" that wraps every database call
-   // Now every team depends on it and can't optimize for their use case
-   ```
-   **Solution**: Only abstract when the duplication is proven harmful and the abstraction is stable.
-
-## Best Practices and Optimization Techniques
-
-1. **Layer your abstractions**: Low-level utilities (`isNonBlank`, `isInRange`) are safe to share. Domain validators use them but encapsulate domain rules.
-2. **Use the Rule of Three**: First and second occurrence -- note the similarity. Third occurrence -- extract.
-3. **Ask the coupling question**: "Will these two uses always change together?" If yes, extract. If maybe, wait.
-4. **Prefer composition over inheritance for DRY**: Compose behaviors with lambdas and utility methods rather than creating deep inheritance hierarchies.
-5. **Review abstractions periodically**: An extraction that made sense a year ago may now be a wrong abstraction that should be inlined.
-
-## Edge Cases and Their Handling
-
-1. **Negative amounts in domain calculations**: Each domain validator handles its own edge cases -- don't force them into a shared validator.
-2. **Boundary rates (0.0, 1.0)**: Tax rate of 0 and 1 are valid; discount rate of 0 and 1 are valid but have different semantics.
-3. **Null inputs to shared utilities**: `ValidationUtils.isNonBlank(null)` returns `false` rather than throwing -- defensive design for cross-cutting utilities.
-4. **Empty error lists from validators**: An empty list means validation passed -- no errors.
-5. **Conflicting validation rules across domains**: `OrderValidator` allows quantity up to 10000; `InventoryValidator` might have a different limit -- separate validators prevent forced unification.
-
-## Interview-specific Insights
-
-Interviewers focus on:
-- Your ability to distinguish incidental from intentional duplication
-- Whether you can articulate when DRY harms rather than helps
-- Knowledge of the Rule of Three and when to apply it
-- How you balance DRY with SRP in real codebases
-- Awareness of wrong abstractions and their cost
-
-Tricky questions:
-- "Two methods have identical code. Should you always extract?" (No -- if they serve different domains, they may diverge independently.)
-- "When is duplication better than abstraction?" (When the code serves different purposes, when you've only seen it once or twice, when the abstraction would be more complex than the duplication.)
-- "How do you decide when to refactor duplicated code?" (Rule of Three, coupling analysis, domain boundary analysis.)
-
-## Interview Q&A Section
-
-**Q1: When should you NOT eliminate code duplication?**
-
-```text
-A1: You should tolerate duplication when:
-
-1. It's incidental (structural similarity, different business domains). Tax calculation
-   and commission calculation may look identical but represent different rules.
-2. You've seen it fewer than three times (Rule of Three). Premature abstraction is
-   worse than small-scale duplication.
-3. The abstraction would be more complex than the duplication. A 3-line duplicated
-   snippet is better than a 30-line generic framework.
-4. The duplicated code serves different stakeholders who may change it independently.
-5. Coupling the two would violate SRP -- a shared utility serving unrelated domains
-   becomes a maintenance burden.
-
-The key question: "If one copy changes, must the other change too?" If the answer
-is "not necessarily," keep them separate.
-```
+The bank's statement file has a date, a payee and an amount on each line; the supplier's product
+feed has a name and a price. Both importers split a line on commas and stripped the spaces, so a
+developer moved that loop into one class:
 
 ```java
-// INCIDENTAL duplication -- keep separate
-// Tax and discount may diverge: tax could add surcharges, discount could add tiers
-double calculateTax(double amount, double rate) { return amount * (1 + rate); }
-double calculateDiscount(double amount, double rate) { return amount * (1 - rate); }
+import java.util.ArrayList;
+import java.util.List;
 
-// INTENTIONAL duplication -- extract
-// Same bulk discount rule used in two contexts
-double applyBulkDiscount(double price, int qty) {
-    if (qty >= 100) return price * 0.80;
-    if (qty >= 50)  return price * 0.90;
-    if (qty >= 10)  return price * 0.95;
-    return price;
-}
-```
+/** Extracted from StatementImport and CatalogImport, which had the same loop. */
+final class Fields {
+    private Fields() {}
 
-**Q2: How do you balance DRY with SRP?**
-
-```text
-A2: DRY says "don't duplicate knowledge." SRP says "each class has one reason to change."
-They conflict when extracting shared logic couples unrelated domains.
-
-The solution is layered abstraction:
-1. Low-level utilities (isNonBlank, isPositive, isInRange) are truly cross-cutting
-   and safe to share. They're DRY without violating SRP because they have one
-   responsibility: primitive validation.
-2. Domain validators (OrderValidator, EmployeeValidator) USE the shared utilities
-   but encapsulate domain-specific rules. Each has one responsibility: validating
-   its domain.
-
-This way, the validation primitives are DRY (written once), and the domain validators
-respect SRP (each validates one domain).
-```
-
-```java
-// Shared utilities -- DRY, single responsibility: primitive checks
-class ValidationUtils {
-    static boolean isNonBlank(String s) { return s != null && !s.isBlank(); }
-    static boolean isPositive(Number n) { return n != null && n.doubleValue() > 0; }
-}
-
-// Domain validators -- SRP, each validates one domain
-class OrderValidator {
-    List<String> validate(String customerId, double amount, int quantity) {
-        List<String> errors = new ArrayList<>();
-        if (!ValidationUtils.isNonBlank(customerId)) errors.add("Customer ID required");
-        if (!ValidationUtils.isPositive(amount)) errors.add("Amount must be positive");
-        if (quantity > 10000) errors.add("Quantity exceeds max");
-        return errors;
+    static List<String> split(String line) {
+        List<String> out = new ArrayList<>();
+        for (String f : line.split(",", -1)) out.add(f.strip());
+        return out;
     }
 }
 ```
 
-**Q3: What is the Rule of Three and why does it matter?**
+```java
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
 
-```text
-A3: The Rule of Three says: don't abstract until you see duplication at least three times.
+/** One line of the bank's statement file: date, payee, amount. */
+public class StatementImport {
+    public record Entry(LocalDate date, String payee, BigDecimal amount) {}
 
-Rationale:
-1. First time: Just write it. You don't know yet if it's a pattern.
-2. Second time: Note the similarity but tolerate it. Two instances might be coincidence.
-3. Third time: Now you have evidence of a real pattern. Extract with confidence.
-
-Why it matters:
-- Premature abstraction creates wrong abstractions that are hard to undo.
-- Wrong abstractions couple unrelated code through a shared dependency.
-- The Rule of Three balances DRY with KISS and YAGNI.
-- By the third occurrence, you understand the pattern well enough to create
-  an abstraction that actually fits all use cases.
+    public static Entry parse(String line) {
+        List<String> f = Fields.split(line);
+        return new Entry(LocalDate.parse(f.get(0)), f.get(1), new BigDecimal(f.get(2)));
+    }
+}
 ```
+
+`CatalogImport.parse` builds an `Item(name, price)` the same way. Each team has a check; the bank's
+already uses the new quoted format:
 
 ```java
-// First: order summary
-// (Locale.ROOT keeps "." as the decimal separator of a "$" amount on any machine)
-String formatOrderSummary(String id, String desc, double total) {
-    return String.format(Locale.ROOT, "[%s] %s - $%.2f", id, desc, total);
-}
-// Second: invoice summary -- looks similar, keep separate for now
-String formatInvoiceSummary(String num, String client, double amount) {
-    return String.format(Locale.ROOT, "[%s] %s - $%.2f", num, client, amount);
-}
-// Third: receipt summary -- NOW extract!
-String formatSummary(String identifier, String description, double amount) {
-    return String.format(Locale.ROOT, "[%s] %s - $%.2f", identifier, description, amount);
+import java.util.function.Supplier;
+
+public class Checks {
+    public static void main(String[] args) {
+        check("bank: payee with a comma", "2026-03-02 | ACME, Inc. | -120.00", () -> {
+            var e = StatementImport.parse("2026-03-02,\"ACME, Inc.\",-120.00");
+            return e.date() + " | " + e.payee() + " | " + e.amount();
+        });
+        check("catalog: 27\" monitor", "Monitor 27\" | 199.00", () -> {
+            var i = CatalogImport.parse("Monitor 27\",199.00");
+            return i.name() + " | " + i.price();
+        });
+    }
+
+    static void check(String name, String expected, Supplier<String> run) {
+        String actual;
+        try { actual = run.get(); } catch (RuntimeException e) { actual = e.toString(); }
+        System.out.println(expected.equals(actual)
+                ? "ok      " + name
+                : "FAILED  " + name + ": expected " + expected + ", got " + actual);
+    }
 }
 ```
 
-**Q4: What is a "wrong abstraction" and how do you fix it?**
-
-```text
-A4: A wrong abstraction is an extraction that doesn't fit all its use cases.
-It accumulates boolean flags, type checks, and special cases to handle the
-differences between consumers -- becoming more complex than the original duplication.
-
-Signs of a wrong abstraction:
-1. Boolean parameters controlling behavior: genericCalc(amount, rate, isTax)
-2. Growing switch/if chains inside the shared method
-3. Consumers working around the abstraction with pre/post-processing
-4. Every change requires modifying the shared utility and all its callers
-
-How to fix it:
-1. Inline the abstraction back into the callers (undo the DRY)
-2. Identify the true common parts vs. the varying parts
-3. Use composition (lambdas, strategy pattern) instead of flags
-4. Or accept that the code isn't truly duplicated and keep it separate
-
-As Sandi Metz says: "Duplication is far cheaper than the wrong abstraction."
-```
+Split on every comma, `ACME, Inc.` becomes two fields, and the bank check fails with a
+`NumberFormatException`. The bank developer fixes `Fields.split`:
 
 ```java
-// WRONG ABSTRACTION: boolean flag switches behavior
-double genericCalc(double amount, double rate, boolean isTax) {
-    return isTax ? amount * (1 + rate) : amount * (1 - rate);
-}
+import java.util.ArrayList;
+import java.util.List;
 
-// FIX: Separate methods -- cleaner, independent evolution
-double calculateTax(double amount, double taxRate) {
-    return amount * (1 + taxRate);
-}
-double calculateDiscount(double amount, double discountRate) {
-    return amount * (1 - discountRate);
+/** Extracted from StatementImport and CatalogImport, which had the same loop. */
+final class Fields {
+    private Fields() {}
+
+    static List<String> split(String line) {
+        List<String> out = new ArrayList<>();
+        StringBuilder field = new StringBuilder();
+        boolean quoted = false;
+        for (char c : line.toCharArray()) {
+            if (c == '"') quoted = !quoted;                   // new: the bank quotes payees
+            else if (c == ',' && !quoted) { out.add(field.toString().strip()); field.setLength(0); }
+            else field.append(c);
+        }
+        out.add(field.toString().strip());
+        return out;
+    }
 }
 ```
 
-**Q5: How do records help distinguish incidental from intentional duplication?**
+Which check fails now?
 
 ```text
-A5: Java records make it explicit that two similar-looking data structures represent
-different domain concepts. Even if EmployeeAddress and CustomerAddress have the same
-fields (street, city, zipCode), making them separate records:
-
-1. Signals they are different domain types that may diverge.
-2. Enables type-safe method signatures: void ship(CustomerAddress a) won't accept
-   an EmployeeAddress.
-3. Each can evolve independently: CustomerAddress might add shippingPreference,
-   EmployeeAddress might add department.
-4. Pattern matching treats them as distinct types.
-
-This is incidental duplication that SHOULD be preserved -- records make the intent
-clear. If they truly represent the same concept, use one record for both.
+ok      bank: payee with a comma
+FAILED  catalog: 27" monitor: expected Monitor 27" | 199.00, got java.lang.IndexOutOfBoundsException: Index 1 out of bounds for length 1
 ```
+
+The supplier's feed quotes nothing, so the `"` in `27"` is an inch mark. The new loop read it as an
+opening quote, took the comma after it as part of the name, and returned one field.
+
+The two loops were the same text for two file formats, one owned by the bank and one by the
+supplier. Unit 8.3.1's test (must one copy change when the other does?) answered no before the
+extraction. In unit 8.1.1's terms, `Fields` answers to two actors.
+
+## A Flag for Each Caller Keeps the Method Shared, and Every Change Must Be Checked Against Both
+
+The fix that keeps `Fields` is a parameter: `split(line, quotes)`, `true` from the bank, `false`
+from the catalog. Both checks pass. Next the supplier moves its feed to `;` with decimal commas,
+`Monitor 27";199,00;SPRING`, where the last field is a promo code and is often empty; `split` gets
+a `sep` parameter. Meanwhile the bank's importer has started rejecting any line without exactly
+three fields (`if (f.size() != 3) throw ...`). Then the bank's file starts ending every line with a
+`,`, as in `2026-03-02,"ACME, Inc.",-120.00,`, and every bank line is rejected. An empty last field
+looked like noise in any file, so that change went in without a flag:
 
 ```java
-// Incidental duplication -- keep separate records
-record EmployeeAddress(String street, String city, String zipCode) {
-    String format() { return street + ", " + city + " " + zipCode; }
-}
-record CustomerAddress(String street, String city, String zipCode) {
-    String format() { return street + ", " + city + " " + zipCode; }
-}
+import java.util.ArrayList;
+import java.util.List;
 
-// Type safety: can't accidentally pass employee address to shipping
-void shipOrder(CustomerAddress address) { /* ... */ }
-void sendPayslip(EmployeeAddress address) { /* ... */ }
+/** Extracted from StatementImport and CatalogImport, which had the same loop. */
+final class Fields {
+    private Fields() {}
+
+    /** sep: the catalog's feed moved to ';'.  quotes: only the bank quotes its fields. */
+    static List<String> split(String line, char sep, boolean quotes) {
+        List<String> out = new ArrayList<>();
+        StringBuilder field = new StringBuilder();
+        boolean quoted = false;
+        for (char c : line.toCharArray()) {
+            if (quotes && c == '"') quoted = !quoted;
+            else if (c == sep && !quoted) { out.add(field.toString().strip()); field.setLength(0); }
+            else field.append(c);
+        }
+        out.add(field.toString().strip());
+        // new: the bank's file now ends every line with a separator, and an empty last field is never data
+        if (out.get(out.size() - 1).isEmpty()) out.remove(out.size() - 1);
+        return out;
+    }
+}
 ```
+
+The checks now read the new formats, and the catalog has a third: `Desk lamp;49,90;`, a product
+with no promo code.
+
+```text
+ok      bank: payee with a comma
+ok      catalog: 27" monitor
+FAILED  catalog: no promo code: expected Desk lamp | 49.90 | , got java.lang.IndexOutOfBoundsException: Index 2 out of bounds for length 2
+```
+
+For the catalog an empty last field is data: no promo. The repair that keeps the method is a fourth
+parameter, `boolean dropTrailingEmpty`, guarding that line. All three checks pass, and the call
+sites read:
+
+```java
+List<String> f = Fields.split(line, ',', true, true);       // StatementImport
+List<String> f = Fields.split(line, ';', false, false);     // CatalogImport
+```
+
+`quotes` and `dropTrailingEmpty` are `true` only for the bank, and the value `;` comes only from the
+catalog. A parameter value that only one caller passes is that caller's rule written inside shared
+code.
+
+A flag separates the callers only where the body reads it: the drop line sat outside every flag,
+so it ran for both, and a line added inside a branch runs for every caller that takes that branch.
+Every later change must now choose between "for everyone" and "another flag" by reading both
+callers' formats. A wrong choice breaks the other import, and its tests catch it only if they hold
+the case: without the desk lamp, the catalog checks pass and every product without a promo code is
+rejected in production.
+
+## Inlining the Method Back Gives Each Format Its Own Code, and All Checks Pass
+
+Inlining reverses the extraction. Copy the method's body into each caller, replace each parameter
+with the value that caller passes, and delete what can no longer run. For the bank, `sep` becomes
+`','` and both flags become `true`, so the body stays as it is:
+
+```java
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+
+/** One line of the bank's statement file: date, payee, amount. */
+public class StatementImport {
+    public record Entry(LocalDate date, String payee, BigDecimal amount) {}
+
+    public static Entry parse(String line) {
+        List<String> f = fields(line);
+        if (f.size() != 3) throw new IllegalArgumentException("expected 3 fields, got " + f.size());
+        return new Entry(LocalDate.parse(f.get(0)), f.get(1), new BigDecimal(f.get(2)));
+    }
+
+    /** The bank's format: ',' between fields, payees in quotes, a ',' after the last field. */
+    private static List<String> fields(String line) {
+        List<String> out = new ArrayList<>();
+        StringBuilder field = new StringBuilder();
+        boolean quoted = false;
+        for (char c : line.toCharArray()) {
+            if (c == '"') quoted = !quoted;
+            else if (c == ',' && !quoted) { out.add(field.toString().strip()); field.setLength(0); }
+            else field.append(c);
+        }
+        out.add(field.toString().strip());
+        if (out.get(out.size() - 1).isEmpty()) out.remove(out.size() - 1);
+        return out;
+    }
+}
+```
+
+For the catalog both flags are `false`, so the quote branch and the line that drops an empty last
+field never run. What remains is a split on `;`, which `String.split(";", -1)` does, with each
+field then stripped:
+
+```java
+import java.math.BigDecimal;
+
+/** One line of the supplier's product feed: name; price with a decimal comma; promo code, often empty. */
+public class CatalogImport {
+    public record Item(String name, BigDecimal price, String promo) {}
+
+    public static Item parse(String line) {
+        String[] f = line.split(";", -1);
+        return new Item(f[0].strip(), new BigDecimal(f[1].strip().replace(',', '.')), f[2].strip());
+    }
+}
+```
+
+`Fields` is deleted, and the same checks print:
+
+```text
+ok      bank: payee with a comma
+ok      catalog: 27" monitor
+ok      catalog: no promo code
+```
+
+The `-1` matters: with no limit, `split` drops trailing empty strings, and the desk lamp line
+throws again.
+
+<!-- practice 1 -->
+
+## The Rule of Three Is a Heuristic for When You Can't Yet Tell
+
+The usual guard against early extraction is the rule of three, which Martin Fowler's *Refactoring*
+attributes to Don Roberts: write it once, tolerate a second copy, refactor at the third. Two copies
+that agree show little about which of their parts will vary; a third shows more before you choose
+parameters.
+
+The count decides nothing when you already know the answer. A second copy of one rule, such as
+unit 8.3.1's username check, gets one home at once, because the copies must change together and the
+next fix would reach only one of them. Three importers that each split a line are three formats,
+and the third copy is no reason to merge them.
+
+<!-- practice 2 -->
+
+## Summary
+
+- **Merging look-alike code ties two formats together.** The bank's quote handling, made in the
+  shared `Fields.split`, broke every catalog line with an inch mark.
+- **A flag for each caller keeps the method shared and makes every change answer to both.** A
+  parameter only one caller sets is that caller's rule; a change that skips the flag breaks the
+  other import, as the trailing-field change did.
+- **Inlining back gives each format its own code.** Copy the body into each caller, substitute the
+  caller's arguments, delete the dead branches; the bank keeps its loop, the catalog becomes one
+  `split`, and all checks pass.
+- **The rule of three is a heuristic.** One rule gets one home at the second copy; look-alike
+  copies of different rules stay apart at any count.
+
+## Reference
+
+What the checks printed for each shape of the code (the first two rows use the comma feed, the rest
+the `;` feed):
+
+| Shape | bank: payee with a comma | catalog: `27"` monitor | catalog: no promo code |
+|---|---|---|---|
+| shared `split(line)`, comma split | FAILED, `NumberFormatException` | ok | — |
+| shared `split(line)`, quote handling added for the bank | ok | FAILED, one field | — |
+| shared `split(line, sep, quotes)`, empty last field dropped for all | ok | ok | FAILED, two fields |
+| shared `split(line, sep, quotes, dropTrailingEmpty)` | ok | ok | ok |
+| inlined into each importer | ok | ok | ok |
+
+| Expression (Java 21) | Result |
+|---|---|
+| `"Desk lamp;49,90;".split(";")` | `[Desk lamp, 49,90]`: trailing empty strings removed |
+| `"Desk lamp;49,90;".split(";", -1)` | `[Desk lamp, 49,90, ]`: three elements, the last one `""` |
+
+## Challenges
+
+1. The bank's next format writes a quote inside a payee as `""`. Change `StatementImport.fields` for
+   it. Which check could that change break now, and which could it have broken while `Fields` was
+   shared?
+2. A payroll import arrives: `,`-separated, quoted names, no trailing separator. Copy the bank's
+   `fields`, or extract a CSV reader both use? Name each parameter that reader would take, and who
+   would ask for changes to it.
+3. Find a method with a boolean parameter in a codebase you know, and list its callers with the
+   value each passes. Which flags does only one caller set, and what would inlining the method into
+   that caller remove?
+
+## Design Note: Why a Wrong Abstraction Outlives Its Use
+
+Sandi Metz described the pattern in "The Wrong Abstraction" (2016): each developer who meets the
+shared method takes its existence as proof that it is right, and adding one more parameter looks
+cheaper than undoing a colleague's work. Her advice is the one this page ran: inline the code back
+into every caller, delete what each caller doesn't need, then look again for what is common.
+
+Inlining has a cost of its own. If the bank and the payroll file both follow one published CSV
+specification, their quoting is one rule, and two copies of it can drift as unit 8.3.1's username
+checks did. Inlining swaps one risk for another, a shared rule fixed in only one copy, and the
+trade is right only when the copies answer to different owners.
 
 ## Code Examples
 

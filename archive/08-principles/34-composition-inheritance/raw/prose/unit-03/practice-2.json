@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Inject the sender and formatter a service composes",
+  "title": "Count stock calls without changing what callers see",
   "blocks": [
     {
       "type": "heading",
@@ -19,25 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Composition makes a service testable: it receives its parts through the constructor, so a test can hand it an in-memory sender that records what was sent. The page's design:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface NotificationSender {\n    boolean send(String recipient, String message);\n}\n\ninterface MessageFormatter {\n    String format(String template, Map<String, String> variables);\n}"
+      "text": "The shop's stock service wants a dashboard: how many stock calls succeed and how many fail. The warehouse store `MapStock` is one implementation of `Stock`; the checkout uses another, and the tests use fakes. `MeteredStock` wraps any of them and is itself a `Stock`, so the code that calls the stock doesn't change. The dashboard reads `succeeded()` and `failed()` while checkout threads are calling."
     },
     {
       "type": "para",
-      "text": "Both interfaces are given. Write `TemplateFormatter` and `NotificationService` in `Notifications`:"
+      "text": "The counters are in place. Finish `MeteredStock.level` and `MeteredStock.set` in `src/main/java/practice/Stocks.java`."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`TemplateFormatter.format` replaces **every** `${key}` with its value, and leaves a placeholder with no value as it is: `\"Hi ${name}, bye ${name}! ${missing}\"` with `name = Ann` is `\"Hi Ann, bye Ann! ${missing}\"`. A key is whatever lies between `${` and `}` (so `${user.name}` works), and a value is inserted exactly as it is: `$5` stays `$5`, and a value that looks like a placeholder, such as `${b}`, is not expanded again;",
-        "`new NotificationService(sender, formatter)` keeps **the parts it is given**, and `notify(recipient, template, variables)` formats with that formatter and sends with that sender. With a recording sender, `notify(\"admin\", \"Alert: ${event}\", {event=login})` sends `\"Alert: login\"` to `admin` and returns `true`;",
-        "`notify` returns what the sender returned, and counts it: `getSuccessCount()` counts sends that returned `true`, `getFailureCount()` those that returned `false`. The page keeps both counts in `AtomicInteger`s so concurrent calls can share the service; the tests here check the counts one call at a time, and do not grade that choice."
-      ]
+      "type": "para",
+      "text": "When you're done, a call through `MeteredStock` behaves exactly as a call to the stock it wraps: same answer, same exception. Every call is counted once, as a success if it returned and as a failure if it threw. Callers already catch `IllegalArgumentException` for a negative count, and some catch the exceptions their own store throws. About ten lines in total."
     },
     {
       "type": "heading",
@@ -52,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** A notification service composed from a formatter and a sender it is given. */\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface NotificationSender {\n        boolean send(String recipient, String message);\n    }\n\n    public interface MessageFormatter {\n        String format(String template, Map<String, String> variables);\n    }\n\n    /** Replaces every ${key} in the template with its value; unknown placeholders stay. */\n    public static final class TemplateFormatter implements MessageFormatter {\n        @Override\n        public String format(String template, Map<String, String> variables) {\n            StringBuilder out = new StringBuilder();\n            int from = 0;\n            while (true) {\n                int open = template.indexOf(\"${\", from);\n                int close = open < 0 ? -1 : template.indexOf('}', open + 2);\n                if (close < 0) {\n                    return out.append(template, from, template.length()).toString();\n                }\n                String value = variables.get(template.substring(open + 2, close));\n                out.append(template, from, open);\n                out.append(value != null ? value : template.substring(open, close + 1));\n                from = close + 1;\n            }\n        }\n    }\n\n    public static final class NotificationService {\n        private final NotificationSender sender;\n        private final MessageFormatter formatter;\n        private final AtomicInteger successCount = new AtomicInteger();\n        private final AtomicInteger failureCount = new AtomicInteger();\n\n        public NotificationService(NotificationSender sender, MessageFormatter formatter) {\n            this.sender = Objects.requireNonNull(sender, \"sender\");\n            this.formatter = Objects.requireNonNull(formatter, \"formatter\");\n        }\n\n        /** Formats the template with the injected formatter, sends it, and counts the outcome. */\n        public boolean notify(String recipient, String template, Map<String, String> variables) {\n            String message = formatter.format(template, variables);\n            boolean sent = sender.send(recipient, message);\n            if (sent) {\n                successCount.incrementAndGet();\n            } else {\n                failureCount.incrementAndGet();\n            }\n            return sent;\n        }\n\n        public int getSuccessCount() {\n            return successCount.get();\n        }\n\n        public int getFailureCount() {\n            return failureCount.get();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** The shop's stock: the interface, the warehouse store, and what wraps it. */\npublic final class Stocks {\n    private Stocks() {\n    }\n\n    /** Units on hand per product. */\n    public interface Stock {\n        /** Units on hand; 0 for a product never set. */\n        int level(String sku);\n\n        /** Sets the units on hand; throws IllegalArgumentException for a negative count. */\n        void set(String sku, int units);\n    }\n\n    /** The warehouse's store: one thread at a time. */\n    public static final class MapStock implements Stock {\n        private final Map<String, Integer> units = new HashMap<>();\n\n        @Override\n        public int level(String sku) {\n            return units.getOrDefault(sku, 0);\n        }\n\n        @Override\n        public void set(String sku, int count) {\n            if (count < 0) throw new IllegalArgumentException(\"negative stock for \" + sku + \": \" + count);\n            units.put(sku, count);\n        }\n    }\n\n    /**\n     * Adds success and failure counts to any Stock. The operations dashboard reads the counts\n     * while the checkout threads are calling.\n     */\n    public static final class MeteredStock implements Stock {\n        private final Stock inner;\n        private final LongAdder succeeded = new LongAdder();\n        private final LongAdder failed = new LongAdder();\n\n        public MeteredStock(Stock inner) {\n            this.inner = inner;\n        }\n\n        /** Calls that returned normally. */\n        public long succeeded() {\n            return succeeded.sum();\n        }\n\n        /** Calls that ended with an exception. */\n        public long failed() {\n            return failed.sum();\n        }\n\n        @Override\n        public int level(String sku) {\n            try {\n                int units = inner.level(sku);\n                succeeded.increment();\n                return units;\n            } catch (RuntimeException e) {\n                failed.increment();\n                throw e;\n            }\n        }\n\n        @Override\n        public void set(String sku, int units) {\n            try {\n                inner.set(sku, units);\n                succeeded.increment();\n            } catch (RuntimeException e) {\n                failed.increment();\n                throw e;\n            }\n        }\n    }\n}\n"
         }
       ]
     },
@@ -64,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** A notification service composed from a formatter and a sender it is given. */\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface NotificationSender {\n        boolean send(String recipient, String message);\n    }\n\n    public interface MessageFormatter {\n        String format(String template, Map<String, String> variables);\n    }\n\n    /** Replaces every ${key} in the template with its value; unknown placeholders stay. */\n    public static final class TemplateFormatter implements MessageFormatter {\n        @Override\n        public String format(String template, Map<String, String> variables) {\n            throw new UnsupportedOperationException(\"write format\");\n        }\n    }\n\n    public static final class NotificationService {\n        private final NotificationSender sender;\n        private final MessageFormatter formatter;\n        private final AtomicInteger successCount = new AtomicInteger();\n        private final AtomicInteger failureCount = new AtomicInteger();\n\n        public NotificationService(NotificationSender sender, MessageFormatter formatter) {\n            this.sender = Objects.requireNonNull(sender, \"sender\");\n            this.formatter = Objects.requireNonNull(formatter, \"formatter\");\n        }\n\n        /** Formats the template with the injected formatter, sends it, and counts the outcome. */\n        public boolean notify(String recipient, String template, Map<String, String> variables) {\n            throw new UnsupportedOperationException(\"write notify\");\n        }\n\n        public int getSuccessCount() {\n            throw new UnsupportedOperationException(\"write getSuccessCount\");\n        }\n\n        public int getFailureCount() {\n            throw new UnsupportedOperationException(\"write getFailureCount\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** The shop's stock: the interface, the warehouse store, and what wraps it. */\npublic final class Stocks {\n    private Stocks() {\n    }\n\n    /** Units on hand per product. */\n    public interface Stock {\n        /** Units on hand; 0 for a product never set. */\n        int level(String sku);\n\n        /** Sets the units on hand; throws IllegalArgumentException for a negative count. */\n        void set(String sku, int units);\n    }\n\n    /** The warehouse's store: one thread at a time. */\n    public static final class MapStock implements Stock {\n        private final Map<String, Integer> units = new HashMap<>();\n\n        @Override\n        public int level(String sku) {\n            return units.getOrDefault(sku, 0);\n        }\n\n        @Override\n        public void set(String sku, int count) {\n            if (count < 0) throw new IllegalArgumentException(\"negative stock for \" + sku + \": \" + count);\n            units.put(sku, count);\n        }\n    }\n\n    /**\n     * Adds success and failure counts to any Stock. The operations dashboard reads the counts\n     * while the checkout threads are calling.\n     */\n    public static final class MeteredStock implements Stock {\n        private final Stock inner;\n        private final LongAdder succeeded = new LongAdder();\n        private final LongAdder failed = new LongAdder();\n\n        public MeteredStock(Stock inner) {\n            this.inner = inner;\n        }\n\n        /** Calls that returned normally. */\n        public long succeeded() {\n            return succeeded.sum();\n        }\n\n        /** Calls that ended with an exception. */\n        public long failed() {\n            return failed.sum();\n        }\n\n        /** TODO: answer as the wrapped stock answers, and count the call. */\n        @Override\n        public int level(String sku) {\n            throw new IllegalStateException(\"TODO: level\");\n        }\n\n        /** TODO: do what the wrapped stock does, and count the call. */\n        @Override\n        public void set(String sku, int units) {\n            throw new IllegalStateException(\"TODO: set\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -72,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -83,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6421a54b82fe7bbdc4dc69be26140d3a97438971dd47c61d77c3b890f591e4a6",
-  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** A notification service composed from a formatter and a sender it is given. */\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface NotificationSender {\n        boolean send(String recipient, String message);\n    }\n\n    public interface MessageFormatter {\n        String format(String template, Map<String, String> variables);\n    }\n\n    /** Replaces every ${key} in the template with its value; unknown placeholders stay. */\n    public static final class TemplateFormatter implements MessageFormatter {\n        @Override\n        public String format(String template, Map<String, String> variables) {\n            throw new UnsupportedOperationException(\"write format\");\n        }\n    }\n\n    public static final class NotificationService {\n        private final NotificationSender sender;\n        private final MessageFormatter formatter;\n        private final AtomicInteger successCount = new AtomicInteger();\n        private final AtomicInteger failureCount = new AtomicInteger();\n\n        public NotificationService(NotificationSender sender, MessageFormatter formatter) {\n            this.sender = Objects.requireNonNull(sender, \"sender\");\n            this.formatter = Objects.requireNonNull(formatter, \"formatter\");\n        }\n\n        /** Formats the template with the injected formatter, sends it, and counts the outcome. */\n        public boolean notify(String recipient, String template, Map<String, String> variables) {\n            throw new UnsupportedOperationException(\"write notify\");\n        }\n\n        public int getSuccessCount() {\n            throw new UnsupportedOperationException(\"write getSuccessCount\");\n        }\n\n        public int getFailureCount() {\n            throw new UnsupportedOperationException(\"write getFailureCount\");\n        }\n    }\n}\n",
+  "content_sha256": "e6e7fd87ab4262a31d26d5afe884f93d082be06b01f588f891d129f8a54a6f7a",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** The shop's stock: the interface, the warehouse store, and what wraps it. */\npublic final class Stocks {\n    private Stocks() {\n    }\n\n    /** Units on hand per product. */\n    public interface Stock {\n        /** Units on hand; 0 for a product never set. */\n        int level(String sku);\n\n        /** Sets the units on hand; throws IllegalArgumentException for a negative count. */\n        void set(String sku, int units);\n    }\n\n    /** The warehouse's store: one thread at a time. */\n    public static final class MapStock implements Stock {\n        private final Map<String, Integer> units = new HashMap<>();\n\n        @Override\n        public int level(String sku) {\n            return units.getOrDefault(sku, 0);\n        }\n\n        @Override\n        public void set(String sku, int count) {\n            if (count < 0) throw new IllegalArgumentException(\"negative stock for \" + sku + \": \" + count);\n            units.put(sku, count);\n        }\n    }\n\n    /**\n     * Adds success and failure counts to any Stock. The operations dashboard reads the counts\n     * while the checkout threads are calling.\n     */\n    public static final class MeteredStock implements Stock {\n        private final Stock inner;\n        private final LongAdder succeeded = new LongAdder();\n        private final LongAdder failed = new LongAdder();\n\n        public MeteredStock(Stock inner) {\n            this.inner = inner;\n        }\n\n        /** Calls that returned normally. */\n        public long succeeded() {\n            return succeeded.sum();\n        }\n\n        /** Calls that ended with an exception. */\n        public long failed() {\n            return failed.sum();\n        }\n\n        /** TODO: answer as the wrapped stock answers, and count the call. */\n        @Override\n        public int level(String sku) {\n            throw new IllegalStateException(\"TODO: level\");\n        }\n\n        /** TODO: do what the wrapped stock does, and count the call. */\n        @Override\n        public void set(String sku, int units) {\n            throw new IllegalStateException(\"TODO: set\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/main/java/practice/Notifications.java",
-    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/test/java/practice/NotificationsTest.java",
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/main/java/practice/Stocks.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/test/java/practice/StocksTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -108,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NotificationsTest#formatsAndSends",
+        "id": "practice.StocksTest#passesEachCallToTheStockItWrapsAndCountsIt",
         "kind": "main",
-        "says": "notify(\"admin\", \"Alert: ${event}\", {event=login}) sends \"Alert: login\" and counts one success."
+        "says": "every call reaches the wrapped stock with its arguments, returns its answer, and is counted as a success"
       },
       {
-        "id": "practice.NotificationsTest#aRefusedSendIsCountedAsAFailure",
-        "kind": "edge",
-        "says": "A send that returns false makes notify return false and is counted as a failure."
+        "id": "practice.StocksTest#countsCallsFromManyThreads",
+        "kind": "main",
+        "says": "calls made from several threads at once are all counted"
       },
       {
-        "id": "practice.NotificationsTest#theServiceUsesTheFormatterItIsGiven",
+        "id": "practice.StocksTest#aCallThatFailsIsCountedAsAFailureOnly",
         "kind": "edge",
-        "says": "A service given an upper-casing formatter sends the upper-cased template: it uses the injected formatter."
+        "says": "a call that throws is counted as a failure and not as a success"
       },
       {
-        "id": "practice.NotificationsTest#everyPlaceholderIsReplaced",
+        "id": "practice.StocksTest#theCallerGetsTheExceptionTheStockThrew",
         "kind": "edge",
-        "says": "Every placeholder is replaced, unknown ones stay, keys may hold a dot, and values ($5, ${b}) are inserted as they are."
+        "says": "a caller gets the very exception the wrapped stock threw, not another one"
       }
     ],
     "report": {
@@ -134,11 +124,10 @@
     },
     "origin": {
       "path": "34-composition-inheritance/README_8.4.3.md",
-      "section": "Interview Q&A Section"
+      "section": "One Metrics Decorator Serves Every Implementation, and Its Own Counters Must Be Thread-Safe"
     },
     "concepts": [
-      "Dependencies injected through the constructor can be replaced by test doubles, so each composed part is tested in isolation.",
-      "A template formatter replaces every ${key} placeholder with its value."
+      "A decorator implements the interface it wraps and passes each call on, so one class adds metrics to every implementation while callers see the same answers and exceptions."
     ]
   }
 }

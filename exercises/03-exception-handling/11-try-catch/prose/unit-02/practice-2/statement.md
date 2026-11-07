@@ -1,21 +1,19 @@
-Catch blocks are evaluated in order, top to bottom, and the first one whose type matches wins. So
-the more specific types go first and the most general last.
+Accounts receivable posts each invoice with `InvoicePosting.post(...)`: a row in the ledger, the
+PDF in the archive, and one database transaction around both. Two things have to hold for the
+people around it.
 
-Write `TaskRunner.run(Callable<String> task)`. It calls the task and returns one line:
+The nightly job catches `SQLException` from `post(...)` and retries the invoice when the database
+reports a serialization conflict (SQLState `40001`); anything else it reports. And last month an
+invoice in a currency nobody had enabled made the ledger code throw, the transaction stayed open,
+and the connection pool ran dry an hour later.
 
-| the task | returns |
-|---|---|
-| returns `r` | `"done: " + r` |
-| throws a `FileNotFoundException` | `"missing: " + message` |
-| throws any other `IOException` | `"io: " + message` |
-| throws any other `Exception` | `"failed: " + message` |
+`write(...)` already does the work of one posting, commit included. Finish the `TODO` in
+`src/main/java/practice/InvoicePosting.java`:
 
-| task | answer |
-|---|---|
-| `() -> "42"` | `"done: 42"` |
-| throws `new FileNotFoundException("a.txt")` | `"missing: a.txt"` |
-| throws `new IOException("disk")` | `"io: disk"` |
-| throws `new IllegalStateException("nope")` | `"failed: nope"` |
+- `post(...)`: begin the transaction and run `write(...)`. Whatever goes wrong, the transaction is
+  rolled back and the caller sees the failure exactly as it was thrown. Keep the method's
+  signature.
 
-A type is matched with its subclasses (an `EOFException` is an `IOException`). Report exceptions, and
-only exceptions: anything thrown that is not an `Exception` reaches the caller unchanged.
+About seven lines in total.
+
+The tests hand the posting a ledger, an archive and a transaction that record every call.

@@ -1,431 +1,366 @@
 # 7.1.2. Java 11 (LTS)
 
-## Concept Explanation
+An order service built for Java 8 moves to Java 21. The build stops at
+`package javax.xml.bind does not exist`. A reporting jar nobody rebuilt starts, passes its health
+check, and throws `NoClassDefFoundError` on the first export. A sign-up check rewritten with
+`Set.of` on the way throws `NullPointerException` for a missing username. All of this arrived in Java 9,
+10 and 11, and 11 was the first long-term-support release to carry it.
 
-Java 11, released in September 2018, was the first Long-Term Support (LTS) release under Oracle's new six-month release
-cadence. It standardized features incubated in Java 9 and 10 (the HTTP Client), removed deprecated modules, and introduced several
-productivity improvements that made Java more concise and developer-friendly.
+Features of 9 to 11 taught in other units are listed in the Reference.
 
-**Real-world analogy**: If Java 8 was adding power tools to a workshop, Java 11 was the renovation that streamlined the
-workspace -- removing old unused equipment (Java EE modules, CORBA), modernizing the workbench (String API, HTTP Client),
-and adding convenient shortcuts (var in lambdas, single-file execution) so craftsmen could start projects faster.
+## Java 11 Removed the Java EE Modules, and Code Built for 8 Fails at Its First Use
 
-Key areas of improvement:
-1. **Local-Variable Syntax for Lambda Parameters** -- using `var` in lambda formal parameters for annotation support
-2. **HTTP Client API** -- a modern, non-blocking HTTP client replacing `HttpURLConnection`
-3. **String API Enhancements** -- utility methods like `isBlank()`, `strip()`, `lines()`, `repeat()`
-4. **Nest-Based Access Control** -- JVM-level support for private member access between nest members
-5. **Running Java Files Directly** -- `java MyProgram.java` without explicit `javac` compilation
-
-## Key Points to Remember
-
-- `var` in lambda parameters enables annotations: `(@NonNull var x) -> x.length()`.
-- You cannot mix `var` with explicit types in lambda parameters: all or none must be `var`.
-- The HTTP Client API supports HTTP/1.1 and HTTP/2, synchronous and asynchronous requests.
-- `String.strip()` is Unicode-aware; `String.trim()` only handles ASCII whitespace (chars <= U+0020).
-- `String.lines()` returns a `Stream<String>` and handles `\n`, `\r\n`, and `\r`.
-- `String.isBlank()` returns true for empty strings and strings containing only whitespace.
-- Nest-based access control eliminates compiler-generated synthetic accessor methods for inner class access.
-- `Files.writeString()` and `Files.readString()` simplify file I/O dramatically.
-- `Optional.isEmpty()` is the complement of `isPresent()` -- reads more naturally in conditions.
-- Java EE and CORBA modules were removed (JEP 320): `java.xml.ws`, `java.xml.bind`, `java.activation`, `java.corba`,
-  `java.transaction`, `java.xml.ws.annotation`.
-
-## Relevant Java 21 Features
-
-Java 21 extends Java 11's foundations:
-
-- **`var`**: Originally introduced in Java 10 for local variables, extended in 11 for lambdas, now used widely with pattern matching in Java 21.
-- **HTTP Client**: Remains the standard; with virtual threads (Java 21) the simple blocking `send()` scales, which often
-  removes the need for `sendAsync()` chains.
-- **String enhancements**: Java 21 continues the trend with additional methods and text block improvements.
-- **Nest access**: Hidden classes (Java 15+) build on the nest concept for dynamic class generation.
-- **Single-file execution**: The `java` launcher continues to be enhanced, supporting shebang scripts on Unix.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Mixing `var` and explicit types in lambda parameters**:
-   ```java
-   // WRONG: cannot mix var with explicit types
-   BiFunction<String, Integer, String> f = (var s, Integer i) -> s.repeat(i);
-
-   // FIX: all var or all explicit
-   BiFunction<String, Integer, String> f = (var s, var i) -> s.repeat(i);
-   ```
-
-2. **Using `trim()` instead of `strip()` for Unicode whitespace**:
-   ```java
-   String s = "\u2000Hello\u2000"; // EN QUAD whitespace
-   s.trim();   // Returns "\u2000Hello\u2000" -- trim ignores Unicode whitespace
-   s.strip();  // Returns "Hello" -- strip handles Unicode whitespace
-   ```
-
-3. **Not handling HTTP Client timeouts**:
-   ```java
-   // WRONG: no timeout -- can hang indefinitely
-   HttpClient client = HttpClient.newHttpClient();
-
-   // FIX: always set a connection timeout...
-   HttpClient client = HttpClient.newBuilder()
-       .connectTimeout(Duration.ofSeconds(10))
-       .build();
-   // ...and a per-request timeout, since connectTimeout does not cover waiting for the response
-   HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.example.com/data"))
-       .timeout(Duration.ofSeconds(30))
-       .build();
-   ```
-
-4. **Assuming `Files.readString()` handles large files efficiently**:
-   ```java
-   // WRONG for large files: reads entire file into memory
-   String content = Files.readString(Path.of("huge-file.log"));
-
-   // FIX: use BufferedReader or streaming for large files
-   try (var reader = Files.newBufferedReader(Path.of("huge-file.log"))) {
-       reader.lines().forEach(this::processLine);
-   }
-   ```
-
-5. **Forgetting removed Java EE modules**:
-   ```java
-   // WRONG: these are removed in Java 11
-   import javax.xml.bind.JAXB;
-
-   // FIX: add explicit Maven/Gradle dependencies
-   // <dependency>
-   //   <groupId>jakarta.xml.bind</groupId>
-   //   <artifactId>jakarta.xml.bind-api</artifactId>
-   // </dependency>
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use `strip()` over `trim()`** -- it is the modern, Unicode-aware replacement.
-2. **Use `isBlank()` instead of `trim().isEmpty()`** -- more readable and efficient.
-3. **Configure HTTP Client as a singleton** -- it is thread-safe and expensive to create.
-4. **Use `HttpResponse.BodyHandlers.ofLines()`** for streaming large HTTP responses.
-5. **Use `Files.readString()` / `writeString()`** for small files to reduce boilerplate.
-6. **Leverage `String.repeat()`** instead of loops or `StringBuilder` for repeated patterns.
-7. **Use `String.lines()`** instead of `split("\\n")` for correct cross-platform line splitting.
-8. **Annotate lambda parameters with `var`** when you need `@Nullable` or `@NonNull` annotations.
-
-## Edge Cases and Their Handling
-
-1. **`String.repeat(0)`** returns an empty string, not null.
-2. **`String.repeat()` with negative count** throws `IllegalArgumentException`.
-3. **`String.lines()`** on an empty string returns an empty stream (zero elements).
-4. **`String.lines()`** does not include a trailing empty string if the input ends with a line terminator.
-5. **`String.strip()` on empty string** returns empty string.
-6. **HTTP Client with HTTP/2** falls back to HTTP/1.1 if the server does not support HTTP/2.
-7. **`Optional.isEmpty()`** on `Optional.of("")` returns false (empty string is present, not absent).
-8. **Nest-based access**: `Class.isNestmateOf()` returns true for the class itself.
-
-## Interview-specific Insights
-
-Interviewers test:
-- The difference between `strip()` and `trim()` (Unicode awareness)
-- Why `var` was added to lambda parameters specifically (annotation support)
-- How the HTTP Client API compares to `HttpURLConnection` and third-party libraries
-- What modules were removed in Java 11 and how to handle migration
-- Understanding of LTS release model and Java's new release cadence
-
-Tricky questions:
-- "Can you use `var` as a variable name?" (Yes! `var` is a reserved type name, not a keyword)
-- "Does `String.lines()` include trailing empty strings?" (No)
-- "Is the HTTP Client thread-safe?" (Yes, and it should be reused)
-
-## Interview Q&A Section
-
-**Q1: What is the purpose of allowing `var` in lambda parameters in Java 11?**
-
-```text
-A1: The primary purpose is to allow annotations on lambda parameters. Before Java 11,
-you had two choices for lambda parameter types:
-1. Explicit types: (String s, Integer i) -> ... (allows annotations)
-2. Inferred types: (s, i) -> ... (no annotations possible)
-
-Java 10 introduced var for local variable type inference, but it was not allowed in
-lambda parameters. Java 11 extended var to lambda parameters, giving a third option:
-3. var types: (var s, var i) -> ... (allows annotations with inference)
-
-This is especially useful with annotation-based null checking:
-(@NonNull var s, @Nullable var i) -> s.length() + (i != null ? i : 0)
-
-Without var, you would need explicit types to annotate parameters, losing the
-convenience of type inference.
-
-Important restrictions:
-- Cannot mix var with explicit types: (var s, Integer i) is illegal
-- Cannot mix var with inferred (no-type): (var s, i) is illegal
-- All parameters must use var, or none must
-```
+JEP 320 took JAXB (`java.xml.bind`), JAX-WS, JavaBeans Activation, CORBA and the
+`java.transaction` module out of the JDK. This helper compiles for Java 8:
 
 ```java
-import org.jetbrains.annotations.NotNull;
-import java.util.function.BiFunction;
+import javax.xml.bind.DatatypeConverter;
 
-// Before Java 11: must use explicit types for annotations
-BiFunction<String, Integer, String> f1 =
-    (@NotNull String s, @NotNull Integer i) -> s.repeat(i);
-
-// Java 11: var enables annotations with type inference
-BiFunction<String, Integer, String> f2 =
-    (@NotNull var s, @NotNull var i) -> s.repeat(i);
-
-// Still valid: no types, no annotations
-BiFunction<String, Integer, String> f3 = (s, i) -> s.repeat(i);
-```
-
-**Q2: How does the Java 11 HTTP Client API compare to HttpURLConnection?**
-
-```text
-A2: The Java 11 HTTP Client (java.net.http) is a complete replacement for
-HttpURLConnection with major improvements:
-
-1. Modern Design:
-   - Fluent builder API for requests and clients
-   - Immutable request objects
-   - Clean separation of request/response handling
-
-2. Protocol Support:
-   - HTTP/2 support with fallback to HTTP/1.1
-   - WebSocket support built-in
-   - Automatic protocol negotiation
-
-3. Async Support:
-   - CompletableFuture-based asynchronous API
-   - Non-blocking I/O
-   - Can be combined with virtual threads (Java 21)
-
-4. Body Handlers:
-   - Type-safe body handlers: ofString(), ofByteArray(), ofFile(), ofLines()
-   - Custom body handlers possible
-   - Streaming support for large responses
-
-5. Configuration:
-   - Connection timeouts
-   - Redirect policies
-   - Cookie handling
-   - Proxy support
-   - SSL/TLS configuration
-
-HttpURLConnection issues that are resolved:
-- Clunky, confusing API (e.g., getInputStream() throws an IOException for 4xx/5xx
-  responses, so error bodies must be read from getErrorStream() instead)
-- No HTTP/2 support
-- Blocking-only design
-- Inconsistent error handling
-```
-
-```java
-// Old way: HttpURLConnection
-URL url = new URL("https://api.example.com/data"); // deprecated since Java 20; use URI.create(...).toURL()
-HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-conn.setRequestMethod("GET");
-conn.setConnectTimeout(5000);
-int status = conn.getResponseCode();
-try (var reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
-    String body = reader.lines().collect(Collectors.joining());
-}
-conn.disconnect();
-
-// New way: Java 11 HTTP Client
-HttpClient client = HttpClient.newBuilder()
-    .connectTimeout(Duration.ofSeconds(5))
-    .build();
-
-HttpRequest request = HttpRequest.newBuilder()
-    .uri(URI.create("https://api.example.com/data"))
-    .GET()
-    .build();
-
-// Synchronous
-HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-int status = response.statusCode();
-String body = response.body();
-
-// Asynchronous
-client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-    .thenApply(HttpResponse::body)
-    .thenAccept(System.out::println);
-```
-
-**Q3: What String API methods were added in Java 11 and when should each be used?**
-
-```text
-A3: Java 11 added six String methods:
-
-1. isBlank(): Returns true if the string is empty or contains only whitespace.
-   Use instead of: str.trim().isEmpty()
-
-2. strip(): Removes leading and trailing whitespace (Unicode-aware).
-   Use instead of: str.trim() (which only handles ASCII whitespace <= U+0020)
-
-3. stripLeading(): Removes only leading whitespace (Unicode-aware).
-   Use when: You only want to clean the start of a string.
-
-4. stripTrailing(): Removes only trailing whitespace (Unicode-aware).
-   Use when: You only want to clean the end of a string.
-
-5. lines(): Returns a Stream<String> of lines, splitting on \n, \r, or \r\n.
-   Use instead of: str.split("\\R") or str.split("\\n")
-
-6. repeat(int count): Returns the string repeated count times.
-   Use instead of: manual loop or String.join("", Collections.nCopies(n, str))
-
-Key distinction: strip() vs trim()
-- trim() uses char <= ' ' (U+0020) as whitespace definition
-- strip() uses Character.isWhitespace() which includes Unicode whitespace
-  like EN QUAD (U+2000), EM SPACE (U+2003), etc.
-
-In modern code, always prefer strip() over trim().
-```
-
-```java
-// isBlank() - better than trim().isEmpty()
-"".isBlank();        // true
-"   ".isBlank();     // true
-" a ".isBlank();     // false
-
-// strip() vs trim() - Unicode awareness
-String s = "\u2000Hello\u2000";
-s.trim();    // "\u2000Hello\u2000" - trim misses Unicode whitespace
-s.strip();   // "Hello" - strip handles Unicode whitespace
-
-// stripLeading() / stripTrailing()
-"  hello  ".stripLeading();   // "hello  "
-"  hello  ".stripTrailing();  // "  hello"
-
-// lines() - cross-platform line splitting
-"line1\nline2\r\nline3".lines()
-    .forEach(System.out::println);
-// Outputs: line1, line2, line3
-
-// repeat() - string repetition
-"ab".repeat(3);   // "ababab"
-"-".repeat(40);   // "----------------------------------------"
-"x".repeat(0);    // ""
-```
-
-**Q4: What is nest-based access control and why does it matter?**
-
-```text
-A4: Nest-based access control (JEP 181) is a JVM-level improvement that allows
-classes in the same nest (e.g., an outer class and its inner classes) to access
-each other's private members directly, without compiler-generated accessor methods.
-
-Before Java 11:
-- Inner classes accessing outer private members (and vice versa) required the
-  compiler to generate synthetic "accessor" methods (named like access$000).
-- These accessor methods were:
-  - Invisible in source code but present in bytecode
-  - Package-private access, creating potential security issues
-  - Extra method calls that the JIT compiler had to optimize away
-  - Confusing in stack traces and reflection
-
-After Java 11:
-- The JVM natively understands the concept of "nests" (groups of related classes).
-- Private members can be accessed directly between nestmates.
-- No accessor methods needed.
-- Reflection works correctly: Class.getNestHost(), Class.getNestMembers(),
-  Class.isNestmateOf().
-
-New APIs:
-- Class.getNestHost(): Returns the nest host (outermost enclosing class)
-- Class.getNestMembers(): Returns all classes in the nest
-- Class.isNestmateOf(Class): Checks if two classes are nestmates
-
-This is mostly transparent to developers but matters for:
-- Framework developers using reflection
-- Security-sensitive code
-- Performance in deep nesting hierarchies
-```
-
-```java
-public class Outer {
-    private String secret = "outer";
-
-    public class Inner {
-        private String innerSecret = "inner";
-
-        // Before Java 11: compiler generated a synthetic accessor method for this access
-        // After Java 11: direct access at JVM level
-        public String getOuterSecret() {
-            return secret;
-        }
-    }
-
-    public String getInnerSecret() {
-        return new Inner().innerSecret; // Direct access, no accessor method
-    }
-
-    // Reflection API for nest inspection
-    public static void inspectNest() {
-        System.out.println("Nest host: " + Outer.class.getNestHost());
-        System.out.println("Nest members: " +
-            java.util.Arrays.toString(Outer.class.getNestMembers()));
-        System.out.println("Is nestmate: " +
-            Outer.class.isNestmateOf(Inner.class));
-    }
-}
-```
-
-**Q5: How does single-file source-code execution work in Java 11?**
-
-```text
-A5: Java 11 allows running a Java source file directly without explicit compilation:
-
-  java HelloWorld.java
-
-How it works:
-1. The java launcher detects that the argument is a .java file (not a .class).
-2. It compiles the source in memory using the built-in compiler.
-3. It executes the resulting bytecode immediately.
-4. No .class file is written to disk.
-
-Rules and limitations:
-- The file must contain a class with a main method.
-- All classes must be in the same file (no multi-file programs).
-- The first class in the file is used as the entry point.
-- You can pass command-line arguments after the file name.
-- You can use --source flag to specify source version.
-- Shebang support on Unix: #!/usr/bin/java --source 11
-
-Use cases:
-- Quick scripts and prototyping
-- Teaching and demonstrations
-- Simple automation scripts
-- Replacing bash scripts with Java
-
-Java 11 also added Files.readString() and Files.writeString() which pair well
-with scripting-style programs, making simple file operations much more concise
-than the traditional BufferedReader/BufferedWriter approach.
-```
-
-```java
-// Save as Greeter.java and run: java Greeter.java World
-public class Greeter {
+public class Token {
     public static void main(String[] args) {
-        String name = args.length > 0 ? args[0] : "World";
-        System.out.println("Hello, " + name + "!");
+        System.out.println("service started on Java " + System.getProperty("java.specification.version"));
+        byte[] digest = {(byte) 0xCA, (byte) 0xFE, 0x01, 0x7F};
+        System.out.println(hex(digest));                 // the first call that needs JAXB
+    }
 
-        // Files API enhancements (also Java 11)
-        var path = java.nio.file.Path.of("greeting.txt");
-        try {
-            java.nio.file.Files.writeString(path, "Hello, " + name + "!");
-            String content = java.nio.file.Files.readString(path);
-            System.out.println("Written and read back: " + content);
-            java.nio.file.Files.delete(path);
-        } catch (java.io.IOException e) {
-            System.err.println("File error: " + e.getMessage());
-        }
+    static String hex(byte[] bytes) {
+        return DatatypeConverter.printHexBinary(bytes);
+    }
+}
+```
+
+Built with `javac --release 8`, then run on Java 21:
+
+```text
+service started on Java 21
+Exception in thread "main" java.lang.NoClassDefFoundError: javax/xml/bind/DatatypeConverter
+	at Token.hex(Token.java:11)
+	at Token.main(Token.java:7)
+```
+
+The JVM loads a class when code first needs it, so the error waits for the first call to `hex`:
+a smoke test that never exports passes. With `--release 11` the import fails to compile. The fix
+is a dependency, and its version matters:
+
+```text
+$ java -cp out8:jakarta.xml.bind-api-2.3.3.jar Token
+service started on Java 21
+CAFE017F
+$ java -cp out8:jakarta.xml.bind-api-4.0.2.jar Token
+service started on Java 21
+Exception in thread "main" java.lang.NoClassDefFoundError: javax/xml/bind/DatatypeConverter
+```
+
+The 4.0.2 jar holds `jakarta.xml.bind.DatatypeConverter`: Jakarta EE 9 renamed the packages, so
+the newest jar needs new imports too. For hex or Base64 alone, the JDK has `HexFormat` (17) and
+`java.util.Base64` (8).
+
+> **Java 9 and 10 differ.** The modules were still in the JDK but not resolved by default:
+> `javac --release 9` reports `package javax.xml.bind is not visible`, and
+> `--add-modules java.xml.bind` fixes it. With `--release 11` that flag fails:
+> `module not found: java.xml.bind`.
+
+## var Takes the Initializer's Type, Which Is Not Always the Type You Meant
+
+Java 10's `var` gives a local variable the type of its initializer, fixed at the declaration:
+
+```java
+var names = new ArrayList<>();           // ArrayList<Object>
+names.add("Ada");
+names.add(42);                           // compiles: the element type is Object
+
+List<Double> prices = List.of(19.99, 5.25, 0.80);
+var total = 0;                           // int
+for (double p : prices) total += p;      // compound assignment narrows to int on each add
+System.out.println("total = " + total);
+```
+
+```text
+total = 24
+```
+
+The prices add up to 26.04. `0` makes `total` an `int`, and `total += p` means
+`total = (int) (total + p)`, so each sum loses its fraction. An invoice that drops its cents
+passes every test with whole-number prices. `javac -Xlint:lossy-conversions` (Java 20 and later)
+flags the line; `var total = 0.0` or a declared type fixes it.
+
+With nothing to infer from, the diamond makes `names` an `ArrayList<Object>` that takes the 42,
+and the error moves to the read: `String first = names.get(0)` doesn't compile.
+
+`var` needs an initializer with a type, and only declares local variables (the reference lists
+what javac refuses). Java 11 allowed it on lambda parameters, so a parameter can carry an
+annotation and keep an inferred type: `(@NonNull var s, var n) -> s.length() + n` fails with
+`--release 10`. `var` is not a reserved keyword: a variable named `var` compiles.
+
+## List.of and Map.of Build Unmodifiable Collections That Reject null, Even in a Lookup
+
+Java 9's factories (`List.of`, `Set.of`, `Map.of`, and `copyOf` from Java 10) return collections
+that throw `UnsupportedOperationException` on `add`, `set` or `remove`, and refuse `null`:
+
+```java
+List<String> blocked = new ArrayList<>(List.of("spam.example", "junk.example"));
+List<String> view = Collections.unmodifiableList(blocked);
+List<String> copy = List.copyOf(blocked);
+blocked.add("fake.example");
+System.out.println("view: " + view + "  copy: " + copy);
+
+Set<String> reserved = Set.of("admin", "root", "support");
+String username = null;                              // the form had no username field
+System.out.println(new HashSet<>(reserved).contains(username));
+System.out.println(reserved.contains(username));
+```
+
+```text
+view: [spam.example, junk.example, fake.example]  copy: [spam.example, junk.example]
+false
+Exception in thread "main" java.lang.NullPointerException
+	at java.base/java.util.Objects.requireNonNull(Objects.java:233)
+	at java.base/java.util.ImmutableCollections$SetN.contains(ImmutableCollections.java:944)
+```
+
+A `HashSet` answers `false` for `null`; `Collection.contains` lets a null-refusing collection
+throw, and `Set.of` does. Replacing a `new HashSet<>(Arrays.asList(...))` constant with
+`Set.of(...)` turns every sign-up without a username into a 500.
+Check for `null` before the lookup.
+
+`Collections.unmodifiableList` is a read-only view: a caller holding it sees every later change to
+the list behind it. `List.copyOf` takes a snapshot.
+
+`Map.of` and `Set.of` don't keep insertion order, and their order can change between JVM starts. One
+program, run three times:
+
+```java
+Map<String, Integer> stock = Map.of("apple", 3, "pear", 5, "plum", 7, "fig", 2);
+System.out.println(stock.keySet());
+```
+
+```text
+[fig, pear, apple, plum]
+[pear, fig, plum, apple]
+[pear, fig, plum, apple]
+```
+
+A test that compares a printed map passes on one run and fails on the next. Where order matters,
+sort, or use a `TreeMap` or `LinkedHashMap`.
+
+<!-- practice 1 -->
+
+## lines() Splits on Every Line Terminator; split("\n") Leaves the \r Behind
+
+Java 11 added `isBlank`, `strip`, `stripLeading`, `stripTrailing`, `lines` and `repeat` to
+`String`. `strip` and `isBlank` use `Character.isWhitespace`, where `trim` removes everything up
+to U+0020 (unit 1.4.3). `lines()` fixes a common bug:
+
+```java
+String upload = "OK\r\nFAIL\r\n\r\nOK\r\n";            // a file saved on Windows
+String[] split = upload.split("\n");
+List<String> lines = upload.lines().toList();
+System.out.println("split: " + split.length + " " + Arrays.toString(split).replace("\r", "\\r"));
+System.out.println("lines: " + lines.size() + " " + lines);
+System.out.println("\"OK\".equals(split[0]): " + "OK".equals(split[0]));
+```
+
+```text
+split: 4 [OK\r, FAIL\r, \r, OK\r]
+lines: 4 [OK, FAIL, , OK]
+"OK".equals(split[0]): false
+```
+
+`split("\n")` cuts at line feeds and leaves each carriage return at the end of its line, so no
+line equals `"OK"` and every upload from Windows fails validation. `lines()` ends a line at `\n`,
+`\r\n` or `\r`, keeps an empty line in the middle, and adds none after a final terminator. Skip
+the empty line with `isBlank()`, which also skips a line of spaces or tabs.
+
+<!-- practice 2 -->
+
+## HttpClient's Connect Timeout Bounds Only the Connection, and an Error Status Is a Response
+
+`java.net.http.HttpClient` (standard since 11) is the modern alternative to `HttpURLConnection`.
+The examples call a `com.sun.net.httpserver.HttpServer` on 127.0.0.1 at `base`: `/quote` doesn't
+answer until the program lets it, and `/stock` answers 503.
+
+```java
+HttpClient client = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(1))
+        .build();
+
+// 1. connectTimeout only: the connection is made at once, then the response never comes
+HttpRequest slow = HttpRequest.newBuilder(URI.create(base + "/quote")).build();
+CompletableFuture<HttpResponse<String>> pending =
+        client.sendAsync(slow, HttpResponse.BodyHandlers.ofString());
+try {
+    pending.get(3, TimeUnit.SECONDS);
+} catch (TimeoutException e) {
+    System.out.println("connectTimeout 1 s: no response after 3 s, still waiting");
+}
+
+// 2. the same request with its own timeout
+HttpRequest bounded = HttpRequest.newBuilder(URI.create(base + "/quote"))
+        .timeout(Duration.ofMillis(500))
+        .build();
+long start = System.nanoTime();
+try {
+    client.send(bounded, HttpResponse.BodyHandlers.ofString());
+} catch (IOException e) {
+    System.out.printf("request timeout 500 ms: %s after %d ms%n", e,
+            (System.nanoTime() - start) / 1_000_000);
+}
+```
+
+```text
+connectTimeout 1 s: no response after 3 s, still waiting
+request timeout 500 ms: java.net.http.HttpTimeoutException: request timed out after 502 ms
+```
+
+A request without its own timeout waits as long as the server takes ("block forever", says the javadoc).
+When a partner API stalls, every thread that calls it parks in `send()` until the pool is used
+up and the service stops answering its own callers.
+
+The `/stock` call:
+
+```java
+HttpResponse<String> stock = client.send(
+        HttpRequest.newBuilder(URI.create(base + "/stock")).timeout(Duration.ofSeconds(2)).build(),
+        HttpResponse.BodyHandlers.ofString());
+System.out.println("status " + stock.statusCode() + ", body " + stock.body());
+```
+
+```text
+status 503, body {"error":"maintenance"}
+```
+
+`send` throws `IOException` on I/O failures, never because of the status. A 4xx or 5xx returns
+like a 200, so code
+that reads the body without checking `statusCode()` treats an error page as data. Build one
+client and share it: it is immutable, and a new client per call can't reuse connections.
+
+> **Java 21 differs.** `HttpClient` is `AutoCloseable` from Java 21 (`--release 17` rejects
+> try-with-resources on it). `close()` waits for requests in flight, so a request without a
+> timeout hangs the close too: against `/quote` it had not returned after 2 s.
+
+<!-- practice 3 -->
+
+## java Report.java Compiles One File in Memory and Runs Its First Class
+
+Since Java 11 the launcher runs a source file (JEP 330): it compiles the file in memory, writes no
+`.class` file, and runs the first top-level class:
+
+```java
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+public class Report {
+    public static void main(String[] args) throws Exception {
+        long errors = Files.readString(Path.of(args[0])).lines().filter(l -> l.contains("ERROR")).count();
+        System.out.println(Helper.label(errors));
     }
 }
 
-// Unix shebang example (save as greeter, chmod +x):
-// #!/usr/bin/java --source 11
-// public class Greeter { ... }
+class Helper {
+    static String label(long n) { return n + " error lines"; }
+}
 ```
+
+```text
+$ java Report.java app.log
+2 error lines
+```
+
+Two edits `javac` accepts break it on Java 21: declaring `Helper` above `Report`, or moving
+`Helper` to its own file beside it:
+
+```text
+$ java first/Report.java app.log
+error: can't find main(String[]) method in class: Helper
+$ java split/Report.java app.log
+split/Report.java:7: error: cannot find symbol
+        System.out.println(Helper.label(errors));
+                           ^
+```
+
+Other classes come from the same file or, compiled, from the class path. On Unix, a file not
+named `*.java` can start with `#!/usr/bin/java --source 21` and run as a script; in a `.java` file
+that line doesn't compile.
+
+> **Later releases differ.** On Java 25 both commands above print `2 error lines`. JEP 458
+> (Java 22) lets the launcher compile other source files from the program's directory.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **The Java EE modules are gone.** Code built for 8 fails at its first call into
+  `javax.xml.bind`; the 2.3.x API jar restores the package, the 4.x jar renames it.
+- **`var` takes the initializer's type.** `var total = 0` is an `int` that `+=` truncates.
+- **The factories are unmodifiable and reject null.** `contains(null)` throws, `copyOf`
+  snapshots, and `Map.of` order can change between runs.
+- **`lines()` splits on every terminator.** `split("\n")` leaves the `\r`.
+- **Each `HttpClient` request needs its own timeout**, and a 5xx is a response, not an exception.
+- **`java File.java` compiles that one file and runs its first class** on Java 21.
+
+## Reference
+
+**Where javac 21 refuses `var`:**
+
+| Declaration | Error |
+|---|---|
+| field, return type | `'var' is not allowed here` |
+| `var x;` | `cannot use 'var' on variable without initializer` |
+| `var x = null;` | `variable initializer is 'null'` |
+| `var a = {1, 2};` | `array initializer needs an explicit target-type` |
+| `var f = () -> "x";` | `lambda expression needs an explicit target-type` |
+| `(var s, Integer n) -> ...` | `cannot mix 'var' and explicitly-typed parameters` |
+
+**Collection factories (Java 21):**
+
+| Call | Result |
+|---|---|
+| `List.of("a", null)`, `List.copyOf` of a list holding `null` | `NullPointerException` |
+| `Map.of(...).get(null)`, `containsKey(null)` | `NullPointerException` |
+| `Map.of("a", 1, "a", 2)`, `Set.of("a", "a")` | `IllegalArgumentException: duplicate key: a` / `duplicate element: a` |
+| `List.copyOf(list)` where `list` came from `List.of` | returns `list` itself |
+| `Arrays.asList(...).set(0, x)` / `.add(x)` | allowed / `UnsupportedOperationException` |
+
+**Strings:** `"".lines()` has no lines, `"\n".lines()` one empty line; `"ab".repeat(0)` is `""`, and
+`repeat(-1)` throws `IllegalArgumentException`.
+
+**HttpClient (Java 21):**
+
+| Fact | Value |
+|---|---|
+| `client.version()` by default | `HTTP_2`; on `http://` it sends `Upgrade: h2c`, and the example's server answered `HTTP_1_1` |
+| its worker and selector threads | daemon |
+
+**Removed in 11, and what replaces them:**
+
+| Module | Replacement |
+|---|---|
+| `java.xml.bind` | `jakarta.xml.bind-api` 2.3.x for `javax.xml.bind`; `JAXBContext` without an implementation throws `JAXBException: Implementation of JAXB-API has not been found` |
+| `java.transaction` | `java.transaction.xa` stays in the JDK |
+| `java.xml.ws`, `java.activation`, `java.corba`, `java.xml.ws.annotation` | separate libraries |
+
+**Taught elsewhere:** `Optional.isEmpty` (11) in 7.1.1; `takeWhile`/`dropWhile` (9) in 4.4.2;
+nest-based access (11) in 10.5.2; garbage collectors in 10.2.2.
+
+## Challenges
+
+1. How do you find every use of a removed module, third-party jars included?
+2. Your team wants every `new HashSet<>(Arrays.asList(...))` constant replaced with `Set.of(...)`.
+   Which call sites change behaviour, and how would you find them?
+3. An upstream answers in 800 ms at p99, and your caller gives you 2 s. Pick a request timeout and
+   a retry policy, and say what happens to your thread pool when the upstream stalls.
+
+## Design Note: Why the Factories Refuse null and Vary Map.of's Order
+
+A `null` in a constant collection is almost always a bug, and failing at once finds it sooner.
+For the sets and maps there is a second reason: they are arrays searched by probing, and the JDK
+source marks an empty slot with `null`, so a `null` element couldn't be stored.
+
+The order varies on purpose: `ImmutableCollections` draws a salt at JVM start so that, in its
+own comment, "iteration order will vary between JVM runs". Code that relies on hash order then
+breaks on the next restart, in a test, rather than on a JDK upgrade. The cost is that
+moving to the factories isn't mechanical: every lookup that might see `null` and every output
+that depends on order has to be read.
 
 ## Code Examples
 

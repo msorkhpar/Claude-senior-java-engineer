@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Run every task on a virtual thread and gather the outcomes",
+  "title": "Read any field of an order line",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,23 @@
     },
     {
       "type": "para",
-      "text": "Structured concurrency, a preview in Java 21, ties the lifetime of concurrent subtasks to one block of code: the block does not finish until every subtask has finished. Without the preview API the page reaches the same shape with `Executors.newVirtualThreadPerTaskExecutor()` in a try-with-resources: every task gets its **own virtual thread**, and `close()` waits for all of them before the block exits."
+      "text": "The warehouse sends order lines such as `sku=K-204;qty=12;wrap;note=ring twice`. Fields are separated by `;`, and a field is `key=value`, except a flag such as `wrap`, which has no `=` and whose value is the empty string."
     },
     {
       "type": "para",
-      "text": "Write `Gather.all(List<Callable<T>> tasks)`. It runs every task on its own virtual thread, waits for all of them, and returns one `Outcome` per task:"
+      "text": "`Fields.valueOf(line, key)` already walks the line one field at a time. Finish the two helpers it uses, in `src/main/java/practice/Fields.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "The outcomes are in **task order**, whatever order the tasks finish in.",
-        "A task that returns `v` gives `new Outcome<>(v, null)`.",
-        "A task that throws gives `new Outcome<>(null, message)`, where `message` is the **task's own exception's** `getMessage()`, not a wrapper's. One task failing does not stop or hide the others."
+        "`fieldEnd(line, from)`: where the field that starts at `from` ends;",
+        "`separatorIn(line, from, to)`: the position in `line` of that field's `=`, or -1 when the field is a flag."
       ]
     },
     {
       "type": "para",
-      "text": "`Outcome` is the nested record `Gather.Outcome<T>(T value, String error)`."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "tasks",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`[() -> \"a\", () -> \"b\"]`",
-          "`[Outcome[value=a, error=null], Outcome[value=b, error=null]]`"
-        ],
-        [
-          "`[() -> 1, () -> { throw new IllegalStateException(\"boom\"); }, () -> 3]`",
-          "`[Outcome[value=1, error=null], Outcome[value=null, error=boom], Outcome[value=3, error=null]]`"
-        ],
-        [
-          "`[]`",
-          "`[]`"
-        ]
-      ]
+      "text": "Any field must be readable, the last one included, and a key the line doesn't have gives an empty `Optional`. About three lines in total."
     },
     {
       "type": "heading",
@@ -72,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\npublic final class Gather {\n\n    private Gather() {\n    }\n\n    /** One task's result: its value, or the message of the exception it threw. */\n    public record Outcome<T>(T value, String error) {\n    }\n\n    /** Runs each task on its own virtual thread and returns the outcomes in task order. */\n    public static <T> List<Outcome<T>> all(List<Callable<T>> tasks) {\n        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {\n            List<Future<T>> futures = new ArrayList<>();\n            for (Callable<T> task : tasks) {\n                futures.add(executor.submit(task));\n            }\n            List<Outcome<T>> outcomes = new ArrayList<>();\n            for (Future<T> future : futures) {\n                try {\n                    outcomes.add(new Outcome<>(future.get(), null));\n                } catch (ExecutionException e) {\n                    outcomes.add(new Outcome<>(null, e.getCause().getMessage()));\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                    throw new IllegalStateException(\"interrupted while gathering\", e);\n                }\n            }\n            return outcomes;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Optional;\n\n/**\n * Reads one field from an order line such as {@code sku=A-17;qty=3;gift;note=leave at door}:\n * fields are separated by ';', a field is {@code key=value}, and a field without '=' is a flag\n * whose value is the empty string.\n */\npublic final class Fields {\n\n    private Fields() {\n    }\n\n    /** The value of {@code key} in {@code line}, or empty when the line has no such field. */\n    public static Optional<String> valueOf(String line, String key) {\n        int start = 0;\n        while (start <= line.length()) {\n            int end = fieldEnd(line, start);\n            int eq = separatorIn(line, start, end);\n            String name = eq < 0 ? line.substring(start, end) : line.substring(start, eq);\n            if (name.equals(key)) {\n                return Optional.of(eq < 0 ? \"\" : line.substring(eq + 1, end));\n            }\n            start = end + 1;\n        }\n        return Optional.empty();\n    }\n\n    /** Where the field that starts at {@code from} ends (exclusive). */\n    static int fieldEnd(String line, int from) {\n        int end = line.indexOf(';', from);\n        return end < 0 ? line.length() : end;\n    }\n\n    /**\n     * The position in {@code line} of the '=' of the field that spans {@code [from, to)}, or -1\n     * when that field has none.\n     */\n    static int separatorIn(String line, int from, int to) {\n        return line.indexOf('=', from, to);\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Callable;\n\npublic final class Gather {\n\n    private Gather() {\n    }\n\n    /** One task's result: its value, or the message of the exception it threw. */\n    public record Outcome<T>(T value, String error) {\n    }\n\n    /** Runs each task on its own virtual thread and returns the outcomes in task order. */\n    public static <T> List<Outcome<T>> all(List<Callable<T>> tasks) {\n        throw new UnsupportedOperationException(\"write all\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Optional;\n\n/**\n * Reads one field from an order line such as {@code sku=A-17;qty=3;gift;note=leave at door}:\n * fields are separated by ';', a field is {@code key=value}, and a field without '=' is a flag\n * whose value is the empty string.\n */\npublic final class Fields {\n\n    private Fields() {\n    }\n\n    /** The value of {@code key} in {@code line}, or empty when the line has no such field. */\n    public static Optional<String> valueOf(String line, String key) {\n        int start = 0;\n        while (start <= line.length()) {\n            int end = fieldEnd(line, start);\n            int eq = separatorIn(line, start, end);\n            String name = eq < 0 ? line.substring(start, end) : line.substring(start, eq);\n            if (name.equals(key)) {\n                return Optional.of(eq < 0 ? \"\" : line.substring(eq + 1, end));\n            }\n            start = end + 1;\n        }\n        return Optional.empty();\n    }\n\n    /** Where the field that starts at {@code from} ends (exclusive). */\n    static int fieldEnd(String line, int from) {\n        // TODO: The end of the field that starts at from.\n        throw new IllegalStateException(\"TODO: where the field ends\");\n    }\n\n    /**\n     * The position in {@code line} of the '=' of the field that spans {@code [from, to)}, or -1\n     * when that field has none.\n     */\n    static int separatorIn(String line, int from, int to) {\n        // TODO: The '=' inside this field only.\n        throw new IllegalStateException(\"TODO: find the separator\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -94,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -103,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a81945daf59d315a2b9e7d9e7b6672af9ffd2769e8d3249d164e23a8394d1e45",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Callable;\n\npublic final class Gather {\n\n    private Gather() {\n    }\n\n    /** One task's result: its value, or the message of the exception it threw. */\n    public record Outcome<T>(T value, String error) {\n    }\n\n    /** Runs each task on its own virtual thread and returns the outcomes in task order. */\n    public static <T> List<Outcome<T>> all(List<Callable<T>> tasks) {\n        throw new UnsupportedOperationException(\"write all\");\n    }\n}\n",
+  "content_sha256": "c3b04596b738c80a4bf77d846e8ca636b8c53c3d60a341e91d6beb9c841f1ab1",
+  "starting_code": "package practice;\n\nimport java.util.Optional;\n\n/**\n * Reads one field from an order line such as {@code sku=A-17;qty=3;gift;note=leave at door}:\n * fields are separated by ';', a field is {@code key=value}, and a field without '=' is a flag\n * whose value is the empty string.\n */\npublic final class Fields {\n\n    private Fields() {\n    }\n\n    /** The value of {@code key} in {@code line}, or empty when the line has no such field. */\n    public static Optional<String> valueOf(String line, String key) {\n        int start = 0;\n        while (start <= line.length()) {\n            int end = fieldEnd(line, start);\n            int eq = separatorIn(line, start, end);\n            String name = eq < 0 ? line.substring(start, end) : line.substring(start, eq);\n            if (name.equals(key)) {\n                return Optional.of(eq < 0 ? \"\" : line.substring(eq + 1, end));\n            }\n            start = end + 1;\n        }\n        return Optional.empty();\n    }\n\n    /** Where the field that starts at {@code from} ends (exclusive). */\n    static int fieldEnd(String line, int from) {\n        // TODO: The end of the field that starts at from.\n        throw new IllegalStateException(\"TODO: where the field ends\");\n    }\n\n    /**\n     * The position in {@code line} of the '=' of the field that spans {@code [from, to)}, or -1\n     * when that field has none.\n     */\n    static int separatorIn(String line, int from, int to) {\n        // TODO: The '=' inside this field only.\n        throw new IllegalStateException(\"TODO: find the separator\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-05/practice-4/src/main/java/practice/Gather.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-05/practice-4/src/test/java/practice/GatherTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-05/practice-4/src/main/java/practice/Fields.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-05/practice-4/src/test/java/practice/FieldsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.GatherTest#gathersEveryResult",
+        "id": "practice.FieldsTest#readsTheFirstField",
         "kind": "main",
-        "says": "Every task's value comes back as a successful outcome, and an empty task list gives no outcomes."
+        "says": "the value of the first field of a line is found"
       },
       {
-        "id": "practice.GatherTest#outcomesFollowTaskOrder",
+        "id": "practice.FieldsTest#readsTheLastFieldAndReportsAMissingOne",
         "kind": "edge",
-        "says": "A task that finishes last still has its outcome first when it was submitted first."
+        "says": "the last field, which has no ';' after it, is found, and a key the line doesn't have gives an empty result instead of an exception"
       },
       {
-        "id": "practice.GatherTest#tasksRunOnVirtualThreads",
+        "id": "practice.FieldsTest#readsAFieldInTheMiddle",
         "kind": "edge",
-        "says": "Each task runs on a virtual thread."
+        "says": "a field that doesn't start at the beginning of the line is read at the right position"
       },
       {
-        "id": "practice.GatherTest#failuresAreReportedInPlace",
+        "id": "practice.FieldsTest#aFlagHasAnEmptyValue",
         "kind": "edge",
-        "says": "A task that throws gets a failed outcome carrying its exception's own message, and the tasks around it still succeed."
+        "says": "a field without '=' is a flag with an empty value, even when a later field has an '='"
       }
     ],
     "report": {
@@ -154,11 +132,10 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.5.md",
-      "section": "Q4: What is structured concurrency and why is it important?"
+      "section": "The Range Form of indexOf Throws Where the Old Form Returned -1"
     },
     "concepts": [
-      "Structured concurrency bounds subtasks by a block, which a virtual-thread-per-task executor in try-with-resources imitates by waiting for every task on close.",
-      "Executors.newVirtualThreadPerTaskExecutor() and Thread.ofVirtual() create virtual threads, which isVirtual() reports."
+      "String.indexOf(ch, begin, end) throws for a range outside the string, including end = -1, and returns an index counted from the start of the string."
     ]
   }
 }

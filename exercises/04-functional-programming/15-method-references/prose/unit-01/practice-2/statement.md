@@ -1,23 +1,13 @@
-The same method, `String::toUpperCase`, can be a **bound** reference (the receiver is
-one object, fixed when the reference is made) or an **unbound** one (the receiver is
-whatever string the function is handed).
+An API gateway reads two things from its settings, which an operator can reload at any time
+without a restart. Both readers are wired once and then called again and again:
 
-A `Holder` keeps one changeable string (`get()` and `set(String)`). Write three methods
-in `Shout`:
+- the **rate limiter** is built when the gateway starts, sometimes before the first settings have
+  been loaded, and checks its limit before every request. After a reload, operators expect the
+  next window to use the new limit.
+- an **export run** stamps the region into the header of every file it writes. Auditors expect
+  all headers of one run to name the region that was in force when the run started, even if
+  someone reloads halfway through.
 
-1. `Supplier<String> of(Holder holder)` returns a supplier that upper-cases the value
-   the holder has **when `of` is called**. A bound reference behaves this way.
-2. `Function<String, String> each()` upper-cases whatever string it is given, as an
-   unbound reference does.
-3. `List<String> all(List<String> words)` upper-cases every word, keeping every word (repeats
-   included) in its original position.
-
-| call | result |
-|---|---|
-| `of(new Holder("hello")).get()` | `"HELLO"` |
-| `each().apply("goodbye")` | `"GOODBYE"` |
-| `all(List.of("a", "b"))` | `["A", "B"]` |
-
-If the holder's value is `null`, `of` throws a `NullPointerException` with the message
-`value must not be null` straight away. Think about when a bound reference reads its
-receiver, and what that means when the holder changes afterwards.
+`SettingsHolder`, `RateLimiter` and the two builders in `src/main/java/practice/LimiterWiring.java`
+already work. Finish the two `TODO` methods, `liveLimit(...)` and `regionAtStart(...)`, so that
+both expectations hold. About three lines in total.

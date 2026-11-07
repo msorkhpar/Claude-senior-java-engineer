@@ -1,16 +1,12 @@
-`f.andThen(g)` runs `f` first and then `g`: it is `g(f(x))`. `f.compose(g)` runs `g` first and then `f`: it is
-`f(g(x))`. Mixing the two up is a classic trap.
+The greenhouse dashboard reads its sensors from a message queue in batches. Since the queue started
+delivering more than one reading per sensor in a batch, the dashboard page fails to load; and since a
+new sensor was installed without calibration, it fails for every batch that contains that sensor. When
+it does load, the operators sometimes see a vent at an angle it left minutes ago.
 
-Write two methods in `Pipeline`. Each folds a list of `UnaryOperator<T>` steps into one `Function<T, T>`:
+`Readings.dashboard(...)` already formats the page. Finish the two `TODO`s in
+`src/main/java/practice/Readings.java`:
 
-1. `inOrder(steps)` runs the steps first to last (`andThen` is the natural tool).
-2. `inReverse(steps)` runs them last to first (`compose` is the natural tool).
+- `latestBySensor(...)`: one entry per sensor, the reading that was taken last;
+- `unitBySensor(...)`: one entry per sensor that has a unit; an uncalibrated sensor has none.
 
-| steps | input | `inOrder` | `inReverse` |
-|---|---|---|---|
-| `x -> x * 2`, `x -> x + 3` | `5` | `13` | `16` |
-| `String::trim`, `s -> s + "!"` | `" hi "` | `"hi!"` | `"hi !"` |
-
-A list may be empty. A step may return `null`; the step after it must not be handed that `null`, and the result is
-`null`. Any exception a step throws, a `NullPointerException` included, reaches the caller unchanged. The function is
-fixed when it is built: changing the list afterwards does not change it.
+A batch can hold any number of readings of a sensor, in any order. About six lines in total.

@@ -1,29 +1,14 @@
-Abstraction keeps what matters and hides the rest. Every shape can say its
-area and its perimeter; **how** it computes them is its own business. The
-lesson's abstract `Shape` declares exactly those two methods.
+The shop ships with several carriers, and each carrier's rates come from a slow lookup: a
+carrier's API, or a file. `Shipping.CachedRateCard` is the base class for them, and
+`Shipping.ParcelPost` is the first carrier. The freight team will add theirs next month, as their
+own subclass, and the last time they did, two things went wrong: their card was created with the
+currency `"usd"`, and every invoice it produced was refused by the bank; and once both carriers had
+quoted the same zone, the checkout page showed Parcel Post's price for freight.
 
-In `Figures`, implement three shapes behind that abstraction:
+Finish the two `TODO`s in `src/main/java/practice/Shipping.java`, both in `CachedRateCard`:
 
-- `Circle(double radius)`: area `π·r²`, perimeter `2·π·r`.
-- `Square(double side)`: area `side²`, perimeter `4·side`.
-- `Triangle(double a, double b, double c)`: perimeter `a + b + c`; area by
-  Heron's formula, `√(s·(s−a)·(s−b)·(s−c))` with `s` half the perimeter.
+- the constructor: no carrier's card, today's or one written later, can exist with a currency that
+  isn't an ISO 4217 code (three capital letters); refuse one with `IllegalArgumentException`;
+- `rateCents(zone)`: the card's rate for the zone, looking each zone up at most once for that card.
 
-The constructors refuse bad input with `IllegalArgumentException`:
-
-- a square's side, and a circle's radius, must be greater than 0;
-- a triangle's sides must each be shorter than the sum of the other two,
-  in any order. Sides that only **equal** that sum lie on one line and are
-  refused too.
-
-## Examples
-
-```
-new Circle(1).area()          -> 3.14159...   perimeter() -> 6.28318...
-new Square(2).area()          -> 4.0          perimeter() -> 8.0
-new Triangle(3, 4, 5).area()  -> 6.0          perimeter() -> 12.0
-new Triangle(1, 2, 10)        -> IllegalArgumentException
-new Triangle(10, 2, 1)        -> IllegalArgumentException
-new Triangle(1, 2, 3)         -> IllegalArgumentException
-new Square(0)                 -> IllegalArgumentException
-```
+About six lines in total. The tests add a carrier of their own, the way the freight team will.

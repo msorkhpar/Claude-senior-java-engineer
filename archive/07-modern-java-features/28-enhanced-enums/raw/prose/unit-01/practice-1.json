@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Severities from two enums",
+  "title": "Keep the audit log's type names when a constant gets a body",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,23 @@
     },
     {
       "type": "para",
-      "text": "An enum cannot extend another enum, so the page's fix for \"I need more severities\" is a shared interface: `StandardSeverity` and `ExtendedSeverity` both implement `Severity`, and code that works with `Severity` accepts constants of either enum."
+      "text": "The order service writes an audit line for every field of an order that changes: `discount: Discount NONE -> VOUCHER`, or `total: type changed from Amount to Channel` when the old and the new value are not of the same type. Since `LOYALTY` and `VOUCHER` got discount rules of their own, the audit log has gone wrong for them: some lines name no type at all, and a customer moving from no discount to a voucher is logged as a change of type."
     },
     {
       "type": "para",
-      "text": "The starter declares the interface and both enums. Write two methods that work only through `Severity`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/AuditLog.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`static List<Severity> all()` returns every constant of both enums, ordered by `level()` from lowest to highest. The caller must not be able to change the list.",
-        "`static Optional<Severity> highest(Collection<? extends Severity> among)` returns the constant with the highest `level()`, or an empty `Optional` when `among` is empty."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`all()`",
-          "`[TRACE, LOW, MEDIUM, HIGH, CRITICAL, CATASTROPHIC]`"
-        ],
-        [
-          "`highest(List.of(LOW, CRITICAL, MEDIUM))`",
-          "`Optional[CRITICAL]`"
-        ],
-        [
-          "`highest(List.of(HIGH, TRACE))`",
-          "`Optional[HIGH]`"
-        ],
-        [
-          "`highest(List.of())`",
-          "`Optional.empty`"
-        ],
-        [
-          "`all().add(LOW)`",
-          "throws `UnsupportedOperationException`"
-        ]
+        "`typeName(value)`: the name the log shows for the value's type;",
+        "`sameType(a, b)`: whether a change from `a` to `b` is an edit of one type."
       ]
     },
     {
       "type": "para",
-      "text": "Note that `ExtendedSeverity` has a constant *below* every standard one."
+      "text": "When you're done, every constant of `Discount` is logged as a `Discount`, whichever constant it is, and a constant of one enum is never the same type as a constant of another. About four lines in total."
     },
     {
       "type": "heading",
@@ -79,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Severities {\n\n    private Severities() {\n    }\n\n    /** What every severity, from any enum, offers. */\n    public interface Severity {\n        String label();\n\n        int level();\n    }\n\n    public enum StandardSeverity implements Severity {\n        LOW(\"Low\", 1), MEDIUM(\"Medium\", 2), HIGH(\"High\", 3);\n\n        private final String label;\n        private final int level;\n\n        StandardSeverity(String label, int level) {\n            this.label = label;\n            this.level = level;\n        }\n\n        @Override\n        public String label() {\n            return label;\n        }\n\n        @Override\n        public int level() {\n            return level;\n        }\n    }\n\n    public enum ExtendedSeverity implements Severity {\n        TRACE(\"Trace\", 0), CRITICAL(\"Critical\", 4), CATASTROPHIC(\"Catastrophic\", 5);\n\n        private final String label;\n        private final int level;\n\n        ExtendedSeverity(String label, int level) {\n            this.label = label;\n            this.level = level;\n        }\n\n        @Override\n        public String label() {\n            return label;\n        }\n\n        @Override\n        public int level() {\n            return level;\n        }\n    }\n\n    /** Every constant of both enums, lowest level first; the caller cannot change the list. */\n    public static List<Severity> all() {\n        List<Severity> all = new ArrayList<>();\n        Collections.addAll(all, StandardSeverity.values());\n        Collections.addAll(all, ExtendedSeverity.values());\n        all.sort(Comparator.comparingInt(Severity::level));\n        return Collections.unmodifiableList(all);\n    }\n\n    /** The constant with the highest level among {@code among}, or empty when there is none. */\n    public static Optional<Severity> highest(Collection<? extends Severity> among) {\n        return among.stream().map(s -> (Severity) s).max(Comparator.comparingInt(Severity::level));\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Writes one audit line for each field of an order that changed. The line names the type of the\n * new value, and when the old and the new value are not of the same type, it says so instead.\n */\npublic class AuditLog {\n\n    /** How an order reached us. */\n    public enum Channel { WEB, PHONE, PARTNER }\n\n    /** The discount on an order. Two of them compute their amount in a body of their own. */\n    public enum Discount {\n        NONE,\n        LOYALTY {\n            @Override\n            long off(long cents) { return cents / 20; }\n        },\n        VOUCHER {\n            @Override\n            long off(long cents) { return Math.min(cents, 1_000); }\n        };\n\n        long off(long cents) { return 0; }\n    }\n\n    /** An amount of money in cents. */\n    public record Amount(long cents) { }\n\n    /** The audit line for one changed field. */\n    public static String line(String field, Object before, Object after) {\n        if (!sameType(before, after)) {\n            return field + \": type changed from \" + typeName(before) + \" to \" + typeName(after);\n        }\n        return field + \": \" + typeName(after) + \" \" + before + \" -> \" + after;\n    }\n\n    /** The name of the value's type as the audit log shows it, for example \"Channel\" or \"Amount\". */\n    static String typeName(Object value) {\n        if (value instanceof Enum<?> e) return e.getDeclaringClass().getSimpleName();\n        return value.getClass().getSimpleName();\n    }\n\n    /** Whether two values are of the same type, so that a change between them is an ordinary edit. */\n    static boolean sameType(Object a, Object b) {\n        return typeOf(a) == typeOf(b);\n    }\n\n    private static Class<?> typeOf(Object value) {\n        return value instanceof Enum<?> e ? e.getDeclaringClass() : value.getClass();\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Severities {\n\n    private Severities() {\n    }\n\n    /** What every severity, from any enum, offers. */\n    public interface Severity {\n        String label();\n\n        int level();\n    }\n\n    public enum StandardSeverity implements Severity {\n        LOW(\"Low\", 1), MEDIUM(\"Medium\", 2), HIGH(\"High\", 3);\n\n        private final String label;\n        private final int level;\n\n        StandardSeverity(String label, int level) {\n            this.label = label;\n            this.level = level;\n        }\n\n        @Override\n        public String label() {\n            return label;\n        }\n\n        @Override\n        public int level() {\n            return level;\n        }\n    }\n\n    public enum ExtendedSeverity implements Severity {\n        TRACE(\"Trace\", 0), CRITICAL(\"Critical\", 4), CATASTROPHIC(\"Catastrophic\", 5);\n\n        private final String label;\n        private final int level;\n\n        ExtendedSeverity(String label, int level) {\n            this.label = label;\n            this.level = level;\n        }\n\n        @Override\n        public String label() {\n            return label;\n        }\n\n        @Override\n        public int level() {\n            return level;\n        }\n    }\n\n    /** Every constant of both enums, lowest level first; the caller cannot change the list. */\n    public static List<Severity> all() {\n        throw new UnsupportedOperationException(\"write all\");\n    }\n\n    /** The constant with the highest level among {@code among}, or empty when there is none. */\n    public static Optional<Severity> highest(Collection<? extends Severity> among) {\n        throw new UnsupportedOperationException(\"write highest\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Writes one audit line for each field of an order that changed. The line names the type of the\n * new value, and when the old and the new value are not of the same type, it says so instead.\n */\npublic class AuditLog {\n\n    /** How an order reached us. */\n    public enum Channel { WEB, PHONE, PARTNER }\n\n    /** The discount on an order. Two of them compute their amount in a body of their own. */\n    public enum Discount {\n        NONE,\n        LOYALTY {\n            @Override\n            long off(long cents) { return cents / 20; }\n        },\n        VOUCHER {\n            @Override\n            long off(long cents) { return Math.min(cents, 1_000); }\n        };\n\n        long off(long cents) { return 0; }\n    }\n\n    /** An amount of money in cents. */\n    public record Amount(long cents) { }\n\n    /** The audit line for one changed field. */\n    public static String line(String field, Object before, Object after) {\n        if (!sameType(before, after)) {\n            return field + \": type changed from \" + typeName(before) + \" to \" + typeName(after);\n        }\n        return field + \": \" + typeName(after) + \" \" + before + \" -> \" + after;\n    }\n\n    /** The name of the value's type as the audit log shows it, for example \"Channel\" or \"Amount\". */\n    static String typeName(Object value) {\n        // TODO: Every value of one enum must show that enum's name, whichever constant it is.\n        //       Values that aren't enum constants show the simple name of their class.\n        throw new IllegalStateException(\"TODO: typeName\");\n    }\n\n    /** Whether two values are of the same type, so that a change between them is an ordinary edit. */\n    static boolean sameType(Object a, Object b) {\n        // TODO: Two constants of one enum are the same type, whichever constants they are; constants\n        //       of two different enums are not. Two records of one record class are the same type.\n        throw new IllegalStateException(\"TODO: sameType\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -110,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9c0fb561e5b68c625797bbb75d6f43213067588c438664980f2bffed7025ed00",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Severities {\n\n    private Severities() {\n    }\n\n    /** What every severity, from any enum, offers. */\n    public interface Severity {\n        String label();\n\n        int level();\n    }\n\n    public enum StandardSeverity implements Severity {\n        LOW(\"Low\", 1), MEDIUM(\"Medium\", 2), HIGH(\"High\", 3);\n\n        private final String label;\n        private final int level;\n\n        StandardSeverity(String label, int level) {\n            this.label = label;\n            this.level = level;\n        }\n\n        @Override\n        public String label() {\n            return label;\n        }\n\n        @Override\n        public int level() {\n            return level;\n        }\n    }\n\n    public enum ExtendedSeverity implements Severity {\n        TRACE(\"Trace\", 0), CRITICAL(\"Critical\", 4), CATASTROPHIC(\"Catastrophic\", 5);\n\n        private final String label;\n        private final int level;\n\n        ExtendedSeverity(String label, int level) {\n            this.label = label;\n            this.level = level;\n        }\n\n        @Override\n        public String label() {\n            return label;\n        }\n\n        @Override\n        public int level() {\n            return level;\n        }\n    }\n\n    /** Every constant of both enums, lowest level first; the caller cannot change the list. */\n    public static List<Severity> all() {\n        throw new UnsupportedOperationException(\"write all\");\n    }\n\n    /** The constant with the highest level among {@code among}, or empty when there is none. */\n    public static Optional<Severity> highest(Collection<? extends Severity> among) {\n        throw new UnsupportedOperationException(\"write highest\");\n    }\n}\n",
+  "content_sha256": "958b43498e1d90494a6dcb3c93ff268c6116a501bad00cb45dac7a804034ca10",
+  "starting_code": "package practice;\n\n/**\n * Writes one audit line for each field of an order that changed. The line names the type of the\n * new value, and when the old and the new value are not of the same type, it says so instead.\n */\npublic class AuditLog {\n\n    /** How an order reached us. */\n    public enum Channel { WEB, PHONE, PARTNER }\n\n    /** The discount on an order. Two of them compute their amount in a body of their own. */\n    public enum Discount {\n        NONE,\n        LOYALTY {\n            @Override\n            long off(long cents) { return cents / 20; }\n        },\n        VOUCHER {\n            @Override\n            long off(long cents) { return Math.min(cents, 1_000); }\n        };\n\n        long off(long cents) { return 0; }\n    }\n\n    /** An amount of money in cents. */\n    public record Amount(long cents) { }\n\n    /** The audit line for one changed field. */\n    public static String line(String field, Object before, Object after) {\n        if (!sameType(before, after)) {\n            return field + \": type changed from \" + typeName(before) + \" to \" + typeName(after);\n        }\n        return field + \": \" + typeName(after) + \" \" + before + \" -> \" + after;\n    }\n\n    /** The name of the value's type as the audit log shows it, for example \"Channel\" or \"Amount\". */\n    static String typeName(Object value) {\n        // TODO: Every value of one enum must show that enum's name, whichever constant it is.\n        //       Values that aren't enum constants show the simple name of their class.\n        throw new IllegalStateException(\"TODO: typeName\");\n    }\n\n    /** Whether two values are of the same type, so that a change between them is an ordinary edit. */\n    static boolean sameType(Object a, Object b) {\n        // TODO: Two constants of one enum are the same type, whichever constants they are; constants\n        //       of two different enums are not. Two records of one record class are the same type.\n        throw new IllegalStateException(\"TODO: sameType\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-01/practice-1/src/main/java/practice/Severities.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-01/practice-1/src/test/java/practice/SeveritiesTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-01/practice-1/src/main/java/practice/AuditLog.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-01/practice-1/src/test/java/practice/AuditLogTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,29 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SeveritiesTest#combinesBothEnums",
+        "id": "practice.AuditLogTest#namesThePlainConstantsAndTheRecords",
         "kind": "main",
-        "says": "all() holds every constant of both enums, and highest() picks the highest level among constants of either enum."
+        "says": "a constant without a body and a record are shown with the simple name of their type"
       },
       {
-        "id": "practice.SeveritiesTest#allIsOrderedByLevelAcrossEnums",
-        "kind": "edge",
-        "says": "all() is ordered by level, so a low constant of the second enum comes before the first enum's constants."
+        "id": "practice.AuditLogTest#tellsTypesApart",
+        "kind": "main",
+        "says": "two constants of one plain enum, or two records of one class, are the same type; values of different types are not"
       },
       {
-        "id": "practice.SeveritiesTest#allIsReadOnly",
-        "kind": "edge",
-        "says": "The list all() returns cannot be changed by the caller, neither by adding nor by replacing an element."
+        "id": "practice.AuditLogTest#writesAnEditBetweenTwoPlainConstants",
+        "kind": "main",
+        "says": "an edit between two plain constants is written with the enum's name, and a change of type is written as such"
       },
       {
-        "id": "practice.SeveritiesTest#highestOfNothingIsEmpty",
+        "id": "practice.AuditLogTest#namesTheEnumOfAConstantThatHasABody",
         "kind": "edge",
-        "says": "highest() of an empty collection is an empty Optional, not an exception."
+        "says": "a constant that overrides a method in a body of its own is shown with its enum's name, not a blank"
       },
       {
-        "id": "practice.SeveritiesTest#highestComparesLevelsAcrossEnums",
+        "id": "practice.AuditLogTest#aConstantWithABodyIsTheSameTypeAsTheOtherConstants",
         "kind": "edge",
-        "says": "highest() compares level() across both enums: CRITICAL (4) beats HIGH (3) although it is declared in the other enum at a lower ordinal."
+        "says": "a constant with a body is the same type as the other constants of its enum, with or without bodies, and not the same type as another enum's constant"
       }
     ],
     "report": {
@@ -166,10 +137,10 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.1.md",
-      "section": "Interview Q&A Section"
+      "section": "A Constant With a Body Is an Anonymous Subclass, So getClass() Isn't the Enum"
     },
     "concepts": [
-      "Several enums can implement one interface, so code written against the interface accepts constants of any of them."
+      "A constant with a body is an instance of an anonymous subclass, so getClass() is not the enum for it; getDeclaringClass() is, and switch, EnumSet and EnumMap are unaffected."
     ]
   }
 }

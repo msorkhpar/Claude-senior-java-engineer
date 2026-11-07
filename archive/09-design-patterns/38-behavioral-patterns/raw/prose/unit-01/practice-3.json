@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Lambdas as text strategies",
+  "title": "Send alerts through the channel config names",
   "blocks": [
     {
       "type": "heading",
@@ -19,60 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A strategy interface with one method is a functional interface, so a lambda or a method reference can be the strategy, and `UnaryOperator<String>` is already the interface a text strategy needs. The page also keeps stateless strategies as `static final` constants."
+      "text": "Every service sends its operational alerts through one channel, chosen in its config under `alerts.channel`: `email`, `sms`, `chat`, or whatever else the build provides. Services that don't set the key send by email. Last week a service was deployed with a misspelled channel name, and its disk-full alert was the first anyone heard of it, after the disk had filled."
     },
     {
       "type": "para",
-      "text": "Write `TextProcessor`, a context holding a `UnaryOperator<String>`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The constructor and `setStrategy(s)` keep the strategy and refuse `null` with `IllegalArgumentException`.",
-        "`process(text)` returns the strategy applied to `text`; **`null` text is refused** with `IllegalArgumentException` before the strategy runs.",
-        "Five constants: `UPPER_CASE`, `LOWER_CASE`, `REVERSE`, `TRIM_AND_UPPER` and `REMOVE_WHITESPACE`. **Case changes use `Locale.ROOT`**, so they give the same answer on every machine. **`REMOVE_WHITESPACE` removes every whitespace character** (spaces, tabs, newlines)."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "strategy",
-        "text",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`UPPER_CASE`",
-          "`\"hello\"`",
-          "`\"HELLO\"`"
-        ],
-        [
-          "`REVERSE`",
-          "`\"hello\"`",
-          "`\"olleh\"`"
-        ],
-        [
-          "`TRIM_AND_UPPER`",
-          "`\"  hello  \"`",
-          "`\"HELLO\"`"
-        ],
-        [
-          "`REMOVE_WHITESPACE`",
-          "`\"h e\\tl\\nlo\"`",
-          "`\"hello\"`"
-        ],
-        [
-          "`s -> s.replaceAll(\"\\\\s+\", \"-\")`",
-          "`\"hello world\"`",
-          "`\"hello-world\"`"
-        ],
-        [
-          "any",
-          "`null`",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "text": "Write `choose` in `src/main/java/practice/AlertService.java`. The constructor calls it once, and `raise` sends every alert through the channel it returns. A misspelled name must be found when the service is deployed, by an `IllegalArgumentException` from the constructor, and must never send an alert anywhere else. About five lines in total."
     },
     {
       "type": "heading",
@@ -87,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Locale;\nimport java.util.function.UnaryOperator;\n\npublic final class TextProcessor {\n\n    public static final UnaryOperator<String> UPPER_CASE = s -> s.toUpperCase(Locale.ROOT);\n    public static final UnaryOperator<String> LOWER_CASE = s -> s.toLowerCase(Locale.ROOT);\n    public static final UnaryOperator<String> REVERSE = s -> new StringBuilder(s).reverse().toString();\n    public static final UnaryOperator<String> TRIM_AND_UPPER = s -> s.trim().toUpperCase(Locale.ROOT);\n    public static final UnaryOperator<String> REMOVE_WHITESPACE = s -> s.replaceAll(\"\\\\s+\", \"\");\n\n    private UnaryOperator<String> strategy;\n\n    public TextProcessor(UnaryOperator<String> strategy) {\n        setStrategy(strategy);\n    }\n\n    public void setStrategy(UnaryOperator<String> strategy) {\n        if (strategy == null) {\n            throw new IllegalArgumentException(\"Strategy cannot be null\");\n        }\n        this.strategy = strategy;\n    }\n\n    public String process(String text) {\n        if (text == null) {\n            throw new IllegalArgumentException(\"Text cannot be null\");\n        }\n        return strategy.apply(text);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.TreeSet;\n\n/** Sends operational alerts through the channel that config names under \"alerts.channel\". */\npublic class AlertService {\n\n    public interface Channel {\n        void deliver(String message);\n    }\n\n    static final String KEY = \"alerts.channel\";\n    static final String DEFAULT_CHANNEL = \"email\";\n\n    private final Map<String, Channel> channels;\n    private final Channel channel;\n\n    /**\n     * @param channels every channel this build can send through, by the name config uses for it;\n     *                 it always includes \"email\"\n     * @param config   the service's settings, read once at start-up\n     */\n    public AlertService(Map<String, Channel> channels, Map<String, String> config) {\n        this.channels = Map.copyOf(channels);\n        this.channel = choose(config);\n    }\n\n    /** Picks the channel every alert of this service goes through. */\n    Channel choose(Map<String, String> config) {\n        String name = config.getOrDefault(KEY, DEFAULT_CHANNEL);\n        Channel chosen = channels.get(name);\n        if (chosen == null) {\n            throw new IllegalArgumentException(KEY + \"=\" + name + \" is not one of \" + new TreeSet<>(channels.keySet()));\n        }\n        return chosen;\n    }\n\n    public void raise(String message) {\n        channel.deliver(message);\n    }\n}\n"
         }
       ]
     },
@@ -99,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.UnaryOperator;\n\npublic final class TextProcessor {\n\n    public static final UnaryOperator<String> UPPER_CASE = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n    public static final UnaryOperator<String> LOWER_CASE = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n    public static final UnaryOperator<String> REVERSE = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n    public static final UnaryOperator<String> TRIM_AND_UPPER = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n    public static final UnaryOperator<String> REMOVE_WHITESPACE = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n\n    public TextProcessor(UnaryOperator<String> strategy) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void setStrategy(UnaryOperator<String> strategy) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public String process(String text) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.TreeSet;\n\n/** Sends operational alerts through the channel that config names under \"alerts.channel\". */\npublic class AlertService {\n\n    public interface Channel {\n        void deliver(String message);\n    }\n\n    static final String KEY = \"alerts.channel\";\n    static final String DEFAULT_CHANNEL = \"email\";\n\n    private final Map<String, Channel> channels;\n    private final Channel channel;\n\n    /**\n     * @param channels every channel this build can send through, by the name config uses for it;\n     *                 it always includes \"email\"\n     * @param config   the service's settings, read once at start-up\n     */\n    public AlertService(Map<String, Channel> channels, Map<String, String> config) {\n        this.channels = Map.copyOf(channels);\n        this.channel = choose(config);\n    }\n\n    /** Picks the channel every alert of this service goes through. */\n    Channel choose(Map<String, String> config) {\n        // TODO: the channel named in config, or \"email\" when config names none\n        throw new IllegalStateException(\"TODO: choose the channel\");\n    }\n\n    public void raise(String message) {\n        channel.deliver(message);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -109,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -118,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9895079de853a657a79491d66167303259457ca5f0ec9d035faa140d520d1ce1",
-  "starting_code": "package practice;\n\nimport java.util.function.UnaryOperator;\n\npublic final class TextProcessor {\n\n    public static final UnaryOperator<String> UPPER_CASE = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n    public static final UnaryOperator<String> LOWER_CASE = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n    public static final UnaryOperator<String> REVERSE = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n    public static final UnaryOperator<String> TRIM_AND_UPPER = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n    public static final UnaryOperator<String> REMOVE_WHITESPACE = s -> {\n        throw new UnsupportedOperationException(\"TODO\");\n    };\n\n    public TextProcessor(UnaryOperator<String> strategy) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void setStrategy(UnaryOperator<String> strategy) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public String process(String text) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "d1c9d2798d07f58a3368d57bd9923ce06f8dc094942368f6cb3b5dbd5ae95110",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.TreeSet;\n\n/** Sends operational alerts through the channel that config names under \"alerts.channel\". */\npublic class AlertService {\n\n    public interface Channel {\n        void deliver(String message);\n    }\n\n    static final String KEY = \"alerts.channel\";\n    static final String DEFAULT_CHANNEL = \"email\";\n\n    private final Map<String, Channel> channels;\n    private final Channel channel;\n\n    /**\n     * @param channels every channel this build can send through, by the name config uses for it;\n     *                 it always includes \"email\"\n     * @param config   the service's settings, read once at start-up\n     */\n    public AlertService(Map<String, Channel> channels, Map<String, String> config) {\n        this.channels = Map.copyOf(channels);\n        this.channel = choose(config);\n    }\n\n    /** Picks the channel every alert of this service goes through. */\n    Channel choose(Map<String, String> config) {\n        // TODO: the channel named in config, or \"email\" when config names none\n        throw new IllegalStateException(\"TODO: choose the channel\");\n    }\n\n    public void raise(String message) {\n        channel.deliver(message);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-01/practice-3/src/main/java/practice/TextProcessor.java",
-    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-01/practice-3/src/test/java/practice/TextProcessorTest.java",
+    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-01/practice-3/src/main/java/practice/AlertService.java",
+    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-01/practice-3/src/test/java/practice/AlertServiceTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -143,29 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TextProcessorTest#appliesTheStrategyAndSwitchesToALambda",
+        "id": "practice.AlertServiceTest#theConfiguredChannelGetsTheAlerts",
         "kind": "main",
-        "says": "process() applies the held strategy; the five constants do what their names say; setStrategy() accepts any lambda."
+        "says": "every alert goes through the channel config names, and through no other"
       },
       {
-        "id": "practice.TextProcessorTest#removeWhitespaceRemovesEveryKindOfWhitespace",
+        "id": "practice.AlertServiceTest#aMisspelledChannelStopsTheServiceFromStarting",
         "kind": "edge",
-        "says": "REMOVE_WHITESPACE removes tabs, newlines and runs of spaces, not only single spaces."
+        "says": "a channel name the build doesn't know makes the constructor throw IllegalArgumentException"
       },
       {
-        "id": "practice.TextProcessorTest#caseChangesDoNotDependOnTheDefaultLocale",
+        "id": "practice.AlertServiceTest#aMisspelledChannelNeverSendsAlertsSomewhereElse",
         "kind": "edge",
-        "says": "With a Turkish default locale, UPPER_CASE still turns \"title\" into \"TITLE\" and LOWER_CASE turns \"TITLE\" into \"title\"."
+        "says": "a channel name the build doesn't know never sends an alert through another channel"
       },
       {
-        "id": "practice.TextProcessorTest#nullTextIsRefused",
+        "id": "practice.AlertServiceTest#withNoChannelConfiguredAlertsGoByEmail",
         "kind": "edge",
-        "says": "process(null) throws IllegalArgumentException instead of handing null to the strategy."
-      },
-      {
-        "id": "practice.TextProcessorTest#aNullStrategyIsRefused",
-        "kind": "edge",
-        "says": "Both the constructor and setStrategy() refuse null with IllegalArgumentException."
+        "says": "when config names no channel, alerts go by email"
       }
     ],
     "report": {
@@ -174,10 +120,11 @@
     },
     "origin": {
       "path": "38-behavioral-patterns/README_9.3.1.md",
-      "section": "Interview Q&A Section"
+      "section": "Resolve a Strategy's Name When the Service Starts, Not When It First Runs"
     },
     "concepts": [
-      "A single-method strategy is a functional interface, so lambdas, method references and standard types like UnaryOperator can be strategies, kept as static final constants when stateless."
+      "A default belongs to a config key that is absent, never to a value that is wrong.",
+      "A strategy named in config is resolved when the service starts, and an unknown name makes start-up fail; a lookup at first use fails after the deploy, and a fallback for an unknown name never fails."
     ]
   }
 }

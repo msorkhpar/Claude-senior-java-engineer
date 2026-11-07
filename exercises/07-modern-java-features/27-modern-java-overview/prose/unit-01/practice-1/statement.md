@@ -1,23 +1,10 @@
-The page contrasts `map()` and `flatMap()`: on a `List<List<String>>`, `map`
-keeps the nesting, while `flatMap(Collection::stream)` turns it into one
-`Stream<String>`. It also warns that null elements must be filtered out
-(`filter(Objects::nonNull)`) before a stream works on them.
+The shop's `PriceBook` keeps prices in cents by SKU, and Finance audits it: every change is
+written to a trail as `sku: old -> new`. The class was written years ago and has always passed its
+audit. This quarter the auditors found price changes that are not in the trail. All of them come
+from two newer jobs: the daily adjustment job, which calls `merge(sku, delta, Long::sum)`, and the
+yearly increase, which calls `replaceAll(...)`.
 
-Write `Tags.allTags(List<List<String>> posts)`. Each inner list is the tags of
-one post. Return every tag of every post as one list that is:
-
-- upper-cased with **`toUpperCase(Locale.ROOT)`**, so the result does not depend on
-  the machine's default locale (in Turkish, `"i"` upper-cases to `"İ"`),
-- free of duplicates, where two tags are duplicates when they are **equal after upper-casing**
-  (the same text, even if each is its own `String` object),
-- sorted in natural (alphabetical) order,
-- without empty tags (`""`) and without `null` tags. A tag of spaces such as `" "` is
-  not empty: keep it as it is.
-
-
-| posts | answer |
-|---|---|
-| `[["streams", "java"], ["lambda"]]` | `["JAVA", "LAMBDA", "STREAMS"]` |
-| `[["Java"], ["JAVA", "jvm"]]` | `["JAVA", "JVM"]` |
-| `[["", "x"], [null]]` | `["X"]` |
-| `[]` | `[]` |
+Finish the two `TODO` methods in `src/main/java/practice/PriceBook.java` so that every price
+change, whichever method makes it, reaches the trail. Callers of `merge` must still get exactly
+the behaviour `Map.merge` documents, including when the function returns `null`. About eight
+lines in total.

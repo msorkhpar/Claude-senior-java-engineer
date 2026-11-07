@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A state machine of compareAndSet transitions",
+  "title": "Stop the fraud monitor from seeing money that isn't there",
   "blocks": [
     {
       "type": "heading",
@@ -19,35 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's second pitfall is a state machine with many intermediate states, nested locks and complex transition rules. Its fix: keep the states few, and make each transition one `compareAndSet` on an `AtomicReference`:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\npublic boolean start() {\n    return state.compareAndSet(State.IDLE, State.RUNNING);\n}"
+      "text": "A bank's fraud monitor watches each customer's money from its own threads while transfers run. Twice last month it froze an account because the customer's total had dropped by exactly the amount of a transfer between their own checking and savings, and a minute later the total was back. The monitor reads `total()` and `statement()`; the app calls `transfer(...)`."
     },
     {
       "type": "para",
-      "text": "Write `Job`, whose nested `enum State` is `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`, and which starts `IDLE`. Each transition returns `true` when it happened, and **`false`, with the state left as it was, when the job is not in the state the transition starts from**:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`start()`: `IDLE` to `RUNNING` only, so a second `start()` is refused, and so is a `start()` on a `COMPLETED` or `FAILED` job, which must be reset first;",
-        "`complete()`: `RUNNING` to `COMPLETED` only, so it is refused on an `IDLE`, `FAILED` or already `COMPLETED` job;",
-        "`fail()`: `RUNNING` to `FAILED` only, refused likewise on `IDLE`, `COMPLETED` or `FAILED`;",
-        "`reset()`: `COMPLETED` or `FAILED` back to `IDLE`, and from nowhere else;",
-        "`state()` returns the current state."
-      ]
+      "text": "Finish the three `TODO` methods in `src/main/java/practice/Wallet.java`. When you're done, a transfer moves the amount from checking to savings, any number of threads can transfer at once without losing a cent, and whatever the monitor reads, while any transfer is in progress, is true of one moment: a total that counts the moving amount exactly once, and a statement with both balances from before the transfer or both from after it."
     },
     {
       "type": "para",
-      "text": "Example: a new job's `complete()` is `false` and it stays `IDLE`; `start()` then `complete()` then `reset()` are all `true`, and the job is `IDLE` again."
-    },
-    {
-      "type": "para",
-      "text": "Making each transition one `compareAndSet`, rather than a `get()` followed by a `set()`, is what keeps it correct when two threads race for the same transition. A race cannot be forced from a test, so that part is this page's quiz; the tests here check the transitions."
+      "text": "`midTransfer` stays where it is, between the debit and the credit: the tests pause a transfer there and read the wallet meanwhile. You may change the fields. About eight lines in total."
     },
     {
       "type": "heading",
@@ -62,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicReference;\n\npublic class Job {\n\n    /** The states a job moves through. */\n    public enum State {\n        IDLE, RUNNING, COMPLETED, FAILED\n    }\n\n    private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\n    /** Moves IDLE to RUNNING. */\n    public boolean start() {\n        return state.compareAndSet(State.IDLE, State.RUNNING);\n    }\n\n    /** Moves RUNNING to COMPLETED. */\n    public boolean complete() {\n        return state.compareAndSet(State.RUNNING, State.COMPLETED);\n    }\n\n    /** Moves RUNNING to FAILED. */\n    public boolean fail() {\n        return state.compareAndSet(State.RUNNING, State.FAILED);\n    }\n\n    /** Moves COMPLETED or FAILED back to IDLE. */\n    public boolean reset() {\n        State current = state.get();\n        if (current == State.COMPLETED || current == State.FAILED) {\n            return state.compareAndSet(current, State.IDLE);\n        }\n        return false;\n    }\n\n    /** Returns the current state. */\n    public State state() {\n        return state.get();\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * A customer's two balances, in cents. A transfer moves money from checking to savings, and the\n * fraud monitor reads total() and statement() from its own threads while transfers run.\n */\npublic final class Wallet {\n\n    /** Both balances, as one reading. */\n    public record Statement(long checking, long savings) {}\n\n    private final Runnable midTransfer;      // runs between the debit and the credit; () -> {} in production\n    private long checking;\n    private long savings;\n\n    public Wallet(long checking, long savings, Runnable midTransfer) {\n        this.checking = checking;\n        this.savings = savings;\n        this.midTransfer = midTransfer;\n    }\n\n    /** Moves amount from checking to savings, running midTransfer after the debit and before the credit. */\n    public synchronized void transfer(long amount) {\n        checking -= amount;\n        midTransfer.run();\n        savings += amount;\n    }\n\n    /** Checking plus savings: what the customer owns. */\n    public synchronized long total() {\n        return checking + savings;\n    }\n\n    /** Both balances, as one reading. */\n    public synchronized Statement statement() {\n        return new Statement(checking, savings);\n    }\n}\n"
         }
       ]
     },
@@ -74,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicReference;\n\npublic class Job {\n\n    /** The states a job moves through. */\n    public enum State {\n        IDLE, RUNNING, COMPLETED, FAILED\n    }\n\n    private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\n    /** Moves IDLE to RUNNING. */\n    public boolean start() {\n        throw new UnsupportedOperationException(\"write start\");\n    }\n\n    /** Moves RUNNING to COMPLETED. */\n    public boolean complete() {\n        throw new UnsupportedOperationException(\"write complete\");\n    }\n\n    /** Moves RUNNING to FAILED. */\n    public boolean fail() {\n        throw new UnsupportedOperationException(\"write fail\");\n    }\n\n    /** Moves COMPLETED or FAILED back to IDLE. */\n    public boolean reset() {\n        throw new UnsupportedOperationException(\"write reset\");\n    }\n\n    /** Returns the current state. */\n    public State state() {\n        throw new UnsupportedOperationException(\"write state\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * A customer's two balances, in cents. A transfer moves money from checking to savings, and the\n * fraud monitor reads total() and statement() from its own threads while transfers run.\n */\npublic final class Wallet {\n\n    /** Both balances, as one reading. */\n    public record Statement(long checking, long savings) {}\n\n    private final Runnable midTransfer;      // runs between the debit and the credit; () -> {} in production\n    private long checking;\n    private long savings;\n\n    public Wallet(long checking, long savings, Runnable midTransfer) {\n        this.checking = checking;\n        this.savings = savings;\n        this.midTransfer = midTransfer;\n    }\n\n    /** Moves amount from checking to savings, running midTransfer after the debit and before the credit. */\n    public void transfer(long amount) {\n        // TODO: debit checking, run midTransfer, credit savings, safely while other threads use this wallet.\n        throw new IllegalStateException(\"TODO: transfer\");\n    }\n\n    /** Checking plus savings: what the customer owns. */\n    public long total() {\n        // TODO: what the customer owns, as one reading, whatever transfer is in progress.\n        throw new IllegalStateException(\"TODO: total\");\n    }\n\n    /** Both balances, as one reading. */\n    public Statement statement() {\n        // TODO: both balances as they stood at one moment.\n        throw new IllegalStateException(\"TODO: statement\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -82,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -93,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d07b0bd4b577a94f66077ae9c415a07c54e0ab8ddf731b6f6ca20a8697663cf6",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.atomic.AtomicReference;\n\npublic class Job {\n\n    /** The states a job moves through. */\n    public enum State {\n        IDLE, RUNNING, COMPLETED, FAILED\n    }\n\n    private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\n    /** Moves IDLE to RUNNING. */\n    public boolean start() {\n        throw new UnsupportedOperationException(\"write start\");\n    }\n\n    /** Moves RUNNING to COMPLETED. */\n    public boolean complete() {\n        throw new UnsupportedOperationException(\"write complete\");\n    }\n\n    /** Moves RUNNING to FAILED. */\n    public boolean fail() {\n        throw new UnsupportedOperationException(\"write fail\");\n    }\n\n    /** Moves COMPLETED or FAILED back to IDLE. */\n    public boolean reset() {\n        throw new UnsupportedOperationException(\"write reset\");\n    }\n\n    /** Returns the current state. */\n    public State state() {\n        throw new UnsupportedOperationException(\"write state\");\n    }\n}\n",
+  "content_sha256": "fa404d21408323c03bb33f5aa8c2fc84e8429b5428ae6308df26367a4beb56ff",
+  "starting_code": "package practice;\n\n/**\n * A customer's two balances, in cents. A transfer moves money from checking to savings, and the\n * fraud monitor reads total() and statement() from its own threads while transfers run.\n */\npublic final class Wallet {\n\n    /** Both balances, as one reading. */\n    public record Statement(long checking, long savings) {}\n\n    private final Runnable midTransfer;      // runs between the debit and the credit; () -> {} in production\n    private long checking;\n    private long savings;\n\n    public Wallet(long checking, long savings, Runnable midTransfer) {\n        this.checking = checking;\n        this.savings = savings;\n        this.midTransfer = midTransfer;\n    }\n\n    /** Moves amount from checking to savings, running midTransfer after the debit and before the credit. */\n    public void transfer(long amount) {\n        // TODO: debit checking, run midTransfer, credit savings, safely while other threads use this wallet.\n        throw new IllegalStateException(\"TODO: transfer\");\n    }\n\n    /** Checking plus savings: what the customer owns. */\n    public long total() {\n        // TODO: what the customer owns, as one reading, whatever transfer is in progress.\n        throw new IllegalStateException(\"TODO: total\");\n    }\n\n    /** Both balances, as one reading. */\n    public Statement statement() {\n        // TODO: both balances as they stood at one moment.\n        throw new IllegalStateException(\"TODO: statement\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-03/practice-1/src/main/java/practice/Job.java",
-    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-03/practice-1/src/test/java/practice/JobTest.java",
+    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-03/practice-1/src/main/java/practice/Wallet.java",
+    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-03/practice-1/src/test/java/practice/WalletTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -118,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.JobTest#followsTheLegalTransitions",
+        "id": "practice.WalletTest#transfersMoveMoneyFromCheckingToSavings",
         "kind": "main",
-        "says": "IDLE, RUNNING, COMPLETED and back; and IDLE, RUNNING, FAILED and back."
+        "says": "transfers move each amount from checking to savings, and the total stays what the customer owns"
       },
       {
-        "id": "practice.JobTest#aSecondStartIsRefused",
-        "kind": "edge",
-        "says": "start() on a RUNNING, COMPLETED or FAILED job is false and changes nothing."
+        "id": "practice.WalletTest#transfersFromManyThreadsLoseNothing",
+        "kind": "main",
+        "says": "ten thousand transfers from four threads at once leave both balances exact"
       },
       {
-        "id": "practice.JobTest#finishingNeedsARunningJob",
+        "id": "practice.WalletTest#totalDuringATransferCountsTheMoneyOnce",
         "kind": "edge",
-        "says": "complete() and fail() on an IDLE, FAILED or COMPLETED job are false and change nothing."
+        "says": "total() read while a transfer is between its debit and its credit counts the moving amount exactly once"
       },
       {
-        "id": "practice.JobTest#resetOnlyFromAFinishedState",
+        "id": "practice.WalletTest#statementDuringATransferAddsUp",
         "kind": "edge",
-        "says": "reset() on an IDLE or RUNNING job is false and changes nothing."
+        "says": "statement() read while a transfer is between its debit and its credit shows the balances from before the transfer or from after it"
       }
     ],
     "report": {
@@ -144,10 +124,11 @@
     },
     "origin": {
       "path": "32-kiss-principle/README_8.2.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "In the Simple Design the Race Has No Schedule, and Its Correctness Argument Is One Sentence"
     },
     "concepts": [
-      "A small state machine is kept simple with an AtomicReference whose compareAndSet allows only the legal transitions."
+      "An invariant spanning two separately atomic variables can be seen broken by a reader between the two writes, so each part being atomic doesn't make the pair consistent.",
+      "When every read and write of the shared fields holds one lock, or the state is one immutable value swapped atomically, a reader sees the state from before or after an update, never half of each."
     ]
   }
 }

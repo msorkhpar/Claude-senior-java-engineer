@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Invoke a method and unwrap what it throws",
+  "title": "Make the test override helper all or nothing",
   "blocks": [
     {
       "type": "heading",
@@ -19,58 +19,22 @@
     },
     {
       "type": "para",
-      "text": "`Method.invoke(target, args...)` calls a method; pass `null` as the target for a static method. A private method needs **`setAccessible(true)`** first. When the invoked method throws, `invoke` does not let the exception through: it wraps it in `InvocationTargetException`, and callers catching `RuntimeException` miss it. **Unwrap it** with `getCause()`."
+      "text": "The billing team's tests use a small helper, `Overrides.apply(target, values)`, to replace fields of the object under test before they run it. A flaky test led to a bad discovery: when one of the fields a test names can't be written, the helper fails half-way, after it has already replaced the fields before it, and the next test in the class runs against an object that is half overridden."
     },
     {
       "type": "para",
-      "text": "Write `Invoker`:"
+      "text": "`apply` already looks the fields up, checks each one before writing any, and then writes them. Finish the `TODO` in `src/main/java/practice/Overrides.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`call(target, name, types, args...)`: finds the method `name` with exactly those parameter types on `target`'s class (any access level) and invokes it.",
-        "`callStatic(type, name, types, args...)`: the same for a static method.",
-        "When the invoked method throws an **unchecked exception** (or an `Error`), the caller gets **that exception itself**. When it throws a **checked exception**, the caller gets an `IllegalStateException` whose **cause is the method's exception**.",
-        "Lookup and access problems stay `ReflectiveOperationException`s."
+        "`writable(field)`: whether `Field.set` will write this field once it has been made accessible."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`call(calc, \"add\", {int, int}, 3, 4)`",
-          "`7`"
-        ],
-        [
-          "`callStatic(Calculator.class, \"twice\", {int}, 21)`",
-          "`42`"
-        ],
-        [
-          "`call(calc, \"reset\", {})` (a `void` method)",
-          "`null`"
-        ],
-        [
-          "`call(calc, \"secretMultiply\", {int, int}, 6, 7)` (private)",
-          "`42`"
-        ],
-        [
-          "`call(calc, \"secretDivide\", {int, int}, 6, 0)`",
-          "`ArithmeticException`"
-        ],
-        [
-          "`call(calc, \"check\", {})` (throws `AssertionError`)",
-          "that `AssertionError`"
-        ],
-        [
-          "`call(calc, \"load\", {String}, \"a.txt\")` (throws `IOException`)",
-          "`IllegalStateException`, cause the `IOException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a call that names a field `Field.set` would refuse fails before anything is written, and every field it would write is still accepted. About three lines in total."
     },
     {
       "type": "heading",
@@ -85,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\n\npublic final class Invoker {\n\n    private Invoker() {\n    }\n\n    /** Invokes the method with these exact parameter types on target. */\n    public static Object call(Object target, String name, Class<?>[] types, Object... args)\n            throws ReflectiveOperationException {\n        Method method = target.getClass().getDeclaredMethod(name, types);\n        method.setAccessible(true);\n        return invoke(method, target, args);\n    }\n\n    /** Invokes the static method with these exact parameter types on type. */\n    public static Object callStatic(Class<?> type, String name, Class<?>[] types, Object... args)\n            throws ReflectiveOperationException {\n        Method method = type.getDeclaredMethod(name, types);\n        method.setAccessible(true);\n        return invoke(method, null, args);\n    }\n\n    private static Object invoke(Method method, Object target, Object[] args) throws IllegalAccessException {\n        try {\n            return method.invoke(target, args);\n        } catch (InvocationTargetException e) {\n            Throwable cause = e.getCause();\n            if (cause instanceof RuntimeException unchecked) {\n                throw unchecked;\n            }\n            if (cause instanceof Error error) {\n                throw error;\n            }\n            throw new IllegalStateException(cause);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/** Lets a test replace fields of the object under test: every field it names, or none of them. */\npublic final class Overrides {\n\n    private Overrides() {\n    }\n\n    /**\n     * Sets each named field of {@code target} to its new value. A field is looked up on the\n     * target's own class, at any access level; a static field is set on the class. When any named\n     * field can't be written, nothing is written and the call fails with an\n     * {@link IllegalArgumentException} naming that field.\n     */\n    public static void apply(Object target, Map<String, ?> values) {\n        List<Field> fields = new ArrayList<>();\n        for (String name : values.keySet()) {\n            Field field;\n            try {\n                field = target.getClass().getDeclaredField(name);\n            } catch (NoSuchFieldException e) {\n                throw new IllegalArgumentException(\"no field \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            if (!writable(field)) {\n                throw new IllegalArgumentException(\"can't override \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            fields.add(field);\n        }\n        for (Field field : fields) {\n            field.setAccessible(true);\n            Object owner = Modifier.isStatic(field.getModifiers()) ? null : target;\n            try {\n                field.set(owner, values.get(field.getName()));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(\"override failed half-way, at \" + field.getName(), e);\n            }\n        }\n    }\n\n    /** Whether {@code Field.set} will write {@code field} once it has been made accessible. */\n    static boolean writable(Field field) {\n        int modifiers = field.getModifiers();\n        if (!Modifier.isFinal(modifiers)) return true;\n        return !Modifier.isStatic(modifiers) && !field.getDeclaringClass().isRecord();\n    }\n}\n"
         }
       ]
     },
@@ -97,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Invoker {\n\n    private Invoker() {\n    }\n\n    /** Invokes the method with these exact parameter types on target. */\n    public static Object call(Object target, String name, Class<?>[] types, Object... args)\n            throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Invokes the static method with these exact parameter types on type. */\n    public static Object callStatic(Class<?> type, String name, Class<?>[] types, Object... args)\n            throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/** Lets a test replace fields of the object under test: every field it names, or none of them. */\npublic final class Overrides {\n\n    private Overrides() {\n    }\n\n    /**\n     * Sets each named field of {@code target} to its new value. A field is looked up on the\n     * target's own class, at any access level; a static field is set on the class. When any named\n     * field can't be written, nothing is written and the call fails with an\n     * {@link IllegalArgumentException} naming that field.\n     */\n    public static void apply(Object target, Map<String, ?> values) {\n        List<Field> fields = new ArrayList<>();\n        for (String name : values.keySet()) {\n            Field field;\n            try {\n                field = target.getClass().getDeclaredField(name);\n            } catch (NoSuchFieldException e) {\n                throw new IllegalArgumentException(\"no field \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            if (!writable(field)) {\n                throw new IllegalArgumentException(\"can't override \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            fields.add(field);\n        }\n        for (Field field : fields) {\n            field.setAccessible(true);\n            Object owner = Modifier.isStatic(field.getModifiers()) ? null : target;\n            try {\n                field.set(owner, values.get(field.getName()));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(\"override failed half-way, at \" + field.getName(), e);\n            }\n        }\n    }\n\n    /** Whether {@code Field.set} will write {@code field} once it has been made accessible. */\n    static boolean writable(Field field) {\n        // TODO: decide from the field alone, before anything is written.\n        throw new IllegalStateException(\"TODO: can \" + field.getName() + \" be written?\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -105,9 +69,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -116,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5e70ed2ba24d723eb08bb9733b92ef60d9f7a82eda20e45e4f3f65c40177a9ae",
-  "starting_code": "package practice;\n\npublic final class Invoker {\n\n    private Invoker() {\n    }\n\n    /** Invokes the method with these exact parameter types on target. */\n    public static Object call(Object target, String name, Class<?>[] types, Object... args)\n            throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Invokes the static method with these exact parameter types on type. */\n    public static Object callStatic(Class<?> type, String name, Class<?>[] types, Object... args)\n            throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "e12b0eb53419c81f112aa4f1e12e35a8aba2dd798ffcb92b9235dac6dc0e0b04",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/** Lets a test replace fields of the object under test: every field it names, or none of them. */\npublic final class Overrides {\n\n    private Overrides() {\n    }\n\n    /**\n     * Sets each named field of {@code target} to its new value. A field is looked up on the\n     * target's own class, at any access level; a static field is set on the class. When any named\n     * field can't be written, nothing is written and the call fails with an\n     * {@link IllegalArgumentException} naming that field.\n     */\n    public static void apply(Object target, Map<String, ?> values) {\n        List<Field> fields = new ArrayList<>();\n        for (String name : values.keySet()) {\n            Field field;\n            try {\n                field = target.getClass().getDeclaredField(name);\n            } catch (NoSuchFieldException e) {\n                throw new IllegalArgumentException(\"no field \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            if (!writable(field)) {\n                throw new IllegalArgumentException(\"can't override \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            fields.add(field);\n        }\n        for (Field field : fields) {\n            field.setAccessible(true);\n            Object owner = Modifier.isStatic(field.getModifiers()) ? null : target;\n            try {\n                field.set(owner, values.get(field.getName()));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(\"override failed half-way, at \" + field.getName(), e);\n            }\n        }\n    }\n\n    /** Whether {@code Field.set} will write {@code field} once it has been made accessible. */\n    static boolean writable(Field field) {\n        // TODO: decide from the field alone, before anything is written.\n        throw new IllegalStateException(\"TODO: can \" + field.getName() + \" be written?\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-2/src/main/java/practice/Invoker.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-2/src/test/java/practice/InvokerTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-2/src/main/java/practice/Overrides.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-2/src/test/java/practice/OverridesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -141,24 +105,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.InvokerTest#callsInstanceAndStaticMethods",
+        "id": "practice.OverridesTest#replacesPrivateAndStaticFieldsThatAreNotFinal",
         "kind": "main",
-        "says": "call(calc, \"add\", int, int; 3, 4) is 7, callStatic(Calculator, \"twice\", int; 21) is 42, and a void method returns null."
+        "says": "private instance fields and static fields that are not final are replaced"
       },
       {
-        "id": "practice.InvokerTest#callsAPrivateMethod",
+        "id": "practice.OverridesTest#aStaticFinalFieldIsRefusedBeforeAnythingIsWritten",
         "kind": "edge",
-        "says": "call(calc, \"secretMultiply\", int, int; 6, 7) reaches the private method and returns 42."
+        "says": "a static final field is refused up front, so the other fields of the same call keep their values"
       },
       {
-        "id": "practice.InvokerTest#aRuntimeExceptionFromTheMethodIsUnwrapped",
+        "id": "practice.OverridesTest#aRecordComponentIsRefused",
         "kind": "edge",
-        "says": "secretDivide(6, 0) throws ArithmeticException and check() throws AssertionError inside the method, and the caller gets that same exception or error."
+        "says": "a record's field is refused up front with the helper's own exception"
       },
       {
-        "id": "practice.InvokerTest#aCheckedExceptionIsWrappedWithItsCause",
+        "id": "practice.OverridesTest#aFinalInstanceFieldOfAnOrdinaryClassIsReplaced",
         "kind": "edge",
-        "says": "A method that throws IOException surfaces as IllegalStateException whose cause is that IOException."
+        "says": "a final instance field of an ordinary class is replaced, not refused"
       }
     ],
     "report": {
@@ -167,11 +131,10 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Static Final Field and a Record Component Refuse the Write"
     },
     "concepts": [
-      "A private method is invoked with getDeclaredMethod, setAccessible(true) and invoke, and a void method returns null.",
-      "An exception thrown by a reflectively invoked method or constructor arrives wrapped in InvocationTargetException and must be unwrapped with getCause()."
+      "Field.set refuses a static final field and a record's field with IllegalAccessException even after setAccessible(true), while an ordinary final instance field is written."
     ]
   }
 }

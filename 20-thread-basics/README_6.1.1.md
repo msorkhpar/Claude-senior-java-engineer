@@ -1,428 +1,418 @@
 # 6.1.1. Creating Threads (Runnable Interface and Thread Class)
 
-## Concept Explanation
+A command-line tool exports the day's orders to a file. To keep its progress bar moving, someone
+moved the export onto a thread of its own: `new Thread(exporter).start()`. Since then the tool
+sometimes never exits on the batch server, and a thread dump of a stuck run shows `"Thread-3"` in
+`TIMED_WAITING`, which could be any of its four background threads. Someone made the thread a
+daemon so the tool would exit, and now, on some nights, the export file is empty. Every output
+below is from Java 21.
 
-In Java, a thread is a lightweight unit of execution that runs concurrently within a process. The JVM supports multithreading natively, allowing multiple threads to run in parallel (on multi-core systems) or time-shared (on single-core systems).
+## A Thread Runs a Task: Write the Task as a Runnable, Not as a Thread
 
-There are two fundamental ways to create a thread in Java:
-
-1. **Extending the `Thread` class**: Override the `run()` method in a subclass.
-2. **Implementing the `Runnable` interface**: Implement the `run()` method and pass the `Runnable` to a `Thread` constructor.
-
-**Real-world analogy**: Think of a restaurant kitchen. The kitchen (JVM process) has multiple chefs (threads). Each chef follows a recipe (Runnable/task). Some chefs specialize in certain dishes (subclassing Thread), but the most flexible arrangement is having general-purpose chefs who receive recipe cards (Runnable tasks). The restaurant manager (Thread scheduler) decides which chef cooks what and when.
-
-### Method 1: Extending Thread
+A `Thread` object is the handle for one thread of execution. The work it does is a `Runnable`, an
+interface with one method, `void run()`, so a lambda can go straight to the constructor:
 
 ```java
-public class MyThread extends Thread {
+Thread t = new Thread(() -> System.out.println("running on " + Thread.currentThread().getName()));
+```
+
+The other way is to extend `Thread` and override `run()`. The two differ once the task runs on
+another thread.
+
+### Spot the Problem: A Thread Subclass Handed to a Pool
+
+Another team's nightly export was written years ago as a thread of its own
+(`Thread.onSpinWait()` stands in for one batch of work):
+
+```java
+import java.util.concurrent.atomic.AtomicInteger;
+
+class ExportJob extends Thread {
+    final AtomicInteger batches = new AtomicInteger();
+
+    ExportJob() {
+        super("order-export");
+    }
+
     @Override
     public void run() {
-        System.out.println("Running in thread: " + Thread.currentThread().getName());
-    }
-}
-
-MyThread t = new MyThread();
-t.start();
-```
-
-### Method 2: Implementing Runnable
-
-```java
-public class MyTask implements Runnable {
-    @Override
-    public void run() {
-        System.out.println("Running in thread: " + Thread.currentThread().getName());
-    }
-}
-
-Thread t = new Thread(new MyTask());
-t.start();
-```
-
-### Method 3: Lambda Expression (Java 8+)
-
-Since `Runnable` is a functional interface, it can be expressed as a lambda:
-
-```java
-Thread t = new Thread(() -> System.out.println("Thread running!"));
-t.start();
-```
-
-### Method 4: Virtual Threads (Java 21)
-
-```java
-Thread virtualThread = Thread.ofVirtual().start(() -> System.out.println("Virtual thread!"));
-```
-
-## Key Points to Remember
-
-1. **`Runnable` is preferred over `Thread` subclassing** because it separates task logic from thread management and supports composition (a class can implement `Runnable` and extend another class).
-2. **`run()` vs `start()`**: Calling `run()` executes the method on the current thread (no new thread). Calling `start()` creates a new thread (an OS-level thread for a platform thread) and then invokes `run()` on it.
-3. **`Runnable` is a functional interface** with a single abstract method `void run()`, so lambdas work seamlessly.
-4. **Thread naming**: Platform threads get default names like `Thread-0`, `Thread-1` (virtual threads are unnamed by default). You can set a custom name via the constructor or `setName()`.
-5. **Daemon threads**: Threads can be daemon (background) threads. The JVM exits when all non-daemon threads complete.
-6. **Thread priority**: Ranges from `Thread.MIN_PRIORITY` (1) to `Thread.MAX_PRIORITY` (10). Default is `Thread.NORM_PRIORITY` (5).
-
-## Relevant Java 21 Features
-
-- **Virtual Threads (Project Loom - JEP 444)**: Java 21 introduced stable virtual threads — lightweight threads managed by the JVM rather than OS threads. They are ideal for I/O-bound tasks.
-  ```java
-  // Platform thread
-  Thread platform = Thread.ofPlatform().name("my-platform-thread").start(() -> doWork());
-
-  // Virtual thread
-  Thread virtual = Thread.ofVirtual().name("my-virtual-thread").start(() -> doWork());
-  ```
-- **`Thread.Builder` API**: Java 21 provides a builder pattern for thread creation:
-  ```java
-  Thread t = Thread.ofPlatform()
-      .name("worker", 0)
-      .daemon(false)
-      .priority(Thread.NORM_PRIORITY)
-      .start(() -> doWork());
-  ```
-- **Structured Concurrency (JEP 453 - Preview)**: A higher-level API for managing related threads as a unit.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Calling `run()` instead of `start()`**:
-   ```java
-   // Wrong: runs on the current thread, no concurrency
-   thread.run();
-
-   // Correct: creates a new thread
-   thread.start();
-   ```
-
-2. **Subclassing Thread when Runnable suffices**:
-   ```java
-   // Problematic: limits inheritance, tightly couples task and thread
-   class MyTask extends Thread { ... }
-
-   // Better: separates concerns
-   class MyTask implements Runnable { ... }
-   Thread t = new Thread(new MyTask());
-   ```
-
-3. **Starting the same Thread instance twice**:
-   ```java
-   Thread t = new Thread(() -> doWork());
-   t.start();
-   t.start(); // Throws IllegalThreadStateException!
-   ```
-
-4. **Forgetting to handle `InterruptedException`**:
-   ```java
-   // Wrong: swallowing the interrupt
-   try { Thread.sleep(1000); } catch (InterruptedException e) { /* ignored */ }
-
-   // Correct: restore the interrupt status
-   try {
-       Thread.sleep(1000);
-   } catch (InterruptedException e) {
-       Thread.currentThread().interrupt();
-       // handle gracefully
-   }
-   ```
-
-5. **Using anonymous `Thread` subclasses when lambdas are cleaner**:
-   ```java
-   // Verbose
-   new Thread(new Runnable() {
-       @Override public void run() { doWork(); }
-   }).start();
-
-   // Clean
-   new Thread(() -> doWork()).start();
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer `Runnable` (or `Callable`) over `Thread` subclassing** for better separation of concerns.
-2. **Use thread pools** (via `ExecutorService`) instead of creating raw threads for production workloads. Raw thread creation is expensive.
-3. **Name your threads** — it makes debugging thread dumps significantly easier:
-   ```java
-   Thread t = new Thread(task, "payment-processor-1");
-   ```
-4. **Use virtual threads for I/O-bound tasks** (Java 21+): They scale to millions without exhausting OS thread resources.
-5. **Set daemon status appropriately**: Background tasks that should not prevent JVM shutdown should be daemon threads.
-6. **Avoid thread creation in tight loops**: Prefer thread pools or virtual threads managed by `ExecutorService`.
-
-## Edge Cases and Their Handling
-
-1. **Null `Runnable`**: Passing `null` to `Thread(Runnable)` is allowed — the thread will run `Thread.run()` which calls nothing (since it checks for a null target).
-2. **Starting a thread from within a constructor**: Dangerous — the object might not be fully initialized when the thread starts running. Use factory methods instead.
-3. **Thread name conflicts**: Java allows multiple threads with the same name. Use unique naming conventions.
-4. **Priority hints**: Thread priority is a hint to the OS scheduler, not a guarantee. Do not rely on priority for correctness.
-5. **Stack overflow in thread**: Each thread has its own stack. Deep recursion can cause `StackOverflowError` in the thread without affecting others.
-
-## Interview-specific Insights
-
-Interviewers frequently ask about:
-- The difference between `Runnable` and `Thread`, and why `Runnable` is preferred.
-- What happens if you call `run()` directly instead of `start()`.
-- How `Callable` differs from `Runnable` (returns a value, can throw checked exceptions).
-- The role of virtual threads in Java 21 and how they differ from platform threads.
-- Thread naming and why it matters in production.
-
-Tricky questions to expect:
-- "Can you start a thread twice? What happens?"
-- "Why is extending Thread considered a design smell?"
-- "What is the difference between a daemon thread and a non-daemon thread?"
-
-## Interview Q&A Section
-
-**Q1: What is the difference between implementing `Runnable` and extending `Thread` for creating threads?**
-
-```text
-A1: Both approaches achieve concurrent execution, but they differ significantly:
-
-1. INHERITANCE: Extending Thread uses up Java's single-inheritance slot, preventing the class from extending any other class. Implementing Runnable leaves inheritance available.
-
-2. SEPARATION OF CONCERNS: Runnable separates the task (what to do) from the execution mechanism (how/when to run it). This follows the Single Responsibility Principle.
-
-3. REUSABILITY: A Runnable can be submitted to thread pools, scheduled executors, or virtual thread builders. An extended Thread is tightly coupled to its execution context.
-
-4. FLEXIBILITY: The same Runnable instance can be shared across multiple threads (if thread-safe) or wrapped in different thread types (platform, virtual, daemon).
-
-5. LAMBDA-FRIENDLY: Since Runnable is a functional interface, it works with lambda expressions. Thread subclasses cannot.
-
-Verdict: Always prefer Runnable (or Callable) over Thread subclassing unless you have a specific reason to customize Thread behavior.
-```
-
-```java
-// Inferior: Thread subclassing
-class DataLoader extends Thread {
-    @Override
-    public void run() {
-        loadData();
-    }
-}
-
-// Superior: Runnable
-class DataLoader implements Runnable {
-    @Override
-    public void run() {
-        loadData();
-    }
-}
-
-// Usage: can submit to any executor
-ExecutorService pool = Executors.newFixedThreadPool(4);
-pool.submit(new DataLoader());
-
-// Lambda version
-pool.submit(() -> loadData());
-```
-
-**Q2: What happens if you call `thread.run()` instead of `thread.start()`?**
-
-```text
-A2: Calling run() directly does NOT create a new thread. The run() method executes synchronously on the CALLING thread, just like any ordinary method call.
-
-- thread.start(): Creates a new thread (an OS-level thread for a platform thread), registers it with the JVM thread scheduler, and then asynchronously calls run() on the new thread. Returns immediately to the caller.
-- thread.run(): Simply invokes the run() method on the current thread. No new thread is created. The entire execution happens sequentially.
-
-This is one of the most common beginner mistakes. It explains why a program might appear to work correctly during testing (because the logic in run() executes) but doesn't gain any concurrency benefit.
-```
-
-```java
-public class RunVsStart {
-    public static void main(String[] args) {
-        Thread t = new Thread(() -> {
-            System.out.println("Executing in: " + Thread.currentThread().getName());
-        });
-
-        // Calling run(): prints "Executing in: main"
-        t.run();
-
-        // Calling start(): prints "Executing in: Thread-0" (new thread)
-        t.start();
-    }
-}
-```
-
-**Q3: Can you start a thread more than once? What exception is thrown?**
-
-```text
-A3: No. Once a Thread has been started (even if it has already finished), calling start() again throws an IllegalThreadStateException.
-
-This is because Thread has an internal state machine. Once the thread transitions from NEW to RUNNABLE (via start()), it can never return to NEW. Even after TERMINATED, the thread cannot be restarted.
-
-The solution is to create a new Thread instance each time, or better yet, use a thread pool which manages thread reuse transparently.
-```
-
-```java
-Thread t = new Thread(() -> System.out.println("Hello"));
-t.start();
-try {
-    t.join(); // wait for it to finish
-} catch (InterruptedException e) {
-    Thread.currentThread().interrupt();
-}
-
-// This throws IllegalThreadStateException
-try {
-    t.start(); // ERROR!
-} catch (IllegalThreadStateException e) {
-    System.out.println("Cannot restart a thread: " + e.getMessage());
-}
-
-// Correct: create a new thread instance
-Thread t2 = new Thread(() -> System.out.println("Hello again"));
-t2.start();
-```
-
-**Q4: How do virtual threads in Java 21 differ from platform threads when it comes to creation?**
-
-```text
-A4: Virtual threads (Project Loom, JEP 444, stable in Java 21) represent a paradigm shift:
-
-PLATFORM THREADS:
-- Mapped 1:1 to OS threads
-- Expensive to create (~1MB stack by default)
-- Context switching is a kernel-level operation
-- Typical JVM: ~thousands of platform threads maximum
-
-VIRTUAL THREADS:
-- Managed entirely by the JVM, multiplexed onto a small pool of carrier (OS) threads
-- Very cheap to create (a few hundred bytes of stack initially, grows dynamically)
-- Blocking a virtual thread only parks it — the carrier thread picks up another virtual thread
-- Typical JVM: millions of virtual threads possible
-
-Creation syntax:
-- Thread.ofVirtual().start(task)  // Virtual thread
-- Thread.ofPlatform().start(task)  // Platform thread (explicit)
-- Executors.newVirtualThreadPerTaskExecutor()  // Pool that creates one virtual thread per task
-
-When to use virtual threads:
-- I/O-bound tasks (network calls, database queries, file I/O)
-- High-concurrency servers handling many simultaneous connections
-
-When to stick with platform threads:
-- CPU-intensive tasks that need true parallelism
-- Tasks requiring thread-local state that assumes 1:1 OS thread mapping
-```
-
-```java
-// Platform thread (old way)
-Thread platform = new Thread(() -> processRequest());
-platform.start();
-
-// Virtual thread (Java 21)
-Thread virtual = Thread.ofVirtual().name("handler-1").start(() -> processRequest());
-
-// Virtual thread per task executor (recommended for servers)
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    for (int i = 0; i < 1_000_000; i++) {
-        executor.submit(() -> handleRequest());
-    }
-} // auto-closes and awaits all tasks
-```
-
-**Q5: What is a daemon thread, and when should you use one?**
-
-```text
-A5: A daemon thread is a background thread that does not prevent the JVM from exiting. When all non-daemon (user) threads finish, the JVM shuts down even if daemon threads are still running.
-
-Key characteristics:
-- Set before start(): thread.setDaemon(true) must be called before thread.start()
-- Inherits daemon status from parent: if the creating thread is daemon, child threads are daemon by default
-- When the JVM exits, daemon threads are abandoned abruptly: they are not interrupted, and their finally blocks do not run
-
-Use cases for daemon threads:
-- JVM housekeeping (e.g. the Java-level "Reference Handler" and "Finalizer" threads are daemon threads; GC worker threads are internal VM threads)
-- Background monitoring / health checks
-- Log flushing in the background
-- Housekeeping tasks that should not block JVM exit
-
-Caution: Never use daemon threads for tasks requiring guaranteed cleanup (file I/O flush, database transaction commit), because they may be killed abruptly when the JVM exits.
-```
-
-```java
-Thread monitor = new Thread(() -> {
-    while (true) {
-        try {
-            collectMetrics();
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            break;
+        System.out.println("  export running, getName() = " + getName()
+                + ", currentThread().getName() = " + Thread.currentThread().getName());
+        while (!isInterrupted()) {                     // "stop when asked"
+            batches.incrementAndGet();                 // export one batch
+            Thread.onSpinWait();
         }
+        System.out.println("  export stopped");
+    }
+}
+```
+
+Someone moves it onto the service's pool. `Thread` implements `Runnable`, so this compiles.
+`shutdownNow()` stops the pool by interrupting its threads (unit 6.1.3):
+
+```java
+ExportJob job = new ExportJob();
+ExecutorService pool = Executors.newFixedThreadPool(2);
+pool.execute(job);                                 // a Thread is a Runnable, so this compiles
+while (job.batches.get() == 0) Thread.onSpinWait();
+pool.shutdownNow();
+boolean ended = pool.awaitTermination(1, TimeUnit.SECONDS);
+System.out.println("pool ended within 1 s: " + ended + ", job.getState() = " + job.getState());
+```
+
+Which thread does the log line name, and does `shutdownNow()` stop the export?
+
+```text
+  export running, getName() = order-export, currentThread().getName() = pool-1-thread-1
+pool ended within 1 s: false, job.getState() = NEW
+```
+
+The pool's thread calls `job.run()` as an ordinary method, so the code runs on
+`pool-1-thread-1`. Every method `ExportJob` inherited from `Thread`, though, describes the
+`ExportJob` object, which was never started and is still `NEW`. `getName()` names a thread that
+doesn't exist, and `isInterrupted()` reads a flag nobody sets: `shutdownNow()` interrupted
+`pool-1-thread-1`. The loop never ends, and since a pool's threads are not daemons, neither does
+the process: run without its final `System.exit`, it was still busy when killed after 5 s.
+
+The same loop written as a task asks `Thread.currentThread()`, the thread running the code:
+
+```java
+import java.util.concurrent.atomic.AtomicInteger;
+
+class ExportTask implements Runnable {
+    final AtomicInteger batches = new AtomicInteger();
+
+    @Override
+    public void run() {
+        Thread me = Thread.currentThread();
+        System.out.println("  export running on " + me.getName());
+        while (!me.isInterrupted()) {
+            batches.incrementAndGet();
+            Thread.onSpinWait();
+        }
+        System.out.println("  export stopped");
+    }
+}
+```
+
+The same pool code with `ExportTask`, then the task on a named thread and on a virtual thread (the
+last section), each stopped with an interrupt:
+
+```java
+Thread own = new Thread(new ExportTask(), "order-export");
+own.start();
+Thread virtual = Thread.ofVirtual().name("order-export-v").start(new ExportTask());
+Thread.sleep(100);
+own.interrupt();
+virtual.interrupt();
+```
+
+```text
+  export running on pool-1-thread-1
+  export stopped
+pool ended within 1 s: true
+  export running on order-export
+  export running on order-export-v
+  export stopped
+  export stopped
+```
+
+The task runs unchanged wherever it is put, and code on its own thread today can be handed to a
+pool or a virtual thread later. Extend `Thread` only to change how the thread itself behaves, which
+application code almost never needs. Inside a task, ask `Thread.currentThread()`, never `this`.
+
+<!-- practice 1 -->
+
+## A Runnable Has No Way Back: Return a Result or a Failure Through a Callable
+
+`run()` returns `void` and declares no checked exceptions. Here a loader thread reads the orders
+into a list, and `readOrders()` fails:
+
+```java
+List<String> orders = new ArrayList<>();
+Thread loader = new Thread(() -> {
+    try {
+        orders.addAll(readOrders());
+    } catch (IOException e) {
+        throw new UncheckedIOException(e);       // run() can't throw IOException
     }
 });
-monitor.setDaemon(true); // Must be set BEFORE start()
-monitor.setName("metrics-monitor");
-monitor.start();
-// JVM can now exit even if monitor is sleeping
+loader.start();
+loader.join();
+System.out.println("main: loaded " + orders.size() + " orders, carrying on");
 ```
-
-**Q6: What is `Callable` and how does it differ from `Runnable`?**
 
 ```text
-A6: Callable<V> is a functional interface (java.util.concurrent) similar to Runnable but with two key differences:
-
-1. RETURN VALUE: Callable<V>.call() returns a value of type V. Runnable.run() returns void.
-2. CHECKED EXCEPTIONS: Callable.call() declares "throws Exception", allowing checked exceptions to propagate. Runnable.run() cannot throw checked exceptions.
-
-Callable is used with ExecutorService.submit(), which returns a Future<V> that can retrieve the result asynchronously.
-
-Runnable is used for fire-and-forget tasks where the result is not needed or is communicated through shared state.
+Exception in thread "Thread-0" java.io.UncheckedIOException: java.io.IOException: orders.csv: permission denied
+	at Examples.lambda$lost$1(Examples.java:91)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.io.IOException: orders.csv: permission denied
+	at Examples.readOrders(Examples.java:82)
+	at Examples.lambda$lost$1(Examples.java:89)
+	... 1 more
+main: loaded 0 orders, carrying on
 ```
 
+The exception ended the loader thread. Nothing connects a thread's failure to the thread that
+started it: the JVM hands it to the failing thread's uncaught-exception handler, whose default
+prints it to standard error (unit 6.1.2 sets your own). `join()` returned normally, because it
+waits for the thread to end, not to succeed, and `main` went on with an empty list: in the
+opening's tool, an empty export reported as a success.
+
+`Callable<V>` (`V call() throws Exception`) returns a value and
+may throw any exception. A `Thread` runs only a `Runnable`, so wrap the `Callable` in a
+`FutureTask`, a `Runnable` for the thread and a `Future` the caller reads the outcome from:
+
 ```java
-// Runnable: no return value
-Runnable task = () -> System.out.println("Done");
-ExecutorService executor = Executors.newSingleThreadExecutor();
-Future<?> future1 = executor.submit(task);
-
-// Callable: returns a value
-Callable<Integer> computation = () -> {
-    Thread.sleep(100); // can throw checked exception
-    return 42;
-};
-Future<Integer> future2 = executor.submit(computation);
-
+Callable<List<String>> load = () -> readOrders();  // call() may throw IOException
+FutureTask<List<String>> result = new FutureTask<>(load);
+new Thread(result, "order-loader").start();       // FutureTask is a Runnable
 try {
-    Integer result = future2.get(); // blocks until result is available
-    System.out.println("Result: " + result); // 42
-} catch (InterruptedException e) {
-    Thread.currentThread().interrupt(); // restore the flag
+    List<String> orders = result.get();
+    System.out.println("main: loaded " + orders.size() + " orders");
 } catch (ExecutionException e) {
-    throw new IllegalStateException("computation failed", e.getCause());
+    System.out.println("main: load failed: " + e.getCause());
 }
-executor.shutdown();
 ```
-
-**Q7: How do you set a thread name, and why does it matter?**
 
 ```text
-A7: Thread names can be set via:
-1. Thread constructor: new Thread(runnable, "my-thread-name")
-2. setName() method: thread.setName("worker-1")
-3. Thread.Builder: Thread.ofPlatform().name("prefix-", 0).start(...)
-
-Why naming matters:
-1. DEBUGGING: Thread dumps (via jstack, VisualVM, etc.) show thread names. Named threads make it immediately obvious which component owns which thread.
-2. MONITORING: JMX, profilers, and APMs display thread names in metrics.
-3. LOGGING: Many logging frameworks can include the thread name in log output (via %t in log patterns), making it easy to trace request flows.
-4. CODE READABILITY: Named threads make the code's intent clearer.
-
-Convention: Use descriptive names that indicate purpose — e.g., "order-processor-1", "db-connection-health-check", "kafka-consumer-0".
+main: load failed: java.io.IOException: orders.csv: permission denied
 ```
+
+`get()` waits for `call()` to finish, then returns its value or throws `ExecutionException` with
+the task's exception as its cause. Handle `e.getCause()`, the task's own failure, not the wrapper.
+In services the thread usually comes from an `ExecutorService`, whose `submit` wraps the task the
+same way (units 6.4.1 and 6.4.2).
+
+<!-- practice 2 -->
+
+## Name Every Thread Where You Create It
+
+Four threads printed `Thread.currentThread()`: from `new Thread(task)`, an
+`Executors.newFixedThreadPool(2)` pool, `new Thread(task, "invoice-mailer")` and
+`Thread.ofVirtual()`:
+
+```text
+Thread[#28,Thread-0,5,main]
+Thread[#29,pool-1-thread-1,5,main]
+Thread[#32,invoice-mailer,5,main]
+VirtualThread[#30]/runnable@ForkJoinPool-1-worker-1
+```
+
+Only `invoice-mailer` says what it does. `Thread-0` and `pool-1-thread-1` are generated, and a
+virtual thread has no name: `getName()` returns the empty string. In a thread dump the name is the
+only thing that ties a stack to a component.
+
+So the code that creates a thread, and knows what it is for, names it. The constructor takes a
+name, and `Thread.Builder` counts for you. A builder also gives a `ThreadFactory`, the interface an
+`ExecutorService` calls to create each of its threads, so a named factory names a pool's threads:
 
 ```java
-// Naming at construction
-Thread worker = new Thread(() -> processOrders(), "order-processor-1");
-
-// Naming with builder (auto-incrementing suffix)
-Thread.Builder.OfPlatform builder = Thread.ofPlatform().name("db-worker-", 0);
-Thread t1 = builder.start(() -> queryDatabase()); // "db-worker-0"
-Thread t2 = builder.start(() -> queryDatabase()); // "db-worker-1"
-
-// In production: thread name appears in log output
-// [order-processor-1] INFO OrderService - Processing order 12345
+Thread.Builder.OfPlatform mailers = Thread.ofPlatform().name("invoice-mailer-", 1);
+Thread a = mailers.unstarted(() -> {});
+Thread b = mailers.unstarted(() -> {});
+ThreadFactory f1 = mailers.factory();
+ThreadFactory f2 = mailers.factory();
+System.out.println(a.getName() + ", " + b.getName()
+        + "; factory 1: " + f1.newThread(() -> {}).getName() + ", " + f1.newThread(() -> {}).getName()
+        + "; factory 2: " + f2.newThread(() -> {}).getName());
+Thread v = Thread.ofVirtual().name("pdf-render-", 1).unstarted(() -> {});
+System.out.println("virtual: " + v.getName() + ", unnamed virtual: \"" + Thread.ofVirtual().unstarted(() -> {}).getName() + "\"");
 ```
+
+```text
+invoice-mailer-1, invoice-mailer-2; factory 1: invoice-mailer-3, invoice-mailer-4; factory 2: invoice-mailer-3
+virtual: pdf-render-1, unnamed virtual: ""
+```
+
+`name(prefix, start)` appends a counter that the builder increments for each thread. A factory
+taken from the builder starts from a copy of the counter's current value, which is why both
+factories began at 3 and two threads are now called `invoice-mailer-3`. Take one factory per pool,
+each with its own prefix.
+
+## A Daemon Thread Doesn't Hold the JVM Open, and Exit Drops It Mid-Step
+
+An exporter thread writes five orders, 100 ms apart, through a buffered writer, and `main` returns
+after 250 ms. `log` prints milliseconds since the start.
+
+```java
+Thread exporter = new Thread(() -> {
+    try (Writer out = Files.newBufferedWriter(file)) {
+        for (int order = 1; order <= 5; order++) {
+            out.write("order " + order + "\n");
+            Thread.sleep(100);                   // fetch the next order
+        }
+        out.write("END\n");
+        log("exporter: wrote all 5 orders");
+    } catch (IOException | InterruptedException e) {
+        log("exporter: " + e);
+    } finally {
+        log("exporter: finally");
+    }
+}, "order-export");
+exporter.setDaemon(daemon);
+exporter.start();
+Thread.sleep(250);
+log("main: returning");
+```
+
+Run once with `daemon` false:
+
+```text
+  253 ms  main: returning
+  511 ms  exporter: wrote all 5 orders
+  513 ms  exporter: finally
+```
+
+The process ended after 539 ms, and the file held all five orders and `END`: 44 bytes. Then with
+`daemon` true:
+
+```text
+  253 ms  main: returning
+```
+
+The process ended after 283 ms, and the file was empty: 0 bytes.
+
+The JVM begins to shut down when the last started non-daemon thread ends. In the first run the
+exporter was one, so the JVM waited for it; the opening's tool hangs because one of its non-daemon
+threads never ends.
+
+A daemon thread doesn't count. In the second run the JVM shut down as `main` returned, with the
+exporter in the middle of a `sleep`. The exporter wasn't interrupted and got no exception. Its
+`finally` never ran, so the writer was never closed, and the three orders in its buffer never
+reached the file. No error appeared anywhere.
+
+`setDaemon(true)` lets the JVM abandon the thread's work between any two instructions, which suits
+a cache refresher. Work that must finish, such as a file or a commit, runs on a non-daemon thread
+whose owner waits for it (units 6.1.2 and 6.1.3).
+
+Daemon status can't change while the thread is alive: `setDaemon` on a running thread throws.
+
+```text
+setDaemon after start(): java.lang.IllegalThreadStateException
+```
+
+A thread you don't mark is not necessarily non-daemon: a platform thread inherits the daemon status
+of the thread that creates it. These four were created on a daemon thread called `housekeeping`:
+
+```java
+Thread viaConstructor = new Thread(() -> {});
+Thread viaBuilder = Thread.ofPlatform().unstarted(() -> {});
+Thread explicit = Thread.ofPlatform().daemon(false).unstarted(() -> {});
+ExecutorService pool = Executors.newSingleThreadExecutor();
+Future<Boolean> poolDaemon = pool.submit(() -> Thread.currentThread().isDaemon());
+```
+
+```text
+created on a daemon thread: new Thread -> daemon=true, ofPlatform() -> daemon=true, daemon(false) -> daemon=false, Executors pool thread -> daemon=false
+```
+
+The two that didn't say became daemons, like their creator. The pool's thread didn't, because
+`Executors.defaultThreadFactory()` sets non-daemon explicitly. Code that creates threads for work
+that must finish says `daemon(false)` or `setDaemon(false)`, so the answer doesn't depend on which
+thread calls it.
+
+<!-- practice 3 -->
+
+## A Virtual Thread Is Cheap to Create and to Block, Not Faster at Computing
+
+A platform thread, the kind every earlier example created, wraps an operating-system thread with
+its own native stack. A virtual thread is scheduled by the JVM onto a small pool of platform
+threads, its carriers, and in most cases releases its carrier while it is blocked.
+
+This program starts one thread per task and waits for all of them: first tasks that each wait 1 s,
+as a call to a slow remote service would, then tasks that each compute about 50 ms of arithmetic.
+
+```java
+static long run(Thread.Builder builder, int tasks, Runnable task) throws InterruptedException {
+    long start = System.nanoTime();
+    List<Thread> threads = new ArrayList<>(tasks);
+    for (int i = 0; i < tasks; i++) threads.add(builder.start(task));
+    for (Thread t : threads) t.join();
+    return (System.nanoTime() - start) / 1_000_000;
+}
+```
+
+```text
+100,000 waiting tasks, platform threads: 15,464 ms
+100,000 waiting tasks, virtual threads: 1,349 ms
+80 computing tasks on 20 cores, platform threads: 219 ms
+80 computing tasks on 20 cores, virtual threads:  220 ms
+```
+
+The waiting tasks wait the same second either way, so on platform threads the extra 14 s went into handling 100,000 operating-system threads. The computing tasks took the same time
+either way: 20 logical CPUs do 20 tasks' arithmetic at a time, whatever kind of thread asks.
+
+One virtual thread per blocking task (HTTP calls, database queries) replaces a pool sized to
+ration platform threads; work that keeps a core busy gains nothing. Unit 6.7.2 covers what a
+virtual thread still costs.
+
+A virtual thread is also always a daemon:
+
+```java
+Thread report = Thread.ofVirtual().unstarted(() -> {});
+try {
+    report.setDaemon(false);
+} catch (IllegalArgumentException e) {
+    System.out.println("setDaemon(false): " + e.getMessage());
+}
+System.out.println("isDaemon(): " + report.isDaemon());
+```
+
+```text
+setDaemon(false): 'false' not legal for virtual threads
+isDaemon(): true
+```
+
+So virtual threads started from `main` hold nothing open: at exit they are dropped mid-step, like
+the daemon exporter. Code that starts virtual threads for work that must finish waits for them
+before it returns.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **A thread runs a task; write the task as a `Runnable`.** A `Thread` subclass run by a pool
+  describes an unstarted object: wrong name, and shutdown can't stop it.
+- **A `Runnable` has no way back.** Its failure goes to standard error and `join()` returns
+  normally; a `FutureTask`'s `get()` returns a `Callable`'s result or throws its failure as the
+  cause of an `ExecutionException`.
+- **Name every thread where you create it**; generated names make a thread dump unreadable.
+- **A daemon thread doesn't hold the JVM open, and exit drops it mid-step**, with no `finally`.
+  Daemon status is fixed at `start()` and, unless set, copied from the creating thread.
+- **A virtual thread is cheap to create and to block, not faster at computing**, and is always a
+  daemon.
+
+## Reference
+
+**Edge cases (Java 21):**
+
+| Situation | What happens |
+|---|---|
+| `setDaemon(...)` on a started, live thread | `IllegalThreadStateException` |
+| `setDaemon(false)` on a virtual thread | `IllegalArgumentException` |
+| an unstarted non-daemon thread when `main` returns | doesn't keep the JVM alive; only started ones do |
+
+## Challenges
+
+1. A library creates its background threads with `new Thread(task)`, and your service creates
+   the library's clients from a daemon housekeeping thread. Which of the library's threads are
+   daemons, and how would you check in a running service without its source?
+2. The opening's export must finish its file even when the operator presses Ctrl-C. Which thread
+   owns the file, who waits for it, and what does the operator see if the export takes three
+   minutes?
+3. Your service makes 2,000 concurrent calls to a slow partner API, each waiting about 300 ms.
+   Compare a fixed pool of 200 platform threads with one virtual thread per call: measure the time
+   for a burst, and decide what keeps the partner from receiving all 2,000 calls at once.
+
+## Design Note: Why Thread Implements Runnable
+
+In Java 1.0, `Thread` is both the handle for a thread and, since it implements `Runnable`, a
+task, which kept the first programs short and left this unit's first trap. Later libraries
+separate the two: executors (Java 5) take tasks and make threads in a `ThreadFactory`, and
+`Thread.Builder` (Java 21) describes a thread apart from its task. The original design can't
+change without breaking every `Thread` subclass, so the code that creates threads keeps them
+apart.
 
 ## Code Examples
 

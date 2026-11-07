@@ -18,224 +18,314 @@
       "text": "7.3.2.4. DateTimeFormatter"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "On Monday 29 December 2025 the nightly settlement job uploads `settlement-2026-12-29.csv`, and the bank rejects it as dated a year ahead. The job ran fine all year, and its formatter is a constant nobody has touched in years."
     },
     {
       "type": "para",
-      "text": "`DateTimeFormatter` is the modern replacement for `SimpleDateFormat`, providing a thread-safe, immutable way to format and parse date/time objects in the `java.time` package. It supports predefined ISO-8601 formats, localized styles, and custom patterns."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of a `DateTimeFormatter` as a stencil for writing dates. Once you cut the stencil (create the formatter), it always produces the same format. Unlike `SimpleDateFormat` (a shared pen that multiple people fight over), the stencil can be used by any number of people simultaneously without interference because it never changes."
-    },
-    {
-      "type": "para",
-      "text": "`DateTimeFormatter` is in the `java.time.format` package and works with all temporal types: `LocalDate`, `LocalTime`, `LocalDateTime`, `ZonedDateTime`, `OffsetDateTime`, and `Instant`."
+      "text": "Outputs are from Java 21.0.12 and its bundled CLDR locale data, run with `-Duser.timezone=UTC -Duser.language=en -Duser.country=US`; Java 25.0.4 printed the same."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Pattern Letters Are Case-Sensitive, and YYYY Is the Year of the Week"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Immutable and thread-safe** -- a single static instance can be shared across all threads.",
-        "**Predefined formatters**: `ISO_LOCAL_DATE`, `ISO_LOCAL_DATE_TIME`, `ISO_ZONED_DATE_TIME`, etc.",
-        "**Pattern letters**: `y` (year), `M` (month), `d` (day), `H` (hour 0-23), `h` (hour 1-12), `m` (minute), `s` (second), `S` (fraction), `E` (day of week), `a` (AM/PM), `z` (timezone name), `Z` (offset).",
-        "**Locale-aware**: `ofLocalizedDate()`, `ofLocalizedTime()`, `ofLocalizedDateTime()` produce locale-specific output.",
-        "**`withLocale()`** and **`withZone()`** return new formatter instances (immutable).",
-        "**Parsing is SMART, not strict, by default** -- a formatter from `ofPattern()` uses `ResolverStyle.SMART`: an out-of-range value such as day 32 throws `DateTimeParseException`, but \"2024-02-30\" with `yyyy-MM-dd` is silently resolved to 2024-02-29. The predefined ISO formatters are strict. For strict parsing use `ofPattern(\"uuuu-MM-dd\").withResolverStyle(ResolverStyle.STRICT)` (with `STRICT`, `yyyy` also needs an era `G`, hence `uuuu`).",
-        "**Use `ofPattern()`** for custom patterns; combine with `withLocale()` for localized patterns."
-      ]
+      "type": "para",
+      "text": "The settlement job formats with `YYYY-MM-dd` and `Locale.UK`. Beside `uuuu`, around two New Years:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "DateTimeFormatter calendarYear = DateTimeFormatter.ofPattern(\"uuuu-MM-dd\", Locale.US);\nDateTimeFormatter weekYearUS = DateTimeFormatter.ofPattern(\"YYYY-MM-dd\", Locale.US);\nDateTimeFormatter weekYearUK = DateTimeFormatter.ofPattern(\"YYYY-MM-dd\", Locale.UK);\nfor (LocalDate day : List.of(LocalDate.of(2025, 12, 27), LocalDate.of(2025, 12, 28),\n                             LocalDate.of(2025, 12, 29), LocalDate.of(2027, 1, 1))) {\n    System.out.println(calendarYear.format(day) + \"   YYYY en-US: \" + weekYearUS.format(day)\n            + \"   YYYY en-GB: \" + weekYearUK.format(day));\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "2025-12-27   YYYY en-US: 2025-12-27   YYYY en-GB: 2025-12-27\n2025-12-28   YYYY en-US: 2026-12-28   YYYY en-GB: 2025-12-28\n2025-12-29   YYYY en-US: 2026-12-29   YYYY en-GB: 2026-12-29\n2027-01-01   YYYY en-US: 2027-01-01   YYYY en-GB: 2026-01-01"
+    },
+    {
+      "type": "para",
+      "text": "`Y` is the **week-based year**: the year that owns the day's week, and the formatter's locale defines the weeks. US weeks start on Sunday, and the week holding 1 January belongs to the new year, so from Sunday 28 December 2025 it prints 2026. UK weeks follow ISO-8601: they start on Monday and belong to the year holding at least four of their days. So 1 January 2027, a Friday, prints 2026, and that night's file overwrites the one from 1 January 2026. The rest of the year `Y` and `y` agree, which is why the tests pass."
+    },
+    {
+      "type": "para",
+      "text": "`y` (year-of-era) and `u` (proleptic year) differ only before year 1 and under the strict resolver of the next section. Case changes other letters too, at 14:05 on 29 December:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "uuuu-mm-dd  2025-05-29\nhh:mm  02:05\nHH:mm  14:05\nhh:mm a  02:05 PM"
+    },
+    {
+      "type": "para",
+      "text": "`mm` is the minute, so the date gets month 05. `hh` is the 12-hour clock: 02:05 and 14:05 print alike, and logs sorted by that stamp interleave night and afternoon. Use `HH`, or `hh` with `a`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "ofPattern Turns 30 February Into the 28th Unless the Resolver Is STRICT, and STRICT Needs uuuu"
+    },
+    {
+      "type": "para",
+      "text": "A booking form reads the date a guest typed:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "formatters.put(\"uuuu-MM-dd        \", DateTimeFormatter.ofPattern(\"uuuu-MM-dd\", Locale.ROOT));\nformatters.put(\"uuuu-MM-dd, STRICT\", DateTimeFormatter.ofPattern(\"uuuu-MM-dd\", Locale.ROOT)\n        .withResolverStyle(ResolverStyle.STRICT));\nformatters.put(\"yyyy-MM-dd, STRICT\", DateTimeFormatter.ofPattern(\"yyyy-MM-dd\", Locale.ROOT)\n        .withResolverStyle(ResolverStyle.STRICT));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "uuuu-MM-dd          2026-02-28 -> 2026-02-28\nuuuu-MM-dd          2026-02-30 -> 2026-02-28\nuuuu-MM-dd, STRICT  2026-02-28 -> 2026-02-28\nuuuu-MM-dd, STRICT  2026-02-30 -> Text '2026-02-30' could not be parsed: Invalid date 'FEBRUARY 30'\nyyyy-MM-dd, STRICT  2026-02-28 -> Text '2026-02-28' could not be parsed: Unable to obtain LocalDate from TemporalAccessor: {MonthOfYear=2, DayOfMonth=28, YearOfEra=2026},ISO of type java.time.format.Parsed\nyyyy-MM-dd, STRICT  2026-02-30 -> Text '2026-02-30' could not be parsed: Unable to obtain LocalDate from TemporalAccessor: {MonthOfYear=2, DayOfMonth=30, YearOfEra=2026},ISO of type java.time.format.Parsed"
+    },
+    {
+      "type": "para",
+      "text": "`ofPattern` resolves in `ResolverStyle.SMART`, which the javadoc describes as \"converting any value beyond the last valid day-of-month to be the last valid day-of-month\". So a guest who typed 31 April is silently booked for 30 April. Day 32 still throws: SMART checks each field's range, not whether the combination exists. The `ISO_*` constants and `LocalDate.parse(text)` (unit 7.3.2.1) are already STRICT."
+    },
+    {
+      "type": "para",
+      "text": "STRICT with `yyyy` and no `G` refuses every date: a year-of-era means nothing without an era (AD or BC), and STRICT won't assume one. Use `uuuu`, which needs no era."
+    },
+    {
+      "type": "para",
+      "text": "When parsing, `dd` demands two digits (`7.3.2026` fails at index 0); `d` also accepts `7`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Month and Day Names Come From a Locale, So Name One"
+    },
+    {
+      "type": "para",
+      "text": "A formatter built without a `Locale` takes the JVM's default. The same line in two JVMs, the first started with `-Duser.language=en -Duser.country=US`, the second with `-Duser.language=de -Duser.country=DE`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "DateTimeFormatter header = DateTimeFormatter.ofPattern(\"EEE d MMM uuuu\");   // no Locale\nSystem.out.println(header.getLocale() + \": \" + header.format(LocalDate.of(2026, 9, 7)));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "en_US: Mon 7 Sep 2026\nde_DE: Mo. 7 Sept. 2026"
+    },
+    {
+      "type": "para",
+      "text": "A container image that changes its `LANG` changes every report header. A partner's file writes `07-Sep-2026`; four locales format and parse it with `dd-MMM-uuuu`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "en-US prints 07-Sep-2026   reads 07-Sep-2026: 2026-09-07\nen-GB prints 07-Sept-2026  reads 07-Sep-2026: Text '07-Sep-2026' could not be parsed at index 3\nde-DE prints 07-Sept.-2026 reads 07-Sep-2026: Text '07-Sep-2026' could not be parsed at index 3\nund   prints 07-Sep-2026   reads 07-Sep-2026: 2026-09-07"
+    },
+    {
+      "type": "para",
+      "text": "The names come from CLDR data, which differs by locale and can change between JDK releases. Pick the locale whose names match the text, here `Locale.US`. `Locale.ROOT` (`und`) suits text made of digits, but it has no full names: `EEEE d MMMM uuuu` prints `Mon 7 Sep 2026`. Parsing names is also case-sensitive, so `07-SEP-2026` fails at index 3 even with `Locale.US`; a formatter from `new DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern(...)` accepts it."
+    },
+    {
+      "type": "para",
+      "text": "A formatter is immutable, so one `static final` instance is safe for every thread, unlike a shared `SimpleDateFormat` (unit 7.3.1). `withLocale` and `withZone` return a new formatter, and dropping the result changes nothing:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "DateTimeFormatter receipt = DateTimeFormatter.ofPattern(\"d MMMM uuuu\", Locale.US);\nreceipt.withLocale(Locale.FRANCE);                           // result discarded\nSystem.out.println(receipt.format(LocalDate.of(2026, 9, 7)));\nSystem.out.println(receipt.withLocale(Locale.FRANCE).format(LocalDate.of(2026, 9, 7)));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "7 September 2026\n7 septembre 2026"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "An Offset in the Text Is Part of the Value, So Parse Into a Type That Keeps It"
+    },
+    {
+      "type": "para",
+      "text": "A partner sends event times with an offset. These two name the same moment:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "DateTimeFormatter xxx = DateTimeFormatter.ofPattern(\"uuuu-MM-dd'T'HH:mm:ssxxx\", Locale.ROOT);\nfor (String text : List.of(\"2026-03-14T10:30:00+01:00\", \"2026-03-14T09:30:00Z\")) {\n    LocalDateTime dropped = LocalDateTime.parse(text, DateTimeFormatter.ISO_OFFSET_DATE_TIME);\n    Instant kept = OffsetDateTime.parse(text).toInstant();\n    // ... and OffsetDateTime.parse(text, xxx), printed or its exception message\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "2026-03-14T10:30:00+01:00\n  as LocalDateTime:  2026-03-14T10:30\n  as Instant:        2026-03-14T09:30:00Z\n  pattern ...xxx:    2026-03-14T10:30+01:00\n2026-03-14T09:30:00Z\n  as LocalDateTime:  2026-03-14T09:30\n  as Instant:        2026-03-14T09:30:00Z\n  pattern ...xxx:    Text '2026-03-14T09:30:00Z' could not be parsed at index 19"
+    },
+    {
+      "type": "para",
+      "text": "`LocalDateTime` has no field for the offset, so the parse dropped it without an error. Stored as UTC, every event from the `+01:00` sender lands an hour late. `OffsetDateTime`, `ZonedDateTime` and `Instant` keep the moment."
+    },
+    {
+      "type": "para",
+      "text": "The hand-written pattern fails the other sender: `xxx` reads `+00:00` but never `Z`. `XXX` accepts both, and so does `ISO_OFFSET_DATE_TIME`. For text that machines exchange, use the `ISO_*` constants in the Reference; write patterns for text people read."
+    },
+    {
+      "type": "para",
+      "text": "An `Instant` has no year or hour until a zone is chosen (unit 7.3.2.2), so a pattern formatter can't print one until it gets `withZone`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "no zone:   Unsupported field: Year\nAmsterdam: 2026-03-14 10:30"
+    },
+    {
+      "type": "para",
+      "text": "Zones and DST belong to unit 7.3.2.5."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 5 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`DateTimeFormatter` has been stable since Java 8 with minor additions through Java 21.",
-        "The `'B'` pattern letter (period of day, e.g., \"in the morning\") was added in Java 16.",
-        "Virtual threads benefit from thread-safety -- no `ThreadLocal` workaround needed.",
-        "Integration with records for clean DTO formatting patterns."
+        "**`YYYY` is the week-based year.** It prints next year in late December, on days the locale's week rules pick; pattern letters are case-sensitive (`MM`/`mm`, `HH`/`hh`).",
+        "**`ofPattern` resolves SMART** and moves 30 February to the 28th. `STRICT` refuses it, and needs `uuuu`.",
+        "**Names come from the formatter's locale**, the JVM default if none is given; en-US and en-GB disagree (`Sep`, `Sept`).",
+        "**A formatter is immutable**: share one constant, keep what `withLocale` returns.",
+        "**Parse offset text into a type that keeps the offset.** `LocalDateTime` drops it silently."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "para",
+      "text": "**Letters that get confused (javadoc of `DateTimeFormatter`, checked on Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Letter",
+        "Meaning",
+        "Not to be confused with"
+      ],
+      "rows": [
         [
-          "**Using `yyyy` when you mean `uuuu`**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: 'y' is year-of-era (always positive), 'u' is proleptic year (supports negative)\n// For dates before year 1, 'yyyy' produces unexpected results\nDateTimeFormatter.ofPattern(\"yyyy-MM-dd\"); // Year 0 = \"0001\" (era-based)\n\n// Fix: Use 'uuuu' for proleptic year if negative years are possible\nDateTimeFormatter.ofPattern(\"uuuu-MM-dd\"); // Year 0 = \"0000\""
-          }
+          "`u`",
+          "year; year 0 prints `0000`",
+          "`y` year-of-era; year 0 prints `0001` (era `BC`)"
         ],
         [
-          "**Wrong case for pattern letters**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: 'mm' is minutes, 'MM' is months\nDateTimeFormatter.ofPattern(\"yyyy-mm-dd\"); // WRONG: minutes instead of months!\n\n// Fix: Use correct case\nDateTimeFormatter.ofPattern(\"yyyy-MM-dd\"); // Correct"
-          }
+          "`Y`",
+          "week-based year, weeks from the locale",
+          "`u`, `y`"
         ],
         [
-          "**Formatting `Instant` without a zone**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Instant has no timezone, formatter needs one\nInstant instant = Instant.now();\nDateTimeFormatter.ofPattern(\"yyyy-MM-dd HH:mm\").format(instant);\n// UnsupportedTemporalTypeException!\n\n// Fix: Provide a zone\nDateTimeFormatter.ofPattern(\"yyyy-MM-dd HH:mm\")\n        .withZone(ZoneId.of(\"UTC\"))\n        .format(instant);"
-          }
+          "`M`",
+          "month",
+          "`m` minute"
         ],
         [
-          "**Parsing a date string into the wrong type**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Trying to parse a date-only string into LocalDateTime\nLocalDateTime.parse(\"2024-03-15\", DateTimeFormatter.ISO_LOCAL_DATE);\n// DateTimeParseException!\n\n// Fix: Use the matching type\nLocalDate.parse(\"2024-03-15\", DateTimeFormatter.ISO_LOCAL_DATE);"
-          }
+          "`H`",
+          "hour 0 to 23",
+          "`h` hour 1 to 12, needs `a`"
+        ],
+        [
+          "`XXX`",
+          "offset, `Z` for zero",
+          "`xxx`: `+00:00` for zero; `Z`: `+0100`, `+0000`"
+        ],
+        [
+          "`VV`",
+          "zone id (`Europe/Amsterdam`)",
+          "`z` zone name from the locale (`CET` en-US, `MEZ` de-DE)"
         ]
       ]
     },
     {
+      "type": "para",
+      "text": "**Constants, formatting 2026-03-14T10:30 in Europe/Amsterdam** (all STRICT except `RFC_1123_DATE_TIME`, which is SMART and prints English names under any locale):"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Constant",
+        "Output"
+      ],
+      "rows": [
+        [
+          "`ISO_LOCAL_DATE`",
+          "`2026-03-14`"
+        ],
+        [
+          "`ISO_LOCAL_DATE_TIME`",
+          "`2026-03-14T10:30:00`"
+        ],
+        [
+          "`ISO_OFFSET_DATE_TIME`",
+          "`2026-03-14T10:30:00+01:00`"
+        ],
+        [
+          "`ISO_ZONED_DATE_TIME`",
+          "`2026-03-14T10:30:00+01:00[Europe/Amsterdam]`"
+        ],
+        [
+          "`ISO_INSTANT`",
+          "`2026-03-14T09:30:00Z`"
+        ],
+        [
+          "`RFC_1123_DATE_TIME`",
+          "`Sat, 14 Mar 2026 10:30:00 +0100`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Edge cases (Java 21):** `parse(null, f)` throws `NullPointerException`; `[...]` marks an optional section, so `uuuu-MM-dd['T'HH:mm]` reads a date with or without a time."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Declare formatters as `static final` constants** -- they are immutable and thread-safe.",
-        "**Use predefined ISO formatters** when possible instead of custom patterns.",
-        "**Always specify a `Locale`** for formatters that produce locale-sensitive output (month names, day names).",
-        "**Use `DateTimeFormatter` for all formatting/parsing** -- never use `SimpleDateFormat` in new code.",
-        "**Handle `DateTimeParseException` explicitly** when parsing user input."
+        "A service prints dates for users in 30 locales and reads three partners' files. Where does each formatter's locale come from?",
+        "How would your tests notice a JDK upgrade that changes the names a locale prints?",
+        "In a codebase you know, how many `ofPattern` calls name a locale, and how many use `YYYY` or `hh` without `a`?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Padding and optional sections**: Use `[]` for optional parts: `ofPattern(\"yyyy-MM-dd['T'HH:mm:ss]\")`.",
-        "**Single-digit months/days**: `M` produces 1-digit (3), `MM` produces 2-digit (03).",
-        "**12-hour vs 24-hour format**: `H` is 0-23 (24h), `h` is 1-12 (12h, needs `a` for AM/PM).",
-        "**Locale-dependent month names**: `MMMM` produces full month name in the formatter's locale.",
-        "**Empty or null strings**: `parse()` throws `DateTimeParseException` for empty strings and `NullPointerException` for null."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the Rules Live Inside the Formatter"
     },
     {
       "type": "para",
-      "text": "Interviewers test:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Thread-safety awareness (contrast with `SimpleDateFormat`)",
-        "Knowledge of pattern letters and their correct usage",
-        "Ability to create custom formatters for specific formats",
-        "Understanding of locale-sensitive formatting",
-        "Error handling during parsing"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: Why is `DateTimeFormatter` thread-safe while `SimpleDateFormat` is not?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: DateTimeFormatter is thread-safe because it is immutable. Once created, its \ninternal state never changes. All methods that appear to modify it (withLocale, \nwithZone) actually return new instances.\n\nSimpleDateFormat is NOT thread-safe because it uses mutable internal state -- \nspecifically, a Calendar instance that is modified during format() and parse() \noperations. When multiple threads call these methods concurrently, they corrupt \nthe shared Calendar, producing incorrect results or exceptions.\n\nPre-Java 8 workarounds for SimpleDateFormat:\n1. Synchronize access (kills concurrency)\n2. Create new instances per use (garbage creation)\n3. ThreadLocal<SimpleDateFormat> (memory leaks, complex lifecycle)\n\nDateTimeFormatter eliminates all of these problems by design."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// SimpleDateFormat: UNSAFE for sharing\nprivate static final SimpleDateFormat UNSAFE = new SimpleDateFormat(\"yyyy-MM-dd\");\n// Concurrent calls to UNSAFE.format() corrupt results\n\n// DateTimeFormatter: SAFE for sharing\nprivate static final DateTimeFormatter SAFE = DateTimeFormatter.ofPattern(\"yyyy-MM-dd\");\n// Any number of threads can call SAFE.format() simultaneously"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What are the common pattern letters and how do they differ?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Key pattern letters and their common confusions:\n\nDate:\n- y/u: year (y = year-of-era, u = proleptic year)\n- M: month (M = number, MM = 2-digit, MMM = abbreviated, MMMM = full)\n- d: day of month (d = 1-digit, dd = 2-digit)\n- E: day of week (E = abbreviated, EEEE = full)\n\nTime:\n- H: hour 0-23 (24-hour clock)\n- h: hour 1-12 (12-hour clock, pair with 'a')\n- m: minute of hour\n- s: second of minute\n- S: fraction of second (S = 1/10, SS = 1/100, SSS = millisecond)\n- a: AM/PM marker\n\nZone:\n- z: timezone name (e.g., \"EST\", \"Eastern Standard Time\")\n- Z: timezone offset (e.g., \"+0500\")\n- X: ISO offset (e.g., \"+05\", \"+05:30\", \"Z\" for UTC)\n- VV: timezone ID (e.g., \"America/New_York\")\n\nCommon confusion: \n- 'M' (month) vs 'm' (minute) -- case matters!\n- 'H' (24-hour) vs 'h' (12-hour)\n- 'y' (year-of-era) vs 'u' (proleptic year)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "LocalDateTime dt = LocalDateTime.of(2024, 3, 15, 14, 30, 45);\n\n// Date patterns\nDateTimeFormatter.ofPattern(\"yyyy-MM-dd\").format(dt);         // \"2024-03-15\"\nDateTimeFormatter.ofPattern(\"dd/MM/yyyy\").format(dt);         // \"15/03/2024\"\nDateTimeFormatter.ofPattern(\"MMMM d, yyyy\").format(dt);       // \"March 15, 2024\"\nDateTimeFormatter.ofPattern(\"EEE, MMM d\").format(dt);         // \"Fri, Mar 15\"\n\n// Time patterns\nDateTimeFormatter.ofPattern(\"HH:mm:ss\").format(dt);           // \"14:30:45\"\nDateTimeFormatter.ofPattern(\"hh:mm a\").format(dt);            // \"02:30 PM\"\n\n// Combined\nDateTimeFormatter.ofPattern(\"yyyy-MM-dd HH:mm:ss\").format(dt); // \"2024-03-15 14:30:45\""
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How do you handle parsing errors gracefully?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: DateTimeFormatter.parse() and LocalDate.parse() throw DateTimeParseException \nfor invalid input. For user-facing applications, you should catch this exception \nand provide meaningful feedback.\n\nStrategies:\n1. Try-catch with specific error handling\n2. Create a safe parse method that returns Optional\n3. Use multiple formatters for flexible input acceptance\n4. Validate format before parsing with regex (for simple cases)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Strategy 1: Try-catch\npublic LocalDate parseUserInput(String input) {\n    try {\n        return LocalDate.parse(input, DateTimeFormatter.ofPattern(\"MM/dd/yyyy\"));\n    } catch (DateTimeParseException e) {\n        throw new IllegalArgumentException(\"Invalid date format. Expected MM/dd/yyyy\", e);\n    }\n}\n\n// Strategy 2: Safe parse returning Optional\npublic Optional<LocalDate> safeParse(String input, String pattern) {\n    try {\n        return Optional.of(LocalDate.parse(input, DateTimeFormatter.ofPattern(pattern)));\n    } catch (DateTimeParseException e) {\n        return Optional.empty();\n    }\n}\n\n// Strategy 3: Multiple format support\npublic LocalDate flexibleParse(String input) {\n    List<DateTimeFormatter> formatters = List.of(\n            DateTimeFormatter.ofPattern(\"yyyy-MM-dd\"),\n            DateTimeFormatter.ofPattern(\"MM/dd/yyyy\"),\n            DateTimeFormatter.ofPattern(\"dd-MMM-yyyy\")\n    );\n    for (DateTimeFormatter fmt : formatters) {\n        try { return LocalDate.parse(input, fmt); }\n        catch (DateTimeParseException ignored) {}\n    }\n    throw new IllegalArgumentException(\"Cannot parse date: \" + input);\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How do you format an `Instant` for display?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Instant cannot be directly formatted with most patterns because it has no \ncalendar or timezone fields. You must either:\n\n1. Use withZone() on the formatter to provide timezone context\n2. Convert Instant to ZonedDateTime first and then format\n\nOption 1 is more concise; option 2 gives you more control."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Instant instant = Instant.parse(\"2024-03-15T14:30:00Z\");\n\n// Option 1: Formatter with zone\nDateTimeFormatter formatter = DateTimeFormatter\n        .ofPattern(\"yyyy-MM-dd HH:mm:ss z\")\n        .withZone(ZoneId.of(\"America/New_York\"));\nString result = formatter.format(instant);\n// \"2024-03-15 10:30:00 EDT\"\n\n// Option 2: Convert to ZonedDateTime first\nZonedDateTime zdt = instant.atZone(ZoneId.of(\"America/New_York\"));\nString result2 = zdt.format(DateTimeFormatter.ofPattern(\"yyyy-MM-dd HH:mm:ss z\"));\n// \"2024-03-15 10:30:00 EDT\""
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How does locale affect date formatting?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Locale affects:\n1. Month names (March vs. Mars vs. Marzo)\n2. Day-of-week names (Monday vs. Lundi)\n3. AM/PM markers\n4. Number formatting in some locales\n5. Date order in localized styles (MEDIUM, FULL, etc.)\n\nYou specify locale in two ways:\n- ofPattern(pattern, locale): Creates a formatter with a specific locale\n- withLocale(locale): Returns a new formatter with the specified locale\n\nAlways specify locale explicitly for user-facing output to ensure consistent \nbehavior regardless of the server's default locale."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "LocalDate date = LocalDate.of(2024, 3, 15);\n\n// Locale-specific month names\nDateTimeFormatter monthFmt = DateTimeFormatter.ofPattern(\"MMMM yyyy\");\nmonthFmt.withLocale(Locale.US).format(date);      // \"March 2024\"\nmonthFmt.withLocale(Locale.FRANCE).format(date);   // \"mars 2024\"\nmonthFmt.withLocale(Locale.GERMANY).format(date);  // \"M\\u00E4rz 2024\"\nmonthFmt.withLocale(Locale.JAPAN).format(date);     // \"3\\u6708 2024\"\n\n// Localized date styles\nDateTimeFormatter localizedFmt = DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL);\nlocalizedFmt.withLocale(Locale.US).format(date);     // \"Friday, March 15, 2024\"\nlocalizedFmt.withLocale(Locale.FRANCE).format(date);  // \"vendredi 15 mars 2024\""
+      "text": "`SimpleDateFormat` changed its own `Calendar` on every call. A `DateTimeFormatter` holds only a description fixed when it is built (pattern, locale, resolver style, optional zone). The cost is that the settings deciding the output sit where the formatter is built, not where it is used: a pattern read in review shows nothing of the locale behind `Y`, `MMM` or `a`, or of SMART resolution. Name them at the build site."
     },
     {
       "type": "heading",
@@ -256,16 +346,16 @@
   "attachments": [],
   "counts": {
     "headings": 10,
-    "paras": 9,
-    "code": 10,
-    "tables": 0,
-    "lists": 7,
+    "paras": 23,
+    "code": 13,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 5,
     "disclosures": 0
   },
-  "content_sha256": "60c208ac87afad75bf81e6abb804a692c540793ae4ca3faf7edba7670bc65b9b"
+  "content_sha256": "d85d179c576436fd7eff2f6d089f4b2517f92b3943b986266e0d2e089a3c5360"
 }

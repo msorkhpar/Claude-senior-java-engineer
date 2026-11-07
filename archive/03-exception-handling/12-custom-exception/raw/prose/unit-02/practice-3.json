@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Create the exception where it is thrown",
+  "title": "Translate the customer database's failures at the service boundary",
   "blocks": [
     {
       "type": "heading",
@@ -19,37 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The stack trace is captured when the exception object is **created**, not where it is thrown, so a pre-built exception kept in a field points at the wrong place in the logs. Write `Connection`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`String send(String message)` returns `\"sent: \" + message` while the connection is open;",
-        "`void close()` closes it;",
-        "after `close()`, `send` throws `IllegalStateException(\"Connection closed\")`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "result"
-      ],
-      "rows": [
-        [
-          "`send(\"hi\")`",
-          "`\"sent: hi\"`"
-        ],
-        [
-          "`close(); send(\"hi\")`",
-          "throws `IllegalStateException(\"Connection closed\")`"
-        ]
-      ]
+      "text": "The support dashboard looks customers up through `CustomerService`. It shows \"no such customer\" for `UnknownCustomerException`, \"try again later\" for `CustomerStoreException`, and sends anything else to the error tracker as a bug. The repository underneath is JDBC code, and the dashboard team doesn't want to know about `SQLException`."
     },
     {
       "type": "para",
-      "text": "Anyone reading the trace of a failed `send` should be led straight to `send`, every time it fails."
+      "text": "Three complaints arrived after the last release. Agents who mistype a customer id are told to try again later, and do, for minutes. When the database does fail, the log says only \"cannot load customer\", and on-call can't tell a timeout from a full connection pool. And a mapping bug introduced in the repository last week showed up on the dashboard as a database outage, so nobody opened a bug for it."
+    },
+    {
+      "type": "para",
+      "text": "Write `find(...)` in `src/main/java/practice/CustomerService.java` so that each of the three reaches the right place. About eight lines."
     },
     {
       "type": "heading",
@@ -64,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Connection {\n\n    private boolean closed;\n\n    /** Returns \"sent: \" + message while open; after close() throws IllegalStateException(\"Connection closed\"). */\n    public String send(String message) {\n        if (closed) {\n            throw new IllegalStateException(\"Connection closed\");\n        }\n        return \"sent: \" + message;\n    }\n\n    public void close() {\n        closed = true;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.SQLException;\n\n/** The customer service: the layer between the support dashboard and the customer database. */\npublic class CustomerService {\n\n    public record Customer(String id, String name) {}\n\n    /** The persistence layer, JDBC underneath. Returns null when there is no customer with that id. */\n    public interface CustomerRepository {\n        Customer load(String id) throws SQLException;\n    }\n\n    /** No customer has this id. The dashboard shows \"no such customer\". */\n    public static class UnknownCustomerException extends RuntimeException {\n        public UnknownCustomerException(String id) {\n            super(\"unknown customer: \" + id);\n        }\n    }\n\n    /** The customer database failed. The dashboard shows \"try again later\". */\n    public static class CustomerStoreException extends RuntimeException {\n        public CustomerStoreException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final CustomerRepository repository;\n\n    public CustomerService(CustomerRepository repository) {\n        this.repository = repository;\n    }\n\n    /** The customer with this id. */\n    public Customer find(String id) {\n        Customer customer;\n        try {\n            customer = repository.load(id);\n        } catch (SQLException e) {\n            throw new CustomerStoreException(\"cannot load customer \" + id, e);\n        }\n        if (customer == null) throw new UnknownCustomerException(id);\n        return customer;\n    }\n}\n"
         }
       ]
     },
@@ -76,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Connection {\n\n    /** Returns \"sent: \" + message while open; after close() throws IllegalStateException(\"Connection closed\"). */\n    public String send(String message) {\n        throw new UnsupportedOperationException(\"write send\");\n    }\n\n    public void close() {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.SQLException;\n\n/** The customer service: the layer between the support dashboard and the customer database. */\npublic class CustomerService {\n\n    public record Customer(String id, String name) {}\n\n    /** The persistence layer, JDBC underneath. Returns null when there is no customer with that id. */\n    public interface CustomerRepository {\n        Customer load(String id) throws SQLException;\n    }\n\n    /** No customer has this id. The dashboard shows \"no such customer\". */\n    public static class UnknownCustomerException extends RuntimeException {\n        public UnknownCustomerException(String id) {\n            super(\"unknown customer: \" + id);\n        }\n    }\n\n    /** The customer database failed. The dashboard shows \"try again later\". */\n    public static class CustomerStoreException extends RuntimeException {\n        public CustomerStoreException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final CustomerRepository repository;\n\n    public CustomerService(CustomerRepository repository) {\n        this.repository = repository;\n    }\n\n    /** The customer with this id. */\n    public Customer find(String id) {\n        // TODO: load the customer through the repository; callers see only this service's own exceptions.\n        throw new IllegalStateException(\"TODO: find\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -84,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -95,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "76e28c817de4b5c1910a531e6769d1776e86ff64107bce8742560c8afe9c25ea",
-  "starting_code": "package practice;\n\npublic class Connection {\n\n    /** Returns \"sent: \" + message while open; after close() throws IllegalStateException(\"Connection closed\"). */\n    public String send(String message) {\n        throw new UnsupportedOperationException(\"write send\");\n    }\n\n    public void close() {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n}\n",
+  "content_sha256": "c77f55bcf95cfe965b898d1ab211d84e1f32a7ecbf9db56c4a9ae88f2289111f",
+  "starting_code": "package practice;\n\nimport java.sql.SQLException;\n\n/** The customer service: the layer between the support dashboard and the customer database. */\npublic class CustomerService {\n\n    public record Customer(String id, String name) {}\n\n    /** The persistence layer, JDBC underneath. Returns null when there is no customer with that id. */\n    public interface CustomerRepository {\n        Customer load(String id) throws SQLException;\n    }\n\n    /** No customer has this id. The dashboard shows \"no such customer\". */\n    public static class UnknownCustomerException extends RuntimeException {\n        public UnknownCustomerException(String id) {\n            super(\"unknown customer: \" + id);\n        }\n    }\n\n    /** The customer database failed. The dashboard shows \"try again later\". */\n    public static class CustomerStoreException extends RuntimeException {\n        public CustomerStoreException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final CustomerRepository repository;\n\n    public CustomerService(CustomerRepository repository) {\n        this.repository = repository;\n    }\n\n    /** The customer with this id. */\n    public Customer find(String id) {\n        // TODO: load the customer through the repository; callers see only this service's own exceptions.\n        throw new IllegalStateException(\"TODO: find\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-02/practice-3/src/main/java/practice/Connection.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-02/practice-3/src/test/java/practice/ConnectionTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-02/practice-3/src/main/java/practice/CustomerService.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-02/practice-3/src/test/java/practice/CustomerServiceTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -120,19 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ConnectionTest#sendsUntilClosed",
+        "id": "practice.CustomerServiceTest#returnsTheCustomerTheRepositoryLoads",
         "kind": "main",
-        "says": "An open connection sends; a closed one throws IllegalStateException(\"Connection closed\")."
+        "says": "a customer the repository finds is returned"
       },
       {
-        "id": "practice.ConnectionTest#theTracePointsAtSend",
-        "kind": "edge",
-        "says": "The stack trace's top frame is send, because the exception is created there, not in a field initializer."
+        "id": "practice.CustomerServiceTest#aFailingDatabaseIsReportedAsAStoreFailure",
+        "kind": "main",
+        "says": "an SQLException from the repository reaches the caller as CustomerStoreException"
       },
       {
-        "id": "practice.ConnectionTest#eachFailureIsANewException",
+        "id": "practice.CustomerServiceTest#aStoreFailureCarriesTheDatabaseErrorForTheLogs",
         "kind": "edge",
-        "says": "Every failed send throws a new exception object with its own trace, never a cached one."
+        "says": "the CustomerStoreException carries the repository's SQLException as its cause"
+      },
+      {
+        "id": "practice.CustomerServiceTest#anIdWithNoCustomerIsReportedAsUnknown",
+        "kind": "edge",
+        "says": "an id with no customer is reported as UnknownCustomerException, not as a store failure"
+      },
+      {
+        "id": "practice.CustomerServiceTest#aBugInTheRepositoryIsNotReportedAsADatabaseFailure",
+        "kind": "edge",
+        "says": "an unchecked exception from the repository reaches the caller unchanged"
       }
     ],
     "report": {
@@ -141,10 +129,11 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Translate Exceptions at a Layer Boundary, and Keep the Cause"
     },
     "concepts": [
-      "The stack trace is captured where the exception is created, so it is created at the throw."
+      "The translated exception keeps the lower layer's exception as its cause, so the log still shows what failed.",
+      "A service translates only the lower layer's own failure type, in a try holding only the call, so its own exceptions and bugs are not reported as store failures."
     ]
   }
 }

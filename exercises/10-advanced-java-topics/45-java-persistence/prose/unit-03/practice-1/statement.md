@@ -1,24 +1,18 @@
-The page's bank transfer: debit A and credit B as one unit of work, so money
-never vanishes halfway. In JDBC, `setAutoCommit(false)` opens the
-transaction and `commit()` or `rollback()` ends it.
+The box office of a small theatre sells seats from four counters, each with its own database
+connection. Last Friday, show 12 had two seats left; two counters each sold both, and four people
+arrived for two seats. On another night a customer was told "sold out" at one counter, and the next
+counter's sale of that show hung for seconds and then failed.
 
-Write `Bank.transfer(connection, fromId, toId, amount)` over
-`accounts(id INT PRIMARY KEY, owner VARCHAR, balance DECIMAL(15,2))`. The
-connection is the caller's (do not close it).
+`hold(...)` in `src/main/java/practice/SeatHolds.java` already reads, decides and writes in one
+transaction. Finish its two `TODO`s:
 
-- Debit with `UPDATE ... SET balance = balance - ? WHERE id = ? AND balance >= ?`:
-  **the debit only happens when the balance covers the amount**. If it
-  changes no row, roll back and return `false`.
-- Credit the destination. If it changes no row, return `false`: **a failed
-  credit rolls back the debit**.
-- Otherwise commit and return `true`. On `SQLException`, roll back and rethrow.
-- **`autoCommit` is restored to `true` in a `finally` block**, success or not.
-- **A negative amount is refused** with `IllegalArgumentException`.
+- `seatsLeft(...)`: the number the hold decides on;
+- `refuse(...)`: what happens when there are too few seats.
 
-| balances (1, 2) | call | result | balances after |
-|---|---|---|---|
-| 100.00, 50.00 | `transfer(1, 2, 30.00)` | `true` | 70.00, 80.00 |
-| 70.00, 80.00 | `transfer(1, 2, 70.00)` | `true` | 0.00, 150.00 |
-| 100.00, 50.00 | `transfer(1, 99, 30.00)` | `false` | 100.00, 50.00 |
-| 100.00, 50.00 | `transfer(1, 2, 100.01)` | `false` | 100.00, 50.00 |
-| 100.00, 50.00 | `transfer(1, 2, -5.00)` | `IllegalArgumentException` | 100.00, 50.00 |
+When you're done, two counters that ask for the same last seats at the same moment never both get
+them, and a refused customer never slows down the next one. A customer who can't get seats is told
+`false`, never an exception. About eight lines in total.
+
+The tests run each counter on its own connection to an in-memory H2 database (table
+`shows(id, seats_left)`), and use the `Pause` to let a second counter in between the first
+counter's read and its write.

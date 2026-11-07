@@ -2,10 +2,10 @@
   "coverage_api": 2,
   "page": "43-jvm-internals/README_10.5.3.md",
   "kind": "code",
-  "quiz": "quiz",
+  "quiz": "jit-quiz",
   "case": "code-and-tests",
   "digests": {
-    "43-jvm-internals/README_10.5.3.md": "sha256:ef6e9db9ecfa8408dc16cf76575a3433510efdec2e2d345a53f36cd10a02a813",
+    "43-jvm-internals/README_10.5.3.md": "sha256:3e2c17e8e5c021b5d71e9254d871c37ee32e5948a5e1719dde729ff726b1b4e2",
     "43-jvm-internals/src/test/java/com/github/msorkhpar/claudejavatutor/jvminternals/JitCompilationTest.java": "sha256:e6162344d752a6cacf8b6377014c0f439a8c2c9df72ee7f7a6a85ff5c40aa1c9"
   },
   "plan": {
@@ -14,133 +14,138 @@
     "count": 3,
     "aspects": [
       {
-        "id": "deoptimization",
-        "says": "When a speculative assumption fails, such as a new class making a monomorphic call site polymorphic, the JVM deoptimizes back to the interpreter and may recompile.",
+        "id": "constant-input-folded",
+        "says": "A call whose input never changes can be computed once, so a benchmark must vary its inputs as production does.",
         "basis": [
-          "section:Deoptimization",
-          "example:43-jvm-internals/README_10.5.3.md:11",
-          "example:43-jvm-internals/README_10.5.3.md:12"
-        ],
-        "exercise": null,
-        "reason": "whether and when the JVM deoptimizes depends on the JIT's timing and profile, which no test can observe deterministically"
-      },
-      {
-        "id": "escape-analysis",
-        "says": "Escape analysis lets the JIT remove the allocation of an object that never leaves the method, by scalar replacement.",
-        "basis": [
-          "section:Interview Q&A Section",
-          "example:43-jvm-internals/README_10.5.3.md:4",
+          "section:A Benchmark Measures Nothing When the JIT Can Drop the Work or Fold Its Input",
           "example:43-jvm-internals/README_10.5.3.md:9",
           "example:43-jvm-internals/README_10.5.3.md:10"
         ],
-        "exercise": "quiz",
+        "exercise": "bench-harness",
         "reason": null
       },
       {
-        "id": "inline-limits",
-        "says": "HotSpot inlines methods of at most MaxInlineSize bytes (35) at any call site and up to FreqInlineSize bytes (325) at hot ones, so small methods make abstraction free.",
+        "id": "interface-guard",
+        "says": "With an interface, the same load changed nothing; the first call with the new class made the code not entrant.",
         "basis": [
-          "section:Common Pitfalls and How to Avoid Them",
-          "example:43-jvm-internals/README_10.5.3.md:3",
-          "example:43-jvm-internals/README_10.5.3.md:7",
+          "section:Compiled Code Rests on Assumptions, and a Class Loaded Later Can Make It Not Entrant",
           "example:43-jvm-internals/README_10.5.3.md:8"
         ],
-        "exercise": "inline-decision",
+        "exercise": "jit-quiz",
         "reason": null
       },
       {
-        "id": "java21-jit",
-        "says": "OpenJDK 21 ships C1 and C2 only, with a segmented code cache; Graal is available through JVMCI and compact headers came later.",
+        "id": "interpreted-is-slower",
+        "says": "Interpreted, the same loop ran 38 to 56 times slower than C2's code, so each method is slow until it crosses its threshold.",
         "basis": [
-          "section:Relevant Java 21 Features"
+          "section:Until the Compiled Code Is Installed, the Same Loop Runs Tens of Times Slower",
+          "example:43-jvm-internals/README_10.5.3.md:3"
         ],
         "exercise": null,
-        "reason": "incidental detail, not practised"
+        "reason": "a speed ratio depends on the machine and the JIT's timing, which no deterministic test can check; the quiz checks what the timings mean"
       },
       {
-        "id": "jit-diagnostics",
-        "says": "PrintCompilation shows what is compiled, and PrintInlining is a diagnostic flag that needs UnlockDiagnosticVMOptions.",
+        "id": "late-class-deopt",
+        "says": "Code C2 compiled on the assumption that a class's method has one implementation is made not entrant when an overriding class loads, even if it is never called, and runs slower until C2 compiles it again.",
         "basis": [
-          "section:Best Practices and Optimization Techniques",
-          "example:43-jvm-internals/README_10.5.3.md:13",
-          "example:43-jvm-internals/README_10.5.3.md:14"
+          "section:Compiled Code Rests on Assumptions, and a Class Loaded Later Can Make It Not Entrant",
+          "example:43-jvm-internals/README_10.5.3.md:5",
+          "example:43-jvm-internals/README_10.5.3.md:6",
+          "example:43-jvm-internals/README_10.5.3.md:7"
         ],
-        "exercise": "jit-flags",
+        "exercise": "compile-log",
         "reason": null
       },
       {
-        "id": "megamorphic",
-        "says": "A call site that has seen one or two receiver types can be devirtualized and inlined, but three or more make it megamorphic.",
+        "id": "osr-exit-deopt",
+        "says": "An OSR compile that never saw its loop exit is thrown away when the loop ends, so a second call can be slower than the first.",
         "basis": [
+          "section:Until the Compiled Code Is Installed, the Same Loop Runs Tens of Times Slower",
+          "example:43-jvm-internals/README_10.5.3.md:3",
+          "example:43-jvm-internals/README_10.5.3.md:4"
+        ],
+        "exercise": "jit-quiz",
+        "reason": null
+      },
+      {
+        "id": "osr-is-for-loops",
+        "says": "A % line is an on-stack replacement compile of a loop, which a running call jumps into; it is not the code a new call enters.",
+        "basis": [
+          "section:A Method Starts in the Interpreter and Is Compiled in Tiers Once Its Counters Say It Is Hot",
           "example:43-jvm-internals/README_10.5.3.md:2"
         ],
-        "exercise": "inline-decision",
+        "exercise": "compile-log",
         "reason": null
       },
       {
-        "id": "osr-code-cache",
-        "says": "On-stack replacement switches a running loop to compiled code, and a full code cache stops further compilation.",
+        "id": "replacement-not-deopt",
+        "says": "A lower tier's code made not entrant after a newer compile of the same method was installed is a replacement: calls go to the newer code.",
         "basis": [
-          "section:Edge Cases and Their Handling",
-          "section:Key Points to Remember"
+          "section:A Method Starts in the Interpreter and Is Compiled in Tiers Once Its Counters Say It Is Hot",
+          "example:43-jvm-internals/README_10.5.3.md:2"
         ],
-        "exercise": null,
-        "reason": "both are internal JIT events visible only in diagnostic output, not in a program's behaviour"
-      },
-      {
-        "id": "other-optimizations",
-        "says": "The JIT also unrolls loops, eliminates dead code and null checks, and swaps some methods for intrinsics.",
-        "basis": [
-          "section:Key JIT Optimizations"
-        ],
-        "exercise": null,
-        "reason": "the optimized code gives the same results as the interpreter, so a test can observe these only by timing, which is not graded"
-      },
-      {
-        "id": "tiered-compilation",
-        "says": "Tiered compilation starts in the interpreter, compiles hot methods with C1 while profiling and recompiles the hottest with C2, and -XX:-TieredCompilation or TieredStopAtLevel change that path.",
-        "basis": [
-          "section:How JIT Compilation Works",
-          "example:43-jvm-internals/README_10.5.3.md:5",
-          "example:43-jvm-internals/README_10.5.3.md:6"
-        ],
-        "exercise": "jit-flags",
+        "exercise": "compile-log",
         "reason": null
       },
       {
-        "id": "warmup",
-        "says": "Timing code before the JIT has compiled it measures the interpreter, so benchmarks need warm-up, and JMH handles it.",
+        "id": "tiers-by-counters",
+        "says": "A method runs in the interpreter until its call and loop counters cross a threshold, then is compiled by C1 at tier 3 with profiling and by C2 at tier 4 from that profile; a trivial getter goes to tier 1.",
         "basis": [
-          "section:Common Pitfalls and How to Avoid Them",
-          "example:43-jvm-internals/README_10.5.3.md:1"
+          "section:A Method Starts in the Interpreter and Is Compiled in Tiers Once Its Counters Say It Is Hot",
+          "example:43-jvm-internals/README_10.5.3.md:1",
+          "example:43-jvm-internals/README_10.5.3.md:2"
         ],
-        "exercise": "quiz",
+        "exercise": "compile-log",
+        "reason": null
+      },
+      {
+        "id": "time-after-warmup",
+        "says": "A benchmark that times its first rounds measures the compiler's work, so the timing starts after the warm-up.",
+        "basis": [
+          "section:Until the Compiled Code Is Installed, the Same Loop Runs Tens of Times Slower",
+          "section:A Benchmark Measures Nothing When the JIT Can Drop the Work or Fold Its Input"
+        ],
+        "exercise": "bench-harness",
+        "reason": null
+      },
+      {
+        "id": "unused-result-dropped",
+        "says": "A loop whose results nobody uses can be deleted by the JIT, so it measures nothing; every result must reach something the JIT can't see through.",
+        "basis": [
+          "section:A Benchmark Measures Nothing When the JIT Can Drop the Work or Fold Its Input",
+          "example:43-jvm-internals/README_10.5.3.md:9",
+          "example:43-jvm-internals/README_10.5.3.md:10"
+        ],
+        "exercise": "bench-harness",
         "reason": null
       }
     ],
     "exercises": [
       {
         "slot": 1,
-        "name": "jit-flags",
+        "name": "compile-log",
         "aspects": [
-          "jit-diagnostics",
-          "tiered-compilation"
+          "late-class-deopt",
+          "osr-is-for-loops",
+          "replacement-not-deopt",
+          "tiers-by-counters"
         ]
       },
       {
         "slot": 2,
-        "name": "inline-decision",
+        "name": "bench-harness",
         "aspects": [
-          "inline-limits",
-          "megamorphic"
+          "constant-input-folded",
+          "time-after-warmup",
+          "unused-result-dropped"
         ]
       },
       {
         "slot": 3,
-        "name": "quiz",
+        "name": "jit-quiz",
         "aspects": [
-          "escape-analysis",
-          "warmup"
+          "interface-guard",
+          "osr-exit-deopt"
         ]
       }
     ],
@@ -156,28 +161,42 @@
       "exercise": "exercises/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-1",
       "origin": {
         "path": "43-jvm-internals/README_10.5.3.md",
-        "section": "Interview Q&A Section"
+        "section": "Compiled Code Rests on Assumptions, and a Class Loaded Later Can Make It Not Entrant"
       }
     },
     {
       "exercise": "exercises/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-2",
       "origin": {
         "path": "43-jvm-internals/README_10.5.3.md",
-        "section": "Common Pitfalls and How to Avoid Them"
+        "section": "A Benchmark Measures Nothing When the JIT Can Drop the Work or Fold Its Input"
       }
     },
     {
-      "exercise": "exercises/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-3:q-warmup",
+      "exercise": "exercises/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-3:q-retired-tier",
       "origin": {
         "path": "43-jvm-internals/README_10.5.3.md",
-        "section": "Common Pitfalls and How to Avoid Them"
+        "section": "A Method Starts in the Interpreter and Is Compiled in Tiers Once Its Counters Say It Is Hot"
       }
     },
     {
-      "exercise": "exercises/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-3:q-escape",
+      "exercise": "exercises/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-3:q-second-round",
       "origin": {
         "path": "43-jvm-internals/README_10.5.3.md",
-        "section": "Interview Q&A Section"
+        "section": "Until the Compiled Code Is Installed, the Same Loop Runs Tens of Times Slower"
+      }
+    },
+    {
+      "exercise": "exercises/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-3:q-plugin-load",
+      "origin": {
+        "path": "43-jvm-internals/README_10.5.3.md",
+        "section": "Compiled Code Rests on Assumptions, and a Class Loaded Later Can Make It Not Entrant"
+      }
+    },
+    {
+      "exercise": "exercises/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-3:q-folded-input",
+      "origin": {
+        "path": "43-jvm-internals/README_10.5.3.md",
+        "section": "A Benchmark Measures Nothing When the JIT Can Drop the Work or Fold Its Input"
       }
     }
   ],

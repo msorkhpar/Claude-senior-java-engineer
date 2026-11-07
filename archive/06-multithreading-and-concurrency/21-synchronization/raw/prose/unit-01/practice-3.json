@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Polite walkers: a livelock and its random backoff",
+  "title": "Keep the night's rebalancing from hanging",
   "blocks": [
     {
       "type": "heading",
@@ -19,53 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's livelock: two people in a hallway keep stepping to the same side to let each other pass. Nobody is blocked, yet nobody gets through. It needs the two to react **in step**, and its fix is to break the symmetry, for example with **randomized backoff**. The course's `LivelockDemo` makes the two walker threads move in lock step with a `Phaser`, and a round limit makes the livelock end."
+      "text": "A warehouse service moves stock between storage bins: pickers move units to the packing bins all day, and a rebalancing job moves them back at night. Auditors count pairs of bins while both run. Each bin's quantity is guarded by the bin's own monitor, and an operation on two bins holds both, so that nobody ever sees units that are in neither bin. Some nights the rebalancing job stops making progress, and the morning's thread dump shows threads that each hold one bin."
     },
     {
       "type": "para",
-      "text": "Write `Hallway`, with two walker threads that move in lock step, round by round:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Each walker decides whether it **steps forward** this round, and makes that decision visible to the other.",
-        "When both have decided, each looks at the other. A walker that stepped forward while the other did not **gets through**: it is done, and from then on it no longer takes part in the lock step. If both stepped forward, that is a **conflict**, and both politely step back.",
-        "A walker that has used `maxRounds` rounds without getting through stops."
-      ]
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Outcome runPolite(int maxRounds)`: a polite walker steps forward every round.",
-        "`Outcome runWithBackoff(int maxRounds, long seed)`: a walker steps forward in its first round, and in each round after a conflict it steps forward only when its own `Random`'s `nextBoolean()` is `true`. Walker 1 uses `new Random(seed)`, walker 2 `new Random(seed + 1)`."
-      ]
+      "text": "Finish `move(...)` and `count(...)` in `src/main/java/practice/Warehouse.java`. Both are written except for the call that holds the two bins: `holdingBoth(first, second, action)` takes `first`'s monitor, then `second`'s, and runs `action`. Moves in any direction and counts of any pair must be able to run at the same time without ever hanging. About four lines in total."
     },
     {
       "type": "para",
-      "text": "`Outcome(walker1Done, walker2Done, walker1Rounds, walker2Rounds)` is given; a walker's rounds are the number of rounds it took part in. Both methods return only when both walker threads have finished."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`runPolite(25)`",
-          "neither is done; both used 25 rounds"
-        ],
-        [
-          "`runWithBackoff(1, 7)`",
-          "neither is done; both used 1 round"
-        ],
-        [
-          "`runWithBackoff(200, seed)` for any seed",
-          "both are done, in different rounds"
-        ]
-      ]
+      "text": "The tests line two operations up: once one holds its first bin, it lets the other one catch up before taking the second."
     },
     {
       "type": "heading",
@@ -80,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Random;\nimport java.util.concurrent.Phaser;\nimport java.util.concurrent.atomic.AtomicBoolean;\n\npublic final class Hallway {\n\n    /** Whether each walker got through, and how many rounds each one took part in. */\n    public record Outcome(boolean walker1Done, boolean walker2Done, int walker1Rounds, int walker2Rounds) {\n    }\n\n    private final AtomicBoolean[] stepsForward = {new AtomicBoolean(), new AtomicBoolean()};\n    private final Phaser lockStep = new Phaser(2);\n    private final Random[] randoms;\n    private final int maxRounds;\n\n    private Hallway(Random[] randoms, int maxRounds) {\n        this.randoms = randoms;\n        this.maxRounds = maxRounds;\n    }\n\n    /** Two polite walkers in lock step: each steps forward every round. */\n    public static Outcome runPolite(int maxRounds) throws InterruptedException {\n        return new Hallway(null, maxRounds).run();\n    }\n\n    /** The same walkers, with random backoff after a conflict: walker 1 uses new Random(seed), walker 2 new Random(seed + 1). */\n    public static Outcome runWithBackoff(int maxRounds, long seed) throws InterruptedException {\n        return new Hallway(new Random[] {new Random(seed), new Random(seed + 1)}, maxRounds).run();\n    }\n\n    private Outcome run() throws InterruptedException {\n        boolean[] done = new boolean[2];\n        int[] rounds = new int[2];\n        Thread w1 = new Thread(() -> walk(0, done, rounds), \"walker-1\");\n        Thread w2 = new Thread(() -> walk(1, done, rounds), \"walker-2\");\n        w1.setDaemon(true);\n        w2.setDaemon(true);\n        w1.start();\n        w2.start();\n        w1.join();\n        w2.join();\n        return new Outcome(done[0], done[1], rounds[0], rounds[1]);\n    }\n\n    private void walk(int me, boolean[] done, int[] rounds) {\n        int other = 1 - me;\n        boolean afterConflict = false;\n        for (int round = 1; round <= maxRounds; round++) {\n            rounds[me] = round;\n            boolean stepForward = !afterConflict || randoms == null || randoms[me].nextBoolean();\n            stepsForward[me].set(stepForward);\n            lockStep.arriveAndAwaitAdvance();\n            boolean goThrough = stepForward && !stepsForward[other].get();\n            if (stepForward && !goThrough) {\n                afterConflict = true;\n            }\n            lockStep.arriveAndAwaitAdvance();\n            if (goThrough) {\n                done[me] = true;\n                stepsForward[me].set(false);\n                lockStep.arriveAndDeregister();\n                return;\n            }\n        }\n        lockStep.arriveAndDeregister();\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Moves stock between bins and counts pairs of bins. Each bin's quantity is guarded by the bin's\n * own monitor; an operation on two bins holds both. Rebalancing jobs, pickers and auditors run\n * these from many threads at once.\n */\npublic class Warehouse {\n\n    /** A storage bin. Its code, such as \"A-04-2\", is unique in the warehouse and never changes. */\n    public static final class Bin {\n        private final String code;\n        private int quantity;\n\n        public Bin(String code, int quantity) {\n            this.code = code;\n            this.quantity = quantity;\n        }\n\n        public String code() {\n            return code;\n        }\n\n        public int quantity() {\n            synchronized (this) {\n                return quantity;\n            }\n        }\n    }\n\n    /** Told each time an operation holds its first bin and is about to take the second. */\n    public interface Probe {\n        void holdingFirst(Bin first);\n    }\n\n    private final Probe probe;\n\n    public Warehouse(Probe probe) {\n        this.probe = probe;\n    }\n\n    public Warehouse() {\n        this(first -> { });\n    }\n\n    /** Runs action while holding the monitors of both bins: first's, then second's. */\n    private void holdingBoth(Bin first, Bin second, Runnable action) {\n        synchronized (first) {\n            probe.holdingFirst(first);\n            synchronized (second) {\n                action.run();\n            }\n        }\n    }\n\n    /** Moves qty units from one bin to another. False, and nothing moves, if from holds fewer. */\n    public boolean move(Bin from, Bin to, int qty) {\n        if (from == to) return false;\n        boolean[] moved = new boolean[1];\n        Runnable action = () -> {\n            if (from.quantity < qty) return;\n            from.quantity -= qty;\n            to.quantity += qty;\n            moved[0] = true;\n        };\n        if (from.code.compareTo(to.code) < 0) holdingBoth(from, to, action);\n        else holdingBoth(to, from, action);\n        return moved[0];\n    }\n\n    /** The units in two bins together, as one consistent reading of both. */\n    public int count(Bin a, Bin b) {\n        if (a == b) return a.quantity();\n        int[] total = new int[1];\n        Runnable action = () -> total[0] = a.quantity + b.quantity;\n        if (a.code.compareTo(b.code) < 0) holdingBoth(a, b, action);\n        else holdingBoth(b, a, action);\n        return total[0];\n    }\n}\n"
         }
       ]
     },
@@ -92,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Hallway {\n\n    /** Whether each walker got through, and how many rounds each one took part in. */\n    public record Outcome(boolean walker1Done, boolean walker2Done, int walker1Rounds, int walker2Rounds) {\n    }\n\n    /** Two polite walkers in lock step: each steps forward every round. */\n    public static Outcome runPolite(int maxRounds) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write runPolite\");\n    }\n\n    /** The same walkers, with random backoff after a conflict: walker 1 uses new Random(seed), walker 2 new Random(seed + 1). */\n    public static Outcome runWithBackoff(int maxRounds, long seed) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write runWithBackoff\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Moves stock between bins and counts pairs of bins. Each bin's quantity is guarded by the bin's\n * own monitor; an operation on two bins holds both. Rebalancing jobs, pickers and auditors run\n * these from many threads at once.\n */\npublic class Warehouse {\n\n    /** A storage bin. Its code, such as \"A-04-2\", is unique in the warehouse and never changes. */\n    public static final class Bin {\n        private final String code;\n        private int quantity;\n\n        public Bin(String code, int quantity) {\n            this.code = code;\n            this.quantity = quantity;\n        }\n\n        public String code() {\n            return code;\n        }\n\n        public int quantity() {\n            synchronized (this) {\n                return quantity;\n            }\n        }\n    }\n\n    /** Told each time an operation holds its first bin and is about to take the second. */\n    public interface Probe {\n        void holdingFirst(Bin first);\n    }\n\n    private final Probe probe;\n\n    public Warehouse(Probe probe) {\n        this.probe = probe;\n    }\n\n    public Warehouse() {\n        this(first -> { });\n    }\n\n    /** Runs action while holding the monitors of both bins: first's, then second's. */\n    private void holdingBoth(Bin first, Bin second, Runnable action) {\n        synchronized (first) {\n            probe.holdingFirst(first);\n            synchronized (second) {\n                action.run();\n            }\n        }\n    }\n\n    /** Moves qty units from one bin to another. False, and nothing moves, if from holds fewer. */\n    public boolean move(Bin from, Bin to, int qty) {\n        if (from == to) return false;\n        boolean[] moved = new boolean[1];\n        Runnable action = () -> {\n            if (from.quantity < qty) return;\n            from.quantity -= qty;\n            to.quantity += qty;\n            moved[0] = true;\n        };\n        // TODO: Run action while holding both bins (holdingBoth), then return moved[0]. Pickers and\n        //       rebalancing jobs move stock in both directions between the same bins at the same\n        //       time, while auditors count them, and none of them may ever hang.\n        throw new IllegalStateException(\"TODO: move\");\n    }\n\n    /** The units in two bins together, as one consistent reading of both. */\n    public int count(Bin a, Bin b) {\n        if (a == b) return a.quantity();\n        int[] total = new int[1];\n        Runnable action = () -> total[0] = a.quantity + b.quantity;\n        // TODO: Run action while holding both bins (holdingBoth), then return total[0]. Auditors\n        //       count bins while moves between them are under way, and nobody may ever hang.\n        throw new IllegalStateException(\"TODO: count\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -102,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 2,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -111,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "bc6a2d70376e5803c66ac23b71aa352b836286bf94e1af783264c9b1863adc71",
-  "starting_code": "package practice;\n\npublic final class Hallway {\n\n    /** Whether each walker got through, and how many rounds each one took part in. */\n    public record Outcome(boolean walker1Done, boolean walker2Done, int walker1Rounds, int walker2Rounds) {\n    }\n\n    /** Two polite walkers in lock step: each steps forward every round. */\n    public static Outcome runPolite(int maxRounds) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write runPolite\");\n    }\n\n    /** The same walkers, with random backoff after a conflict: walker 1 uses new Random(seed), walker 2 new Random(seed + 1). */\n    public static Outcome runWithBackoff(int maxRounds, long seed) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write runWithBackoff\");\n    }\n}\n",
+  "content_sha256": "3e830f59f6ed8a3e71ac7051f9ec60d2ae39d74d5544dc5ca8109e06c463382e",
+  "starting_code": "package practice;\n\n/**\n * Moves stock between bins and counts pairs of bins. Each bin's quantity is guarded by the bin's\n * own monitor; an operation on two bins holds both. Rebalancing jobs, pickers and auditors run\n * these from many threads at once.\n */\npublic class Warehouse {\n\n    /** A storage bin. Its code, such as \"A-04-2\", is unique in the warehouse and never changes. */\n    public static final class Bin {\n        private final String code;\n        private int quantity;\n\n        public Bin(String code, int quantity) {\n            this.code = code;\n            this.quantity = quantity;\n        }\n\n        public String code() {\n            return code;\n        }\n\n        public int quantity() {\n            synchronized (this) {\n                return quantity;\n            }\n        }\n    }\n\n    /** Told each time an operation holds its first bin and is about to take the second. */\n    public interface Probe {\n        void holdingFirst(Bin first);\n    }\n\n    private final Probe probe;\n\n    public Warehouse(Probe probe) {\n        this.probe = probe;\n    }\n\n    public Warehouse() {\n        this(first -> { });\n    }\n\n    /** Runs action while holding the monitors of both bins: first's, then second's. */\n    private void holdingBoth(Bin first, Bin second, Runnable action) {\n        synchronized (first) {\n            probe.holdingFirst(first);\n            synchronized (second) {\n                action.run();\n            }\n        }\n    }\n\n    /** Moves qty units from one bin to another. False, and nothing moves, if from holds fewer. */\n    public boolean move(Bin from, Bin to, int qty) {\n        if (from == to) return false;\n        boolean[] moved = new boolean[1];\n        Runnable action = () -> {\n            if (from.quantity < qty) return;\n            from.quantity -= qty;\n            to.quantity += qty;\n            moved[0] = true;\n        };\n        // TODO: Run action while holding both bins (holdingBoth), then return moved[0]. Pickers and\n        //       rebalancing jobs move stock in both directions between the same bins at the same\n        //       time, while auditors count them, and none of them may ever hang.\n        throw new IllegalStateException(\"TODO: move\");\n    }\n\n    /** The units in two bins together, as one consistent reading of both. */\n    public int count(Bin a, Bin b) {\n        if (a == b) return a.quantity();\n        int[] total = new int[1];\n        Runnable action = () -> total[0] = a.quantity + b.quantity;\n        // TODO: Run action while holding both bins (holdingBoth), then return total[0]. Auditors\n        //       count bins while moves between them are under way, and nobody may ever hang.\n        throw new IllegalStateException(\"TODO: count\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/src/main/java/practice/Hallway.java",
-    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/src/test/java/practice/HallwayTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/src/main/java/practice/Warehouse.java",
+    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/src/test/java/practice/WarehouseTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -136,19 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HallwayTest#backoffLetsBothThrough",
+        "id": "practice.WarehouseTest#movesStockAndRefusesAShortBin",
         "kind": "main",
-        "says": "With random backoff after a conflict, both walkers get through, in different rounds, within the round limit."
+        "says": "a move updates both bins, and a move larger than the source bin holds changes nothing"
       },
       {
-        "id": "practice.HallwayTest#politeWalkersLivelock",
-        "kind": "edge",
-        "says": "Two polite walkers in lock step keep giving way to each other: neither gets through, and both use every round up to the limit."
+        "id": "practice.WarehouseTest#countsTwoBinsTogether",
+        "kind": "main",
+        "says": "counting two bins gives their total, in either argument order"
       },
       {
-        "id": "practice.HallwayTest#theLimitAlsoStopsBackoff",
+        "id": "practice.WarehouseTest#movesBothWaysBetweenTwoBinsFinish",
         "kind": "edge",
-        "says": "The round limit stops the backoff run too: with one round, both walkers step forward, conflict and stop."
+        "says": "two moves between the same two bins in opposite directions, at the same time, both finish"
+      },
+      {
+        "id": "practice.WarehouseTest#aCountDuringAMoveBetweenTheSameBinsFinishes",
+        "kind": "edge",
+        "says": "a count of two bins that runs at the same time as a move between them finishes, and so does the move"
       }
     ],
     "report": {
@@ -157,11 +124,10 @@
     },
     "origin": {
       "path": "21-synchronization/README_6.2.1.md",
-      "section": "Deadlocks and Starvation"
+      "section": "Two Locks Taken in Opposite Orders Deadlock; One Order for Every Pair Prevents It"
     },
     "concepts": [
-      "In a livelock the threads keep running and keep reacting to each other in step, yet none makes progress.",
-      "Randomized backoff breaks the symmetry that keeps a livelock going, so the threads get through."
+      "Two locks taken in opposite orders deadlock; one fixed, unique order used by every piece of code that takes two of the locks prevents it."
     ]
   }
 }

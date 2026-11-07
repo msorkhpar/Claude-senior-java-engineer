@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Report memory usage the way the monitoring code does",
+  "title": "Find which of our methods fills the young generation",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's monitoring code reads each memory pool's `MemoryUsage` and prints it. A `MemoryUsage` has `init`, `used`, `committed` and `max`; **`max` is -1 when the pool has no defined maximum** (Metaspace, for one). *Committed* is what the JVM has reserved from the OS, *max* is the ceiling the pool may grow to."
+      "text": "The export service collects young garbage every few hundred milliseconds, and the team has a Flight Recorder file from production to find out why. Nobody wants to read four thousand events by hand. We want a small report: for one thread, how many bytes each of our own methods allocated, so that the first line names code we can change."
     },
     {
       "type": "para",
-      "text": "Write `MemoryReport` with:"
+      "text": "`AllocationReport` already reads the recording, keeps the `jdk.ObjectAllocationSample` events of the thread you ask for, and adds up a number per method. Finish the two `TODO`s in `src/main/java/practice/AllocationReport.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`line(name, usage)`: `Pool [<name>]: used=<u>MB, max=<m>MB`, where sizes are **whole mebibytes** (bytes / 1,048,576, rounded down) and an undefined maximum prints as `max=-1MB`.",
-        "`usedPercent(usage)`: `100 * used / max` as an `OptionalDouble`, measured **against `max`**, and empty when `max` is undefined."
+        "`allocatingMethod(frames, appPackage)`: which of the application's methods a sample is charged to, as `\"class.method\"`;",
+        "`bytes(sample)`: how many bytes the sample accounts for."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "used",
-        "committed",
-        "max",
-        "`line(\"G1 Old Gen\", u)`",
-        "`usedPercent(u)`"
-      ],
-      "rows": [
-        [
-          "100 MiB",
-          "512 MiB",
-          "512 MiB",
-          "`Pool [G1 Old Gen]: used=100MB, max=512MB`",
-          "`19.53125`"
-        ],
-        [
-          "1,572,863 B",
-          "2 MiB",
-          "4 MiB",
-          "`...used=1MB, max=4MB`",
-          "`37.49997615814209`"
-        ],
-        [
-          "30 MiB",
-          "32 MiB",
-          "-1",
-          "`...used=30MB, max=-1MB`",
-          "empty"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, the numbers in the report add up to roughly what the thread allocated, and every entry is a method of the application that allocated, not one of the JDK's and not the method the thread happened to start in. About six lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests make a real recording of a worker that builds CSV files and SVG badges, and compare the report with the thread's own allocation counter. The `jdk.jfr.consumer` javadoc lists what an event and a frame can tell you."
     },
     {
       "type": "heading",
@@ -79,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.management.MemoryUsage;\nimport java.util.OptionalDouble;\n\npublic final class MemoryReport {\n\n    private static final long MIB = 1024L * 1024;\n\n    private MemoryReport() {\n    }\n\n    /** \"Pool [name]: used=XMB, max=YMB\", in whole mebibytes; an undefined max prints as -1. */\n    public static String line(String name, MemoryUsage usage) {\n        long max = usage.getMax() < 0 ? -1 : usage.getMax() / MIB;\n        return \"Pool [\" + name + \"]: used=\" + usage.getUsed() / MIB + \"MB, max=\" + max + \"MB\";\n    }\n\n    /** 100 * used / max, or empty when the pool has no defined maximum. */\n    public static OptionalDouble usedPercent(MemoryUsage usage) {\n        if (usage.getMax() <= 0) {\n            return OptionalDouble.empty();\n        }\n        return OptionalDouble.of(100.0 * usage.getUsed() / usage.getMax());\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\nimport jdk.jfr.consumer.RecordedEvent;\nimport jdk.jfr.consumer.RecordedFrame;\nimport jdk.jfr.consumer.RecordedThread;\nimport jdk.jfr.consumer.RecordingFile;\n\n/**\n * Reads a JFR recording and estimates how many bytes each method of the application allocated\n * on one thread, from the recording's jdk.ObjectAllocationSample events.\n */\npublic class AllocationReport {\n\n    /**\n     * Bytes allocated on {@code thread}, keyed by \"class.method\" of the application method that\n     * made the allocation. Application classes are those in {@code appPackage} or below it.\n     */\n    public static Map<String, Long> bytesByMethod(Path recording, String thread, String appPackage)\n            throws IOException {\n        Map<String, Long> report = new TreeMap<>();\n        for (RecordedEvent e : RecordingFile.readAllEvents(recording)) {\n            if (!e.getEventType().getName().equals(\"jdk.ObjectAllocationSample\")) continue;\n            RecordedThread t = e.getThread(\"eventThread\");\n            if (t == null || !thread.equals(t.getJavaName()) || e.getStackTrace() == null) continue;\n            String method = allocatingMethod(e.getStackTrace().getFrames(), appPackage);\n            if (method != null) report.merge(method, bytes(e), Long::sum);\n        }\n        return report;\n    }\n\n    /** The application method charged with a sample, as \"class.method\", or null if there is none. */\n    static String allocatingMethod(List<RecordedFrame> frames, String appPackage) {\n        for (RecordedFrame f : frames) {\n            String type = f.getMethod().getType().getName();\n            if (type.startsWith(appPackage + \".\")) return type + \".\" + f.getMethod().getName();\n        }\n        return null;\n    }\n\n    /** How many allocated bytes one sample accounts for. */\n    static long bytes(RecordedEvent sample) {\n        return sample.getLong(\"weight\");\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.lang.management.MemoryUsage;\nimport java.util.OptionalDouble;\n\npublic final class MemoryReport {\n\n    private MemoryReport() {\n    }\n\n    /** \"Pool [name]: used=XMB, max=YMB\", in whole mebibytes; an undefined max prints as -1. */\n    public static String line(String name, MemoryUsage usage) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** 100 * used / max, or empty when the pool has no defined maximum. */\n    public static OptionalDouble usedPercent(MemoryUsage usage) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\nimport jdk.jfr.consumer.RecordedEvent;\nimport jdk.jfr.consumer.RecordedFrame;\nimport jdk.jfr.consumer.RecordedThread;\nimport jdk.jfr.consumer.RecordingFile;\n\n/**\n * Reads a JFR recording and estimates how many bytes each method of the application allocated\n * on one thread, from the recording's jdk.ObjectAllocationSample events.\n */\npublic class AllocationReport {\n\n    /**\n     * Bytes allocated on {@code thread}, keyed by \"class.method\" of the application method that\n     * made the allocation. Application classes are those in {@code appPackage} or below it.\n     */\n    public static Map<String, Long> bytesByMethod(Path recording, String thread, String appPackage)\n            throws IOException {\n        Map<String, Long> report = new TreeMap<>();\n        for (RecordedEvent e : RecordingFile.readAllEvents(recording)) {\n            if (!e.getEventType().getName().equals(\"jdk.ObjectAllocationSample\")) continue;\n            RecordedThread t = e.getThread(\"eventThread\");\n            if (t == null || !thread.equals(t.getJavaName()) || e.getStackTrace() == null) continue;\n            String method = allocatingMethod(e.getStackTrace().getFrames(), appPackage);\n            if (method != null) report.merge(method, bytes(e), Long::sum);\n        }\n        return report;\n    }\n\n    /** The application method charged with a sample, as \"class.method\", or null if there is none. */\n    static String allocatingMethod(List<RecordedFrame> frames, String appPackage) {\n        // TODO: Each sample carries the stack of the allocation. Name the method of ours that\n        //       made it, as \"class.method\" (f.getMethod().getType().getName() gives the class),\n        //       so that the report points at code we can change.\n        throw new IllegalStateException(\"TODO: allocatingMethod\");\n    }\n\n    /** How many allocated bytes one sample accounts for. */\n    static long bytes(RecordedEvent sample) {\n        // TODO: The report adds this up per method, and the sum should come close to what the\n        //       method really allocated.\n        throw new IllegalStateException(\"TODO: bytes\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -99,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -110,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6406da77e9404d43938fe651a972246924a0ade36680b2c63f5cbb759e77c403",
-  "starting_code": "package practice;\n\nimport java.lang.management.MemoryUsage;\nimport java.util.OptionalDouble;\n\npublic final class MemoryReport {\n\n    private MemoryReport() {\n    }\n\n    /** \"Pool [name]: used=XMB, max=YMB\", in whole mebibytes; an undefined max prints as -1. */\n    public static String line(String name, MemoryUsage usage) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** 100 * used / max, or empty when the pool has no defined maximum. */\n    public static OptionalDouble usedPercent(MemoryUsage usage) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "4084989f36f3bbea658279824abcb77c2009942132dd4363dfd8640475021aa0",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\nimport jdk.jfr.consumer.RecordedEvent;\nimport jdk.jfr.consumer.RecordedFrame;\nimport jdk.jfr.consumer.RecordedThread;\nimport jdk.jfr.consumer.RecordingFile;\n\n/**\n * Reads a JFR recording and estimates how many bytes each method of the application allocated\n * on one thread, from the recording's jdk.ObjectAllocationSample events.\n */\npublic class AllocationReport {\n\n    /**\n     * Bytes allocated on {@code thread}, keyed by \"class.method\" of the application method that\n     * made the allocation. Application classes are those in {@code appPackage} or below it.\n     */\n    public static Map<String, Long> bytesByMethod(Path recording, String thread, String appPackage)\n            throws IOException {\n        Map<String, Long> report = new TreeMap<>();\n        for (RecordedEvent e : RecordingFile.readAllEvents(recording)) {\n            if (!e.getEventType().getName().equals(\"jdk.ObjectAllocationSample\")) continue;\n            RecordedThread t = e.getThread(\"eventThread\");\n            if (t == null || !thread.equals(t.getJavaName()) || e.getStackTrace() == null) continue;\n            String method = allocatingMethod(e.getStackTrace().getFrames(), appPackage);\n            if (method != null) report.merge(method, bytes(e), Long::sum);\n        }\n        return report;\n    }\n\n    /** The application method charged with a sample, as \"class.method\", or null if there is none. */\n    static String allocatingMethod(List<RecordedFrame> frames, String appPackage) {\n        // TODO: Each sample carries the stack of the allocation. Name the method of ours that\n        //       made it, as \"class.method\" (f.getMethod().getType().getName() gives the class),\n        //       so that the report points at code we can change.\n        throw new IllegalStateException(\"TODO: allocatingMethod\");\n    }\n\n    /** How many allocated bytes one sample accounts for. */\n    static long bytes(RecordedEvent sample) {\n        // TODO: The report adds this up per method, and the sum should come close to what the\n        //       method really allocated.\n        throw new IllegalStateException(\"TODO: bytes\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-04/practice-2/src/main/java/practice/MemoryReport.java",
-    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-04/practice-2/src/test/java/practice/MemoryReportTest.java",
+    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-04/practice-2/src/main/java/practice/AllocationReport.java",
+    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-04/practice-2/src/test/java/practice/AllocationReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,24 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.MemoryReportTest#reportsAPoolInWholeMebibytes",
+        "id": "practice.AllocationReportTest#reportsTheWorkerThatAllocatedAndNotTheOneThatWaited",
         "kind": "main",
-        "says": "A pool using 100 MiB of a 512 MiB maximum prints as Pool [G1 Old Gen]: used=100MB, max=512MB, and its usage is 19.53125 percent."
+        "says": "the report has entries for a thread that allocated during the recording and none for a thread that only waited"
       },
       {
-        "id": "practice.MemoryReportTest#mebibytesRoundDown",
+        "id": "practice.AllocationReportTest#theTotalComesCloseToWhatTheWorkerAllocated",
         "kind": "edge",
-        "says": "Sizes are divided by 1,048,576 and rounded down, so 1,572,863 bytes print as 1MB."
+        "says": "the bytes in the report add up to within half of what the thread really allocated"
       },
       {
-        "id": "practice.MemoryReportTest#anUndefinedMaximumPrintsMinusOne",
+        "id": "practice.AllocationReportTest#theReportNamesOnlyMethodsOfTheApplication",
         "kind": "edge",
-        "says": "A pool whose maximum is undefined (-1) prints max=-1 and has no usage percentage."
+        "says": "every method in the report belongs to the application, none to the JDK"
       },
       {
-        "id": "practice.MemoryReportTest#usageIsMeasuredAgainstTheMaximum",
+        "id": "practice.AllocationReportTest#eachSampleIsChargedToTheMethodThatAllocated",
         "kind": "edge",
-        "says": "The percentage divides used by the maximum, not by the committed size."
+        "says": "allocations are charged to the application method closest to them, not to the method the thread started in"
       }
     ],
     "report": {
@@ -161,10 +136,11 @@
     },
     "origin": {
       "path": "43-jvm-internals/README_10.5.4.md",
-      "section": "Interview Q&A Section"
+      "section": "A JFR Allocation Sample Stands for All the Bytes Since the Previous One"
     },
     "concepts": [
-      "MemoryMXBean and MemoryPoolMXBean report used, committed and max for each area, and max is -1 when a pool has no limit."
+      "An allocation sample's top frame is usually the JDK's allocation helper; the application method responsible is the first of its frames further down the stack.",
+      "A jdk.ObjectAllocationSample's weight is what its thread allocated since its previous sample, so summing weights estimates allocated bytes, and counting samples does not."
     ]
   }
 }

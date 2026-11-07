@@ -18,205 +18,314 @@
       "text": "1.3.3 Pass by Value and Pass by Reference in Java"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "One sprint of the shop's checkout service brought four tickets. Coupons never lower the total. \"Empty cart\" leaves the cart full. The leaderboard helper reorders the admin's list of scores, and for the mobile API it throws `UnsupportedOperationException`. Every invoice in the nightly batch shows the last customer's lines. In each one, a method and its caller disagree about what the method can change."
     },
     {
       "type": "para",
-      "text": "In Java, understanding how arguments are passed to methods is crucial for writing efficient and bug-free code. Java uses a mechanism called \"pass by value\" for all its method arguments. However, this can be confusing when dealing with object references."
+      "text": "A variable of a reference type holds a reference, and assignment copies it (unit 1.1.2). Passing an argument is one more such copy."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Java Copies Every Argument, So Assigning to a Parameter Never Reaches the Caller's Variable"
+    },
+    {
+      "type": "para",
+      "text": "Predict the three lines:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void swap(List<String> a, List<String> b) {\n    List<String> t = a;\n    a = b;\n    b = t;\n}\n\nstatic void emptyByAssigning(List<String> cart) {\n    cart = new ArrayList<>();\n}\n\nstatic void emptyByClearing(List<String> cart) {\n    cart.clear();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "after swap:     mine=[tea] yours=[cake]\nafter assigning: cart=[tea, cake]\nafter clearing:  cart=[]"
+    },
+    {
+      "type": "para",
+      "text": "When a method is called, each parameter is a new local variable initialised with the argument's value (JLS §8.4.1). For a primitive that value is the value itself; for a reference type it is the reference, or `null`. `swap` exchanged its own two copies and returned. `emptyByAssigning` pointed its copy at a new list, which nothing referred to once it returned. `clear()` followed the copy to the one list both variables refer to."
+    },
+    {
+      "type": "para",
+      "text": "Pass by reference (C++ `&`, C# `ref`) makes the parameter another name for the caller's variable, so `swap` works there. Java has no such parameter, for objects either, which is why \"empty cart\" changed nothing without an error."
+    },
+    {
+      "type": "para",
+      "text": "Declaring the parameter `final` turns the assignment into a compile error (`final parameter cart may not be assigned`). It does nothing about `cart.clear()`, which still compiles."
     },
     {
       "type": "heading",
       "level": 3,
-      "text": "Key Points:"
+      "text": "Spot the Problem: a Default That Never Arrives"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "All arguments in Java are passed by value.",
-        "For primitives, the value itself is copied.",
-        "For objects, the reference is copied, but it still points to the same object.",
-        "Modifying object state within a method affects the original object.",
-        "Reassigning a reference within a method doesn't affect the original reference."
-      ]
+      "type": "para",
+      "text": "The import job gives every post an `imported` tag, and an untagged post `general` as well:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void addDefaults(List<String> tags) {\n    if (tags.isEmpty()) tags = new ArrayList<>(List.of(\"general\"));   // (1)\n    tags.add(\"imported\");                                             // (2)\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "tagged:   [java, imported]\nuntagged: []"
+    },
+    {
+      "type": "para",
+      "text": "Line (1) points `tags` at a new list, so line (2) adds to that list, and the caller's post keeps no tags at all. A method that changes the caller's object never assigns to the parameter that refers to it: `tags.add(\"general\")` instead. Reassigning a parameter is harmless when the method never meant to change the caller's object (`s = s.strip()`)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Pass by Value for Primitives"
+      "text": "An Immutable Argument Can't Be Changed, So a Method That Computes a New Value Returns It"
     },
     {
       "type": "para",
-      "text": "When you pass a primitive type to a method, Java creates a copy of the value and passes that copy to the method. Any changes made to the parameter inside the method do not affect the original value outside the method."
+      "text": "Two versions of the coupon code, and two other helpers written the same way:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void applyCoupon(BigDecimal total, BigDecimal off) {\n    total.subtract(off);                      // the result is thrown away\n}\n\nstatic void applyCouponAssigning(BigDecimal total, BigDecimal off) {\n    total = total.subtract(off);              // only the parameter changes\n}\n\nstatic void countVisit(Integer visits) {\n    visits++;\n}\n\nstatic void addSuffix(String sku) {\n    sku += \"-EU\";\n}"
+    },
+    {
+      "type": "para",
+      "text": "Called on `80.00` with `15.00` off, a count of `1000` and `\"TEA-1\"`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "total=80.00 visits=1000 sku=TEA-1"
+    },
+    {
+      "type": "para",
+      "text": "`BigDecimal`, `String` and the wrappers have no method that changes the object. `subtract` returns a new `BigDecimal`; `visits++` unboxes, adds and assigns the boxed result to the parameter; `+=` builds a new `String` into the parameter. The only \"change\" these methods can make is an assignment to the parameter, which the caller never sees. `javac -Xlint:all` compiles them without a warning. The shop charged full price until someone compared receipts."
+    },
+    {
+      "type": "para",
+      "text": "Return the new value, and let the caller assign it: `total = withCoupon(total, off)` printed `65.00`. A method with two results returns an object that holds both, such as a record, not an `int[]` or `AtomicInteger` out-argument the caller has to know to read."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Pass by Value for Objects"
+      "text": "A Method That Changes Its Argument Makes That Change Part of Its Contract"
     },
     {
       "type": "para",
-      "text": "When you pass an object to a method, Java creates a copy of the reference to the object and passes that copy to the method. This means:"
+      "text": "The leaderboard helper returns the three best scores:"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "The method receives a copy of the reference, not the original reference.",
-        "The method can use this reference to modify the object's state.",
-        "The method cannot change which object the original reference points to."
-      ]
+      "type": "code",
+      "lang": "java",
+      "text": "static List<Integer> top3(List<Integer> scores) {\n    scores.sort(Comparator.reverseOrder());\n    return new ArrayList<>(scores.subList(0, 3));\n}"
+    },
+    {
+      "type": "para",
+      "text": "The admin page passes its `ArrayList` of scores in the order they were entered; the mobile API passes `List.of(...)`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "top3: [95, 88, 70], caller's list now [95, 88, 70, 40, 12]\ntop3 of List.of: java.lang.UnsupportedOperationException"
+    },
+    {
+      "type": "para",
+      "text": "The admin got the right result and lost its entry order. The mobile call failed: every method of a `List.of` list that could change it throws, even when the call would change nothing (`sort` on one element, `removeIf` that matches nothing). Nothing in the signature says the argument is changed. The admin page's tests passed, and the failure came with the second caller."
+    },
+    {
+      "type": "para",
+      "text": "A method that only reads its input builds its result without touching it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static List<Integer> top3(List<Integer> scores) {\n    return scores.stream().sorted(Comparator.reverseOrder()).limit(3).toList();\n}"
+    },
+    {
+      "type": "para",
+      "text": "It returned `[95, 88, 70]` for both callers and left the admin's list as it was. Its result is unmodifiable now, which callers of the old version may not expect. When changing the argument is the point, as with `Collections.sort(list)`, the name and the documentation say so, and the caller decides what to pass."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Pass by Reference (Sort of)"
+      "level": 2,
+      "text": "A Method That Keeps Its Argument Keeps the Caller's Object"
     },
     {
       "type": "para",
-      "text": "For objects, Java passes the reference by value. This means that when you pass an object to a method, you're passing a copy of the reference to that object. The method receives its own copy of the reference, but both the original reference and the copy point to the same object in memory."
+      "text": "The nightly batch reuses one buffer list for each customer's lines, and the invoice stores what it is given:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.List;\n\nfinal class Invoice {\n    private final String customer;\n    private final List<String> lines;\n\n    Invoice(String customer, List<String> lines) {\n        this.customer = customer;\n        this.lines = lines;\n    }\n\n    @Override public String toString() { return customer + \" \" + lines; }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "for (int i = 0; i < names.size(); i++) {\n    buffer.clear();\n    buffer.addAll(orders.get(i));\n    invoices.add(new Invoice(names.get(i), buffer));\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "class:  [Ann [juice, bagel], Bo [juice, bagel], Cy [juice, bagel]]\nrecord: [Ann [juice, bagel], Bo [juice, bagel], Cy [juice, bagel]]\nview:   [Ann [juice, bagel], Bo [juice, bagel], Cy [juice, bagel]]"
     },
     {
       "type": "para",
-      "text": "This behavior can sometimes be mistaken for \"pass by reference,\" but it's important to understand the distinction:"
+      "text": "The constructor stored the caller's reference, so the three invoices and the buffer share one list. Each `clear()` rewrote every invoice built before it. `final` stops the field from being reassigned, not the list from changing. The second line is the same batch with `record InvoiceRecord(String customer, List<String> lines)`: a record's implicit constructor stores its components as given. The third wraps the argument in `Collections.unmodifiableList(lines)` before storing it, which is a read-only view of the caller's list, not a copy."
+    },
+    {
+      "type": "para",
+      "text": "An object that keeps an argument copies it on the way in:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.List;\n\nrecord CopiedInvoice(String customer, List<String> lines) {\n    CopiedInvoice {\n        lines = List.copyOf(lines);\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "copied: [Ann [tea, cake], Bo [coffee], Cy [juice, bagel]]"
+    },
+    {
+      "type": "para",
+      "text": "`List.copyOf` copies only the list, not the elements (unit 1.1.2), and throws `NullPointerException` if the list holds a `null`. Unit 2.2.2 covers the other direction, a getter that hands out its field."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "The method can use the reference to modify the object's state, and these changes will be visible outside the method.",
-        "However, if the method reassigns the reference to a new object, it doesn't affect the original reference outside the method."
+        "**Java copies every argument:** assigning to a parameter, primitive or reference, never changes the caller's variable, and code after that assignment works on the new object.",
+        "**An immutable argument can't be changed:** `subtract`, `++` and `+=` produce a new value instead of changing the object, so a method that computes a new value returns it.",
+        "**Changing an argument is part of a method's contract:** callers lose state they relied on, and callers that pass an unmodifiable list get an exception. A method that only reads leaves its input alone.",
+        "**Keeping an argument keeps the caller's object:** later changes by the caller show through a `final` field, a record component or an unmodifiable view; copy on the way in."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls"
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**What a method can do with its argument (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Argument",
+        "Assign to the parameter",
+        "Change the object through it"
+      ],
+      "rows": [
+        [
+          "primitive",
+          "changes the local copy only",
+          "n/a"
+        ],
+        [
+          "mutable object (`ArrayList`, `StringBuilder`, array)",
+          "changes the local copy only",
+          "the caller sees the change"
+        ],
+        [
+          "immutable object (`String`, `Integer`, `BigDecimal`)",
+          "changes the local copy only",
+          "impossible: no method changes it"
+        ],
+        [
+          "unmodifiable list (`List.of`, `List.copyOf`)",
+          "changes the local copy only",
+          "throws `UnsupportedOperationException`, even if nothing would change"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Keeping a list argument:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Stored as",
+        "Caller's later changes show",
+        "Holder can change it"
+      ],
+      "rows": [
+        [
+          "`lines`",
+          "yes",
+          "yes"
+        ],
+        [
+          "`Collections.unmodifiableList(lines)`",
+          "yes",
+          "no"
+        ],
+        [
+          "`new ArrayList<>(lines)`",
+          "no",
+          "yes"
+        ],
+        [
+          "`List.copyOf(lines)`",
+          "no",
+          "no; rejects `null` elements"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Mistaking pass by value of object references for pass by reference.",
-        "Attempting to reassign an object reference inside a method and expecting it to affect the original reference."
+        "Find a method in your codebase that takes a collection and returns `void`. Does it change its argument, and does anything but its body say so?",
+        "An API takes a 50 MB `byte[]` and must keep it. Copy it, or document that the caller must not change it after the call? What does each choice cost, and who pays?",
+        "A parser has to return the parsed value and the position where it stopped. Compare a record, an `int[]` position argument and a mutable parser object that remembers its position."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Understand that Java always passes by value, even for object references.",
-        "Be cautious when modifying objects passed to methods, as these changes will affect the original object.",
-        "Use return values to communicate changes to primitive types."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Insights"
+      "text": "Design Note: Why Java Has No Pass by Reference"
     },
     {
       "type": "para",
-      "text": "Interviewers often test understanding of this concept by asking candidates to predict the output of code snippets involving method calls with primitives and objects."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Tests"
+      "text": "Because every parameter is a copy, a reader of a call site knows that `process(order)` leaves the variable `order` pointing where it pointed, whatever `process` does, without opening `process`. In C++, where a `&` parameter looks the same at the call site, the reader has to open it."
     },
     {
       "type": "para",
-      "text": "The module's own code and tests are linked under \"Code Examples\" at the end of this page. A minimal, self-contained version of the same idea:"
-    },
-    {
-      "type": "para",
-      "text": "PassByValueExample.java:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class PassByValueExample {\n\n    public static void modifyPrimitive(int x) {\n        x = 10;\n        System.out.println(\"Inside method: x = \" + x);\n    }\n\n    public static void modifyObject(StringBuilder sb) {\n        sb.append(\" World\");\n        System.out.println(\"Inside method: sb = \" + sb);\n    }\n\n    public static void reassignObject(StringBuilder sb) {\n        sb = new StringBuilder(\"New Object\");\n        System.out.println(\"Inside reassign method: sb = \" + sb);\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "PassByValueExampleTest.java:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import org.junit.jupiter.api.Test;\nimport static org.assertj.core.api.Assertions.*;\n\nclass PassByValueExampleTest {\n\n    @Test\n    void testModifyPrimitive() {\n        int x = 5;\n        PassByValueExample.modifyPrimitive(x);\n        assertThat(x).isEqualTo(5);\n    }\n\n    @Test\n    void testModifyObject() {\n        StringBuilder sb = new StringBuilder(\"Hello\");\n        PassByValueExample.modifyObject(sb);\n        assertThat(sb.toString()).isEqualTo(\"Hello World\");\n    }\n\n    @Test\n    void testReassignObject() {\n        StringBuilder sb = new StringBuilder(\"Original\");\n        PassByValueExample.reassignObject(sb);\n        assertThat(sb.toString()).isEqualTo(\"Original\");\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "Now, let's go through the Q&A section to reinforce these concepts:"
-    },
-    {
-      "type": "para",
-      "text": "Q1: What is the difference between pass by value and pass by reference?"
-    },
-    {
-      "type": "para",
-      "text": "A1:"
-    },
-    {
-      "type": "code",
-      "lang": "",
-      "text": "Pass by value means that a copy of the value is passed to the method. Changes to the parameter inside the method do not affect the original value.\n\nPass by reference means that a reference to the actual variable is passed to the method. Changes to the parameter inside the method affect the original variable.\n\nJava always uses pass by value, but for objects, it passes the value of the reference to the object, which can lead to confusion."
-    },
-    {
-      "type": "para",
-      "text": "Q2: In Java, is it possible to swap two integer values using a method? Why or why not?"
-    },
-    {
-      "type": "para",
-      "text": "A2:"
-    },
-    {
-      "type": "code",
-      "lang": "",
-      "text": "No, it's not possible to swap two integer values using a method in Java without returning a new value or using a wrapper class. This is because Java uses pass by value for primitives. When you pass integers to a method, copies of their values are passed, not references to the original variables. Any changes made to these copies inside the method do not affect the original variables.\n\nHere's an example to illustrate this:\n\npublic static void swap(int a, int b) {\n    int temp = a;\n    a = b;\n    b = temp;\n}\n\nint x = 5;\nint y = 10;\nswap(x, y);\n// x is still 5, y is still 10\n\nTo achieve a swap, you would need to return new values or use a wrapper class or array."
-    },
-    {
-      "type": "para",
-      "text": "Q3: How does pass by value work with object references in Java?"
-    },
-    {
-      "type": "para",
-      "text": "A3:"
-    },
-    {
-      "type": "code",
-      "lang": "",
-      "text": "In Java, when you pass an object to a method, you're actually passing the value of the reference to that object. This means:\n\n1. The method receives a copy of the reference, not the original reference itself.\n2. The method can use this reference to access and modify the object's state.\n3. The method cannot change which object the original reference points to.\n\nFor example:\n\npublic static void modifyObject(StringBuilder sb) {\n    sb.append(\" World\"); // This modifies the original object\n    sb = new StringBuilder(\"New\"); // This only affects the local copy of the reference\n}\n\nStringBuilder str = new StringBuilder(\"Hello\");\nmodifyObject(str);\n// str now contains \"Hello World\", not \"New\"\n\nThe method can modify the object's state (appending \" World\"), but reassigning the reference (sb = new StringBuilder(\"New\")) only affects the local copy, not the original reference."
-    },
-    {
-      "type": "para",
-      "text": "Q4: What will be the output of the following code?"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class Test {\n    public static void main(String[] args) {\n        int[] arr = {1, 2, 3};\n        changeArray(arr);\n        System.out.println(arr[0]);\n    }\n\n    public static void changeArray(int[] a) {\n        a[0] = 10;\n        a = new int[]{4, 5, 6};\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "A4:"
-    },
-    {
-      "type": "code",
-      "lang": "",
-      "text": "The output will be 10.\n\nHere's why:\n1. The array {1, 2, 3} is created and its reference is stored in arr.\n2. This reference is passed by value to the changeArray method.\n3. a[0] = 10 modifies the original array, changing its first element to 10.\n4. a = new int[]{4, 5, 6} creates a new array and assigns it to the local variable a. This doesn't affect the original arr in main.\n5. When we print arr[0], we see the modified value 10.\n\nThis example demonstrates that while we can modify the contents of the array (because we have a copy of the reference to the same array), we cannot change what the original reference points to."
-    },
-    {
-      "type": "para",
-      "text": "These examples and explanations should provide a comprehensive understanding of pass by value in Java, both for primitives and object references. Remember, the key is to understand that Java always passes by value, but the value being passed for objects is a copy of the reference to the object."
+      "text": "A method with several results needs an object to return them, which records made cheap to write. A signature never says whether the method changes the object it is given or keeps it, so that part of the contract lives in names, documentation and immutable types."
     },
     {
       "type": "heading",
@@ -269,16 +378,16 @@
   "attachments": [],
   "counts": {
     "headings": 11,
-    "paras": 22,
-    "code": 7,
-    "tables": 0,
-    "lists": 8,
+    "paras": 28,
+    "code": 14,
+    "tables": 2,
+    "lists": 5,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "cb9a41507c59c87cc52a274ec13a59a18eb9ceac9c08c6e3423f427be1e06cab"
+  "content_sha256": "1f0c290f42cbe9470eb0211ef6d4c4087d5631b2b99e2b5bd582bd2e34a1b3d7"
 }

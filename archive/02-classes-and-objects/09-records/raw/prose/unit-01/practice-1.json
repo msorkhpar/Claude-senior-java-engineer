@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Validate a person in its compact constructor",
+  "title": "Make the gateway drop a resent batch",
   "blocks": [
     {
       "type": "heading",
@@ -19,39 +19,24 @@
     },
     {
       "type": "para",
-      "text": "A record's **compact constructor** runs before the component fields are assigned, so it is the one place to validate a record's input: every `new` of the record goes through it."
+      "text": "A sensor gateway stores temperature batches and keeps a `HashSet<Batch>` of what it has stored, so that a batch a sensor sends twice (it resends whenever an acknowledgement is lost) is stored once. In production the set never recognises a resent batch, and the gateway's storage has doubled. A second report says that some stored batches later show samples from a different read."
     },
     {
       "type": "para",
-      "text": "Complete the compact constructor of"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Person(String name, int age)"
-    },
-    {
-      "type": "para",
-      "text": "so that a `Person` can only be created with valid data:"
+      "text": "`Batch` is a record with a `String device` and an `int[] samples` component. Finish the four `TODO`s in `src/main/java/practice/Batch.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "a `name` that is `null` or empty (`\"\"`) is refused with an `IllegalArgumentException` whose message is `Name cannot be null or empty`;",
-        "a negative `age` is refused with an `IllegalArgumentException` whose message is `Age cannot be negative`;",
-        "everything else is accepted unchanged. Leave the generated accessors, `equals`, `hashCode` and `toString` alone."
+        "`equals` and `hashCode`: a resent batch is the same device with the same samples in the same order;",
+        "`keep(...)`: what the batch stores, given the array the sensor driver passes in (the driver reads every batch into one buffer and reuses it);",
+        "`samples()`: what a reader of a stored batch gets back."
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new Person(\"Alice\", 30)          -> name() = \"Alice\", age() = 30, prints Person[name=Alice, age=30]\nnew Person(null, 20)             -> IllegalArgumentException: Name cannot be null or empty\nnew Person(\"\", 20)               -> IllegalArgumentException: Name cannot be null or empty\nnew Person(\"Eve\", -1)            -> IllegalArgumentException: Age cannot be negative\nnew Person(\"Baby\", 0)            -> a valid person"
+      "type": "para",
+      "text": "When you're done, the gateway's set drops every resent batch, and no code outside `Batch` can change a batch once it is built. About eight lines in total."
     },
     {
       "type": "heading",
@@ -66,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic record Person(String name, int age) {\n\n    /** Refuse a null or empty name and a negative age, with IllegalArgumentException. */\n    public Person {\n        if (name == null || name.isEmpty()) {\n            throw new IllegalArgumentException(\"Name cannot be null or empty\");\n        }\n        if (age < 0) {\n            throw new IllegalArgumentException(\"Age cannot be negative\");\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Arrays;\n\n/**\n * One batch of temperature samples, as a sensor sends it to the gateway. The gateway keeps the\n * batches it has stored in a HashSet and drops a batch it has already seen: sensors resend a\n * batch whenever an acknowledgement is lost.\n */\npublic record Batch(String device, int[] samples) {\n\n    public Batch {\n        samples = keep(samples);\n    }\n\n    /** What the batch stores, given the array the sensor's driver passed in. */\n    static int[] keep(int[] samples) {\n        return samples.clone();\n    }\n\n    @Override\n    public int[] samples() {\n        return samples.clone();\n    }\n\n    @Override\n    public boolean equals(Object o) {\n        return o instanceof Batch other\n                && device.equals(other.device)\n                && Arrays.equals(samples, other.samples);\n    }\n\n    @Override\n    public int hashCode() {\n        return 31 * device.hashCode() + Arrays.hashCode(samples);\n    }\n\n    @Override\n    public String toString() {\n        return \"Batch[device=\" + device + \", samples=\" + Arrays.toString(samples) + \"]\";\n    }\n}\n"
         }
       ]
     },
@@ -78,16 +63,16 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic record Person(String name, int age) {\n\n    /** Refuse a null or empty name and a negative age, with IllegalArgumentException. */\n    public Person {\n        throw new UnsupportedOperationException(\"write the compact constructor\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Arrays;\n\n/**\n * One batch of temperature samples, as a sensor sends it to the gateway. The gateway keeps the\n * batches it has stored in a HashSet and drops a batch it has already seen: sensors resend a\n * batch whenever an acknowledgement is lost.\n */\npublic record Batch(String device, int[] samples) {\n\n    public Batch {\n        samples = keep(samples);\n    }\n\n    /** What the batch stores, given the array the sensor's driver passed in. */\n    static int[] keep(int[] samples) {\n        // TODO: The driver reads every batch into the same buffer and passes that buffer in.\n        //       Decide what this batch stores so that the next read can't change it.\n        throw new IllegalStateException(\"TODO: keep\");\n    }\n\n    @Override\n    public int[] samples() {\n        // TODO: Whoever reads the samples of a stored batch must not be able to change the batch.\n        throw new IllegalStateException(\"TODO: samples\");\n    }\n\n    @Override\n    public boolean equals(Object o) {\n        // TODO: A resent batch is the same device with the same samples, in the same order.\n        throw new IllegalStateException(\"TODO: equals\");\n    }\n\n    @Override\n    public int hashCode() {\n        // TODO: Must agree with equals, so the gateway's HashSet finds a resent batch.\n        throw new IllegalStateException(\"TODO: hashCode\");\n    }\n\n    @Override\n    public String toString() {\n        return \"Batch[device=\" + device + \", samples=\" + Arrays.toString(samples) + \"]\";\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
+    "headings": 3,
     "paras": 3,
-    "code": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -97,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f8cb5f232fdecd8e0873ee1b74c47349cb974f20c459af27c799024409056212",
-  "starting_code": "package practice;\n\npublic record Person(String name, int age) {\n\n    /** Refuse a null or empty name and a negative age, with IllegalArgumentException. */\n    public Person {\n        throw new UnsupportedOperationException(\"write the compact constructor\");\n    }\n}\n",
+  "content_sha256": "9aeedbe7f71c6b448d65a28fee0e879d700b44e8d8ddeb869b34a3b911b285e5",
+  "starting_code": "package practice;\n\nimport java.util.Arrays;\n\n/**\n * One batch of temperature samples, as a sensor sends it to the gateway. The gateway keeps the\n * batches it has stored in a HashSet and drops a batch it has already seen: sensors resend a\n * batch whenever an acknowledgement is lost.\n */\npublic record Batch(String device, int[] samples) {\n\n    public Batch {\n        samples = keep(samples);\n    }\n\n    /** What the batch stores, given the array the sensor's driver passed in. */\n    static int[] keep(int[] samples) {\n        // TODO: The driver reads every batch into the same buffer and passes that buffer in.\n        //       Decide what this batch stores so that the next read can't change it.\n        throw new IllegalStateException(\"TODO: keep\");\n    }\n\n    @Override\n    public int[] samples() {\n        // TODO: Whoever reads the samples of a stored batch must not be able to change the batch.\n        throw new IllegalStateException(\"TODO: samples\");\n    }\n\n    @Override\n    public boolean equals(Object o) {\n        // TODO: A resent batch is the same device with the same samples, in the same order.\n        throw new IllegalStateException(\"TODO: equals\");\n    }\n\n    @Override\n    public int hashCode() {\n        // TODO: Must agree with equals, so the gateway's HashSet finds a resent batch.\n        throw new IllegalStateException(\"TODO: hashCode\");\n    }\n\n    @Override\n    public String toString() {\n        return \"Batch[device=\" + device + \", samples=\" + Arrays.toString(samples) + \"]\";\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-01/practice-1/src/main/java/practice/Person.java",
-    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-01/practice-1/src/test/java/practice/PersonTest.java",
+    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-01/practice-1/src/main/java/practice/Batch.java",
+    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-01/practice-1/src/test/java/practice/BatchTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -122,29 +107,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PersonTest#aValidPersonKeepsItsComponents",
+        "id": "practice.BatchTest#batchesFromTheSameDeviceWithTheSameSamplesAreEqual",
         "kind": "main",
-        "says": "A valid person keeps its name and age, and prints as Person[name=Alice, age=30]."
+        "says": "two batches from the same device with the same samples in the same order are equal; another device, order or length is not"
       },
       {
-        "id": "practice.PersonTest#aNullNameIsRefused",
+        "id": "practice.BatchTest#theGatewaysSetDropsAResentBatch",
         "kind": "edge",
-        "says": "A null name is refused with IllegalArgumentException, not a NullPointerException."
+        "says": "a HashSet that holds a batch refuses a resent copy of it and reports that it contains it"
       },
       {
-        "id": "practice.PersonTest#anEmptyNameIsRefused",
+        "id": "practice.BatchTest#equalBatchesHaveEqualHashCodes",
         "kind": "edge",
-        "says": "An empty name is refused with IllegalArgumentException."
+        "says": "two equal batches built from different arrays have the same hash code"
       },
       {
-        "id": "practice.PersonTest#aNegativeAgeIsRefused",
+        "id": "practice.BatchTest#aBatchKeepsItsSamplesWhenTheDriverReusesItsBuffer",
         "kind": "edge",
-        "says": "A negative age is refused with IllegalArgumentException."
+        "says": "changing the array a batch was built from afterwards doesn't change the batch"
       },
       {
-        "id": "practice.PersonTest#ageZeroIsAllowed",
+        "id": "practice.BatchTest#changingTheSamplesReadFromABatchLeavesTheBatchAsItWas",
         "kind": "edge",
-        "says": "An age of zero is a valid age."
+        "says": "changing the array returned by samples() doesn't change the batch or lose it in a set"
       }
     ],
     "report": {
@@ -153,11 +138,11 @@
     },
     "origin": {
       "path": "09-records/README_2.4.1.md",
-      "section": "Interview Q&A"
+      "section": "A Record's equals Compares Each Component with Its Own equals, So an Array Compares by Identity"
     },
     "concepts": [
-      "A compact constructor validates the components, and every construction of the record goes through it.",
-      "A record declaration generates a canonical constructor, accessors, equals, hashCode and a Person[name=Alice, age=30] toString."
+      "An array component is mutable, so a record that must not change copies it on the way in and on the way out.",
+      "A record's generated equals and hashCode use each component's own equals and hashCode, so an array component compares by identity and two records holding equal arrays are not equal."
     ]
   }
 }

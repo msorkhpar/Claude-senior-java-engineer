@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A counter that will not wait forever",
+  "title": "Keep one bad partner file from stopping the points ledger",
   "blocks": [
     {
       "type": "heading",
@@ -19,65 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's `TimedCounter` shows what `synchronized` cannot do: `tryLock()` gives up at once when the lock is taken, `tryLock(time, unit)` gives up after a timeout, and the diagnostics `hasQueuedThreads()` and `getQueueLength()` tell you whether anyone is waiting. The page's pitfall: `tryLock()` returns a `boolean`, and a caller that ignores it enters the critical section without the lock."
-    },
-    {
-      "type": "para",
-      "text": "Write `TimedCounter`, a counter guarded by the `ReentrantLock` it is given:"
+      "text": "The loyalty service imports partner files into its points ledger on a few worker threads, one file at a time. Two incidents last month:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`boolean tryIncrement()` adds one only if it gets the lock **without waiting**; it returns whether it counted.",
-        "`boolean increment(long timeout, TimeUnit unit)` waits **at most** `timeout` (in the given `unit`) for the lock; it returns whether it counted. An interrupt while it waits ends it with `InterruptedException`.",
-        "`long count()` returns the count.",
-        "`boolean isContended()` is `true` when at least one thread is **waiting** for the lock (not merely when the lock is held)."
+        "A café partner sent a file that would have taken a member below zero. The file was rejected, as it should be, and from then on no other file was imported until someone restarted the service.",
+        "During a deploy, the service waited out its whole shutdown timeout: two workers were waiting for the ledger behind a long airline import, and the interrupts the deploy sent them changed nothing."
       ]
     },
     {
       "type": "para",
-      "text": "The lock is reentrant: a thread that already holds it gets it again at once. Every path that takes the lock should release it, and reading the count under the lock too keeps the read consistent with the writes."
+      "text": "Write `importFile` in `src/main/java/practice/PointsLedger.java`. It applies the file with the `applyAll` method that is already there, holding the ledger's lock. A rejected file must leave the ledger ready for the next one, and its `IllegalArgumentException` must still reach the caller. A worker that is interrupted while it waits for the ledger must stop waiting, import nothing, and end with `InterruptedException`. About five lines."
     },
     {
-      "type": "table",
-      "headers": [
-        "situation",
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "lock free",
-          "`tryIncrement()`, `increment(1, SECONDS)`, `count()`",
-          "`true`, `true`, `2`"
-        ],
-        [
-          "another thread holds the lock",
-          "`tryIncrement()`",
-          "`false` at once; nothing counted"
-        ],
-        [
-          "another thread holds the lock",
-          "`increment(100_000, MICROSECONDS)`",
-          "`false` after about 100 ms"
-        ],
-        [
-          "another thread holds it, then releases it",
-          "`increment(5, SECONDS)`",
-          "`true`"
-        ],
-        [
-          "another thread holds it, nobody waits",
-          "`isContended()`",
-          "`false`"
-        ],
-        [
-          "another thread holds it, a third waits",
-          "`isContended()`",
-          "`true`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests run the workers on threads of their own and hold the ledger's lock themselves to keep a worker waiting."
     },
     {
       "type": "heading",
@@ -92,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A counter guarded by the lock it is given. */\npublic final class TimedCounter {\n\n    private final ReentrantLock lock;\n    private long count;\n\n    public TimedCounter(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Adds one only if the lock is free right now; returns whether it counted. */\n    public boolean tryIncrement() {\n        if (!lock.tryLock()) {\n            return false;\n        }\n        try {\n            count++;\n            return true;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Waits at most {@code timeout} for the lock; returns whether it counted. */\n    public boolean increment(long timeout, TimeUnit unit) throws InterruptedException {\n        if (!lock.tryLock(timeout, unit)) {\n            return false;\n        }\n        try {\n            count++;\n            return true;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** The count, read under the lock. */\n    public long count() {\n        lock.lock();\n        try {\n            return count;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Whether at least one thread is waiting for the lock. */\n    public boolean isContended() {\n        return lock.hasQueuedThreads();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * Loyalty points per member. Partner files are imported on worker threads, one file at a time\n * under the ledger lock; a deploy stops the workers by interrupting them.\n */\npublic class PointsLedger {\n\n    /** One line of a partner file: points to add (or, if negative, to take) for a member. */\n    public record Entry(String member, int points) {}\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, Integer> balances = new HashMap<>();\n\n    /**\n     * Applies a whole file under the ledger lock. Throws IllegalArgumentException, and changes\n     * nothing, when the file would take a member below zero.\n     */\n    public void importFile(List<Entry> file) throws InterruptedException {\n        lock.lockInterruptibly();\n        try {\n            applyAll(file);\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Checks the whole file, then applies it. Call it only while holding the lock. */\n    void applyAll(List<Entry> file) {\n        Map<String, Integer> after = new HashMap<>(balances);\n        for (Entry e : file) {\n            int balance = after.getOrDefault(e.member(), 0) + e.points();\n            if (balance < 0) {\n                throw new IllegalArgumentException(e.member() + \" would end at \" + balance + \" points\");\n            }\n            after.put(e.member(), balance);\n        }\n        balances.putAll(after);\n    }\n\n    public int balance(String member) {\n        lock.lock();\n        try {\n            return balances.getOrDefault(member, 0);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -104,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A counter guarded by the lock it is given. */\npublic final class TimedCounter {\n\n    private final ReentrantLock lock;\n    private long count;\n\n    public TimedCounter(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Adds one only if the lock is free right now; returns whether it counted. */\n    public boolean tryIncrement() {\n        throw new UnsupportedOperationException(\"write tryIncrement\");\n    }\n\n    /** Waits at most {@code timeout} for the lock; returns whether it counted. */\n    public boolean increment(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write increment\");\n    }\n\n    /** The count, read under the lock. */\n    public long count() {\n        throw new UnsupportedOperationException(\"write count\");\n    }\n\n    /** Whether at least one thread is waiting for the lock. */\n    public boolean isContended() {\n        throw new UnsupportedOperationException(\"write isContended\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * Loyalty points per member. Partner files are imported on worker threads, one file at a time\n * under the ledger lock; a deploy stops the workers by interrupting them.\n */\npublic class PointsLedger {\n\n    /** One line of a partner file: points to add (or, if negative, to take) for a member. */\n    public record Entry(String member, int points) {}\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, Integer> balances = new HashMap<>();\n\n    /**\n     * Applies a whole file under the ledger lock. Throws IllegalArgumentException, and changes\n     * nothing, when the file would take a member below zero.\n     */\n    public void importFile(List<Entry> file) throws InterruptedException {\n        // TODO: Apply the file with applyAll(file) while holding the ledger lock. A file that is\n        //       rejected must not stop the imports after it, and a worker that is still waiting\n        //       for the ledger when a deploy interrupts it must leave with InterruptedException.\n        throw new IllegalStateException(\"TODO: importFile\");\n    }\n\n    /** Checks the whole file, then applies it. Call it only while holding the lock. */\n    void applyAll(List<Entry> file) {\n        Map<String, Integer> after = new HashMap<>(balances);\n        for (Entry e : file) {\n            int balance = after.getOrDefault(e.member(), 0) + e.points();\n            if (balance < 0) {\n                throw new IllegalArgumentException(e.member() + \" would end at \" + balance + \" points\");\n            }\n            after.put(e.member(), balance);\n        }\n        balances.putAll(after);\n    }\n\n    public int balance(String member) {\n        lock.lock();\n        try {\n            return balances.getOrDefault(member, 0);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -114,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -123,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d9a656b3f6fb74be6ad7d7e9bf1657e424cf42723e83f6ee3d97823c9878bd48",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A counter guarded by the lock it is given. */\npublic final class TimedCounter {\n\n    private final ReentrantLock lock;\n    private long count;\n\n    public TimedCounter(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Adds one only if the lock is free right now; returns whether it counted. */\n    public boolean tryIncrement() {\n        throw new UnsupportedOperationException(\"write tryIncrement\");\n    }\n\n    /** Waits at most {@code timeout} for the lock; returns whether it counted. */\n    public boolean increment(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write increment\");\n    }\n\n    /** The count, read under the lock. */\n    public long count() {\n        throw new UnsupportedOperationException(\"write count\");\n    }\n\n    /** Whether at least one thread is waiting for the lock. */\n    public boolean isContended() {\n        throw new UnsupportedOperationException(\"write isContended\");\n    }\n}\n",
+  "content_sha256": "b81f31fa3601891f360f9a02d336dc6d5b9334909d7037eb0edb615bbc732717",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * Loyalty points per member. Partner files are imported on worker threads, one file at a time\n * under the ledger lock; a deploy stops the workers by interrupting them.\n */\npublic class PointsLedger {\n\n    /** One line of a partner file: points to add (or, if negative, to take) for a member. */\n    public record Entry(String member, int points) {}\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, Integer> balances = new HashMap<>();\n\n    /**\n     * Applies a whole file under the ledger lock. Throws IllegalArgumentException, and changes\n     * nothing, when the file would take a member below zero.\n     */\n    public void importFile(List<Entry> file) throws InterruptedException {\n        // TODO: Apply the file with applyAll(file) while holding the ledger lock. A file that is\n        //       rejected must not stop the imports after it, and a worker that is still waiting\n        //       for the ledger when a deploy interrupts it must leave with InterruptedException.\n        throw new IllegalStateException(\"TODO: importFile\");\n    }\n\n    /** Checks the whole file, then applies it. Call it only while holding the lock. */\n    void applyAll(List<Entry> file) {\n        Map<String, Integer> after = new HashMap<>(balances);\n        for (Entry e : file) {\n            int balance = after.getOrDefault(e.member(), 0) + e.points();\n            if (balance < 0) {\n                throw new IllegalArgumentException(e.member() + \" would end at \" + balance + \" points\");\n            }\n            after.put(e.member(), balance);\n        }\n        balances.putAll(after);\n    }\n\n    public int balance(String member) {\n        lock.lock();\n        try {\n            return balances.getOrDefault(member, 0);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/src/main/java/practice/TimedCounter.java",
-    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/src/test/java/practice/TimedCounterTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/src/main/java/practice/PointsLedger.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/src/test/java/practice/PointsLedgerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -148,44 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TimedCounterTest#incrementsWhenFree",
+        "id": "practice.PointsLedgerTest#filesImportedFromTwoWorkersBothLand",
         "kind": "main",
-        "says": "With the lock free, both increments succeed, the count is 2 and the lock is released again."
+        "says": "two files imported from two worker threads both reach the balances"
       },
       {
-        "id": "practice.TimedCounterTest#tryIncrementRefusesWhileHeld",
+        "id": "practice.PointsLedgerTest#aRejectedFileDoesNotHoldUpTheImportsAfterIt",
         "kind": "edge",
-        "says": "While another thread holds the lock, tryIncrement returns false at once and does not count."
+        "says": "after a file is rejected, another worker can still import the next file"
       },
       {
-        "id": "practice.TimedCounterTest#timedIncrementGivesUp",
+        "id": "practice.PointsLedgerTest#aWorkerWaitingForTheLedgerStopsWhenTheDeployInterruptsIt",
         "kind": "edge",
-        "says": "While another thread holds the lock, a timed increment gives up after its timeout and returns false."
+        "says": "a worker that waits for the ledger stops waiting when it is interrupted, and imports nothing"
       },
       {
-        "id": "practice.TimedCounterTest#timedIncrementWaitsForRelease",
+        "id": "practice.PointsLedgerTest#theInterruptedWorkerReportsThatItWasInterrupted",
         "kind": "edge",
-        "says": "A timed increment waits for the lock and succeeds when the holder releases it within the timeout."
-      },
-      {
-        "id": "practice.TimedCounterTest#contendedMeansSomeoneWaits",
-        "kind": "edge",
-        "says": "A lock that is held with no thread waiting for it is not contended; it is once a thread waits."
-      },
-      {
-        "id": "practice.TimedCounterTest#theHolderCountsWithoutWaiting",
-        "kind": "edge",
-        "says": "A thread that already holds the reentrant lock gets it again at once, so its tryIncrement counts."
-      },
-      {
-        "id": "practice.TimedCounterTest#anInterruptedWaitThrows",
-        "kind": "edge",
-        "says": "A caller interrupted while waiting in increment gets InterruptedException, and nothing is counted."
-      },
-      {
-        "id": "practice.TimedCounterTest#theTimeoutIsKeptExactly",
-        "kind": "edge",
-        "says": "Timeouts of 250,000 microseconds and 1,600 ms are waited in full: the unit is honoured, nothing rounded to seconds."
+        "says": "a worker interrupted while waiting for the ledger ends with InterruptedException, not with another exception"
       }
     ],
     "report": {
@@ -194,13 +132,12 @@
     },
     "origin": {
       "path": "22-locks-semaphores/README_6.3.1.md",
-      "section": "Interview Q&A Section"
+      "section": "lock() Waits Until It Gets the Lock; tryLock and lockInterruptibly Can Give Up"
     },
     "concepts": [
-      "The boolean from tryLock() must be checked; entering the critical section without it runs unguarded and ends in IllegalMonitorStateException.",
-      "hasQueuedThreads() and getQueueLength() report threads waiting for the lock, which isLocked() does not.",
-      "tryLock(time, unit) waits at most the timeout, succeeds if the lock is released in time and gives up with false otherwise.",
-      "tryLock() takes the lock only if it is free right now and returns whether it did, never waiting."
+      "lockInterruptibly() and tryLock go before the try, so that a failed attempt never runs unlock(): inside it, IllegalMonitorStateException replaces InterruptedException, or an outer hold is silently lost.",
+      "lock() keeps waiting through an interrupt, while lockInterruptibly() answers it with InterruptedException and doesn't take the lock.",
+      "Nothing releases a ReentrantLock but unlock(): an exception, the end of a task or of the thread leaves it held, so the unlock goes in a finally after a lock() taken before the try."
     ]
   }
 }

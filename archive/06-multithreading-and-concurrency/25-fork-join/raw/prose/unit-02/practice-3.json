@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A result within a deadline",
+  "title": "Keep the render pool working while tasks wait for a licence seat",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's `submit(task)` gives back a `ForkJoinTask`, which is a `Future`, so you can wait for it **with a bound**: `get(timeout, unit)`. The module's own `ForkJoinPoolBasics.sumWithTimeout` does exactly this. `get` reports a task's failure wrapped in an `ExecutionException`, and on a timeout it throws `TimeoutException`. The page's edge cases also ask you to handle thread **interruption** properly."
+      "text": "The video service renders previews with a library that has a floating licence of a few seats. Every render task takes a seat before it calls the library, and the task that finishes a render gives the seat back. Both kinds of task run on the same render `ForkJoinPool`. On a quiet day it works. On a busy day the pool freezes: every seat is taken, more renders are waiting for one, and the finishing tasks that would give seats back are queued behind them, never started."
     },
     {
       "type": "para",
-      "text": "Write `Deadline.within(task, parallelism, timeoutMillis)`:"
+      "text": "`LicenceSeats` keeps the seats in a `Semaphore`. Finish the `TODO` in `src/main/java/practice/LicenceSeats.java`: `take()` takes one seat, waiting if none is free."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "run `task` in a **new** pool of the given parallelism and wait at most `timeoutMillis` for it;",
-        "in time: return `Optional.of(result)`;",
-        "too late: cancel the task and return `Optional.empty()`;",
-        "the task failed: throw `IllegalStateException` whose cause is the task's exception;",
-        "the caller is interrupted while it waits: return `Optional.empty()` with the caller's interrupt flag set again;",
-        "always finish with `shutdownNow()`, which also **interrupts** a worker that is still running a task (a cancelled `ForkJoinTask` is not interrupted by `cancel(true)`)."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "task",
-        "timeout",
-        "answer"
-      ],
-      "rows": [
-        [
-          "returns `42`",
-          "5000 ms",
-          "`Optional[42]`"
-        ],
-        [
-          "waits on a latch that is never opened",
-          "200 ms",
-          "`Optional.empty`, and the waiting task gets an `InterruptedException`"
-        ],
-        [
-          "throws `IllegalArgumentException(\"bad input\")`",
-          "5000 ms",
-          "`IllegalStateException`, whose root cause says `\"bad input\"`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a render task waiting for a seat no longer stops the rest of the pool's work, and a task that takes a seat really holds one, so the count of free seats stays right. About twelve lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\npublic final class Deadline {\n\n    private Deadline() {\n    }\n\n    /** Runs the task in a new pool and waits at most timeoutMillis for its result. */\n    public static <T> Optional<T> within(ForkJoinTask<T> task, int parallelism, long timeoutMillis) {\n        ForkJoinPool pool = new ForkJoinPool(parallelism);\n        try {\n            ForkJoinTask<T> running = pool.submit(task);\n            try {\n                return Optional.ofNullable(running.get(timeoutMillis, TimeUnit.MILLISECONDS));\n            } catch (TimeoutException e) {\n                running.cancel(true);\n                return Optional.empty();\n            } catch (ExecutionException e) {\n                throw new IllegalStateException(\"the task failed\", e.getCause());\n            }\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            return Optional.empty();\n        } finally {\n            pool.shutdownNow();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.Semaphore;\n\n/**\n * The seats of a rendering library's floating licence. A render task takes a seat before it\n * calls the library and gives it back afterwards. Render tasks run on the render ForkJoinPool,\n * and so do the tasks that finish a render and give its seat back.\n */\npublic class LicenceSeats {\n\n    private final Semaphore seats;\n\n    public LicenceSeats(int count) {\n        this.seats = new Semaphore(count);\n    }\n\n    /** Takes one seat, waiting until one is free. */\n    public void take() throws InterruptedException {\n        ForkJoinPool.managedBlock(new ForkJoinPool.ManagedBlocker() {\n            private boolean taken;\n\n            @Override\n            public boolean block() throws InterruptedException {\n                if (!taken) {\n                    seats.acquire();\n                    taken = true;\n                }\n                return true;\n            }\n\n            @Override\n            public boolean isReleasable() {\n                return taken || (taken = seats.tryAcquire());\n            }\n        });\n    }\n\n    /** Gives one seat back. */\n    public void giveBack() {\n        seats.release();\n    }\n\n    /** How many seats are free right now. */\n    public int free() {\n        return seats.availablePermits();\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.concurrent.ForkJoinTask;\n\npublic final class Deadline {\n\n    private Deadline() {\n    }\n\n    /** Runs the task in a new pool and waits at most timeoutMillis for its result. */\n    public static <T> Optional<T> within(ForkJoinTask<T> task, int parallelism, long timeoutMillis) {\n        throw new UnsupportedOperationException(\"write within\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.Semaphore;\n\n/**\n * The seats of a rendering library's floating licence. A render task takes a seat before it\n * calls the library and gives it back afterwards. Render tasks run on the render ForkJoinPool,\n * and so do the tasks that finish a render and give its seat back.\n */\npublic class LicenceSeats {\n\n    private final Semaphore seats;\n\n    public LicenceSeats(int count) {\n        this.seats = new Semaphore(count);\n    }\n\n    /** Takes one seat, waiting until one is free. */\n    public void take() throws InterruptedException {\n        // TODO: When every seat is taken, the render pool freezes: the tasks waiting for a seat\n        //       hold all of its threads, and the tasks that would give seats back never start.\n        //       Take exactly one seat, and wait in a way that lets the pool keep working.\n        throw new IllegalStateException(\"TODO: take\");\n    }\n\n    /** Gives one seat back. */\n    public void giveBack() {\n        seats.release();\n    }\n\n    /** How many seats are free right now. */\n    public int free() {\n        return seats.availablePermits();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "599dcb674a211c73bb05b764b2990847833de85793f357304d65e0e60e2607e9",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\nimport java.util.concurrent.ForkJoinTask;\n\npublic final class Deadline {\n\n    private Deadline() {\n    }\n\n    /** Runs the task in a new pool and waits at most timeoutMillis for its result. */\n    public static <T> Optional<T> within(ForkJoinTask<T> task, int parallelism, long timeoutMillis) {\n        throw new UnsupportedOperationException(\"write within\");\n    }\n}\n",
+  "content_sha256": "41d17c8aefdfb03b6f2f53d0bfc811a58ba8359f5313b7cb9af806b6249d0cc9",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.Semaphore;\n\n/**\n * The seats of a rendering library's floating licence. A render task takes a seat before it\n * calls the library and gives it back afterwards. Render tasks run on the render ForkJoinPool,\n * and so do the tasks that finish a render and give its seat back.\n */\npublic class LicenceSeats {\n\n    private final Semaphore seats;\n\n    public LicenceSeats(int count) {\n        this.seats = new Semaphore(count);\n    }\n\n    /** Takes one seat, waiting until one is free. */\n    public void take() throws InterruptedException {\n        // TODO: When every seat is taken, the render pool freezes: the tasks waiting for a seat\n        //       hold all of its threads, and the tasks that would give seats back never start.\n        //       Take exactly one seat, and wait in a way that lets the pool keep working.\n        throw new IllegalStateException(\"TODO: take\");\n    }\n\n    /** Gives one seat back. */\n    public void giveBack() {\n        seats.release();\n    }\n\n    /** How many seats are free right now. */\n    public int free() {\n        return seats.availablePermits();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-3/src/main/java/practice/Deadline.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-3/src/test/java/practice/DeadlineTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-3/src/main/java/practice/LicenceSeats.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-3/src/test/java/practice/LicenceSeatsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,39 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DeadlineTest#returnsAResultInTime",
+        "id": "practice.LicenceSeatsTest#takesAFreeSeat",
         "kind": "main",
-        "says": "A task that finishes in time gives its result."
+        "says": "a render task that asks for a seat while one is free gets it"
       },
       {
-        "id": "practice.DeadlineTest#aTaskThatMissesTheDeadlineGivesEmpty",
-        "kind": "edge",
-        "says": "A task still running at the deadline gives an empty result instead of waiting on."
+        "id": "practice.LicenceSeatsTest#aSeatGivenBackLetsTheWaitingTaskIn",
+        "kind": "main",
+        "says": "a task that waits for a seat gets in when one is given back"
       },
       {
-        "id": "practice.DeadlineTest#aTimedOutTaskIsInterrupted",
+        "id": "practice.LicenceSeatsTest#aTaskWaitingForASeatLetsTheTaskThatFreesOneRun",
         "kind": "edge",
-        "says": "The worker still running a timed-out task is interrupted, so a blocked task does not stay stuck."
+        "says": "on a pool of one thread, a task waiting for a seat does not stop the task that gives a seat back from running"
       },
       {
-        "id": "practice.DeadlineTest#aFailureIsReportedWithItsCause",
+        "id": "practice.LicenceSeatsTest#takingASeatLeavesOneFewerFree",
         "kind": "edge",
-        "says": "A failed task makes within throw IllegalStateException carrying the task's own exception, not an empty result."
-      },
-      {
-        "id": "practice.DeadlineTest#thePoolIsShutDownAfterSuccess",
-        "kind": "edge",
-        "says": "A task that returns in time still leaves its pool shut down."
-      },
-      {
-        "id": "practice.DeadlineTest#anInterruptedCallerKeepsItsFlag",
-        "kind": "edge",
-        "says": "A caller interrupted while it waits gets Optional.empty() and its interrupt flag set again."
-      },
-      {
-        "id": "practice.DeadlineTest#theTimeoutIsInMilliseconds",
-        "kind": "edge",
-        "says": "A task that finishes 300 ms in is in time for a 5000 ms deadline: the timeout is read as milliseconds."
+        "says": "taking a seat while seats are free leaves exactly one fewer free"
       }
     ],
     "report": {
@@ -172,10 +124,10 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.1.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "A Worker That Blocks Is Lost to the Pool, Unless It Blocks Through managedBlock()"
     },
     "concepts": [
-      "get(timeout, unit) on a submitted task bounds the wait, reports failures in an ExecutionException, and shutdownNow interrupts a task still running."
+      "A worker blocked in an ordinary wait is lost to the pool, so waiters can hold every worker while the task that would release them sits in the queue; managedBlock lets the pool add a spare worker."
     ]
   }
 }

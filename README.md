@@ -6,7 +6,7 @@ Claude Senior Java Engineer Interview Preparation is a self-study course: you re
 
 It has 166 units in 45 modules, grouped in 10 topic areas: Java Fundamentals, Java Classes & Objects, Exception Handling, Functional Programming in Java, Java Memory Model, Multithreading and Concurrency, Modern Java Features, Principles, Design Patterns and Advanced Java Topics.
 
-It holds 906 practices: 743 to write in code, graded by a real runner, and 163 short quizzes, graded in the page.
+It holds 608 practices: 442 to write in code, graded by a real runner, and 166 short quizzes, graded in the page.
 
 ## What you get
 
@@ -112,6 +112,10 @@ so they survive a restart. `down` stops the course and keeps them; `down -v`
 deletes them too. Every setting is explained in [`course.env`](course.env).
 
 ## Narration (optional)
+
+> **Not yet available for this version.** The lessons were rewritten in November 2026 and
+> are being narrated again. Until then only the site without narration is published, and
+> `COURSE_NARRATION` should stay `without-narration`.
 
 The site is complete without narration: a lesson with no recording shows no
 player. The recordings are not stored in this repository, because of their

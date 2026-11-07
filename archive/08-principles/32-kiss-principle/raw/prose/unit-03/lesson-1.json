@@ -18,301 +18,337 @@
       "text": "8.2.3. Benefits of KISS for Concurrency"
     },
     {
+      "type": "para",
+      "text": "A box office sells 500 seats per show. Its ticket counter keeps two numbers, seats `free` and seats `held` in a basket, and a health check pages the on-call engineer whenever `free + held` isn't 500. A few times a week it fires, with 499 or 501. Nobody can reproduce it, and the counter's concurrency test passes. The counter was written lock-free, for speed:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** A box office's ticket counter. Every ticket is either free or held: free + held == capacity. */\npublic interface Tickets {\n    boolean hold();\n    void release();\n    /** What the health check reads: free + held. */\n    int total();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicInteger;\n\n/** Two atomic counters and no lock: hold() never blocks. */\npublic final class LockFreeTickets implements Tickets {\n    private final AtomicInteger free;\n    private final AtomicInteger held = new AtomicInteger();\n    private final Runnable midHold;                    // a test hook; () -> {} in production\n\n    public LockFreeTickets(int capacity, Runnable midHold) {\n        this.free = new AtomicInteger(capacity);\n        this.midHold = midHold;\n    }\n\n    @Override public boolean hold() {\n        int f;\n        do {\n            f = free.get();\n            if (f == 0) return false;\n        } while (!free.compareAndSet(f, f - 1));\n        midHold.run();\n        held.incrementAndGet();\n        return true;\n    }\n\n    @Override public void release() {\n        held.decrementAndGet();\n        free.incrementAndGet();\n    }\n\n    @Override public int total() {\n        return free.get() + held.get();\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The simple version has two `int` fields and the same three methods, each `synchronized`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** Both counts behind one monitor: after construction, every read and write of free and held holds its lock. */\npublic final class SyncTickets implements Tickets {\n    private int free;\n    private int held;\n    private final Runnable midHold;\n\n    public SyncTickets(int capacity, Runnable midHold) {\n        this.free = capacity;\n        this.midHold = midHold;\n    }\n\n    @Override public synchronized boolean hold() {\n        if (free == 0) return false;\n        free--;\n        midHold.run();\n        held++;\n        return true;\n    }\n\n    @Override public synchronized void release() {\n        held--;\n        free++;\n    }\n\n    @Override public synchronized int total() {\n        return free + held;\n    }\n}"
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Tool That Runs Every Schedule of a Small Model"
     },
     {
       "type": "para",
-      "text": "When the KISS principle is applied to concurrent code, the benefits extend far beyond aesthetics. Simple concurrent code is fundamentally safer, more maintainable, and more debuggable than complex concurrent code. This section explores two primary benefits: easier maintenance and debugging, and reduced risk of concurrency bugs."
+      "text": "A test runs the threads in whatever order the machine picks. To see every order, we model each method as a list of **atomic steps**, actions no other thread can interleave with, and let a small explorer try every schedule: at each point, any thread that isn't finished may take its next step."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.ArrayList;\nimport java.util.Arrays;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Set;\n\n/** Runs every schedule of a few threads over a small shared state and counts what happened. */\npublic final class Schedules {\n\n    /** One atomic step of one thread. Returns the thread's next step, or -1 when it is done. */\n    public interface Step {\n        int run(int[] shared, int[] local);\n    }\n\n    private final List<Step[]> threads = new ArrayList<>();\n    private final Set<String> states = new HashSet<>();\n    private long schedules, broken;\n\n    public Schedules thread(Step... steps) { threads.add(steps); return this; }\n\n    /** shared[2] counts wrong sums seen; a schedule is broken if any step saw one. */\n    public void explore(String name, int... shared) {\n        int n = threads.size();\n        int[] pcs = new int[n];\n        dfs(shared, pcs, new int[n][2]);\n        System.out.printf(\"%-30s %,9d schedules %,6d states, wrong sum in %,d%n\",\n                name, schedules, states.size(), broken);\n    }\n\n    private void dfs(int[] shared, int[] pcs, int[][] locals) {\n        states.add(Arrays.toString(shared) + Arrays.toString(pcs) + Arrays.deepToString(locals));\n        boolean anyLeft = false;\n        for (int t = 0; t < pcs.length; t++) {\n            if (pcs[t] < 0) continue;\n            anyLeft = true;\n            int[] sh = shared.clone();\n            int[] pc = pcs.clone();\n            int[][] loc = new int[locals.length][];\n            for (int i = 0; i < locals.length; i++) loc[i] = locals[i].clone();\n            pc[t] = threads.get(t)[pcs[t]].run(sh, loc[t]);\n            dfs(sh, pc, loc);\n        }\n        if (!anyLeft) {\n            schedules++;\n            if (shared[2] > 0) broken++;\n        }\n    }\n}"
     },
     {
       "type": "para",
-      "text": "Concurrency bugs are among the most expensive defects in software. They are intermittent, environment-dependent, and often impossible to reproduce deterministically. A race condition might manifest once per million executions, but when it does, it can cause data corruption, deadlocks, or system crashes. The KISS principle directly attacks the root cause of most concurrency bugs: excessive complexity in how threads interact with shared state."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Consider two approaches to managing a shared whiteboard in an office. The KISS approach: one person writes at a time, others wait. Simple, predictable, everyone understands the rules. The complex approach: multiple people can write simultaneously in designated zones, with a coordinator managing conflicts, priority queues for writers, and a reconciliation process for overlapping edits. The second system might be faster in theory, but it is far more likely to produce garbled results, deadlocks (two people waiting for each other's zone), and confusion."
+      "text": "A **schedule** is one complete order of every thread's steps; a **state** is the shared values plus each thread's position and locals."
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "8.2.3.1. Easier Maintenance and Debugging"
+      "level": 2,
+      "text": "Each Step Other Threads Can Run Between Multiplies the Schedules: 6 for synchronized, 1,124 for Lock-Free"
     },
     {
       "type": "para",
-      "text": "Simple concurrent code is easier to maintain because:"
+      "text": "The model has 4 seats (`CAP`), and `shared` holds `{free, held, wrong sums seen}`. The lock-free `hold()` is three steps, because another thread can run between any two of them, and the check is two:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static final Schedules.Step[] SPLIT_HOLD = {\n    (sh, l) -> { l[0] = sh[0]; return l[0] == 0 ? -1 : 1; },                // f = free.get()\n    (sh, l) -> { if (sh[0] != l[0]) return 0; sh[0] = l[0] - 1; return 2; }, // free.compareAndSet(f, f - 1)\n    (sh, l) -> { sh[1]++; return -1; }                                        // held.incrementAndGet()\n};\nstatic final Schedules.Step[] SPLIT_CHECK = {\n    (sh, l) -> { l[0] = sh[0]; return 1; },                                   // free.get()\n    (sh, l) -> { if (l[0] + sh[1] != CAP) sh[2]++; return -1; }               // held.get(), compare\n};"
+    },
+    {
+      "type": "para",
+      "text": "In `SyncTickets` no other thread runs inside a method, so each method is one step. A third version, `SnapshotTickets` (one of unit 8.2.2's constructs), keeps both counts in one immutable `record Count(int free, int held)` and swaps it with one `compareAndSet` on an `AtomicReference<Count>`: its `hold()` is two steps (read the record, swap in a new one or retry; the model uses a version number for the reference) and its check is one read. One check runs against one, two and three holders (every output on this page is from Java 21 on a 20-thread x86-64 machine):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lock-free,    hold x1 + check         10 schedules     18 states, wrong sum in 3\nsynchronized, hold x1 + check          2 schedules      4 states, wrong sum in 0\nrecord,       hold x1 + check          3 schedules      6 states, wrong sum in 0\nlock-free,    hold x2 + check      1,124 schedules    178 states, wrong sum in 520\nsynchronized, hold x2 + check          6 schedules      8 states, wrong sum in 0\nrecord,       hold x2 + check         38 schedules     28 states, wrong sum in 0\nlock-free,    hold x3 + check  2,750,676 schedules  2,406 states, wrong sum in 1,527,084\nsynchronized, hold x3 + check         24 schedules     16 states, wrong sum in 0\nrecord,       hold x3 + check      5,766 schedules    196 states, wrong sum in 0"
+    },
+    {
+      "type": "para",
+      "text": "With one step per method, three threads have 3! = 6 orders. Each extra step multiplies that: steps of 3, 3 and 2 alone give 8!/(3!·3!·2!) = 560 orders, and each failed `compareAndSet` adds a retry: the lock-free version has 1,124 schedules for two holds and a check, and 2.75 million for three."
+    },
+    {
+      "type": "para",
+      "text": "520 of the 1,124 lock-free schedules break the invariant, in both directions. A check that reads `free` after a hold took a seat, and `held` before the hold counted it, sees 3 of 4; one that reads `free` before and `held` after sees 5. Each `AtomicInteger` is correct on its own. The invariant spans two of them, and nothing makes the pair change at once."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Stress Test Samples the Likely Schedules, So It Seldom Hits the Broken Ones"
+    },
+    {
+      "type": "para",
+      "text": "The counter's concurrency test runs two holds and a check, released together by a latch, and the check must see 500. It ran 10,000 times per version, five times over:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lock-free  test shape: failed 39 of 10,000\nsynced     test shape: failed 0 of 10,000\nrecord     test shape: failed 0 of 10,000\nlock-free  test shape: failed 36 of 10,000\nsynced     test shape: failed 0 of 10,000\nrecord     test shape: failed 0 of 10,000\nlock-free  test shape: failed 33 of 10,000\nsynced     test shape: failed 0 of 10,000\nrecord     test shape: failed 0 of 10,000\nlock-free  test shape: failed 18 of 10,000\nsynced     test shape: failed 0 of 10,000\nrecord     test shape: failed 0 of 10,000\nlock-free  test shape: failed 20 of 10,000\nsynced     test shape: failed 0 of 10,000\nrecord     test shape: failed 0 of 10,000"
+    },
+    {
+      "type": "para",
+      "text": "The model says 520 of 1,124 schedules are broken; the test fails about 3 times in 1,000. The schedules aren't equally likely. The gap between `compareAndSet` and `incrementAndGet` is a few instructions, and the threads leave the latch at slightly different moments, so most runs execute one call after another. A test run once per build fails about one build in 340."
+    },
+    {
+      "type": "para",
+      "text": "The zeros for the other two versions show only that these runs met no broken schedule. That none exists comes from the model, which tried every schedule of four seats and up to four threads, taking each step as atomic and each write as visible at once: what the lock and the `AtomicReference` provide."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "In the Simple Design the Race Has No Schedule, and Its Correctness Argument Is One Sentence"
+    },
+    {
+      "type": "para",
+      "text": "A race the model finds can be forced in a real test by pausing one thread at the dangerous point, as unit 5.3.1 does; a pause after any step is a schedule the real system can produce. Here the `midHold` hook pauses `hold()` between its two writes, and the health check runs meanwhile:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Tickets tickets = make.apply(() -> {             // runs between the two writes\n    paused.countDown();\n    try { resume.await(5, TimeUnit.SECONDS); } catch (InterruptedException e) { throw new IllegalStateException(e); }\n});\nExecutorService pool = Executors.newFixedThreadPool(2);\nFuture<Boolean> hold = pool.submit(tickets::hold);\npaused.await(5, TimeUnit.SECONDS);               // the holder is now between the writes\nFuture<Integer> check = pool.submit(tickets::total);\ntry {\n    System.out.println(name + \": check returned \" + check.get(200, TimeUnit.MILLISECONDS)\n            + \" while hold() was paused\");\n} catch (TimeoutException e) {\n    System.out.println(name + \": check still waiting after 200 ms\");\n}\nresume.countDown();\nhold.get(5, TimeUnit.SECONDS);\nSystem.out.println(name + \": that check returned \" + check.get(5, TimeUnit.SECONDS)\n        + \"; a new check after hold() returns \" + tickets.total());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lock-free: check returned 499 while hold() was paused\nlock-free: that check returned 499; a new check after hold() returns 500\nsynchronized: check still waiting after 200 ms\nsynchronized: that check returned 500; a new check after hold() returns 500"
+    },
+    {
+      "type": "para",
+      "text": "The lock-free check returns 499 every time it meets a paused hold; only a check made after the hold sees 500. The synchronized check can't run until the hold is done: the paused thread holds the monitor, and `total()` needs it."
+    },
+    {
+      "type": "para",
+      "text": "The correctness argument for `SyncTickets` is one sentence: after the constructor, every read and write of `free` and `held` happens while holding this object's monitor, so no thread sees one changed without the other. A reviewer checks it by finding every use of the two fields: all of them are in three `synchronized` methods. For `SnapshotTickets` it is also one sentence: the state is one immutable record, and every change replaces it with one `compareAndSet`, so a reader gets the old record or the new one, never half of each. The lock-free version has no such sentence. Its argument would have to cover every point between two atomic calls, and the first one already fails."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Thread Dump Names a Monitor's Holder; a Hand-Rolled Lock Shows Only Busy Threads"
+    },
+    {
+      "type": "para",
+      "text": "Suppose the team fixes the torn read with a spin lock instead of `synchronized`, because \"it makes no kernel call, so it's cheaper than `synchronized`\". `SpinTickets` has the two `int` fields of `SyncTickets` and wraps every method in this lock, with `unlock()` in a `finally`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "private final AtomicBoolean busy = new AtomicBoolean();\n\nprivate void lock() {\n    while (!busy.compareAndSet(false, true)) Thread.onSpinWait();\n}\n\nprivate void unlock() {\n    busy.set(false);\n}"
+    },
+    {
+      "type": "para",
+      "text": "By the same one-sentence argument it is correct, and the stress test agrees: 0 failures in five runs of 10,000. Then one holder stalls inside `hold()`, with the `midHold` hook standing for an audit write to a disk that stopped answering, while another counter thread and the health check call in. Printed through unit 6.1.4's `Dump` helper (state, the lock waited for and its holder, CPU used in a window of about 200 ms):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "spin lock:\ncounter-1      WAITING        cpu   0 ms  waits for CountDownLatch$Sync\ncounter-2      RUNNABLE       cpu 216 ms\nhealth-check   RUNNABLE       cpu 217 ms\nsynchronized:\ncounter-1      WAITING        cpu   0 ms  waits for CountDownLatch$Sync\ncounter-2      BLOCKED        cpu   0 ms  waits for SyncTickets held by counter-1\nhealth-check   BLOCKED        cpu   0 ms  waits for SyncTickets held by counter-1"
+    },
+    {
+      "type": "para",
+      "text": "With the spin lock, the waiting threads look like threads at work: `RUNNABLE`, a core each, no lock and no owner. With `synchronized` they are `BLOCKED`, and the line names the thread to look at. `jcmd <pid> Thread.print` says the same. In this excerpt the first two threads are from the spin-lock run and the last two from the synchronized run; `...` marks left-out frames:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "\"counter-2\" #29 [1205223] daemon prio=5 os_prio=0 cpu=3245.94ms elapsed=3.25s tid=0x000071a4c0144520 nid=1205223 runnable  [0x000071a48e2fd000]\n   java.lang.Thread.State: RUNNABLE\n\tat SpinTickets.lock(SpinTickets.java:16)\n\tat SpinTickets.hold(SpinTickets.java:24)\n\n\"counter-1\" #28 [1205222] daemon prio=5 os_prio=0 cpu=0.42ms elapsed=3.25s tid=0x000071a4c0143280 nid=1205222 waiting on condition  [0x000071a48e3fe000]\n   java.lang.Thread.State: WAITING (parking)\n...\n\tat Stall.lambda$stall$0(Stall.java:11)\n\tat Stall$$Lambda/0x000071a440001800.run(Unknown Source)\n\tat SpinTickets.hold(SpinTickets.java:28)\n\n\"counter-2\" #32 [1205227] daemon prio=5 os_prio=0 cpu=0.16ms elapsed=3.02s tid=0x000071a4c019bea0 nid=1205227 waiting for monitor entry  [0x000071a48defe000]\n   java.lang.Thread.State: BLOCKED (on object monitor)\n\tat SyncTickets.hold(SyncTickets.java:13)\n\t- waiting to lock <0x00000005abc39070> (a SyncTickets)\n\n\"counter-1\" #31 [1205226] daemon prio=5 os_prio=0 cpu=0.15ms elapsed=3.02s tid=0x000071a4c019adf0 nid=1205226 waiting on condition  [0x000071a48dffe000]\n   java.lang.Thread.State: WAITING (parking)\n...\n\tat Stall.lambda$stall$0(Stall.java:11)\n\tat Stall$$Lambda/0x000071a440001800.run(Unknown Source)\n\tat SyncTickets.hold(SyncTickets.java:15)\n\t- locked <0x00000005abc39070> (a SyncTickets)"
+    },
+    {
+      "type": "para",
+      "text": "The address after `waiting to lock` matches one `- locked` line, in the stack of the thread that holds the monitor, and that stack shows where it is stuck. The spin lock's holder has `SpinTickets.hold` in its stack and no `- locked` line: to find it, you read every stack in the dump for a thread inside `SpinTickets` but not in `lock()`. An `AtomicBoolean` records only `true`, not who set it, so the deadlock detector of unit 5.3.4 can't see a spin lock either."
+    },
+    {
+      "type": "para",
+      "text": "A monitor also releases itself: a `synchronized` method or block that ends with an exception gives up the lock (JLS §8.4.3.6, §14.19). A hand-written lock is released only where every caller wrote the `finally`. Two methods throw while holding a lock, and another thread then tries to get in:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void viaMonitor() {\n    synchronized (monitor) {\n        throw new IllegalStateException(\"audit write failed\");\n    }\n}\n\nstatic void viaLockWithoutFinally() {\n    lock.lock();\n    if (true) throw new IllegalStateException(\"audit write failed\");\n    lock.unlock();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "after the throw, another thread entered the synchronized block: true\nafter the throw, another thread got the ReentrantLock within 1 s: false"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Simplicity Costs Throughput Under Contention: Measure It Against the Load You Have"
+    },
+    {
+      "type": "para",
+      "text": "The argument for the lock-free counter was speed. Here each thread holds and releases a seat in a loop for one second, after a one-second warm-up, and the numbers are pairs per second, all threads together:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": " 1 threads: two atomics  58,584,886  spin  55,380,569  synchronized  48,537,410  record  67,967,383\n 4 threads: two atomics   5,376,873  spin   2,252,025  synchronized   5,921,973  record   4,791,133\n16 threads: two atomics   9,789,987  spin   1,129,521  synchronized   4,210,137  record   1,975,598"
+    },
+    {
+      "type": "para",
+      "text": "That is one of three runs. At 16 threads the two atomics made 9.7 to 9.8 million pairs a second and `synchronized` 4.1 to 7.6 million: the broken version was 1.3 to 2.4 times as fast. In all three runs, at 4 and 16 threads, the spin lock written to be cheaper was the slowest, and the record was slower than `synchronized`, probably because every failed `compareAndSet` throws away a new record and tries again."
+    },
+    {
+      "type": "para",
+      "text": "A counter that takes 2,000 holds a second at its busiest uses at most about a two-thousandth of what `synchronized` handled here. As in unit 8.2.1, the stated load decides, and here the simple design meets it with that much room. A loop that does nothing but take a lock overstates contention; a real request spends most of its time elsewhere."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**The synchronization boundaries are obvious.** When you use `ConcurrentHashMap` or `AtomicReference`, the thread-safety is evident from the type system.",
-        "**There are fewer possible execution paths.** Less complexity means fewer interleavings to reason about.",
-        "**Stack traces are more meaningful.** Simple code with clear call chains produces stack traces that point directly to the problem.",
-        "**New team members can understand the code quickly.** If a concurrent class uses a `BlockingQueue` instead of custom wait/notify, any Java developer can understand it immediately."
+        "**Each step other threads can run between multiplies the schedules.** Two holds and a check have 6 schedules when each method is one step, and 1,124 in the lock-free counter, 520 of them broken.",
+        "**A stress test samples the likely schedules.** It failed about 3 times in 1,000 against a design the model shows is wrong in 520 of its 1,124 schedules.",
+        "**In the simple design the race has no schedule.** A paused `hold()` makes the lock-free check return 499 every time; the synchronized check waits and returns 500. Its correctness argument is one sentence a reviewer can check.",
+        "**A dump names a monitor's holder.** Threads waiting on a spin lock show as `RUNNABLE` and burn CPU, with no owner and no `- locked` line.",
+        "**The simple design costs throughput under contention.** Measure it against the load you have before trading its properties for speed."
       ]
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "8.2.3.2. Reduced Risk of Concurrency Bugs"
+      "level": 2,
+      "text": "Reference"
     },
     {
       "type": "para",
-      "text": "Simple concurrent code reduces bug risk because:"
+      "text": "**The ticket counter, two holds and a check (model with 4 seats; Java 21 runs):**"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Fewer shared mutable variables means fewer race conditions.** Each shared mutable variable is a potential race condition waiting to happen.",
-        "**Using proven concurrency utilities eliminates entire categories of bugs.** `ConcurrentHashMap` has been battle-tested by millions of applications; your custom synchronized map has not.",
-        "**Simple state machines are easier to prove correct.** A state machine with 3 states and 5 transitions is much easier to verify than one with 10 states and 30 transitions.",
-        "**Lock ordering is easier to maintain with fewer locks.** Deadlocks require at least two locks acquired in different orders. Using fewer locks (or no locks) eliminates deadlock risk."
+      "type": "table",
+      "headers": [
+        "Version",
+        "Steps per `hold()` / check",
+        "Schedules",
+        "Broken",
+        "Test shape, failures in 10,000",
+        "A waiting thread in a dump"
+      ],
+      "rows": [
+        [
+          "two `AtomicInteger`s",
+          "3 / 2",
+          "1,124",
+          "520",
+          "18 to 39",
+          "never waits"
+        ],
+        [
+          "`synchronized`",
+          "1 / 1",
+          "6",
+          "0",
+          "0",
+          "`BLOCKED`, holder named"
+        ],
+        [
+          "`AtomicReference<Count>`",
+          "2 / 1",
+          "38",
+          "0",
+          "0",
+          "never waits"
+        ],
+        [
+          "spin lock on `AtomicBoolean`",
+          "not modelled",
+          "",
+          "",
+          "",
+          "`RUNNABLE`, no holder, uses CPU"
+        ]
       ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Simple code has fewer hiding places for bugs.** Every line of code is a potential home for a defect. Less code means fewer defects.",
-        "**Thread dumps of simple code are readable.** When debugging a deadlock or livelock, simple code produces thread dumps that humans can actually understand.",
-        "**Simple concurrent code is easier to test.** You can write meaningful tests for a `ConcurrentHashMap`-based cache; testing a custom lock-based cache with 100% coverage is nearly impossible.",
-        "**The cost of a concurrency bug is much higher than most other bugs.** Data corruption from a race condition can propagate through a system before being detected, making root cause analysis extremely difficult.",
-        "**Code reviews catch more bugs in simple code.** Reviewers can reason about thread safety when the code is simple. Complex synchronization logic overwhelms reviewers, allowing bugs to slip through.",
-        "**Immutability is the ultimate simplification for thread safety.** An immutable object has zero concurrency concerns.",
-        "**Monitoring and profiling are easier with simple concurrent code.** Fewer locks and simpler interactions produce clearer profiles and metrics."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
     },
     {
       "type": "para",
-      "text": "Java 21 provides features that make simple concurrent code both correct and performant:"
+      "text": "**Who `ThreadMXBean.getThreadInfo` names as the holder (Java 21):**"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Virtual threads**: Eliminate the performance argument for complex asynchronous code. Simple blocking code is now efficient.",
-        "**Records**: Create immutable data objects trivially, eliminating thread-safety concerns for data transfer objects.",
+      "type": "table",
+      "headers": [
+        "Waiting in",
+        "State",
+        "`getLockOwnerName()`"
+      ],
+      "rows": [
         [
-          "**Pattern matching for switch**: Simplify state machine logic, making concurrent state transitions clearer.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public String describeState(State state) {\n    return switch (state) {\n        case IDLE -> \"Waiting for work\";\n        case RUNNING -> \"Processing task\";\n        case COMPLETED -> \"Task finished successfully\";\n        case FAILED -> \"Task encountered an error\";\n    };\n}"
-          }
-        ],
-        "**Sealed classes**: Constrain state hierarchies to known subtypes, making exhaustive handling verifiable at compile time."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Mixing synchronization mechanisms in one class** Problem: Using both `synchronized` and `ReentrantLock` in the same class, or mixing `volatile` with explicit locks.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// VIOLATION: Mixed synchronization\nprivate volatile int count;\nprivate final ReentrantLock lock = new ReentrantLock();\n\npublic synchronized void methodA() { count++; }\npublic void methodB() {\n    lock.lock();\n    try { count++; } finally { lock.unlock(); }\n}"
-          },
-          "Fix: Pick one mechanism and use it consistently.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// KISS: Consistent use of AtomicInteger\nprivate final AtomicInteger count = new AtomicInteger(0);\n\npublic void methodA() { count.incrementAndGet(); }\npublic void methodB() { count.incrementAndGet(); }"
-          }
+          "`synchronized`",
+          "`BLOCKED`",
+          "the holder"
         ],
         [
-          "**Over-complicating state transitions** Problem: Building a state machine with many intermediate states, nested locks, and complex transition rules. Fix: Use `AtomicReference` with `compareAndSet` for simple state machines. Keep the number of states minimal.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\npublic boolean start() {\n    return state.compareAndSet(State.IDLE, State.RUNNING);\n}"
-          }
+          "`ReentrantLock.lock()`",
+          "`WAITING`",
+          "the holder"
         ],
-        "**Creating custom thread-safe wrappers when concurrent collections exist** Problem: Writing a synchronized wrapper around `ArrayList` when `CopyOnWriteArrayList` or `ConcurrentLinkedQueue` would work. Fix: Use the appropriate concurrent collection from `java.util.concurrent`.",
         [
-          "**Not using try-with-resources for ExecutorService** Problem: Forgetting to shut down an executor, causing resource leaks. Fix: Since Java 19, `ExecutorService` implements `AutoCloseable`.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    // submit tasks\n} // Automatically shuts down"
-          }
+          "`ReentrantReadWriteLock` read lock while the write lock is held",
+          "`WAITING`",
+          "the writer"
+        ],
+        [
+          "a spin on `AtomicBoolean.compareAndSet`",
+          "`RUNNABLE`",
+          "`null`"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Design for debuggability.** When choosing between two equally correct approaches, pick the one that will be easier to debug at 3 AM when production is down.",
-        [
-          "**Log state transitions.** In concurrent state machines, logging each transition with the thread name helps enormously during debugging.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public boolean start() {\n    boolean success = state.compareAndSet(State.IDLE, State.RUNNING);\n    if (success) {\n        logger.info(\"State transition: IDLE -> RUNNING [{}]\",\n                    Thread.currentThread().getName());\n    }\n    return success;\n}"
-          }
-        ],
-        [
-          "**Return immutable snapshots from concurrent collections.** This prevents callers from accidentally modifying shared state.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public List<String> getEvents() {\n    return Collections.unmodifiableList(new ArrayList<>(events));\n}"
-          }
-        ],
-        "**Use pipeline patterns for data transformation.** A linear pipeline is easier to reason about than a complex graph of concurrent operations.",
-        "**Prefer `Semaphore` for resource limiting.** It is simpler and more intuitive than custom counting logic with locks and conditions.",
-        "**Test concurrent code with multiple iterations.** Run concurrent tests many times to increase the chance of exposing race conditions."
+        "Add `release()` to the model of the lock-free counter. How many schedules do one hold, one release and one check have, and which wrong sums can the check see?",
+        "The box office adds a third count, `sold`. Write the correctness sentence for a `synchronized` version and for a record version. Which one still fits in a sentence if a sale must also update a revenue total kept in another object?",
+        "A service is stuck, and the dump shows 40 threads `RUNNABLE` in one class's `acquire()`, none owning anything. How do you find the holder, and what would you change so the next dump tells you?",
+        "Rerun the throughput loop with a few microseconds of work outside the lock in each iteration. At what amount of work does the difference between the versions stop mattering?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Concurrent state machine reset while another thread is transitioning**: Use `compareAndSet` to ensure atomicity. If `reset()` is called while another thread is in the middle of `start()`, one will succeed and the other will fail gracefully.",
-        "**Notification to listeners during concurrent modification of listener list**: Use `CopyOnWriteArrayList` for the listener list. Iteration sees a snapshot, so concurrent additions do not cause `ConcurrentModificationException`.",
-        "**Resource manager with more releases than acquires**: Guard against this at the API level or document the behavior clearly. Semaphore allows more releases than acquires (increasing the permit count), which may or may not be desired.",
-        "**Pipeline step that throws an exception**: Decide upfront whether exceptions short-circuit the pipeline or are collected. The KISS approach is to let exceptions propagate naturally.",
-        "**Empty event logger snapshot during concurrent logging**: `CopyOnWriteArrayList` guarantees that `getEvents()` returns a consistent snapshot, even if logging continues on other threads."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the JVM Knows Who Holds a Monitor"
     },
     {
       "type": "para",
-      "text": "Interviewers probe your understanding of KISS benefits for concurrency by:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Asking you to debug or identify bugs in complex concurrent code",
-        "Asking you to simplify an over-engineered concurrent solution",
-        "Presenting a scenario and asking for the simplest thread-safe implementation",
-        "Asking about the trade-offs of simplicity vs. performance in concurrent code",
-        "Checking whether you understand why concurrent bugs are harder to fix than sequential bugs"
-      ]
+      "text": "Every Java object can be locked, and the JVM implements that lock itself, so it can always tell which thread owns a monitor. That is what lets a dump print `- locked` and `waiting to lock` with matching addresses, lets `ThreadMXBean` name an owner, and lets the deadlock detector find a cycle. The `java.util.concurrent` locks keep their owner in `AbstractOwnableSynchronizer`, whose javadoc says the value is there to help \"monitor access and provide diagnostics\". No dump, `ThreadMXBean` call or deadlock check can name the holder of a lock built from an `AtomicBoolean`."
     },
     {
       "type": "para",
-      "text": "Tricky questions to expect:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"How would you make this code thread-safe with minimal changes?\"",
-        "\"What concurrency bugs could exist in this code, and how would you simplify it to eliminate them?\"",
-        "\"When is it worth accepting complexity for concurrent performance?\"",
-        "\"How would you debug a deadlock in this system?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: Why are concurrency bugs harder to debug than sequential bugs, and how does KISS help?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Concurrency bugs are harder to debug for several reasons:\n\n1. Non-determinism: Thread scheduling varies between runs, so bugs are intermittent\n2. Heisenbugs: Adding debugging code (print statements, breakpoints) can change\n   the timing and make the bug disappear\n3. State explosion: With N threads and M shared variables, the number of possible\n   states is exponentially larger than in sequential code\n4. Causality is unclear: In sequential code, the bug's cause precedes it in the\n   code. In concurrent code, the cause might be in a different thread entirely\n\nKISS helps because:\n- Fewer shared mutable variables = fewer race condition opportunities\n- Using proven concurrent utilities = fewer custom bugs to introduce\n- Simpler synchronization = easier to reason about thread interleavings\n- Clearer code = code reviews catch more concurrency issues\n- Simpler thread dumps = faster root cause analysis during incidents\n\nThe most effective debugging strategy for concurrent code is prevention:\nwrite simple code that has fewer possible bugs in the first place."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Complex (hard to debug):\n// Multiple locks, complex ordering, easy to deadlock\nclass ComplexTransferService {\n    private final ReentrantLock lockA = new ReentrantLock();\n    private final ReentrantLock lockB = new ReentrantLock();\n    private int balanceA, balanceB;\n\n    public void transfer(int amount) {\n        lockA.lock();\n        try {\n            lockB.lock(); // Deadlock risk if another thread locks in opposite order!\n            try {\n                balanceA -= amount;\n                balanceB += amount;\n            } finally { lockB.unlock(); }\n        } finally { lockA.unlock(); }\n    }\n}\n\n// KISS (easy to debug):\n// Single lock, no ordering issues, no deadlock possible\nclass SimpleTransferService {\n    private final Object lock = new Object();\n    private int balanceA, balanceB;\n\n    public void transfer(int amount) {\n        synchronized (lock) {\n            balanceA -= amount;\n            balanceB += amount;\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does returning immutable snapshots from concurrent collections help with debugging?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Returning immutable snapshots provides several debugging benefits:\n\n1. Consistent view: The snapshot represents the state at a single point in time.\n   There are no changes happening while you iterate, so the data is consistent.\n\n2. No ConcurrentModificationException: Callers can iterate, filter, and\n   transform the snapshot without worrying about other threads modifying it.\n\n3. Reproducibility: If you log or capture a snapshot, you know exactly what\n   the state was. Mutable references can change between capture and inspection.\n\n4. Isolation: Callers cannot accidentally modify the shared state through the\n   returned reference. This eliminates an entire category of bugs.\n\n5. Thread-safety by design: The caller does not need to know anything about\n   the synchronization strategy of the source collection.\n\nThe KISS approach: always return defensive copies or unmodifiable views from\nconcurrent data structures. The small performance cost is almost always worth\nthe safety and debuggability improvement."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// KISS: Return immutable snapshot\npublic class SimpleEventLogger {\n    private final CopyOnWriteArrayList<String> events = new CopyOnWriteArrayList<>();\n\n    public void log(String event) {\n        events.add(event);\n    }\n\n    public List<String> getEvents() {\n        // Immutable snapshot -- callers cannot modify our internal state\n        return Collections.unmodifiableList(new ArrayList<>(events));\n    }\n\n    public void clear() {\n        events.clear();\n    }\n}\n\n// Usage: safe to iterate while other threads continue logging\nList<String> snapshot = logger.getEvents();\nfor (String event : snapshot) {\n    // No ConcurrentModificationException possible\n    System.out.println(event);\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does AtomicReference simplify thread-safe state machines?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: AtomicReference simplifies state machines by providing atomic\ncompare-and-set (CAS) operations that eliminate the need for explicit locks:\n\nBenefits:\n1. Atomic transitions: compareAndSet(expected, new) ensures that the state\n   changes only if it is currently the expected value. No lock needed.\n2. No deadlocks: CAS is lock-free, so deadlocks are impossible.\n3. Self-documenting: The transition logic is explicit and easy to read.\n4. Thread-safe by construction: The AtomicReference guarantees visibility\n   and atomicity automatically.\n5. Contention handling: If two threads try to transition simultaneously,\n   one succeeds and the other gets false -- simple, predictable behavior.\n\nWhen NOT to use AtomicReference for state machines:\n- When a transition requires updating multiple variables atomically\n  (use synchronized or explicit locks instead)\n- When you need to wait for a state change (use Condition or CountDownLatch)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class SimpleStateMachine {\n    public enum State { IDLE, RUNNING, COMPLETED, FAILED }\n\n    private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\n    // Each method is a single atomic operation -- simple and correct\n    public boolean start() {\n        return state.compareAndSet(State.IDLE, State.RUNNING);\n    }\n\n    public boolean complete() {\n        return state.compareAndSet(State.RUNNING, State.COMPLETED);\n    }\n\n    public boolean fail() {\n        return state.compareAndSet(State.RUNNING, State.FAILED);\n    }\n\n    public boolean reset() {\n        State current = state.get();\n        if (current == State.COMPLETED || current == State.FAILED) {\n            return state.compareAndSet(current, State.IDLE);\n        }\n        return false;\n    }\n\n    public State getState() {\n        return state.get();\n    }\n}\n// Total: ~25 lines. Thread-safe. No locks. No deadlocks. Easy to test."
-    },
-    {
-      "type": "para",
-      "text": "**Q4: When is the performance cost of simplicity worth accepting?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Almost always. The performance difference between simple and complex\nconcurrent code is usually negligible compared to other bottlenecks (I/O,\ndatabase queries, network latency). Here is how to think about it:\n\nWhen simplicity's cost is acceptable (the common case):\n- The code is not on the critical performance path\n- The difference is microseconds, not milliseconds\n- The code handles fewer than millions of operations per second\n- Correctness is more important than raw throughput\n\nWhen complexity might be justified (rare cases):\n- Profiling data shows this specific code is the bottleneck\n- The simpler approach cannot meet measured, concrete SLAs\n- The complex approach has been validated with benchmarks\n- The team understands and can maintain the complex approach\n\nThe decision framework:\n1. Write the simple version first\n2. Test it for correctness\n3. Measure its performance under realistic load\n4. ONLY if it does not meet requirements, consider the complex alternative\n5. If you add complexity, document WHY with the benchmark data\n\nIn practice, steps 4-5 are rarely needed. Most performance problems are in\nI/O, algorithms (wrong data structure), or architecture -- not in whether\nyou used AtomicInteger vs. a custom lock-free counter."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Step 1: Start simple\npublic class SimpleCache<K, V> {\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    public V get(K key, Function<K, V> loader) {\n        return cache.computeIfAbsent(key, loader);\n    }\n}\n\n// Step 2: Only if profiling shows this is a bottleneck AND\n// you need features like TTL, consider adding complexity:\n// (But this is rarely needed in practice)"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How would you design a simple notification system for concurrent use?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: The simplest approach uses CopyOnWriteArrayList for the listener list\nand iterates over it directly to notify:\n\nDesign decisions:\n1. CopyOnWriteArrayList for listeners: Thread-safe iteration without locks.\n   Adding listeners is rare; notifying is frequent -- perfect for COWAL.\n2. No event bus, no priority system, no async dispatch: These are features\n   you add when you need them, not before.\n3. Direct iteration: Call each listener sequentially. If a listener throws,\n   it propagates to the caller -- simple, predictable behavior.\n4. Generic type parameter: Allows reuse for any event type.\n\nWhen to add complexity:\n- If notifications must be async: wrap dispatch in an executor\n- If listener exceptions must not affect other listeners: add try-catch\n- If ordering matters: document and enforce listener ordering\n- But do NOT add these features speculatively!\n\nThe KISS rule: ship the simple version, monitor it in production, add\nfeatures only when you have evidence they are needed."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class SimpleNotifier<T> {\n    private final CopyOnWriteArrayList<Consumer<T>> listeners =\n            new CopyOnWriteArrayList<>();\n\n    public void addListener(Consumer<T> listener) {\n        listeners.add(listener);\n    }\n\n    public void notify(T event) {\n        for (Consumer<T> listener : listeners) {\n            listener.accept(event);  // Simple, direct, debuggable\n        }\n    }\n}\n\n// Usage\nvar notifier = new SimpleNotifier<String>();\nnotifier.addListener(msg -> log.info(\"Received: {}\", msg));\nnotifier.addListener(msg -> metrics.increment(\"notifications\"));\nnotifier.notify(\"order-placed\");"
+      "text": "The price is taking the JDK's semantics as they are: a monitor has no timeout and no `tryLock`, and a `ReentrantLock` needs a `finally` in every caller."
     },
     {
       "type": "heading",
@@ -333,16 +369,16 @@
   "attachments": [],
   "counts": {
     "headings": 12,
-    "paras": 13,
-    "code": 10,
-    "tables": 0,
-    "lists": 10,
+    "paras": 26,
+    "code": 15,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 2,
     "disclosures": 0
   },
-  "content_sha256": "2135035673c768898e5f0f94a7486233f6451aafbb7ba49458b3ab4dee38cea8"
+  "content_sha256": "6b635a6719e7878cd1ec0995bca3b285c2853f6ad7370af8a608c9ef9c06d91f"
 }

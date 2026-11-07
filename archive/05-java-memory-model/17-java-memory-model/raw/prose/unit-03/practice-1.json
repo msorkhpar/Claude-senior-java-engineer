@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A page cache that locks briefly and privately",
+  "title": "Stop the status page from showing a window that ends before it starts",
   "blocks": [
     {
       "type": "heading",
@@ -19,47 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Two of the page's pitfalls meet in a cache. **Holding a lock during I/O**: its `fetchAndStore` is `synchronized`, so every other thread waits while one fetches a URL, and the fix is to fetch outside the lock and lock only for the store. **Synchronizing on the wrong object**: the fix is a dedicated, private, final lock object that no other code can reach."
+      "text": "The status page shows tonight's maintenance window, and the deploy gate refuses deploys inside it. Operators move the window from the admin console while thousands of page views read it. A few times a week a customer sends a screenshot of a window from 10:00 to 03:00, and once a cancelled window came back as \"until 11:00\" with no start."
     },
     {
       "type": "para",
-      "text": "Write `PageCache`. It is built with a `fetcher` (a `Function<String, String>` that may take seconds) and keeps what it fetched in a `HashMap` guarded by one lock:"
+      "text": "`MaintenanceSchedule` already reschedules correctly. Finish the two `TODO`s in `src/main/java/practice/MaintenanceSchedule.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`load(url)` returns the cached page, or fetches it, stores it and returns it. The fetch happens **outside** the lock.",
-        "`cached(url)` returns the cached page, or `null`.",
-        "`size()` returns how many pages are cached.",
-        "Code outside the class that runs `synchronized (cache) { … }` must not hold up any of these methods.",
-        "The lock, like every field of the cache, is a `private final` field."
+        "`current()`: the window as it stands, for the page and the gate;",
+        "`cancel()`: remove the window."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`load(\"a\")`, `load(\"a\")`",
-          "the fetched page twice; the fetcher ran once"
-        ],
-        [
-          "`cached(\"b\")` before any `load(\"b\")`",
-          "`null`"
-        ],
-        [
-          "thread A inside a slow fetch of `\"slow\"`; thread B calls `cached(\"a\")`",
-          "B answers at once"
-        ],
-        [
-          "a thread holds `synchronized (cache)`; another calls `cached(\"a\")`",
-          "it answers at once"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a page view always shows a window that an operator actually scheduled (or `Window.NONE`), however it lines up with a reschedule, and a cancel never leaves part of a window behind. About five lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The constructor's `midReschedule` hook runs in the middle of `reschedule`; the tests use it to pause a reschedule halfway and make calls from other threads while it waits."
     },
     {
       "type": "heading",
@@ -74,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.function.Function;\n\npublic final class PageCache {\n\n    private final Object lock = new Object();\n    private final Map<String, String> pages = new HashMap<>();\n    private final Function<String, String> fetcher;\n\n    public PageCache(Function<String, String> fetcher) {\n        this.fetcher = fetcher;\n    }\n\n    public String load(String url) {\n        String page = cached(url);\n        if (page != null) {\n            return page;\n        }\n        String fetched = fetcher.apply(url);\n        synchronized (lock) {\n            return pages.computeIfAbsent(url, u -> fetched);\n        }\n    }\n\n    public String cached(String url) {\n        synchronized (lock) {\n            return pages.get(url);\n        }\n    }\n\n    public int size() {\n        synchronized (lock) {\n            return pages.size();\n        }\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * The maintenance window that the status page shows and the deploy gate obeys. Operators\n * reschedule it from the admin console, on-call can cancel it, and every page view reads it,\n * each from its own request thread.\n */\npublic class MaintenanceSchedule {\n\n    /** A window in minutes after midnight UTC: start before end, or NONE when there is no window. */\n    public record Window(int startMinute, int endMinute) {\n        public static final Window NONE = new Window(-1, -1);\n    }\n\n    private final Object lock = new Object();\n    private final Runnable midReschedule;\n    private int startMinute = 120;                  // 02:00\n    private int endMinute = 180;                    // 03:00\n\n    /**\n     * {@code midReschedule} runs inside {@link #reschedule} between its two writes. The tests use\n     * it to pause a reschedule halfway; production passes a no-op.\n     */\n    public MaintenanceSchedule(Runnable midReschedule) {\n        this.midReschedule = midReschedule;\n    }\n\n    public MaintenanceSchedule() {\n        this(() -> { });\n    }\n\n    /** Moves the window. */\n    public void reschedule(int startMinute, int endMinute) {\n        if (startMinute < 0 || startMinute >= endMinute) {\n            throw new IllegalArgumentException(\"start must be before end: \" + startMinute + \"..\" + endMinute);\n        }\n        synchronized (lock) {\n            this.startMinute = startMinute;\n            midReschedule.run();\n            this.endMinute = endMinute;\n        }\n    }\n\n    /** The window as it stands now. */\n    public Window current() {\n        synchronized (lock) {\n            return new Window(startMinute, endMinute);\n        }\n    }\n\n    /** Removes the window: current() is Window.NONE until the next reschedule. */\n    public void cancel() {\n        synchronized (lock) {\n            startMinute = -1;\n            endMinute = -1;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -86,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.Function;\n\npublic final class PageCache {\n\n    public PageCache(Function<String, String> fetcher) {\n        throw new UnsupportedOperationException(\"write PageCache\");\n    }\n\n    public String load(String url) {\n        throw new UnsupportedOperationException(\"write load\");\n    }\n\n    public String cached(String url) {\n        throw new UnsupportedOperationException(\"write cached\");\n    }\n\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * The maintenance window that the status page shows and the deploy gate obeys. Operators\n * reschedule it from the admin console, on-call can cancel it, and every page view reads it,\n * each from its own request thread.\n */\npublic class MaintenanceSchedule {\n\n    /** A window in minutes after midnight UTC: start before end, or NONE when there is no window. */\n    public record Window(int startMinute, int endMinute) {\n        public static final Window NONE = new Window(-1, -1);\n    }\n\n    private final Object lock = new Object();\n    private final Runnable midReschedule;\n    private int startMinute = 120;                  // 02:00\n    private int endMinute = 180;                    // 03:00\n\n    /**\n     * {@code midReschedule} runs inside {@link #reschedule} between its two writes. The tests use\n     * it to pause a reschedule halfway; production passes a no-op.\n     */\n    public MaintenanceSchedule(Runnable midReschedule) {\n        this.midReschedule = midReschedule;\n    }\n\n    public MaintenanceSchedule() {\n        this(() -> { });\n    }\n\n    /** Moves the window. */\n    public void reschedule(int startMinute, int endMinute) {\n        if (startMinute < 0 || startMinute >= endMinute) {\n            throw new IllegalArgumentException(\"start must be before end: \" + startMinute + \"..\" + endMinute);\n        }\n        synchronized (lock) {\n            this.startMinute = startMinute;\n            midReschedule.run();\n            this.endMinute = endMinute;\n        }\n    }\n\n    /** The window as it stands now. */\n    public Window current() {\n        // TODO: The status page calls this on every view while operators reschedule. The page\n        //       must show a window that was really scheduled: one start and the end that went\n        //       with it.\n        throw new IllegalStateException(\"TODO: current\");\n    }\n\n    /** Removes the window: current() is Window.NONE until the next reschedule. */\n    public void cancel() {\n        // TODO: On-call cancels the window, possibly while an operator is moving it. Afterwards\n        //       there must be no window, and no half of one.\n        throw new IllegalStateException(\"TODO: cancel\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -94,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -105,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "370f9cc29da687775e89d6ced108c0599cd2a2d20971933a46f59f3be9947d17",
-  "starting_code": "package practice;\n\nimport java.util.function.Function;\n\npublic final class PageCache {\n\n    public PageCache(Function<String, String> fetcher) {\n        throw new UnsupportedOperationException(\"write PageCache\");\n    }\n\n    public String load(String url) {\n        throw new UnsupportedOperationException(\"write load\");\n    }\n\n    public String cached(String url) {\n        throw new UnsupportedOperationException(\"write cached\");\n    }\n\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n",
+  "content_sha256": "d467bdfed11f40f02ec74c7d65393a7492797eedb77f98418aab41ff0336ca73",
+  "starting_code": "package practice;\n\n/**\n * The maintenance window that the status page shows and the deploy gate obeys. Operators\n * reschedule it from the admin console, on-call can cancel it, and every page view reads it,\n * each from its own request thread.\n */\npublic class MaintenanceSchedule {\n\n    /** A window in minutes after midnight UTC: start before end, or NONE when there is no window. */\n    public record Window(int startMinute, int endMinute) {\n        public static final Window NONE = new Window(-1, -1);\n    }\n\n    private final Object lock = new Object();\n    private final Runnable midReschedule;\n    private int startMinute = 120;                  // 02:00\n    private int endMinute = 180;                    // 03:00\n\n    /**\n     * {@code midReschedule} runs inside {@link #reschedule} between its two writes. The tests use\n     * it to pause a reschedule halfway; production passes a no-op.\n     */\n    public MaintenanceSchedule(Runnable midReschedule) {\n        this.midReschedule = midReschedule;\n    }\n\n    public MaintenanceSchedule() {\n        this(() -> { });\n    }\n\n    /** Moves the window. */\n    public void reschedule(int startMinute, int endMinute) {\n        if (startMinute < 0 || startMinute >= endMinute) {\n            throw new IllegalArgumentException(\"start must be before end: \" + startMinute + \"..\" + endMinute);\n        }\n        synchronized (lock) {\n            this.startMinute = startMinute;\n            midReschedule.run();\n            this.endMinute = endMinute;\n        }\n    }\n\n    /** The window as it stands now. */\n    public Window current() {\n        // TODO: The status page calls this on every view while operators reschedule. The page\n        //       must show a window that was really scheduled: one start and the end that went\n        //       with it.\n        throw new IllegalStateException(\"TODO: current\");\n    }\n\n    /** Removes the window: current() is Window.NONE until the next reschedule. */\n    public void cancel() {\n        // TODO: On-call cancels the window, possibly while an operator is moving it. Afterwards\n        //       there must be no window, and no half of one.\n        throw new IllegalStateException(\"TODO: cancel\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-1/src/main/java/practice/PageCache.java",
-    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-1/src/test/java/practice/PageCacheTest.java",
+    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-1/src/main/java/practice/MaintenanceSchedule.java",
+    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-1/src/test/java/practice/MaintenanceScheduleTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -130,24 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PageCacheTest#fetchesOnceAndCaches",
+        "id": "practice.MaintenanceScheduleTest#returnsTheWindowLastScheduled",
         "kind": "main",
-        "says": "load fetches a page the first time and serves it from the cache afterwards."
+        "says": "a window rescheduled on another thread is the window the schedule then returns"
       },
       {
-        "id": "practice.PageCacheTest#aSlowFetchDoesNotBlockReaders",
-        "kind": "edge",
-        "says": "While one thread is fetching, another thread can still read the cache."
+        "id": "practice.MaintenanceScheduleTest#cancelRemovesTheWindowUntilTheNextReschedule",
+        "kind": "main",
+        "says": "after a cancel there is no window, and the next reschedule sets one again"
       },
       {
-        "id": "practice.PageCacheTest#outsideLockingCannotStallTheCache",
+        "id": "practice.MaintenanceScheduleTest#aPageViewDuringARescheduleShowsAWindowThatWasScheduled",
         "kind": "edge",
-        "says": "Code that locks on the cache object itself does not block the cache's own operations."
+        "says": "a read made while a reschedule is halfway through returns the old window or the new one, never the new start with the old end"
       },
       {
-        "id": "practice.PageCacheTest#theLockIsAPrivateFinalField",
+        "id": "practice.MaintenanceScheduleTest#aCancelDuringARescheduleLeavesNoHalfWindow",
         "kind": "edge",
-        "says": "The lock is a dedicated private final field, like every field of the cache."
+        "says": "a cancel made while a reschedule is halfway through waits for it, so no end survives without its start"
       }
     ],
     "report": {
@@ -156,11 +136,11 @@
     },
     "origin": {
       "path": "17-java-memory-model/README_5.1.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Reader That Skips the Lock Can See Two Fields That Were Never Written Together"
     },
     "concepts": [
-      "Lock on a dedicated, private, final object, never on a boxed value, a mutable reference or an object outside code can reach.",
-      "Keep slow work such as I/O outside the lock and hold it only to update shared state."
+      "A lock on a different object neither excludes the writer nor gives an edge to its writes, even when both methods are synchronized.",
+      "A reader that skips the lock can run between a locked writer's writes and see two fields that were never written together; reading under the same lock prevents it."
     ]
   }
 }

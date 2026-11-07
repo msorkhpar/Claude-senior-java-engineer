@@ -1,18 +1,15 @@
-An `Instant` is a point on the UTC timeline; a `LocalDateTime` is a reading of
-a wall clock, with no zone. Converting one into the other always needs a
-`ZoneId`: the same instant is a different wall-clock reading in each zone, and
-the same wall-clock reading is a different instant in each zone.
+A team wiki keeps its pages in a table whose `updated_at` column holds epoch milliseconds. To stop
+two people from overwriting each other, every edit carries the `updated_at` of the version it was
+made from, and the store refuses the edit if that is no longer the current version.
 
-Write `WallClock`:
+`PageStore` creates, reads and saves pages, and it reads time from the `Clock` it is given. Finish
+its two `TODO` methods in `src/main/java/practice/PageStore.java`:
 
-- `static LocalDateTime localAt(Instant instant, ZoneId zone)` returns the
-  date and time a wall clock in `zone` shows at `instant`.
-- `static Instant instantOf(LocalDateTime local, ZoneId zone)` returns the
-  instant at which a wall clock in `zone` shows `local`.
+- `stamp()`: the moment recorded as a new version's `updated_at` and returned to the client;
+- `isCurrent(...)`: whether a client's stamp names the version the column holds.
 
-| call | answer |
-|---|---|
-| `localAt(2024-03-15T18:30:00Z, America/New_York)` | `2024-03-15T14:30` |
-| `localAt(2024-03-15T18:30:00Z, Asia/Tokyo)` | `2024-03-16T03:30` |
-| `instantOf(2024-03-15T14:30, America/New_York)` | `2024-03-15T18:30:00Z` |
-| `instantOf(2024-03-15T14:30, Asia/Tokyo)` | `2024-03-15T05:30:00Z` |
+When you're done, a client can edit a page with the stamp it got from `create`, `read` or `save`,
+and an edit made from a replaced version is refused, however soon after the replacement it
+arrives. About two lines in total.
+
+The tests drive the store with a clock they move by hand, and its readings carry nanoseconds.

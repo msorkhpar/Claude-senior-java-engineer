@@ -1,34 +1,14 @@
-A state machine is the page's first use case: the states are enum constants,
-each state declares its own valid transitions, and `transitionTo` enforces
-them. The page's pitfall is a `moveTo(next)` that just returns `next`.
+The document service checks every request against the user's grants: the base grants of their
+role, plus extra grants an owner gave them, which are stored in the `extra_grants` column as the
+grants' names separated by commas (`COMMENT,SHARE`). Support has two tickets open. Since Monday's
+release, every editor can share documents, although only one editor was ever given that right.
+And the members page fails to open for any user with no extra grants at all.
 
-Fill in each constant's `validTransitions()` from this table, and write the
-three shared methods:
+The role table in `src/main/java/practice/Grants.java` is right. Finish its three `TODO`s:
 
-| state | may move to |
-|---|---|
-| `CREATED` | `PENDING_PAYMENT`, `CANCELLED` |
-| `PENDING_PAYMENT` | `PAID`, `CANCELLED` |
-| `PAID` | `PROCESSING`, `REFUNDED` |
-| `PROCESSING` | `SHIPPED`, `CANCELLED` |
-| `SHIPPED` | `DELIVERED`, `RETURNED` |
-| `DELIVERED` | `RETURNED` |
-| `RETURNED` | `REFUNDED` |
-| `CANCELLED`, `REFUNDED` | nothing (terminal) |
+- `base(...)`: a role's base grants, as handed to the rest of the service;
+- `effective(...)`: what one user may do;
+- `decode(...)`: reading a stored `extra_grants` value.
 
-- `boolean canTransitionTo(OrderState target)`: whether `target` is one of this
-  state's valid transitions.
-- `OrderState transitionTo(OrderState target)`: returns `target` when the move
-  is valid, and throws `IllegalStateException` otherwise.
-- `boolean isTerminal()`: whether the state has no valid transitions.
-
-The enum's states are shared by every order in the program, so a caller that
-changes the set `validTransitions()` returned must not change what the state
-allows.
-
-| call | answer |
-|---|---|
-| `CREATED.transitionTo(PENDING_PAYMENT)` | `PENDING_PAYMENT` |
-| `CREATED.transitionTo(DELIVERED)` | throws `IllegalStateException` |
-| `CANCELLED.isTerminal()` | `true` |
-| `DELIVERED.isTerminal()` | `false` |
+When you're done, nothing a caller does with the sets it receives, and no user's grants, change
+what a role grants, and every value in the column reads back. About ten lines in total.

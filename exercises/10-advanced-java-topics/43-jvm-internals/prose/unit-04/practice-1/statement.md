@@ -1,23 +1,18 @@
-`-Xmx` and `-Xms` set the maximum and initial heap, and `-Xss` each thread's
-stack. In a container, `-XX:MaxRAMPercentage=75.0` sizes the heap as a share
-of the container's memory limit instead. Sizes take a suffix `k`, `m` or `g`
-(**powers of 1024, upper or lower case**); a bare number is bytes.
+The payments service hangs a few times a month, and each time the on-call engineer scrolls through
+a `jcmd <pid> Thread.print` of four hundred threads, looking for the one that everybody else is
+waiting for. The dump has no deadlock section, because there is no cycle. We want a tool that
+reads the dump and answers that question directly.
 
-Write `HeapSizing.parse(args, containerLimitBytes)` that answers:
+`DumpReader` already splits a dump into threads and joins the answers into a report. Finish the
+two `TODO`s in `src/main/java/practice/DumpReader.java`:
 
-- `maxHeapBytes()`: **`-Xmx` when given**, otherwise `MaxRAMPercentage`
-  (default `25.0`) percent of the container limit, rounded down.
-- `threadStackBytes()`: `-Xss`, default 1 MiB.
+- `waitingFor(thread)`: the monitor the thread is blocked trying to enter, or `null`;
+- `held(thread)`: the monitors the thread holds while the dump is taken.
 
-Other arguments are ignored, and when a flag appears twice **the last one
-wins**. An `-Xms` **larger than `-Xmx`** is refused with
-`IllegalArgumentException`, as the JVM refuses to start with that pair.
+When you're done, `whoBlocksWhom(dump)` maps each thread that is blocked on a `synchronized` lock
+to the threads that really hold that lock, and to no one else. Threads that sleep, park or wait
+for a notify are not blocked by anybody. About fifteen lines in total, including any helper you
+add to read a lock line.
 
-| args | container limit | max heap | stack |
-|---|---|---|---|
-| `-Xmx4g -Xss512k` | 8 GiB | 4 GiB | 512 KiB |
-| `-XX:MaxRAMPercentage=75.0` | 8 GiB | 6 GiB | 1 MiB |
-| (none) | 8 GiB | 2 GiB | 1 MiB |
-| `-Xmx2G -XX:MaxRAMPercentage=75.0` | 8 GiB | 2 GiB | 1 MiB |
-| `-Xmx1g -Xmx3g` | 8 GiB | 3 GiB | 1 MiB |
-| `-Xms4g -Xmx2g` | 8 GiB | `IllegalArgumentException` | |
+The tests feed it thread blocks cut from a real Java 21 dump of a payments program, so print one
+with `jcmd` from a small program of your own if you want to see every kind of line first.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Two conditions on one lock",
+  "title": "Cache shipping rates that many checkouts read at once",
   "blocks": [
     {
       "type": "heading",
@@ -19,69 +19,15 @@
     },
     {
       "type": "para",
-      "text": "One `ReentrantLock` can hand out **several** `Condition` objects, each with its own waiting threads: the page's `BoundedQueue` has `notFull` for putters and `notEmpty` for takers. `await()` releases the lock while it waits; `awaitNanos(n)` waits at most `n` nanoseconds and returns how many are left (zero or less once the time is up). The page's pitfall: signalling the wrong condition wakes nobody who can go on."
+      "text": "The shop's checkout asks for a shipping rate on every basket, hundreds of times a second, and the rates change a few times a day. `RateCache` keeps them in memory behind a `ReentrantReadWriteLock`. The tariff job's `replace` is already written. What's missing is the read: answer from the cache, and on a zone that isn't cached yet, ask the slow rates service once, keep the answer and return it."
     },
     {
       "type": "para",
-      "text": "Write `BoundedQueue<T>`, a first-in, first-out queue of at most `capacity` items, with one `ReentrantLock` and two conditions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`void put(T item)` waits while the queue is full.",
-        "`T take()` waits while the queue is empty.",
-        "`T poll(long timeout, TimeUnit unit)` waits **at most** `timeout` for an item and returns `null` if none came.",
-        "`int size()`."
-      ]
+      "text": "Write `rateFor` in `src/main/java/practice/RateCache.java`. Checkouts must be able to read rates side by side without waiting for each other, and a miss must load the rate without stopping the cache. About twelve lines."
     },
     {
       "type": "para",
-      "text": "Wait in a `while` loop that checks the state again after every wake-up, and in `poll` wait only for the time that is left: a wake-up does not promise that the item is still there. The tests cannot force such a wake-up, so they grade the answers, the wake-ups below and the two conditions, not the loop itself."
-    },
-    {
-      "type": "para",
-      "text": "After a change, wake the side that can now go on: a put wakes a waiting taker, and every removal, by `take` **or** `poll`, wakes a waiting putter."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "capacity",
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "2",
-          "`put(\"a\")`, `put(\"b\")`, `size()`, `take()`, `take()`",
-          "`2`, `\"a\"`, `\"b\"`"
-        ],
-        [
-          "2",
-          "another thread waits in `take()`; `put(\"x\")`",
-          "that `take()` returns `\"x\"`"
-        ],
-        [
-          "1",
-          "`put(\"a\")`; another thread waits in `put(\"b\")`; `take()`",
-          "`\"a\"`, and that `put` finishes"
-        ],
-        [
-          "2",
-          "`poll(100_000, MICROSECONDS)` on an empty queue",
-          "`null` after about 100 ms"
-        ],
-        [
-          "2",
-          "another thread waits in `poll(8, SECONDS)`; `put(\"z\")`",
-          "that `poll` returns `\"z\"`"
-        ],
-        [
-          "1",
-          "`put(\"a\")`; another thread waits in `put(\"b\")`; `poll(1, SECONDS)`",
-          "`\"a\"`, and that `put` finishes"
-        ]
-      ]
+      "text": "The tests make each call from a thread of their own, and hold the read lock themselves to stand in for a checkout that is in the middle of a read."
     },
     {
       "type": "heading",
@@ -96,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.Condition;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A bounded first-in, first-out queue on one lock with two conditions. */\npublic final class BoundedQueue<T> {\n\n    private final int capacity;\n    private final Deque<T> items = new ArrayDeque<>();\n    private final ReentrantLock lock = new ReentrantLock();\n    private final Condition notFull = lock.newCondition();\n    private final Condition notEmpty = lock.newCondition();\n\n    public BoundedQueue(int capacity) {\n        this.capacity = capacity;\n    }\n\n    /** Adds an item, waiting while the queue is full. */\n    public void put(T item) throws InterruptedException {\n        lock.lock();\n        try {\n            while (items.size() == capacity) {\n                notFull.await();\n            }\n            items.addLast(item);\n            notEmpty.signal();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Removes the oldest item, waiting while the queue is empty. */\n    public T take() throws InterruptedException {\n        lock.lock();\n        try {\n            while (items.isEmpty()) {\n                notEmpty.await();\n            }\n            T item = items.removeFirst();\n            notFull.signal();\n            return item;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Removes the oldest item, waiting at most {@code timeout}; null if none came. */\n    public T poll(long timeout, TimeUnit unit) throws InterruptedException {\n        long nanos = unit.toNanos(timeout);\n        lock.lock();\n        try {\n            while (items.isEmpty()) {\n                if (nanos <= 0) {\n                    return null;\n                }\n                nanos = notEmpty.awaitNanos(nanos);\n            }\n            T item = items.removeFirst();\n            notFull.signal();\n            return item;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** The number of items held. */\n    public int size() {\n        lock.lock();\n        try {\n            return items.size();\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.function.ToIntFunction;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\n\n/**\n * Shipping rates by destination zone, in cents. Checkout threads read them all day; a zone that\n * isn't cached yet is loaded once from the slow rates service; the tariff job replaces rates.\n */\npublic class RateCache {\n\n    final ReentrantReadWriteLock rw = new ReentrantReadWriteLock();\n    private final Map<String, Integer> rates = new HashMap<>();\n    private final ToIntFunction<String> ratesService;\n\n    public RateCache(ToIntFunction<String> ratesService) {\n        this.ratesService = ratesService;\n    }\n\n    /** The rate for the zone, loaded from the rates service the first time it is asked for. */\n    public int rateFor(String zone) {\n        rw.readLock().lock();\n        try {\n            Integer cached = rates.get(zone);\n            if (cached != null) return cached;\n        } finally {\n            rw.readLock().unlock();\n        }\n        rw.writeLock().lock();\n        try {\n            Integer cached = rates.get(zone);\n            if (cached != null) return cached;\n            int loaded = ratesService.applyAsInt(zone);\n            rates.put(zone, loaded);\n            return loaded;\n        } finally {\n            rw.writeLock().unlock();\n        }\n    }\n\n    /** The tariff job sets a new rate for the zone. */\n    public void replace(String zone, int cents) {\n        rw.writeLock().lock();\n        try {\n            rates.put(zone, cents);\n        } finally {\n            rw.writeLock().unlock();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -108,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A bounded first-in, first-out queue on one lock with two conditions. */\npublic final class BoundedQueue<T> {\n\n    private final int capacity;\n    private final Deque<T> items = new ArrayDeque<>();\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public BoundedQueue(int capacity) {\n        this.capacity = capacity;\n    }\n\n    /** Adds an item, waiting while the queue is full. */\n    public void put(T item) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write put\");\n    }\n\n    /** Removes the oldest item, waiting while the queue is empty. */\n    public T take() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write take\");\n    }\n\n    /** Removes the oldest item, waiting at most {@code timeout}; null if none came. */\n    public T poll(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write poll\");\n    }\n\n    /** The number of items held. */\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.function.ToIntFunction;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\n\n/**\n * Shipping rates by destination zone, in cents. Checkout threads read them all day; a zone that\n * isn't cached yet is loaded once from the slow rates service; the tariff job replaces rates.\n */\npublic class RateCache {\n\n    final ReentrantReadWriteLock rw = new ReentrantReadWriteLock();\n    private final Map<String, Integer> rates = new HashMap<>();\n    private final ToIntFunction<String> ratesService;\n\n    public RateCache(ToIntFunction<String> ratesService) {\n        this.ratesService = ratesService;\n    }\n\n    /** The rate for the zone, loaded from the rates service the first time it is asked for. */\n    public int rateFor(String zone) {\n        // TODO: Answer from the cache; on a miss, load the rate from ratesService, keep it, and\n        //       return it. Checkout threads must be able to read rates side by side, and the\n        //       first miss must not stop the cache.\n        throw new IllegalStateException(\"TODO: rateFor\");\n    }\n\n    /** The tariff job sets a new rate for the zone. */\n    public void replace(String zone, int cents) {\n        rw.writeLock().lock();\n        try {\n            rates.put(zone, cents);\n        } finally {\n            rw.writeLock().unlock();\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -116,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -127,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "97f1415fa08d84181c52781cfa1f22eee6fd8843f62e2913cc0803a6d783d445",
-  "starting_code": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A bounded first-in, first-out queue on one lock with two conditions. */\npublic final class BoundedQueue<T> {\n\n    private final int capacity;\n    private final Deque<T> items = new ArrayDeque<>();\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public BoundedQueue(int capacity) {\n        this.capacity = capacity;\n    }\n\n    /** Adds an item, waiting while the queue is full. */\n    public void put(T item) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write put\");\n    }\n\n    /** Removes the oldest item, waiting while the queue is empty. */\n    public T take() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write take\");\n    }\n\n    /** Removes the oldest item, waiting at most {@code timeout}; null if none came. */\n    public T poll(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write poll\");\n    }\n\n    /** The number of items held. */\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n",
+  "content_sha256": "a78a8d3355d44332a333f5446a0ae0bba1ca4f8e9332a2ecdf0111272b0b73ba",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.function.ToIntFunction;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\n\n/**\n * Shipping rates by destination zone, in cents. Checkout threads read them all day; a zone that\n * isn't cached yet is loaded once from the slow rates service; the tariff job replaces rates.\n */\npublic class RateCache {\n\n    final ReentrantReadWriteLock rw = new ReentrantReadWriteLock();\n    private final Map<String, Integer> rates = new HashMap<>();\n    private final ToIntFunction<String> ratesService;\n\n    public RateCache(ToIntFunction<String> ratesService) {\n        this.ratesService = ratesService;\n    }\n\n    /** The rate for the zone, loaded from the rates service the first time it is asked for. */\n    public int rateFor(String zone) {\n        // TODO: Answer from the cache; on a miss, load the rate from ratesService, keep it, and\n        //       return it. Checkout threads must be able to read rates side by side, and the\n        //       first miss must not stop the cache.\n        throw new IllegalStateException(\"TODO: rateFor\");\n    }\n\n    /** The tariff job sets a new rate for the zone. */\n    public void replace(String zone, int cents) {\n        rw.writeLock().lock();\n        try {\n            rates.put(zone, cents);\n        } finally {\n            rw.writeLock().unlock();\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/src/main/java/practice/BoundedQueue.java",
-    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/src/test/java/practice/BoundedQueueTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/src/main/java/practice/RateCache.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/src/test/java/practice/RateCacheTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -152,44 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BoundedQueueTest#putThenTakeInOrder",
+        "id": "practice.RateCacheTest#ratesSetByTheTariffJobAreServedFromTheCache",
         "kind": "main",
-        "says": "Items come out in the order they went in, and size follows."
+        "says": "rates the tariff job set are answered from the cache, including a replaced one, without calling the rates service"
       },
       {
-        "id": "practice.BoundedQueueTest#putWakesAWaitingTaker",
+        "id": "practice.RateCacheTest#aZoneNotYetCachedIsLoadedOnceAndThenServedFromTheCache",
         "kind": "edge",
-        "says": "A put wakes a taker that waits on an empty queue."
+        "says": "a zone that isn't cached is loaded from the rates service, kept, and answered from the cache the next time"
       },
       {
-        "id": "practice.BoundedQueueTest#takeWakesAWaitingPutter",
+        "id": "practice.RateCacheTest#aCheckoutReadsARateWhileAnotherCheckoutIsReading",
         "kind": "edge",
-        "says": "A take wakes a putter that waits on a full queue."
-      },
-      {
-        "id": "practice.BoundedQueueTest#pollGivesUpWhenEmpty",
-        "kind": "edge",
-        "says": "A timed poll on an empty queue gives up after its timeout and returns null."
-      },
-      {
-        "id": "practice.BoundedQueueTest#pollWaitsForALatePut",
-        "kind": "edge",
-        "says": "A timed poll on an empty queue waits, and returns an item put before its timeout."
-      },
-      {
-        "id": "practice.BoundedQueueTest#pollWakesAWaitingPutter",
-        "kind": "edge",
-        "says": "A successful poll, like a take, wakes a putter that waits on a full queue."
-      },
-      {
-        "id": "practice.BoundedQueueTest#twoSeparateConditions",
-        "kind": "edge",
-        "says": "The queue keeps two separate Condition objects, one for putters and one for takers, not one shared by both."
-      },
-      {
-        "id": "practice.BoundedQueueTest#thePollTimeoutIsKeptExactly",
-        "kind": "edge",
-        "says": "poll's timeouts of 250,000 microseconds and 1,600 ms are waited in full: the unit is honoured, nothing rounded to seconds."
+        "says": "a checkout gets a cached rate while another checkout is in the middle of a read"
       }
     ],
     "report": {
@@ -198,12 +119,11 @@
     },
     "origin": {
       "path": "22-locks-semaphores/README_6.3.1.md",
-      "section": "Condition Objects"
+      "section": "A Read-Write Lock Lets Readers Share, but a Reader Can't Upgrade"
     },
     "concepts": [
-      "One lock can create several Conditions, so producers and consumers wait in separate sets and each change wakes the side that can proceed.",
-      "Signalling the wrong Condition wakes nobody who can proceed, leaving the right waiter parked.",
-      "awaitNanos returns the time left, so a timed wait loops until its state holds or the time is used up and then reports failure."
+      "A thread holding the read lock that asks for the write lock waits for itself forever, and new readers and writers queue behind it; release the read lock first, and downgrading is allowed.",
+      "Any number of threads can hold a read lock together, while the write lock excludes readers and writers."
     ]
   }
 }

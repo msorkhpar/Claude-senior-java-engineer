@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "09-design-patterns",
+    "37-structural-patterns"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "ordinal": 3,
+  "title": "Check yourself: decorators",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-finish-under-writer",
+        "stem": "A service streams a CSV report over a socket it keeps open for later messages. It builds `GZIPOutputStream gz = new GZIPOutputStream(socketOut)` and `BufferedWriter w = new BufferedWriter(new OutputStreamWriter(gz, UTF_8))`, writes 3,000 rows with `w.write(...)`, then calls `gz.finish()` and returns. What can the receiver do with the bytes it got?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Decompress them without an error and find the last rows missing, since rows still held by the writer never reached the compressor",
+            "correct": true,
+            "says": "finish() completes only what has reached the compressor; the writer above it still held the last rows, so the data is valid but short"
+          },
+          {
+            "id": "b",
+            "text": "Decompress them without an error and find every row, since finish() takes what the writer holds before it writes the trailer",
+            "correct": false,
+            "says": "finish() has no reference to the layers above it; it completes only what it has already received"
+          },
+          {
+            "id": "c",
+            "text": "Fail to decompress them, since finish() leaves the GZIP trailer in the writer's buffer until the writer is flushed",
+            "correct": false,
+            "says": "the trailer goes down into socketOut, the stream the compressor wraps; the writer sits above the compressor"
+          },
+          {
+            "id": "d",
+            "text": "Fail to decompress them, since GZIP data is only complete once the stream under the compressor has been closed",
+            "correct": false,
+            "says": "finish() writes the rest of the data and the trailer without closing the stream below"
+          }
+        ],
+        "origin": {
+          "path": "37-structural-patterns/README_9.2.2.md",
+          "section": "finish() Completes the GZIP Data Without Closing, but Only What Has Reached the Compressor"
+        }
+      },
+      {
+        "id": "q-data-output-buffer",
+        "stem": "A job writes 1,000,000 `long` values, one `writeLong` call each, into `new DataOutputStream(new GZIPOutputStream(new BufferedOutputStream(fileOut)))`. A profile shows most of the time in the `Deflater`. Which change makes the `Deflater` run fewer times?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Add a BufferedOutputStream between the GZIPOutputStream and the existing buffer, since the compressor then gets fewer writes",
+            "correct": false,
+            "says": "that buffer is below the compressor: it collects the compressor's output and changes nothing about the writes going into the Deflater"
+          },
+          {
+            "id": "b",
+            "text": "Add a BufferedOutputStream between the existing buffer and fileOut, since the compressor then gets fewer writes",
+            "correct": false,
+            "says": "a buffer under the compressor changes the writes into the file, not the writes the Deflater is given"
+          },
+          {
+            "id": "c",
+            "text": "Add a BufferedOutputStream between the DataOutputStream and the GZIPOutputStream, since the compressor then gets fewer writes",
+            "correct": true,
+            "says": "a buffer above the compressor turns many small writes into few large ones before they reach the Deflater"
+          },
+          {
+            "id": "d",
+            "text": "Enlarge the existing buffer between the GZIPOutputStream and fileOut, since the compressor then gets fewer writes",
+            "correct": false,
+            "says": "the existing buffer is below the compressor; a larger one cuts file writes, not the writes the Deflater is given"
+          }
+        ],
+        "origin": {
+          "path": "37-structural-patterns/README_9.2.2.md",
+          "section": "Buffer Above the Compressor: the Order Decides How Many Calls Reach Each Layer"
+        }
+      },
+      {
+        "id": "q-merge-through-decorator",
+        "stem": "Per-client request counts live in a `ConcurrentHashMap<String, Long>`, wrapped in `AuditedMap extends AbstractMap`, which logs each write and forwards to the map the methods `AbstractMap` needs. Eight threads each call `counts.merge(\"client-7\", 1L, Long::sum)` 10,000 times on the `AuditedMap`. What does `counts.get(\"client-7\")` return afterwards?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Always 80,000, since merge goes to ConcurrentHashMap.merge, which locks the key for the whole get-and-put",
+            "correct": false,
+            "says": "AuditedMap doesn't override merge, so Map's default runs on the decorator and ConcurrentHashMap's merge is never called"
+          },
+          {
+            "id": "b",
+            "text": "Always 80,000, since the merge AbstractMap inherits locks the wrapper for the whole get-and-put",
+            "correct": false,
+            "says": "the default makes no guarantees about synchronization or atomicity; nothing holds a lock between its get and its put"
+          },
+          {
+            "id": "c",
+            "text": "Usually less than 80,000, since merge runs Map's get-and-put on the wrapper, with no lock between the two",
+            "correct": true,
+            "says": "the default merge runs on the decorator as separate get and put calls, so concurrent increments overwrite each other"
+          },
+          {
+            "id": "d",
+            "text": "Usually less than 80,000, since put on the wrapper runs outside ConcurrentHashMap's lock, so two puts can tear",
+            "correct": false,
+            "says": "each forwarded put is still one atomic put on the ConcurrentHashMap; the updates are lost between the get and the put"
+          }
+        ],
+        "origin": {
+          "path": "37-structural-patterns/README_9.2.2.md",
+          "section": "A Decorator That Doesn't Override a Default Method Runs the Interface's Code, Not the Wrapped Object's"
+        }
+      },
+      {
+        "id": "q-synchronized-collection-set",
+        "stem": "A registry keeps a `HashSet<Collection<String>>` of topic lists that are already subscribed. A client registers `Collections.synchronizedCollection(topics)` twice, with the same `topics` list object both times. How many entries does the set hold?",
+        "options": [
+          {
+            "id": "a",
+            "text": "One, since both wrappers pass equals and hashCode on to the topics list",
+            "correct": false,
+            "says": "synchronizedCollection keeps Object's identity equals and hashCode; only the List, Set and Map wrappers forward them"
+          },
+          {
+            "id": "b",
+            "text": "One, since both calls return the same wrapper object for the same list",
+            "correct": false,
+            "says": "each call creates a new wrapper object around the list"
+          },
+          {
+            "id": "c",
+            "text": "Two, since both wrappers keep Object's equals and hashCode, and are two objects",
+            "correct": true,
+            "says": "a Collection wrapper can't tell whether its contents follow List or Set equality, so it keeps identity, and the two wrappers are two objects"
+          },
+          {
+            "id": "d",
+            "text": "Two, since both wrappers pass equals on to the list but keep Object's hashCode",
+            "correct": false,
+            "says": "synchronizedCollection forwards neither equals nor hashCode; both are Object's"
+          }
+        ],
+        "origin": {
+          "path": "37-structural-patterns/README_9.2.2.md",
+          "section": "A Decorator Is Another Object: equals Is Forwarded Only Where the Interface Defines It"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "19-concurrency-pitfalls"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "ordinal": 3,
+  "title": "Check yourself: finding and fixing visibility bugs",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-halt-under-xint",
+        "stem": "An order-matching thread runs `while (!halted) { matchNext(); }`, where `halted` is a plain boolean field that an admin thread sets. In production the thread now and then keeps matching after a halt. A developer runs the service for a day with `-Xint`, then for a day with the loop's method excluded from compilation, and the halt works every time in both. What should they conclude?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The compiled loop reads `halted` once and loops on that value, since no edge orders the admin thread's write before the loop's reads",
+            "correct": true,
+            "says": "the switches only change which code runs; C2 may hoist a plain read because no happens-before edge leads from the write to it, so the fix is an edge"
+          },
+          {
+            "id": "b",
+            "text": "The compiled loop reads `halted` wrongly because of a JIT bug, since compiled and interpreted code must run a program the same way",
+            "correct": false,
+            "says": "the memory model allows the compiled loop to read the plain field once; the interpreter reading it every turn is a choice, not a promise"
+          },
+          {
+            "id": "c",
+            "text": "The halt needs the admin thread's core to flush its cache, since a plain write to `halted` reaches other cores only after a flush",
+            "correct": false,
+            "says": "the hardware keeps caches coherent; the interpreter on the same hardware sees the write, so the stale value is the compiled code's"
+          },
+          {
+            "id": "d",
+            "text": "The halt needs the loop's method kept out of the JIT, since interpreted code reads `halted` on every turn",
+            "correct": false,
+            "says": "a run with the method excluded proves nothing about the production JVM; the fix is an edge such as volatile, a lock or an atomic class"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.3.md",
+          "section": "A Visibility Bug Disappears Under -Xint, C1, a Breakpoint or a Log Line: That Is the Diagnosis, Not a Fix"
+        }
+      },
+      {
+        "id": "q-catalog-map-put",
+        "stem": "An inventory service keeps `volatile Catalog catalog`, and `Catalog` holds a plain `HashMap<String, Integer> prices`. A pricing job runs `catalog.prices.put(\"sku-9\", 1299)`. Checkout threads run `catalog.prices.get(\"sku-9\")` on every request. What does the memory model promise the checkout threads?",
+        "options": [
+          {
+            "id": "a",
+            "text": "They are promised the new price on their next request, since each of them reads the volatile `catalog` field before it reads the map",
+            "correct": false,
+            "says": "a volatile read publishes nothing by itself; only a volatile write orders the writes before it, and the job makes none"
+          },
+          {
+            "id": "b",
+            "text": "They are promised the new price once the job then writes a volatile `lastPricedAt` field, since a volatile write publishes every earlier write to all threads",
+            "correct": false,
+            "says": "a volatile write publishes only to a reader that reads that same field and sees the value; the checkout threads never read lastPricedAt"
+          },
+          {
+            "id": "c",
+            "text": "They are not promised the new price, since the job's `put` reads the volatile `catalog` field but never writes it",
+            "correct": true,
+            "says": "the put is a volatile read of catalog followed by plain writes inside the map; replacing the Catalog would be the volatile write that publishes"
+          },
+          {
+            "id": "d",
+            "text": "They are not promised the new price, since each checkout thread keeps its own cached copy of the volatile `catalog` field",
+            "correct": false,
+            "says": "no cache hides a write, since caches are coherent, and each checkout reads catalog afresh; the gap is that the job never writes catalog, only plain fields inside the map"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.3.md",
+          "section": "volatile Covers Reads of the Field, Not the Object It Points To"
+        }
+      },
+      {
+        "id": "q-tenant-flags-parameter",
+        "stem": "A rate limiter keeps one switch per tenant in `private volatile int[] throttled`. A control thread runs `throttled[7] = 1`. Tenant 7's worker runs `drain(throttled, 7)`, where `drain(int[] t, int tenant)` loops `while (t[tenant] == 0) { serveNext(); }`. What does the memory model promise about the worker?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It is not guaranteed to stop, since the control thread's element write and the worker's element reads are plain accesses",
+            "correct": true,
+            "says": "volatile covers the field holding the array reference; t[tenant] reads an element through a plain parameter, with no edge from the control thread's element write"
+          },
+          {
+            "id": "b",
+            "text": "It is not guaranteed to stop, since an array passed as a parameter is copied when the call starts",
+            "correct": false,
+            "says": "Java passes the reference, not a copy of the array; the problem is that element accesses are plain"
+          },
+          {
+            "id": "c",
+            "text": "It is guaranteed to stop at its next check, since the elements of an array held in a volatile field are volatile too",
+            "correct": false,
+            "says": "a volatile array gives its elements no edge; AtomicIntegerArray or a VarHandle on every access does"
+          },
+          {
+            "id": "d",
+            "text": "It is guaranteed to stop at its next check, since writing an element also writes the volatile field holding the array",
+            "correct": false,
+            "says": "throttled[7] = 1 reads the field and writes the element; the field itself is never written"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.3.md",
+          "section": "A volatile Array Gives Its Elements No Edge: Use AtomicIntegerArray or a VarHandle"
+        }
+      },
+      {
+        "id": "q-report-holds-flags",
+        "stem": "A feature-flag client publishes each poll's flags as a new `Flags` record in a volatile field. At 09:00 a report job runs `Flags f = client.flags()` and then calls `f.enabled(\"new-tax-rules\")` before each of its 40,000 invoices, which take two hours. At 09:30 the flag is turned off and the next poll publishes new flags. Which flag value do the invoices after 09:30 use?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The value from 09:00, since the poll's write reaches threads that start after it, and the thread holding `f` started before",
+            "correct": false,
+            "says": "a thread that reads the volatile field after the write sees the new record, whenever it started; the once-per-charge worker was running before the pause and saw it"
+          },
+          {
+            "id": "b",
+            "text": "The value from 09:00, since `f` goes on pointing to the record it was given, whatever the field holds later",
+            "correct": true,
+            "says": "f keeps the record client.flags() returned at 09:00; a snapshot reaches a reader only when it reads the field again"
+          },
+          {
+            "id": "c",
+            "text": "The new value, since a volatile write of a new record also changes the record that `f` points to",
+            "correct": false,
+            "says": "the volatile write puts a new record in the field; the record the job already holds is a different object and doesn't change"
+          },
+          {
+            "id": "d",
+            "text": "The new value, since each call to `enabled` through `f` reads the volatile field again",
+            "correct": false,
+            "says": "f is a local copy of the reference; calls through it never touch the volatile field, so they keep asking the 09:00 record"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.3.md",
+          "section": "Settings Are One Immutable Snapshot, Replaced Whole and Read Once per Unit of Work"
+        }
+      }
+    ]
+  }
+}

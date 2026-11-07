@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "The two-phase shutdown",
+  "title": "Stop the invoice workers within a deploy's grace period",
   "blocks": [
     {
       "type": "heading",
@@ -19,50 +19,24 @@
     },
     {
       "type": "para",
-      "text": "The page's shutdown idiom has two phases. `shutdown()` stops new work but lets running and queued tasks finish, and `awaitTermination()` waits for them. If they do not finish in time, `shutdownNow()` interrupts the running tasks and returns the ones that never started, and a second `awaitTermination()` waits again. Its edge cases add: if the waiting thread is interrupted, fall back to `shutdownNow()` and re-interrupt the thread."
+      "text": "The invoice service takes invoice runs from a message broker and hands them to a worker pool. On a deploy the orchestrator gives the old process a grace period, then kills it. Two things go wrong today: runs that would have finished in a few seconds are cut off, and the runs that were waiting in the pool are simply lost, so customers miss their invoices until someone notices."
     },
     {
       "type": "para",
-      "text": "Write `Shutdown.close(executor, timeout, unit)`, returning the tasks that never started (an empty list when none were dropped):"
+      "text": "Write `stop(pool, grace, unit)` in `src/main/java/practice/Drain.java`, called by the deploy's shutdown hook:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "phase 1: `shutdown()`, then wait up to `timeout` for termination;",
-        "phase 2, only if phase 1 timed out: `shutdownNow()`, then wait up to `timeout` once more, and return (a task that ignores its interrupt may still be running);",
-        "if the calling thread is interrupted while it waits: `shutdownNow()`, restore its interrupt flag, and return what `shutdownNow()` returned."
+        "work the pool already has, running or waiting, gets the grace period to finish, and `stop` returns only when it has finished or the grace period is over;",
+        "what is still running after the grace period is asked to stop, and gets one more grace period to do so; the runs that never started are returned, so the hook can put them back on the broker;",
+        "if the orchestrator interrupts the hook while `stop` waits, stop the pool at once, return what never started, and leave the hook's thread able to see that it was interrupted."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "a single-thread executor holding",
-        "`close(executor, t, unit)` returns",
-        "and"
-      ],
-      "rows": [
-        [
-          "one finished task",
-          "`[]`",
-          "the executor is terminated"
-        ],
-        [
-          "a running task that ends soon, and two queued tasks",
-          "`[]`",
-          "all three tasks ran"
-        ],
-        [
-          "a running task that never ends, and one queued task",
-          "the queued task",
-          "the running task was interrupted, and the executor is terminated when `close` returns"
-        ],
-        [
-          "a running task that never ends, the caller then interrupted",
-          "",
-          "the caller's interrupt flag is set, the executor terminates"
-        ]
-      ]
+      "type": "para",
+      "text": "About twelve lines in total. The tests call `stop` on a thread of their own and use a pool with one worker."
     },
     {
       "type": "heading",
@@ -77,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\npublic final class Shutdown {\n\n    private Shutdown() {\n    }\n\n    /** Shuts the executor down in two phases and returns the tasks that never started. */\n    public static List<Runnable> close(ExecutorService executor, long timeout, TimeUnit unit) {\n        executor.shutdown();\n        try {\n            if (executor.awaitTermination(timeout, unit)) {\n                return List.of();\n            }\n            List<Runnable> dropped = executor.shutdownNow();\n            executor.awaitTermination(timeout, unit);\n            return dropped;\n        } catch (InterruptedException e) {\n            List<Runnable> dropped = executor.shutdownNow();\n            Thread.currentThread().interrupt();\n            return dropped;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\n/** Stops the invoice service's worker pool when the service is redeployed. */\npublic class Drain {\n\n    /**\n     * Stops the pool within the deploy's grace period and returns the tasks that never started,\n     * so the caller can put them back on the message broker. Called by the deploy's shutdown hook.\n     */\n    public static List<Runnable> stop(ExecutorService pool, long grace, TimeUnit unit) {\n        pool.shutdown();\n        try {\n            if (pool.awaitTermination(grace, unit)) return List.of();\n            List<Runnable> neverStarted = pool.shutdownNow();\n            pool.awaitTermination(grace, unit);\n            return neverStarted;\n        } catch (InterruptedException e) {\n            List<Runnable> neverStarted = pool.shutdownNow();\n            Thread.currentThread().interrupt();\n            return neverStarted;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -89,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\npublic final class Shutdown {\n\n    private Shutdown() {\n    }\n\n    /** Shuts the executor down in two phases and returns the tasks that never started. */\n    public static List<Runnable> close(ExecutorService executor, long timeout, TimeUnit unit) {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\n/** Stops the invoice service's worker pool when the service is redeployed. */\npublic class Drain {\n\n    /**\n     * Stops the pool within the deploy's grace period and returns the tasks that never started,\n     * so the caller can put them back on the message broker. Called by the deploy's shutdown hook.\n     */\n    public static List<Runnable> stop(ExecutorService pool, long grace, TimeUnit unit) {\n        // TODO: The orchestrator gives each deploy a grace period before it kills the process.\n        //       Let the work already handed to the pool finish if it can within the grace\n        //       period; past it, stop what is still running, and hand back what never started.\n        throw new IllegalStateException(\"TODO: stop\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,9 +71,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -108,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6ac7aa6dab93b5c76d9acb42f1443b7ccb8b6af9e691d019adc9d52c9b5aa5ac",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\npublic final class Shutdown {\n\n    private Shutdown() {\n    }\n\n    /** Shuts the executor down in two phases and returns the tasks that never started. */\n    public static List<Runnable> close(ExecutorService executor, long timeout, TimeUnit unit) {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n}\n",
+  "content_sha256": "8781612d6970918d79a1ad8a50d823c61ef59c26ccbb811b0403073e13813c37",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\n/** Stops the invoice service's worker pool when the service is redeployed. */\npublic class Drain {\n\n    /**\n     * Stops the pool within the deploy's grace period and returns the tasks that never started,\n     * so the caller can put them back on the message broker. Called by the deploy's shutdown hook.\n     */\n    public static List<Runnable> stop(ExecutorService pool, long grace, TimeUnit unit) {\n        // TODO: The orchestrator gives each deploy a grace period before it kills the process.\n        //       Let the work already handed to the pool finish if it can within the grace\n        //       period; past it, stop what is still running, and hand back what never started.\n        throw new IllegalStateException(\"TODO: stop\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-3/src/main/java/practice/Shutdown.java",
-    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-3/src/test/java/practice/ShutdownTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-3/src/main/java/practice/Drain.java",
+    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-3/src/test/java/practice/DrainTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -133,39 +107,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ShutdownTest#anIdlePoolClosesWithNothingLeft",
+        "id": "practice.DrainTest#anIdlePoolStopsAndHandsNothingBack",
         "kind": "main",
-        "says": "A pool whose tasks are done terminates and leaves no task behind."
+        "says": "an idle pool stops, and nothing is handed back"
       },
       {
-        "id": "practice.ShutdownTest#queuedTasksStillRun",
+        "id": "practice.DrainTest#queuedWorkThatEndsWithinTheGraceStillRuns",
         "kind": "edge",
-        "says": "The first phase stops new work but lets the running and queued tasks finish."
+        "says": "invoice runs still waiting in the queue run to the end when they finish within the grace period"
       },
       {
-        "id": "practice.ShutdownTest#aStuckTaskIsForced",
+        "id": "practice.DrainTest#stopReturnsOnlyOnceTheWorkHasEnded",
         "kind": "edge",
-        "says": "When the first phase times out, the second interrupts the running task, waits for the executor to terminate, and returns the tasks that never started."
+        "says": "stop() does not return while an invoice run is still going and the grace period lasts"
       },
       {
-        "id": "practice.ShutdownTest#anInterruptedCallerForcesAndKeepsTheFlag",
+        "id": "practice.DrainTest#workThatOutlivesTheGraceIsInterruptedAndTheQueueHandedBack",
         "kind": "edge",
-        "says": "A caller interrupted while it waits forces the shutdown and keeps its interrupt flag set."
+        "says": "past the grace period the running invoice run is interrupted, and the runs that never started are handed back"
       },
       {
-        "id": "practice.ShutdownTest#anInterruptedCallerGetsTheDroppedTasks",
+        "id": "practice.DrainTest#aDeployerInterruptedWhileItWaitsStopsThePoolAndKeepsItsFlag",
         "kind": "edge",
-        "says": "An interrupted close still returns what shutdownNow() returned: the queued task that never started."
-      },
-      {
-        "id": "practice.ShutdownTest#theTimeoutUnitIsHonoured",
-        "kind": "edge",
-        "says": "close(executor, 300, MILLISECONDS) reads the timeout in the unit given, so it returns in well under a second per phase."
-      },
-      {
-        "id": "practice.ShutdownTest#phaseTwoIsBoundedToo",
-        "kind": "edge",
-        "says": "When a task ignores its interrupt, phase 2 still waits only up to the timeout, then close returns."
+        "says": "a deployer interrupted while it waits stops the pool at once, hands back the queued runs, and keeps its interrupt flag"
       }
     ],
     "report": {
@@ -174,12 +138,10 @@
     },
     "origin": {
       "path": "23-executors/README_6.4.1.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "shutdown() Stops Intake, Not Work: Wait for It With awaitTermination()"
     },
     "concepts": [
-      "A thread interrupted during awaitTermination() falls back to shutdownNow() and re-interrupts itself.",
-      "shutdown() stops new work but finishes running and queued tasks; shutdownNow() interrupts running tasks and returns the ones never started.",
-      "The two-phase idiom calls shutdown() and awaitTermination(), and falls back to shutdownNow() when the wait times out."
+      "shutdown() refuses new tasks and returns at once while running and queued tasks still run; awaitTermination waits, and shutdownNow() is the fallback when it times out."
     ]
   }
 }

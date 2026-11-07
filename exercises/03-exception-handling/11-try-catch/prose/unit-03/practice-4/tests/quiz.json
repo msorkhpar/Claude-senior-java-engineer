@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "03-exception-handling",
+    "11-try-catch"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "ordinal": 4,
+  "title": "Check yourself: what finally guarantees",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-sigterm-lock-file",
+        "stem": "A batch worker creates `batch.lock` when a job starts and deletes it in the `finally` around the job. On deploy the orchestrator sends SIGTERM to the JVM, waits 30 seconds, then starts the new version; the service registers no shutdown hook of its own. A job that takes ten minutes was running. The new version refuses to start because `batch.lock` still exists. Why?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It never ran, since the JVM ran its shutdown sequence and then halted the worker thread where it was",
+            "correct": true,
+            "says": "SIGTERM starts the shutdown sequence: hooks run, then the JVM halts, and threads still in try never run their finally"
+          },
+          {
+            "id": "b",
+            "text": "It never ran, since SIGTERM skips the shutdown sequence and halts the worker thread where it was, as SIGKILL does",
+            "correct": false,
+            "says": "SIGTERM does run the shutdown sequence (the shutdown hook ran on SIGTERM); only SIGKILL and halt skip it"
+          },
+          {
+            "id": "c",
+            "text": "It ran once SIGTERM interrupted the worker thread, but the job still held the file open, so the delete failed",
+            "correct": false,
+            "says": "the shutdown sequence doesn't interrupt application threads; the JVM halts them where they are, so finally never ran"
+          },
+          {
+            "id": "d",
+            "text": "It ran once SIGTERM interrupted the worker thread, but the new version started before the delete reached the disk",
+            "correct": false,
+            "says": "the shutdown sequence doesn't interrupt application threads, so the finally never ran at all"
+          }
+        ],
+        "origin": {
+          "path": "11-try-catch/README_3.1.3.md",
+          "section": "finally Runs Only When the Thread Leaves try: exit, halt and a Killed JVM Skip It"
+        }
+      },
+      {
+        "id": "q-token-reset",
+        "stem": "A rate limiter has `int takeAll() { try { return tokens; } finally { tokens = 0; } }`, where `tokens` is an `int` field. With `tokens` at 7, a caller runs `int got = limiter.takeAll();`. What are `got` and `tokens` afterwards?",
+        "options": [
+          {
+            "id": "a",
+            "text": "`got` is 7 and `tokens` is 0, since the `return` read the field before the reset ran",
+            "correct": true,
+            "says": "the return evaluated tokens, 7, before finally ran; the reset changed the field, not the value already being returned"
+          },
+          {
+            "id": "b",
+            "text": "`got` is 0 and `tokens` is 0, since the reset ran before the `return` read the field",
+            "correct": false,
+            "says": "finally does run before the method returns, but the return's value was evaluated first"
+          },
+          {
+            "id": "c",
+            "text": "`got` is 7 and `tokens` is 7, since the `return` left the method before the reset could run",
+            "correct": false,
+            "says": "finally runs on every way out of try, return included"
+          },
+          {
+            "id": "d",
+            "text": "`got` is 0 and `tokens` is 7, since the `return` passed the field by reference and the reset changed it",
+            "correct": false,
+            "says": "an int is returned as a value, not a reference; only a mutable object returned by reference can be changed by finally"
+          }
+        ],
+        "origin": {
+          "path": "11-try-catch/README_3.1.3.md",
+          "section": "A return Fixes Its Value Before finally Runs, but the Object Can Still Change"
+        }
+      },
+      {
+        "id": "q-three-throws",
+        "stem": "A DAO method runs a query; its `catch (SQLException e)` throws `new DataAccessException(\"load failed\", e)`, and its `finally` calls `conn.close()`. One night the query fails with a deadlock and `conn.close()` then throws `SQLException: connection reset`. What does the caller's log show?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The reset, with no cause and nothing suppressed, since the `finally`'s exception replaced the one in flight",
+            "correct": true,
+            "says": "an exception thrown from finally replaces the one in flight; nothing attaches the earlier ones to it"
+          },
+          {
+            "id": "b",
+            "text": "The reset, with the `DataAccessException` as its cause, since the JVM links the `finally`'s exception to the one in flight",
+            "correct": false,
+            "says": "nothing links them: the caller sees C with no cause and no suppressed exception"
+          },
+          {
+            "id": "c",
+            "text": "The `DataAccessException`, with the deadlock as its cause, since an exception from `catch` wins over one from `finally`",
+            "correct": false,
+            "says": "the finally's own throw ends it and replaces whatever was in flight, including one thrown from catch"
+          },
+          {
+            "id": "d",
+            "text": "The `DataAccessException`, with the reset suppressed on it, since the JVM records the `finally`'s exception on the one in flight",
+            "correct": false,
+            "says": "only code that calls addSuppressed, such as the nested cleanup or try-with-resources, records a suppressed exception; a plain finally doesn't"
+          }
+        ],
+        "origin": {
+          "path": "11-try-catch/README_3.1.3.md",
+          "section": "An Exception From finally Replaces the One in Flight and Skips the Cleanup After It"
+        }
+      },
+      {
+        "id": "q-daemon-upload",
+        "stem": "A command-line tool starts a daemon thread that uploads a report and deletes the local temp copy in its `finally`. `main` prints `done` and returns while the upload is still in progress, and nothing else runs. What happens to the temp copy?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It stays on disk, since the JVM exits once `main` returns and halts the daemon thread where it is",
+            "correct": true,
+            "says": "with no non-daemon thread left the JVM shuts down and halts the daemon thread where it is; its finally doesn't run"
+          },
+          {
+            "id": "b",
+            "text": "It stays on disk, since a daemon thread skips its `finally` even when its `try` ends normally",
+            "correct": false,
+            "says": "a daemon thread runs finally like any thread when it leaves try; it is skipped only because the JVM ends first"
+          },
+          {
+            "id": "c",
+            "text": "It is deleted, since the JVM waits for the daemon thread's `finally` before it exits",
+            "correct": false,
+            "says": "the JVM doesn't wait for daemon threads; it halts them, and finally clauses are not executed"
+          },
+          {
+            "id": "d",
+            "text": "It is deleted, since the JVM interrupts the daemon thread at exit, which unwinds it through its `finally`",
+            "correct": false,
+            "says": "the JVM doesn't interrupt daemon threads at exit; it halts them where they are"
+          }
+        ],
+        "origin": {
+          "path": "11-try-catch/README_3.1.3.md",
+          "section": "finally Runs Only When the Thread Leaves try: exit, halt and a Killed JVM Skip It"
+        }
+      }
+    ]
+  }
+}

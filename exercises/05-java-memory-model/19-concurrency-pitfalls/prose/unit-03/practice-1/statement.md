@@ -1,24 +1,14 @@
-The page's `PiggybackingExample` writes plain fields first and a `volatile`
-flag last. A reader that sees the flag set is guaranteed to see every write
-made before it: the plain writes **piggyback** on the one volatile write.
+The mail service checks every outgoing message against its delivery rules: which recipient domains
+are blocked, and the largest message each domain accepts. Dozens of send threads read the rules for
+every message, thousands of times a second, and must never wait for a lock. The admin API changes
+the rules when a domain starts bouncing or a partner asks for a smaller limit.
 
-Write `ReportBoard`, a one-shot board that one writer thread publishes to
-and any number of reader threads read from.
+Support has two complaints. During a busy hour of rule changes, a send thread that had read the
+rules for a message saw them change while it was still checking that message. And after a block,
+one send thread went on sending to the blocked domain for half an hour.
 
-- `publish(String title, int total)` stores the report. The board is written
-  **once**: a second `publish` throws `IllegalStateException` and changes
-  nothing. A `null` title throws `NullPointerException`.
-- `read()` returns `Optional.of(new Report(title, total))` once the board is
-  published, and `Optional.empty()` before.
-
-Keep `title` and `total` in plain (non-volatile) fields and the "published"
-state in one `boolean` flag that makes them visible to readers. Follow the
-page's order as well: the writer writes the data first and the flag last, and
-a reader reads the flag first. The tests check the flag but cannot check that
-order, because the interleaving a wrong order breaks cannot be forced.
-
-| calls | `read()` |
-|---|---|
-| none | `Optional.empty()` |
-| `publish("Q3 sales", 1250)` | `Optional[Report[title=Q3 sales, total=1250]]` |
-| `publish("Q3 sales", 1250)`, then `publish("Q4", 7)` | the second call throws; still the Q3 report |
+Finish the three `TODO`s of `Store` in `src/main/java/practice/DeliveryRules.java`: `block`,
+`unblock` and `setMaxSizeKb`. Changes come from one admin thread at a time. When you're done, every
+change applies to the rules read after it, and rules a send thread has already read keep answering
+as they did when it read them, so a message is never checked against rules that change under it. You may
+change how `Store` holds the rules. About ten lines in total.

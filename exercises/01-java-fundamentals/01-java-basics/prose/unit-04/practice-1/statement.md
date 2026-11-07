@@ -1,12 +1,16 @@
-On two `int`s, `/` truncates toward zero and `%` takes the sign of the dividend:
-`-1 / 10` is `0`, and `-1 % 5` is `-1`. That is right for some jobs and wrong for
-others. `Math.floorDiv` and `Math.floorMod` round toward negative infinity instead.
+The canary analysis compares latency before and after a rollout. Every latency sample is stamped
+with its offset in milliseconds from the moment the rollout started, so samples taken before it
+have negative offsets, and they are counted in fixed windows held in a small ring of slots.
 
-Write two methods in `FloorArithmetic` (`size` and `width` are always positive):
+Three things are wrong on the dashboard: the old version's last slow samples show up in the new
+version's first window, recording any sample from before the rollout throws
+`ArrayIndexOutOfBoundsException`, and a window shows 0% slow unless every sample in it was slow.
 
-1. `wrap(int index, int size)` returns `index` wrapped into `0..size-1`, as on a
-   circular buffer: `wrap(7, 5)` is `2`, and a negative index counts back from
-   the end, so `wrap(-1, 5)` is `4`.
-2. `bucket(int value, int width)` returns which bucket of `width` values `value`
-   falls in, where bucket `0` is `0..width-1`, bucket `1` is `width..2*width-1`,
-   and bucket `-1` is `-width..-1`: `bucket(25, 10)` is `2` and `bucket(-1, 10)` is `-1`.
+`SampleWindows` already records and reports. Finish the three `TODO` methods in
+`src/main/java/practice/SampleWindows.java`:
+
+- `window(offsetMs)`: the window a sample falls in, as its comment defines it;
+- `slot(window)`: the slot that holds a window's counts;
+- `slowPercent(slow, total)`: the share of slow samples, as a whole percentage rounded down.
+
+About three lines in total.

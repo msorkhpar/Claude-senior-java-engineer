@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "One method in place of a validation framework",
+  "title": "Convert card payments at a rate that is never stale",
   "blocks": [
     {
       "type": "heading",
@@ -19,29 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's first pitfall is an email check built as a rule framework:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// VIOLATION: Over-engineered email validation\ninterface ValidationRule { boolean validate(String input); }\nclass NotNullRule implements ValidationRule { ... }\nclass NotEmptyRule implements ValidationRule { ... }\nclass ContainsAtRule implements ValidationRule { ... }\n// ... 5 more classes for a simple email check"
+      "text": "Checkout converts card payments in foreign currencies to euros at the treasury service's rates. Last month the US dollar moved sharply one afternoon, and finance found dollar payments converted at the morning's rate for more than an hour. The old rate class has been deleted, and its replacement is half written."
     },
     {
       "type": "para",
-      "text": "The KISS fix is one method. Write `isValidEmail(String email)` in `Emails`. It looks only at the **first** `@` of the address, as the page's fix does with `indexOf('@')`, and returns `true` exactly when that `@` has at least one character before it and at least one after it. What those characters are does not matter: spaces or another `@` are allowed."
+      "text": "Two rules come from the treasury team:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`isValidEmail(\"user@example.com\")` is `true`;",
-        "`isValidEmail(\"userexample.com\")` is `false`: there is no `@`;",
-        "`isValidEmail(\"@example.com\")` is `false`: nothing comes before the `@`;",
-        "`isValidEmail(\"user@\")` is `false`: nothing comes after it;",
-        "`isValidEmail(\"a@b@c\")`, `isValidEmail(\"a@@\")` and `isValidEmail(\"a b@c d\")` are `true`: the first `@` has a character on each side;",
-        "`isValidEmail(\"@a@\")` is `false`: nothing comes before its first `@`;",
-        "`isValidEmail(null)` and `isValidEmail(\"\")` are `false`, and never throw."
+        "a payment is never converted at a rate fetched more than ten minutes before it (`MAX_AGE`);",
+        "the treasury accepts at most one call per ten minutes from this service, and one call to `allRates()` returns every currency it quotes."
       ]
+    },
+    {
+      "type": "para",
+      "text": "Finish `rate(...)` in `src/main/java/practice/ExchangeRates.java` so that both hold, with as little machinery as they allow. Take the time from the `clock` you are given, never from the system clock: the tests move it by hand. The class has one caller thread. About eight lines in total, fields included."
     },
     {
       "type": "heading",
@@ -56,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Emails {\n\n    private Emails() {\n    }\n\n    /** Returns whether the address has an @ with text on both sides. */\n    public static boolean isValidEmail(String email) {\n        if (email == null || email.isEmpty()) {\n            return false;\n        }\n        int atIndex = email.indexOf('@');\n        return atIndex > 0 && atIndex < email.length() - 1;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.Instant;\nimport java.time.InstantSource;\nimport java.util.Map;\n\n/**\n * Exchange rates against the euro for card payments at checkout, from the treasury service.\n * Single-threaded: the payment worker that owns it is the only caller.\n */\npublic class ExchangeRates {\n\n    /** One call to the treasury service: today's rate of every currency it quotes. */\n    public interface Treasury {\n        Map<String, BigDecimal> allRates();\n    }\n\n    static final Duration MAX_AGE = Duration.ofMinutes(10);\n\n    private final Treasury treasury;\n    private final InstantSource clock;\n    private Map<String, BigDecimal> rates;\n    private Instant fetchedAt;\n\n    public ExchangeRates(Treasury treasury, InstantSource clock) {\n        this.treasury = treasury;\n        this.clock = clock;\n    }\n\n    /** The rate to convert a payment in this currency, such as \"USD\". */\n    public BigDecimal rate(String currency) {\n        Instant now = clock.instant();\n        if (rates == null || !now.isBefore(fetchedAt.plus(MAX_AGE))) {\n            rates = Map.copyOf(treasury.allRates());\n            fetchedAt = now;\n        }\n        return rates.get(currency);\n    }\n}\n"
         }
       ]
     },
@@ -68,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Emails {\n\n    private Emails() {\n    }\n\n    /** Returns whether the address has an @ with text on both sides. */\n    public static boolean isValidEmail(String email) {\n        throw new UnsupportedOperationException(\"write isValidEmail\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.InstantSource;\nimport java.util.Map;\n\n/**\n * Exchange rates against the euro for card payments at checkout, from the treasury service.\n * Single-threaded: the payment worker that owns it is the only caller.\n */\npublic class ExchangeRates {\n\n    /** One call to the treasury service: today's rate of every currency it quotes. */\n    public interface Treasury {\n        Map<String, BigDecimal> allRates();\n    }\n\n    static final Duration MAX_AGE = Duration.ofMinutes(10);\n\n    private final Treasury treasury;\n    private final InstantSource clock;\n\n    public ExchangeRates(Treasury treasury, InstantSource clock) {\n        this.treasury = treasury;\n        this.clock = clock;\n    }\n\n    /** The rate to convert a payment in this currency, such as \"USD\". */\n    public BigDecimal rate(String currency) {\n        // TODO: Return the treasury's rate for this currency. A payment must never be converted\n        //       at a rate fetched more than MAX_AGE ago, and the treasury accepts at most one\n        //       call per MAX_AGE from this service. Read the time from clock.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -76,8 +70,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -87,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "295b87702389b6fde37c3db28e72c35f8be064d98ea2b6edd3e41d560585ac05",
-  "starting_code": "package practice;\n\npublic final class Emails {\n\n    private Emails() {\n    }\n\n    /** Returns whether the address has an @ with text on both sides. */\n    public static boolean isValidEmail(String email) {\n        throw new UnsupportedOperationException(\"write isValidEmail\");\n    }\n}\n",
+  "content_sha256": "16d1d6831cc9a7b6e3bc8f2f25e1937160fa3944ac2f8f6a709d271bf50b98a3",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.InstantSource;\nimport java.util.Map;\n\n/**\n * Exchange rates against the euro for card payments at checkout, from the treasury service.\n * Single-threaded: the payment worker that owns it is the only caller.\n */\npublic class ExchangeRates {\n\n    /** One call to the treasury service: today's rate of every currency it quotes. */\n    public interface Treasury {\n        Map<String, BigDecimal> allRates();\n    }\n\n    static final Duration MAX_AGE = Duration.ofMinutes(10);\n\n    private final Treasury treasury;\n    private final InstantSource clock;\n\n    public ExchangeRates(Treasury treasury, InstantSource clock) {\n        this.treasury = treasury;\n        this.clock = clock;\n    }\n\n    /** The rate to convert a payment in this currency, such as \"USD\". */\n    public BigDecimal rate(String currency) {\n        // TODO: Return the treasury's rate for this currency. A payment must never be converted\n        //       at a rate fetched more than MAX_AGE ago, and the treasury accepts at most one\n        //       call per MAX_AGE from this service. Read the time from clock.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-1/src/main/java/practice/Emails.java",
-    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-1/src/test/java/practice/EmailsTest.java",
+    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-1/src/main/java/practice/ExchangeRates.java",
+    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-1/src/test/java/practice/ExchangeRatesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -112,24 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EmailsTest#acceptsAWellFormedAddress",
+        "id": "practice.ExchangeRatesTest#convertsAtTheTreasurysRateForEachCurrency",
         "kind": "main",
-        "says": "\"user@example.com\" and \"a@b@c\" are valid and \"userexample.com\" is not."
+        "says": "each currency is converted at the rate the treasury quotes for it"
       },
       {
-        "id": "practice.EmailsTest#nullOrEmptyIsInvalid",
+        "id": "practice.ExchangeRatesTest#aRateReadEveryFewMinutesStillChangesWithinTheLimit",
         "kind": "edge",
-        "says": "null and \"\" are invalid, and checking them does not throw."
+        "says": "a currency paid in every few minutes still moves to the treasury's new rate within ten minutes"
       },
       {
-        "id": "practice.EmailsTest#aLocalPartIsRequired",
+        "id": "practice.ExchangeRatesTest#aRateChangedWhileNobodyPaidIsUsedAtTheNextPayment",
         "kind": "edge",
-        "says": "\"@example.com\" and \"@a@\" are invalid: something must come before the first @."
+        "says": "after a quiet period longer than ten minutes, the next payment uses the treasury's current rate"
       },
       {
-        "id": "practice.EmailsTest#aDomainIsRequired",
+        "id": "practice.ExchangeRatesTest#paymentsWithinTheLimitCallTheTreasuryOnce",
         "kind": "edge",
-        "says": "\"user@\" is invalid: something must come after the @."
+        "says": "payments within ten minutes of a fetch do not call the treasury again"
+      },
+      {
+        "id": "practice.ExchangeRatesTest#paymentsInSeveralCurrenciesShareOneCallPerPeriod",
+        "kind": "edge",
+        "says": "payments in several currencies share one treasury call per ten minutes"
       }
     ],
     "report": {
@@ -138,10 +137,12 @@
     },
     "origin": {
       "path": "32-kiss-principle/README_8.2.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Code Simpler Than the Requirement Is a Bug, Not KISS"
     },
     "concepts": [
-      "A simple method replaces an over-engineered rule framework when one straightforward check is all the problem needs."
+      "When the whole list loads in one cheap call, one map and one load time, written only when the list is loaded, meet a maximum-age requirement with one call per period.",
+      "Code that drops a stated requirement is not simpler but wrong: a memo that never reloads fails the same maximum-age check as the over-built cache.",
+      "A cache that writes the time back on every hit counts its expiry from the last read, so an entry read more often than its time to live is never reloaded."
     ]
   }
 }

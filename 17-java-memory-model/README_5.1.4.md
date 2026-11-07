@@ -1,516 +1,426 @@
 # 5.1.4. Reordering and Optimization by the Compiler and Runtime
 
-## Concept Explanation
-
-One of the most counter-intuitive aspects of concurrent programming is that the code you write is NOT necessarily
-executed in the order you write it. Modern computing systems apply aggressive reordering optimizations at three
-levels: the **compiler**, the **JIT runtime**, and the **CPU hardware**. The Java Memory Model explicitly permits
-these reorderings — subject only to the constraint that they must not change the behavior of single-threaded code
-and must respect happens-before relationships.
-
-**Real-world analogy**: Think of a chef (the JVM) given a recipe (your source code). The chef is free to prepare
-ingredients in any order they prefer — chopping vegetables while the oven preheats, for example — as long as the
-final dish comes out the same. This freedom to reorder lets the chef work efficiently. But if two chefs are sharing
-the kitchen (multi-threaded), they need explicit coordination rules (synchronization) to prevent one chef from
-using ingredients the other hasn't finished preparing yet.
-
-### Three Levels of Reordering
-
-**1. Compiler reordering**: The JMM allows both the Java compiler (javac) and the JIT compiler (HotSpot C1/C2) to
-reorder instructions within a method. In practice javac does almost no optimization (it folds compile-time constants),
-so nearly all compiler reordering comes from the JIT, which does it to:
-- Better utilize CPU pipelines
-- Reduce register pressure
-- Enable constant folding, loop unrolling, inlining
-
-Example: Two independent assignments may be swapped if neither depends on the other.
-
-**2. JIT/Runtime reordering**: The JIT compiler performs more aggressive transformations like:
-- Hoisting invariant computations out of loops
-- Eliminating redundant reads (caching a value in a register)
-- Dead code elimination
-
-**3. CPU reordering**: Modern CPUs (especially weakly-ordered architectures like ARM, POWER) have sophisticated
-out-of-order execution pipelines and write buffers that may reorder memory operations at the hardware level.
-x86 CPUs provide a "total store order" (TSO) model that prevents many reorderings, which is why JMM bugs that
-appear on ARM may not appear on x86.
-
-### What the JMM Allows and Forbids
-
-The JMM allows any reordering that does NOT:
-1. Change the behavior as observed by the thread performing the operations (within-thread semantics).
-2. Violate established happens-before relationships.
-
-In practice, this means:
-- **Without synchronization**: Threads may observe operations from other threads in almost any order.
-- **With volatile**: Writes before a volatile write cannot be reordered to occur after it; reads after a
-  volatile read cannot be reordered to occur before it.
-- **With synchronized**: Operations inside a synchronized block cannot be moved outside it.
-
-### Volatile and Reordering Prevention
-
-The JMM's volatile semantics act as **memory barriers**:
-- A volatile write prevents any preceding write from being moved after the volatile write.
-- A volatile read prevents any following read from being moved before the volatile read.
-- This creates a "fence" in the instruction stream that the compiler and hardware must respect.
-
-## Key Points to Remember
-
-1. **Three sources of reordering**: Java compiler (javac — permitted, but it hardly optimizes), JIT compiler (HotSpot),
-   and CPU hardware.
-2. **Reordering is legal** within single-threaded code — the JMM only constrains cross-thread visibility.
-3. **volatile** creates memory barriers that prevent certain reorderings; it is the primary tool for
-   controlling reordering without full mutual exclusion.
-4. **synchronized** prevents operations inside the block from moving out of it; operations outside may still be moved
-   into the block ("roach motel" ordering), so it is not a full barrier in both directions.
-5. **Hoisting reads out of loops** is a common JIT optimization that causes the "infinite loop" bug
-   with non-volatile flags.
-6. **x86 is strongly ordered** (TSO) — bugs caused by reordering on ARM or POWER may not appear on x86,
-   making them hard to reproduce in development.
-7. **final fields** prevent their construction-time writes from being reordered after constructor completion,
-   enabling safe publication.
-8. **`@Contended` annotation** (JDK internal) prevents false sharing by padding fields that are accessed
-   by different threads frequently.
-
-## Relevant Java 21 Features
-
-- **VarHandle memory access modes (Java 9+)**: Fine-grained reordering control:
-  - `plain`: No ordering — compiler is free to reorder
-  - `opaque`: Atomic and coherent per variable and eventually visible to other threads, but no ordering with
-    other variables
-  - `release/acquire`: Establish directed happens-before (like unlock/lock)
-  - `volatile`: Full two-directional ordering (strongest)
-  - This allows using the minimum barrier strength needed, improving performance in critical paths.
-- **jdk.internal.vm.annotation.Contended**: JDK-internal; outside the JDK it needs
-  `--add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED` to compile and `-XX:-RestrictContended` at run
-  time, or the annotation is ignored. Pads fields to prevent false sharing in high-performance concurrent code.
-- **JEP 352 (Java 14) — Non-Volatile Mapped Byte Buffers**: Exposes NVM (non-volatile memory) access with explicit
-  store ordering, relevant for persistence layers.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Loop flag not read from main memory (most common JMM bug)**
-
-   ```java
-   // BROKEN: JIT may hoist the 'running' read out of the loop
-   // After hoisting: if (!running) { /* skipped */ } else { while(true) { /* infinite */ } }
-   private boolean running = true;
-
-   public void spinLoop() {
-       while (running) { /* JIT may cache 'running' = true in a register */ }
-   }
-   ```
-
-   **Fix**:
-   ```java
-   private volatile boolean running = true;
-   ```
-
-2. **Unsafe publication — reference visible before object is fully initialized**
-
-   ```java
-   // BROKEN: another thread may see a non-null 'data' but with data[0] = 0
-   static int[] data;
-   static void init() {
-       data = new int[10]; // (1) reference stored
-       data[0] = 42;       // (2) element set
-       // (2) comes after (1) even in program order, so another thread can read data[0] == 0
-       // without any reordering — a plain race, not a reordering example
-   }
-   ```
-
-   **Better example of unsafe publication**:
-   ```java
-   // BROKEN: 'config' reference may be seen without config.value being set
-   static Config config;
-   static void setConfig() {
-       Config c = new Config();
-       c.value = 42;    // write to field
-       config = c;      // store of reference — may appear before c.value = 42 to other threads
-   }
-   ```
-
-   **Fix**: Use volatile for `config`, or make `Config.value` final and set it in the `Config` constructor.
-
-3. **Assuming x86 test results mean no JMM bug**
-
-   ```java
-   // "Works on my machine" (x86) but broken on ARM
-   // x86's TSO model allows only store-load reordering (a later load passing an earlier store);
-   // ARM also permits load-load, store-store and load-store reordering
-   // Always write code that is correct per the JMM spec, not per x86 behavior
-   ```
-
-4. **Misusing `@Contended` / false sharing**
-
-   ```java
-   // Adjacent fields in a class may share a cache line (typically 64 bytes)
-   // Thread A writing field1 and Thread B writing field2 cause cache line bouncing
-   class Counter {
-       volatile long field1; // Thread A
-       volatile long field2; // Thread B — shares cache line with field1!
-   }
-   ```
-
-   **Fix**: Pad the fields so each hot field has its own cache line (manually, or with `@Contended` — see Q3).
-   ```java
-   // Separate objects are NOT enough: two small objects allocated one after the other
-   // usually sit next to each other on the heap, often in the same cache line
-   AtomicLong counter1 = new AtomicLong(); // may still share a line with counter2
-   AtomicLong counter2 = new AtomicLong();
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Understand that `volatile` is the reordering solution for simple visibility**: For scenarios where
-   you only need to prevent the compiler from caching a variable in a register (e.g., a stop flag), `volatile`
-   is sufficient and lightweight.
-2. **Use `final` to anchor construction**: If all relevant state is set in a constructor and stored in final
-   fields, the JMM guarantees no reordering will be visible to properly-publishing code.
-3. **Prefer design over barriers**: Immutable objects, message-passing (BlockingQueue), and thread confinement
-   eliminate the need for barriers altogether — they're safer and often faster.
-4. **Profile before optimizing barriers**: Removing volatile or relaxing synchronization for performance is
-   only justified if profiling shows it is a bottleneck. Premature optimization of synchronization is a
-   major source of bugs.
-5. **Use `VarHandle.fullFence()` for explicit barriers in library code**: `VarHandle.fullFence()` (Java 9+; also
-   `acquireFence()`, `releaseFence()`) inserts a full memory barrier for cases where higher-level primitives don't
-   fit. (`LockSupport` has no fence method.)
-6. **Consider cache line alignment for high-frequency counters**: In performance-critical code (e.g., Disruptor
-   pattern), aligning frequently-written fields to separate cache lines prevents false sharing.
-
-## Edge Cases and Their Handling
-
-1. **Compiler hoisting of loop conditions**: The JIT may hoist a non-volatile field read out of a loop body,
-   converting `while(flag)` into `if(flag) { while(true) }`. This is correct per the JMM if flag is not
-   volatile. The fix is always `volatile boolean flag`.
-
-2. **Instruction scheduling around object construction**: The JIT may reorder the store of the object reference
-   and the stores of its fields. This is why the broken double-checked locking pattern can return partially
-   constructed objects. Using volatile on the reference prevents this reordering.
-
-3. **Processor write buffers**: Writes may sit in a CPU write buffer before reaching the cache/memory. A
-   `StoreLoad` barrier (the most expensive barrier) forces the write buffer to drain. This is what volatile
-   writes on x86 translate to — a `lock`-prefixed instruction (HotSpot uses `lock addl`) or `mfence`.
-
-4. **False sharing in arrays**: Adjacent array elements may share a cache line. If multiple threads write
-   to adjacent elements, they will contend on the same cache line even though they're writing different
-   data. Solution: use padding or access patterns that spread writes across cache lines.
-
-## Interview-specific Insights
-
-Interviewers focus on:
-- **Understanding that code doesn't always execute in written order** — this is a mindset shift for many developers
-- **Practical impact**: The infinite loop from hoisted non-volatile flag is a classic question
-- **Why volatile works**: Understanding memory barriers, not just "volatile means visible"
-- **Platform differences**: x86 vs. ARM behavior and why JMM correctness matters regardless
-- **False sharing**: A performance concern that demonstrates understanding of cache architecture
-
-Common tricky questions:
-- "Write a correct, lazily initialized singleton without using volatile" (Initialization-on-Demand Holder)
-- "Can a correctly synchronized program still suffer performance problems at the memory level?" (Yes — false
-  sharing causes cache line bouncing without any correctness issue; it is a cache effect, not a reordering one)
-- "What is the cost of a volatile write on x86?" (A store with `lock` prefix or `mfence` — significantly
-  more expensive than a regular store)
-
-## Interview Q&A Section
-
-**Q1: What is instruction reordering and why does the JVM permit it?**
-
-```text
-A1: Instruction reordering is the act of executing operations in a different order than they appear in source code.
-
-WHY IT'S PERMITTED:
-Modern computing systems have multiple levels of optimization:
-1. The Java compiler (javac) is allowed to reorder bytecode instructions (in practice it barely optimizes).
-2. The JIT compiler (HotSpot) applies aggressive optimizations: inlining, loop unrolling, register allocation,
-   common subexpression elimination — all of which may change the execution order.
-3. The CPU hardware has out-of-order execution engines, write buffers, and store-load reordering capabilities
-   that change the apparent execution order from the perspective of other CPUs.
-
-WHY IT'S SAFE FOR SINGLE-THREADED CODE:
-The JMM guarantees that within a single thread, the behavior is AS IF all operations executed in program order.
-Reorderings are not visible to the executing thread — they only become visible to OTHER threads.
-
-WHY IT MATTERS FOR MULTI-THREADED CODE:
-When two threads share data without synchronization, one thread may observe the effects of another thread's
-operations in a different order than they appear in the source code. This can lead to correctness bugs that
-are extremely hard to reproduce and debug.
-```
+A connection pool shuts down while requests are still arriving. A request marks the pool as in use
+and then checks that no shutdown has begun; the shutdown marks the pool as closing and then closes
+it if no request holds it:
 
 ```java
-public class ReorderingDemo {
-    int a = 0;
-    int b = 0;
-
-    // Thread A executes this:
-    public void writerA() {
-        a = 1;  // (1)
-        b = 1;  // (2)
-        // (1) and (2) may be reordered by the JIT or CPU
-        // Thread B may see b=1 before a=1, or see a=1 and b=0 simultaneously
-    }
-
-    // Thread B executes this:
-    public void readerB() {
-        int rb = b;  // (3) reads b
-        int ra = a;  // (4) reads a
-        // Without synchronization, Thread B may see rb=1, ra=0
-        // (b updated, a not yet — due to reordering of (1) and (2))
-    }
-
-    // Fix: declare both a and b as volatile
-    // Or use synchronized blocks
-    // Or redesign to avoid shared mutable state
-}
+// request thread                         // shutdown thread
+pool.inUse = true;                        pool.closing = true;
+if (!pool.closing) query(pool);           if (!pool.inUse) close(pool);
 ```
 
-**Q2: How does `volatile` prevent reordering?**
+In any interleaving that keeps each thread's own order, the later check comes after both writes,
+so at least one thread sees the other's flag. During deploys, the logs still show queries on a
+closed connection. A test that makes the two threads collide a million times (`Handshake.java`,
+both fields plain, built like the tool below) counts how often both checks read `false`:
 
 ```text
-A2: volatile establishes two categories of reordering restrictions (memory barriers):
-
-WRITE BARRIER (before volatile write):
-- No write that appears BEFORE the volatile write in program order can be reordered to appear AFTER it.
-- Called a "release" fence: StoreStore + LoadStore barriers before the volatile store (a StoreLoad barrier
-  follows it, so that a later volatile read cannot pass it).
-- Effect: All prior stores are visible before the volatile store.
-
-READ BARRIER (after volatile read):
-- No read that appears AFTER the volatile read in program order can be reordered to appear BEFORE it.
-- Called an "acquire" fence or "LoadLoad + LoadStore" barrier.
-- Effect: Subsequent loads cannot be satisfied before the volatile read, so once the read sees a volatile
-  write, they see at least the writes made before that volatile write.
-
-COMBINED EFFECT (happens-before):
-- A volatile write X happens-before a subsequent volatile read Y of the same variable.
-- All writes before X are also visible to the thread doing Y (by transitivity).
-
-This is why the "writer sets data before volatile flag, reader checks volatile flag before reading data"
-pattern works correctly for communication between threads.
+1,000,000 races, 20 CPUs, amd64: query ran on a closed connection 95,973 times
 ```
+
+In those runs, at least one thread's write became visible to the other only after its own read.
+Every run on this page is Java 21 on one x86_64 machine with 20 available processors.
+
+## A Tool That Makes Two Threads Collide on Every Trial
+
+The outcomes below need two threads to touch the same fields within nanoseconds of each other.
+`Litmus` makes that happen on every trial: both threads wait for each other at a spin barrier, then
+each runs its actor against a fresh `Cell` and records what it read in `r1` or `r2`.
 
 ```java
-public class VolatileReorderingDemo {
-    private int result = 0;      // non-volatile — write may be reordered
-    private volatile boolean ready = false; // volatile — barrier
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.util.Map;
+import java.util.TreeMap;
 
-    // Thread A
-    public void produce() {
-        result = 42;     // (1) non-volatile write
-        ready = true;    // (2) VOLATILE WRITE — creates StoreStore barrier before here
-                         // (1) is guaranteed to happen-before (2)
-                         // (1) cannot be moved after (2)
+/** Runs two actors against a fresh Cell, many times, and counts what they read. */
+public final class Litmus {
+
+    /** One trial's shared fields, and the two values the actors read. */
+    public static final class Cell {
+        int x, y;                    // plain
+        volatile int vx, vy;         // volatile
+        int r1, r2;                  // what actor 1 and actor 2 read
+        Box box;                     // plain reference, for the publication example
     }
 
-    // Thread B
-    public void consume() {
-        while (!ready) { } // (3) VOLATILE READ — creates LoadLoad barrier after here
-                           // (2) happens-before (3) by volatile semantics
-                           // All writes before (2) are visible after (3)
-        System.out.println(result); // (4) guaranteed to see result = 42
-                                    // because (1) hb (2) hb (3) hb (4)
-    }
-}
-```
-
-**Q3: What is false sharing and how does it affect performance in concurrent Java programs?**
-
-```text
-A3: False sharing occurs when two or more threads frequently write to different variables that happen to
-reside on the same CPU cache line (typically 64 bytes).
-
-HOW IT HAPPENS:
-CPUs manage cache in units called cache lines (64 bytes on modern x86/ARM). When Thread A writes to a
-variable on cache line X, the cache coherency protocol (e.g., MESI) invalidates ALL copies of cache line X
-on all other CPUs. When Thread B then accesses ITS variable (which happens to be on the same cache line),
-it must fetch the cache line again from main memory or another CPU's cache.
-
-This constant invalidation and re-fetching is the "false sharing" — the threads are NOT logically sharing
-data, but are forced to share at the cache line level due to physical proximity.
-
-IMPACT:
-- Can make the multi-threaded version several times slower — sometimes slower than running on one thread
-- Shows up as high cache miss rates in profiling tools (like Linux perf or JFR)
-- Classic example: multiple counters in an array, one per thread
-
-SOLUTIONS:
-1. Padding: Add enough padding fields around hot variables to push them to separate cache lines.
-2. @Contended: JDK-internal annotation that pads the annotated field to its own cache line.
-3. Separate objects: Each thread works with its own object, rather than adjacent fields/array elements — but
-   small objects allocated together often end up adjacent in memory, so this helps only with padding.
-4. LongAdder: Uses cell-based padding internally to avoid false sharing across concurrent increments.
-```
-
-```java
-public class FalseSharingDemo {
-    // BAD: adjacent longs likely share a 64-byte cache line
-    // Two threads writing counter1 and counter2 simultaneously cause contention
-    static class FalselyShared {
-        volatile long counter1 = 0; // Thread A writes here
-        volatile long counter2 = 0; // Thread B writes here — shares cache line!
+    /** An object whose constructor sets two plain fields. */
+    public static final class Box {
+        int a, b;
+        Box(int a, int b) { this.a = a; this.b = b; }
     }
 
-    // GOOD for ONE counter updated by many threads: LongAdder spreads contended updates over
-    // padded cells (an uncontended LongAdder updates a single unpadded 'base' field)
-    java.util.concurrent.atomic.LongAdder hits = new java.util.concurrent.atomic.LongAdder();
-
-    // GOOD (usually): padding via separate fields (manual, 64-byte cache line)
-    // The JVM chooses the field layout, so manual padding is not guaranteed to work;
-    // LongAdder and @Contended are the reliable options
-    static class PaddedCounter {
-        long p1, p2, p3, p4, p5, p6, p7;  // 7 * 8 = 56 bytes padding before
-        volatile long counter = 0;          // 8 bytes — own cache line
-        long q1, q2, q3, q4, q5, q6, q7;  // 7 * 8 = 56 bytes padding after
-    }
-
-    // GOOD in JDK: @jdk.internal.vm.annotation.Contended
-    // (requires --add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED and -XX:-RestrictContended)
-    static class ContendedCounter {
-        // @jdk.internal.vm.annotation.Contended
-        volatile long counter = 0; // would be padded to own cache line with annotation
-    }
-}
-```
-
-**Q4: Describe a concrete scenario where instruction reordering caused a real bug.**
-
-```text
-A4: The most famous real-world JMM reordering bug is the broken double-checked locking pattern (without volatile it is
-broken in every Java version; before Java 5 not even volatile could fix it):
-
-    static Singleton instance;
-    static Singleton getInstance() {
-        if (instance == null) {
-            synchronized (Singleton.class) {
-                if (instance == null) {
-                    instance = new Singleton(); // BUG IS HERE
-                }
-            }
+    /** Access modes for x and y, for the VarHandle examples. */
+    public static final VarHandle X, Y;
+    static {
+        try {
+            X = MethodHandles.lookup().findVarHandle(Cell.class, "x", int.class);
+            Y = MethodHandles.lookup().findVarHandle(Cell.class, "y", int.class);
+        } catch (ReflectiveOperationException e) {
+            throw new ExceptionInInitializerError(e);
         }
-        return instance;
     }
 
-The object construction `instance = new Singleton()` conceptually involves three steps:
-1. Allocate memory for Singleton object
-2. Call Singleton() constructor to initialize fields
-3. Store the reference in 'instance'
+    public interface Actor { void act(Cell c); }
 
-The JIT/CPU is allowed to reorder steps 2 and 3:
-- Thread A executes steps 1 and 3 (allocates memory, stores reference) but hasn't run the constructor yet
-- Thread B enters getInstance(), sees instance != null (first check passes)
-- Thread B returns the reference and starts using the UNINITIALIZED object
-- Thread A finally runs the constructor — but Thread B already saw stale/default values
+    private static volatile long arrived1, arrived2;   // a two-thread spin barrier per trial
 
-This was a real bug in production code before Java 5. The fix (volatile instance) was documented in
-JSR-133 (2004) and implemented in Java 5 (2004).
+    public static Map<String, Long> run(int trials, Actor one, Actor two) throws InterruptedException {
+        Cell[] cells = new Cell[trials];
+        for (int i = 0; i < trials; i++) cells[i] = new Cell();
+        arrived1 = arrived2 = 0;
+        Thread t1 = new Thread(() -> {
+            for (int i = 0; i < trials; i++) {
+                arrived1 = i + 1;
+                while (arrived2 < i + 1) Thread.onSpinWait();  // both start trial i together
+                one.act(cells[i]);
+            }
+        });
+        Thread t2 = new Thread(() -> {
+            for (int i = 0; i < trials; i++) {
+                arrived2 = i + 1;
+                while (arrived1 < i + 1) Thread.onSpinWait();
+                two.act(cells[i]);
+            }
+        });
+        t1.start(); t2.start(); t1.join(); t2.join();
+        Map<String, Long> outcomes = new TreeMap<>();
+        for (String k : new String[] {"r1=0 r2=0", "r1=0 r2=1", "r1=1 r2=0", "r1=1 r2=1"}) outcomes.put(k, 0L);
+        for (Cell c : cells) outcomes.merge("r1=" + c.r1 + " r2=" + c.r2, 1L, Long::sum);
+        return outcomes;
+    }
 
-A modern equivalent scenario: unsafe publication of a mutable configuration object in a microservice.
-A background thread updates a config reference while request handler threads read it — without volatile,
-handlers may see a stale config or a partially initialized one.
+    public static void print(Map<String, Long> outcomes) {
+        outcomes.forEach((k, v) -> System.out.printf("  %s  %,10d%n", k, v));
+    }
+}
 ```
+
+Each example below ran in its own JVM with 10,000,000 trials. How often production hits an
+outcome depends on how often two threads collide.
+
+## A Thread Keeps Its Own Order; Another Thread May See Its Accesses Reordered
+
+Within one thread, the compiler and the processor keep only the order that thread can observe.
+Stripped to its accesses, the pool is this test, called *store buffering*: each thread writes its
+own field, then reads the other's.
 
 ```java
-// The canonical broken DCL (illustrative — do NOT use)
-public class BrokenDCL {
-    private static BrokenDCL instance; // NOT volatile — broken!
-
-    private int initialized = 0;
-
-    public BrokenDCL() {
-        initialized = 1; // constructor writes may be reordered with reference store
-    }
-
-    // Thread B may get a BrokenDCL with initialized == 0
-    public static BrokenDCL getBrokenInstance() {
-        if (instance == null) {
-            synchronized (BrokenDCL.class) {
-                if (instance == null) {
-                    instance = new BrokenDCL();
-                }
-            }
-        }
-        return instance;
-    }
-}
-
-// The correct version
-public class CorrectDCL {
-    private static volatile CorrectDCL instance; // volatile prevents reordering
-
-    private int initialized = 0;
-
-    public CorrectDCL() {
-        initialized = 1;
-    }
-
-    public static CorrectDCL getInstance() {
-        if (instance == null) {
-            synchronized (CorrectDCL.class) {
-                if (instance == null) {
-                    instance = new CorrectDCL(); // volatile write — full barrier
-                }
-            }
-        }
-        return instance;
-    }
-
-    public int getInitialized() { return initialized; }
-}
+Litmus.run(n,
+        c -> { c.x = 1; c.r1 = c.y; },
+        c -> { c.y = 1; c.r2 = c.x; });
 ```
 
-**Q5: How does the JVM prevent reordering within a synchronized block?**
+Before you look: which of the four outcomes can't happen if each thread runs its two lines in
+order?
 
 ```text
-A5: The JVM implements synchronized blocks using memory barrier instructions at the entry and exit points
-of the block:
-
-ON ENTRY (monitor acquire):
-- A LoadLoad barrier prevents any reads inside the block from being reordered BEFORE the lock acquire.
-- A LoadStore barrier prevents any writes inside the block from being reordered BEFORE the lock acquire.
-- Combined effect: The thread refreshes its view of all shared memory on entry.
-
-ON EXIT (monitor release):
-- A StoreStore barrier prevents any writes inside the block from being reordered AFTER the lock release.
-- A LoadStore barrier prevents any loads inside the block from being reordered AFTER the lock release.
-- (A StoreLoad barrier may follow the release, so that a later lock acquire cannot pass it.)
-- Combined effect: All writes made before the release are visible to the next thread that acquires the
-  same monitor.
-
-This is the "synchronization order" guarantee: there is a total order over all lock/unlock operations in
-a program, and each unlock happens-before the next lock of the same monitor in this total order.
-
-From a practical perspective, the JVM may translate monitor exit to a `mfence` or `lock addl` instruction
-on x86, which is an expensive full barrier. This is why minimizing lock contention (using fine-grained locks,
-lock-free data structures, or immutable objects) is important for performance.
+sb-plain: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0   2,267,408
+  r1=0 r2=1   3,927,960
+  r1=1 r2=0   3,804,626
+  r1=1 r2=1           6
 ```
+
+`r1=0 r2=0` needs both reads to run before both writes, and no interleaving of two in-order threads
+does that. It came up in 23% of the trials.
+
+The JLS allows it. Within a thread, the rule is *intra-thread semantics* (JLS 17.4): the thread
+must behave as its program order says, as far as the thread itself can tell. `c.x = 1` and
+`r1 = c.y` touch different fields, so doing the read first changes nothing thread 1 can observe,
+and the compiler, the JIT and the processor may all do it. JLS Example 17.4-1 makes the same point
+with a read followed by a write. Another thread can tell, and the JMM makes promises to other
+threads through happens-before and the order of synchronization actions (unit 5.2.1): a program
+free of data races behaves as if sequentially consistent (unit 5.1.1), and this one has two races.
+
+In the pool, both threads read the old value, both proceed, and the request queries a closed
+connection. A single-threaded test can't show it.
+
+<!-- practice 1 -->
+
+## The Processor's Store Buffer Lets a Read Overtake an Earlier Write, with No JIT at All
+
+The reordering doesn't need a compiler. Under `-Xint` nothing is compiled, and the interpreter
+runs the bytecode in order:
+
+```text
+--- -Xint (interpreter only)
+sb-plain: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0   5,100,374
+  r1=0 r2=1   2,533,963
+  r1=1 r2=0   2,365,262
+  r1=1 r2=1         401
+```
+
+No compiler moved anything, and both reads still missed both writes. A core doesn't wait for a
+store to reach the cache: it puts the store in its own *store buffer* and goes on to the next
+instruction, and the buffer drains to the cache a little later. A load that comes next can run
+while the store is still in the buffer, so to every other core the read happened first. The core's
+own loads check its buffer before the cache, which is why the thread itself always reads what it
+just wrote.
+
+The caches stay coherent throughout. What hides the write is a queue in front of the cache, not a
+stale copy in a thread's "working memory" (unit 5.1.2).
+
+On x86 the buffer drains in program order and loads aren't reordered with other loads, so other
+cores see one core's stores in the order it made them; the next section's interpreted run agrees.
+That is why switching off the JIT doesn't fix the pool: the swap it suffers is made by the hardware.
+
+> **Other processors differ.** ARM and POWER allow more reorderings in hardware than x86 does, so a
+> race that x86 never shows can appear there.
+
+<!-- practice 2 -->
+
+## The JIT Reorders Too, So x86 Shows a Reordering Its Hardware Doesn't Make
+
+The compiler may reorder plain accesses as freely as the processor. HotSpot compiles hot code
+first with C1, then with the optimizing C2. The test is *message passing*: thread 1 writes the data
+(`x`), then a ready flag (`y`); thread 2 reads the flag, then the data. A reader that sees the flag
+should see the data.
 
 ```java
-public class SynchronizedBarrierDemo {
-    private int shared1 = 0;
-    private int shared2 = 0;
-    private final Object monitor = new Object();
-
-    public void writer() {
-        int local = computeExpensive(); // may execute outside synchronized
-        synchronized (monitor) {        // ENTRY: LoadLoad + LoadStore barrier
-            shared1 = local;            // (1) cannot move before entry
-            shared2 = local * 2;        // (2) cannot move before entry
-        }                               // EXIT: StoreStore + LoadStore barrier (then StoreLoad)
-        // (1) and (2) are flushed to main memory on exit
-        // They cannot be moved after exit
-    }
-
-    public int reader() {
-        int result;
-        synchronized (monitor) {    // ENTRY: refreshes working memory from main memory
-            result = shared1 + shared2; // sees writes from writer() if lock was released first
-        }                           // EXIT
-        return result;
-    }
-
-    private int computeExpensive() { return 21; }
-}
+Litmus.run(n,
+        c -> { c.x = 1; c.y = 1; },
+        c -> { c.r1 = c.y; c.r2 = c.x; });
 ```
+
+```text
+mp-plain: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0   5,738,143
+  r1=0 r2=1      28,361
+  r1=1 r2=0       6,727
+  r1=1 r2=1   4,226,769
+```
+
+`r1=1 r2=0`: the flag was set and the data was not. Interpreted, and with C1 only, it never
+happened:
+
+```text
+--- -Xint (interpreter only)
+mp-plain: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0   8,249,427
+  r1=0 r2=1     286,509
+  r1=1 r2=0           0
+  r1=1 r2=1   1,464,064
+--- C1 only (-XX:TieredStopAtLevel=1)
+mp-plain: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0   5,858,305
+  r1=0 r2=1      71,613
+  r1=1 r2=0           0
+  r1=1 r2=1   4,070,082
+```
+
+A separate run moved the writer into a method of its own, `writeDataThenFlag`
+(`ex/run-1.txt`). The default JIT gave 6,552 such trials, C2 alone (`-XX:-TieredCompilation`)
+14,220, C1 alone 0, and 0 once `-XX:CompileCommand=exclude` kept that one method interpreted. The
+reordering came from the C2-compiled writer, which intra-thread semantics allows: the two stores go
+to different fields.
+
+Here, a reader that trusts the flag uses data that isn't there in about one collision in 1,500, but
+only once C2 has compiled the writer. A test run cold, or under `-Xint`, passes. Another JIT or
+another platform may reorder elsewhere, so a pass on x86 proves little. Reading a field once before
+a loop instead of on every iteration is the same freedom (unit 6.2.2). A bug that disappears under
+`-Xint` suggests the compiler, though the interpreter's different timing can hide a race too (unit
+5.3.3).
+
+## volatile on Every Access That Needs Ordering Rules Out Both Reorderings
+
+Make the fields volatile and neither forbidden outcome appears. In `sb-volatile` both fields are
+volatile (`vx`, `vy`); in `mp-volatile` only the flag is (`c.x = 1; c.vy = 1;` against
+`c.r1 = c.vy; c.r2 = c.x;`):
+
+```text
+sb-volatile: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0           0
+  r1=0 r2=1   3,627,564
+  r1=1 r2=0   4,582,009
+  r1=1 r2=1   1,790,427
+mp-volatile: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0   4,674,647
+  r1=0 r2=1     221,859
+  r1=1 r2=0           0
+  r1=1 r2=1   5,103,494
+```
+
+Volatile reads and writes are synchronization actions, and JLS 17.4.4 puts all of them in one total
+order that agrees with each thread's program order. A volatile read sees the last write to its
+field before it in that order (JLS 17.4.7). In store buffering, whichever volatile write comes
+second in that order is followed, in its own thread, by a read that comes later still, and that
+read sees the other write. In message passing, the data write comes before the volatile flag
+write in program order, and the flag write happens-before the read that sees it, so the data read
+sees 1.
+
+### Spot the Problem: One Volatile Flag Out of Two
+
+A review of the pool makes `inUse` volatile and leaves `closing` plain, since message passing needed
+only one volatile field. In the test, thread 1 is the request (`vx` for `inUse`) and thread 2 the
+shutdown (`y` for `closing`). Does this fix the pool?
+
+```java
+Litmus.run(n,
+        c -> { c.vx = 1; c.r1 = c.y; },
+        c -> { c.y = 1; c.r2 = c.vx; });
+```
+
+```text
+sb-half: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0     455,114
+  r1=0 r2=1   4,907,170
+  r1=1 r2=0   3,911,939
+  r1=1 r2=1     725,777
+```
+
+Thread 2's plain write and its read are still free to swap, and the JMM doesn't stop thread 1's
+plain read from moving ahead of its volatile write either. Message passing needs one ordered edge,
+from a write to the read that sees it. Store buffering needs each thread's write ordered before its
+own read, so both fields must be volatile, or both checks made under one lock (unit 5.1.3).
+
+## A Racy Reference May Expose an Object Before Its Constructor's Writes Land
+
+Thread 1 builds an object and stores it in a plain field; thread 2 reads the field and, if the
+reference is there, both fields:
+
+```java
+Litmus.run(n,
+        c -> c.box = new Litmus.Box(1, 1),
+        c -> { Litmus.Box b = c.box; c.r1 = b == null ? 0 : 1; c.r2 = b != null && b.a == 1 && b.b == 1 ? 1 : 0; });
+```
+
+`r1=1 r2=0` would be a reference to an object whose constructor's writes the reader did not see.
+The first of three runs:
+
+```text
+publish-plain: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0   5,512,547
+  r1=0 r2=1           0
+  r1=1 r2=0           0
+  r1=1 r2=1   4,487,453
+```
+
+The other two runs also gave 0: none in 30,000,000 trials. The JLS still allows it: the
+constructor's writes and the store of the reference are plain writes to different variables, the
+same freedom the JIT used on `x` and `y` above, and only `final` fields come with a guarantee for a
+reader that gets the reference through a race (JLS 17.5, unit 5.2.3). A zero on one machine and one
+JVM is not a property of the code: a weaker processor or another JIT may produce it. Double-checked locking without `volatile` (unit 5.1.3) bets on it never happening.
+Publish through a `volatile` field, a lock or `final` fields.
+
+## Acquire/Release Orders a Handoff, Not a Write Followed by a Read
+
+`VarHandle` gives one access to a plain field a stronger mode. Release/acquire is enough to hand
+data over, not to keep a thread's read behind its own earlier write:
+
+```java
+Litmus.run(n,                                       // message passing
+        c -> { c.x = 1; Litmus.Y.setRelease(c, 1); },
+        c -> { c.r1 = (int) Litmus.Y.getAcquire(c); c.r2 = c.x; });
+Litmus.run(n,                                       // store buffering
+        c -> { Litmus.X.setRelease(c, 1); c.r1 = (int) Litmus.Y.getAcquire(c); },
+        c -> { Litmus.Y.setRelease(c, 1); c.r2 = (int) Litmus.X.getAcquire(c); });
+Litmus.run(n,                                       // store buffering with full fences
+        c -> { c.x = 1; java.lang.invoke.VarHandle.fullFence(); c.r1 = c.y; },
+        c -> { c.y = 1; java.lang.invoke.VarHandle.fullFence(); c.r2 = c.x; });
+```
+
+```text
+mp-release-acquire: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0   5,552,773
+  r1=0 r2=1      74,445
+  r1=1 r2=0           0
+  r1=1 r2=1   4,372,782
+sb-release-acquire: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0     610,780
+  r1=0 r2=1   4,626,162
+  r1=1 r2=0   4,747,161
+  r1=1 r2=1      15,897
+sb-full-fence: 10,000,000 trials, 20 CPUs, amd64, Java 21.0.12.1
+  r1=0 r2=0           0
+  r1=0 r2=1   4,819,505
+  r1=1 r2=0   4,734,429
+  r1=1 r2=1     446,066
+```
+
+The javadoc defines the modes in steps: an *acquire* read and the accesses after it are ordered
+after a matching *release* write and the accesses before it; *volatile* accesses are, in addition,
+totally ordered with each other. Message passing held. Neither stops an acquire read from overtaking a
+release write that comes before it in the same thread, which is the store buffer's reordering, so
+store buffering failed 610,780 times. `VarHandle.fullFence()` orders every access before it with
+every access after it and, like `volatile`, gave 0.
+
+Use release/acquire for one-way handoffs, such as a producer publishing a filled buffer, when
+measurement shows volatile costs too much. Use volatile, or a lock, when each thread writes and then
+reads what the other wrote.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A thread keeps its own order; another thread may see its accesses reordered.** Two threads that
+  each write a flag and then read the other's can both read the old value.
+- **The processor's store buffer lets a read overtake an earlier write.** It happens with no JIT at
+  all; the thread itself still reads its own write.
+- **The JIT reorders too.** On x86 it made a ready flag visible before the data, which the hardware
+  alone never did.
+- **volatile on every access that needs ordering rules out both reorderings.** One volatile field is enough to hand data
+  over, not for a write-then-read handshake.
+- **A racy reference may expose an object before its constructor's writes land.** Not observed here;
+  allowed by the JLS, so publish safely.
+- **Acquire/release orders a handoff, not a write followed by a read.** Store buffering needs
+  volatile or a full fence.
+
+## Reference
+
+**`VarHandle` access modes (from the javadoc), weakest first:**
+
+| Mode | Methods | Guarantee |
+|---|---|---|
+| plain | `get`, `set` | no ordering other threads can observe; bitwise atomic only for references and values of at most 32 bits |
+| opaque | `getOpaque`, `setOpaque` | bitwise atomic, coherently ordered with other accesses to the same variable |
+| acquire / release | `getAcquire`, `setRelease` | an acquire read and later accesses are ordered after a matching release write and earlier accesses |
+| volatile | `getVolatile`, `setVolatile` | in addition, all volatile accesses are totally ordered with each other |
+
+**Fences (static methods of `VarHandle`):**
+
+| Method | Accesses before the fence | are not reordered with |
+|---|---|---|
+| `fullFence()` | loads and stores | loads and stores after it |
+| `acquireFence()` | loads | loads and stores after it |
+| `releaseFence()` | loads and stores | stores after it |
+
+**What each test showed here (10,000,000 trials, Java 21, x86_64, 20 processors):**
+
+| Test | Outcome counted | default JIT | `-Xint` |
+|---|---|---|---|
+| store buffering, plain | `r1=0 r2=0` | 2,267,408 | 5,100,374 |
+| store buffering, one field volatile | `r1=0 r2=0` | 455,114 | not run |
+| store buffering, both volatile / `fullFence()` | `r1=0 r2=0` | 0 / 0 | not run |
+| store buffering, release/acquire | `r1=0 r2=0` | 610,780 | not run |
+| message passing, plain | `r1=1 r2=0` | 6,727 | 0 |
+| message passing, volatile flag / release-acquire | `r1=1 r2=0` | 0 / 0 | not run |
+| plain publication of a new object | reference without its fields | 0 (3 runs) | not run |
+
+## Challenges
+
+1. Run `sb-plain` and `mp-plain` on an ARM machine. Which counts change, and does `-Xint` still
+   show `r1=1 r2=0` there?
+2. Replace the pool's two flags with one `AtomicReference` holding a state (`OPEN`, `IN_USE`,
+   `CLOSING`). What does a compare-and-set give you that two volatile fields did not?
+3. Measure `volatile` against release/acquire on a single-producer queue's index. Is the difference
+   visible next to the work each item does?
+
+## Design Note: Why the JMM Doesn't Promise Sequential Consistency to Every Program
+
+Java could have promised that every program runs as some interleaving of its threads, races
+included. Every plain store would then need at least what the `fullFence()` run added, an ordering
+against the loads after it, and the JIT could no longer reorder, merge or keep in a register any field
+access another thread might see. Most fields are touched by one thread at a time, so all code would
+pay for the few that are shared.
+
+The JMM makes the opposite trade. Plain accesses get no ordering promise to other threads, and the
+program marks the few that need one with `volatile`, a lock, `final` or a `VarHandle` mode. The cost
+is what this page measured: a missing mark is not a compile error and often not a test failure. On
+one x86 machine it showed up in 23% of collisions for one test, one in 1,500 for another, and never
+for the third.
 
 ## Code Examples
 

@@ -18,329 +18,363 @@
       "text": "9.1.1. Singleton Pattern"
     },
     {
+      "type": "para",
+      "text": "The partner's payment API allows 100 calls a minute per API key. The service keeps the budget in `PartnerQuota`, a singleton, so that every thread draws from one counter. Last Tuesday the partner throttled the key for an hour: its logs show 200 calls in one minute, all from one process. Somewhere in that process a second `PartnerQuota` existed, although its constructor is private."
+    },
+    {
+      "type": "para",
+      "text": "A hand-written singleton can be copied in three ways, and none of the usual forms closes all three. The examples use this quota (all outputs are from Java 21):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicInteger;\n\nfinal class Quota {\n    static final Quota INSTANCE = new Quota();\n    private final AtomicInteger left = new AtomicInteger(100);\n    private Quota() {}\n    boolean tryTake() { return left.getAndDecrement() > 0; }\n    int left() { return Math.max(left.get(), 0); }\n}"
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Private Constructor Stops new, and Nothing Else"
     },
     {
       "type": "para",
-      "text": "The Singleton pattern is one of the simplest yet most debated creational design patterns. Its purpose is to ensure that a class has **exactly one instance** throughout the entire application lifecycle and provides a **global point of access** to that instance."
+      "text": "Spend this minute's budget, then call the private constructor through reflection:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "while (Quota.INSTANCE.tryTake()) { }\nConstructor<Quota> c = Quota.class.getDeclaredConstructor();\nc.setAccessible(true);\nQuota copy = c.newInstance();\nSystem.out.println(\"INSTANCE left: \" + Quota.INSTANCE.left()\n        + \", copy == INSTANCE: \" + (copy == Quota.INSTANCE) + \", copy left: \" + copy.left());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "INSTANCE left: 0, copy == INSTANCE: false, copy left: 100"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of a country's government. There is only one president (or prime minister) at any given time. No matter who asks \"who is the president?\", the answer is always the same single person. The office of the president is the Singleton -- there is exactly one holder of the position, and everyone references the same one."
+      "text": "`private` is checked by the compiler and by the access check that `setAccessible(true)` switches off. Whoever holds the copy has another 100 calls. DI containers and JSON mappers that build objects reflectively make the same call."
     },
     {
       "type": "para",
-      "text": "The Singleton pattern addresses two problems simultaneously:"
+      "text": "The defence is a constructor that refuses to run twice: it reads the instance field, which must already be set when anyone else calls it."
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Controlled access to a single instance** -- useful for shared resources like database connection pools, logging services, configuration managers, or hardware interface controllers.",
-        "**Global access** -- the instance is accessible from anywhere in the code without passing it around as a parameter."
+      "type": "code",
+      "lang": "java",
+      "text": "final class GuardedQuota {\n    static final GuardedQuota INSTANCE = new GuardedQuota();\n    private GuardedQuota() {\n        if (INSTANCE != null) throw new IllegalStateException(\"GuardedQuota already exists\");\n    }\n}\n\nfinal class LazyQuota {\n    private static LazyQuota instance;\n    private LazyQuota() {\n        if (instance != null) throw new IllegalStateException(\"LazyQuota already exists\");\n    }\n    static synchronized LazyQuota getInstance() {\n        if (instance == null) instance = new LazyQuota();\n        return instance;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Reflection against each, the lazy one before anything has called `getInstance()` (the guard's exception arrives as the cause of an `InvocationTargetException`):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "guarded: java.lang.IllegalStateException: GuardedQuota already exists\nlazy: reflected first, then getInstance() == it: false"
+    },
+    {
+      "type": "para",
+      "text": "`newInstance` initializes `GuardedQuota` first, and class initialization builds `INSTANCE`, so the reflective call finds the field set and fails. The lazy field is still `null` when reflection comes first, so the copy gets through, and `getInstance()` builds another. A guard on a boolean flag lets a reflection-first copy through too, after which `getInstance()` throws; and reflection can reset the flag. It can't reset a `static final` field: `Field.set` on `INSTANCE` threw `IllegalAccessException: Can not set static final GuardedQuota field GuardedQuota.INSTANCE to null value`."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Named modules refuse `setAccessible`.** If the singleton's package is in a named module that doesn't `opens` it, `setAccessible(true)` from another module throws `InaccessibleObjectException`, as it does for JDK classes (unit 2.2.1). On the class path nothing stops it."
+        }
       ]
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "How It Works"
+      "level": 2,
+      "text": "Deserialization Makes a Second Instance Without Running the Constructor"
     },
     {
       "type": "para",
-      "text": "The core mechanics are:"
+      "text": "The quota is `Serializable` because it travels in a cached session. It has the guard from above, and its constructor prints a line. We take 60 calls, write `INSTANCE` to an `ObjectOutputStream`, take 40 more, and read the bytes back:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  constructor ran\ncopy == INSTANCE: false, INSTANCE left: 0, copy left: 40"
+    },
+    {
+      "type": "para",
+      "text": "The constructor ran once, during class initialization. Deserialization never calls it: it allocates the object, runs the no-arg constructor of the first superclass that isn't `Serializable` (here `Object`), and fills the fields from the stream. The guard never runs, and the copy resumes with the 40 calls it had when it was written."
+    },
+    {
+      "type": "para",
+      "text": "When a serializable class declares `readResolve`, `readObject` returns what that method returns instead of the object it just built:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "private final transient AtomicInteger left = new AtomicInteger(100);\n\n@java.io.Serial\nprivate Object readResolve() {\n    return INSTANCE;\n}"
+    },
+    {
+      "type": "para",
+      "text": "This time we take 60, write, take 20 more, and read back:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "with readResolve: back == INSTANCE: true, left: 20"
+    },
+    {
+      "type": "para",
+      "text": "The caller gets the live instance with the live count. Whatever the stream held is discarded with the object built from it, which is why `left` is `transient` here: there is no point writing state that is thrown away on arrival."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Each Class Loader Has Its Own Singleton, Enum Included"
+    },
+    {
+      "type": "para",
+      "text": "A static field belongs to a class, and a class is identified by its name and the loader that defined it. Two loaders that each define `Quota` from the same bytes have two classes, two static fields and two budgets. Application servers give each web application its own loader, and plugin hosts give each plugin one, so a library jar copied into two of them is loaded twice."
+    },
+    {
+      "type": "para",
+      "text": "Public copies of `Quota` and of an enum `QuotaEnum` with the same counter are compiled into a directory, `pluginJar`, which is also on the application's class path. Two `URLClassLoader`s read it, each with the platform loader as parent, so neither can find the class through its parent, as in an isolated plugin host:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ClassLoader platform = ClassLoader.getPlatformClassLoader();\ntry (URLClassLoader a = new URLClassLoader(pluginJar, platform);\n     URLClassLoader b = new URLClassLoader(pluginJar, platform)) {\n    for (String name : new String[] {\"Quota\", \"QuotaEnum\"}) {\n        Object fromA = a.loadClass(name).getField(\"INSTANCE\").get(null);\n        Object fromB = b.loadClass(name).getField(\"INSTANCE\").get(null);\n        System.out.println(name + \": same instance in A and B? \" + (fromA == fromB));\n    }\n    Object fromA = a.loadClass(\"Quota\").getField(\"INSTANCE\").get(null);\n    try {\n        Quota q = (Quota) fromA;\n    } catch (ClassCastException e) {\n        System.out.println(e.getMessage());\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Quota: same instance in A and B? false\nQuotaEnum: same instance in A and B? false\nclass Quota cannot be cast to class Quota (Quota is in unnamed module of loader java.net.URLClassLoader @5c647e05; Quota is in unnamed module of loader 'app')"
+    },
+    {
+      "type": "para",
+      "text": "The enum gives no protection here: its constant is a static field like any other. The cast fails because the `Quota` named in the program's own source is the application loader's class, a third one."
+    },
+    {
+      "type": "para",
+      "text": "Loaders delegate to their parent before defining a class themselves. With the application loader as parent, which has the directory on its class path, the class is defined once, whichever loader is asked:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "parent = app loader: same instance? true, == Quota.INSTANCE? true"
+    },
+    {
+      "type": "para",
+      "text": "So a singleton meant to be one per process lives in a jar that only the shared parent loads (the server's or the host's `lib`), and plugins must not ship their own copy. A host that loads plugin classes child-first, to let each plugin bring its own library versions, has to send the shared API packages to the parent explicitly."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Holder Idiom Chooses When the Instance Is Built; Only the Enum Refuses Copies"
+    },
+    {
+      "type": "para",
+      "text": "One program applies the three attacks to five forms, reflection first, before anything has called `getInstance()`. Each form is `Serializable` and has a `getInstance()`. `PlainQuota` is the eager class with a private constructor, `ResolvedQuota` adds the guard and `readResolve`, `HolderQuota` keeps its instance in a nested class, `GuardedHolderQuota` is that holder with the same two additions, and `EnumQuota` is a one-constant enum:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.io.Serializable;\n\npublic final class GuardedHolderQuota implements Serializable {\n    private GuardedHolderQuota() {\n        if (Holder.INSTANCE != null) throw new IllegalStateException(\"already exists\");\n    }\n    private static final class Holder {\n        static final GuardedHolderQuota INSTANCE = new GuardedHolderQuota();\n    }\n    public static GuardedHolderQuota getInstance() { return Holder.INSTANCE; }\n    @java.io.Serial\n    private Object readResolve() { return Holder.INSTANCE; }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "                    reflection                         serialization    second loader\nPlainQuota          second instance                    second instance  second instance\nResolvedQuota       refused: IllegalStateException     same instance    second instance\nHolderQuota         second instance                    second instance  second instance\nGuardedHolderQuota  refused: IllegalStateException     same instance    second instance\nEnumQuota           refused: IllegalArgumentException  same instance    second instance"
+    },
+    {
+      "type": "para",
+      "text": "The holder idiom answers when and how safely the instance is built. The nested class is initialized on the first `getInstance()`, under the JVM's class-initialization lock, so it is lazy and needs no `volatile` (unit 5.1.3, which also shows why double-checked locking needs one). By itself it protects against none of the three attacks. `GuardedHolderQuota`'s guard holds even when reflection comes first: the guard's read of `Holder.INSTANCE` starts the holder's initialization, which builds the real instance (the inner constructor call sees `null`), and the reflective call then finds the field set and throws."
+    },
+    {
+      "type": "para",
+      "text": "The enum refuses both copies with no code: `Constructor.newInstance` rejects enum classes, and an enum is serialized as its name and read back with `valueOf` (unit 7.2.5 runs both). An enum can't extend a class, and its constant is built as soon as anything initializes the enum, such as a call to `values()`. Every form here except a lazy synchronized field builds its instance in a static initializer, and one that throws leaves the class unusable for as long as its class loader lives (unit 5.2.3). A constructor that calls a remote service belongs in none of them."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Static Singleton Carries One Test's State Into the Next"
+    },
+    {
+      "type": "para",
+      "text": "A `PartnerClient` that looks up the quota itself has two tests. Each passes when run alone (JUnit 5.10.2, methods run in name order):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicInteger;\n\nfinal class PartnerQuota {\n    private static final PartnerQuota INSTANCE = new PartnerQuota();\n    private final AtomicInteger left = new AtomicInteger(100);\n    private PartnerQuota() {}\n    static PartnerQuota getInstance() { return INSTANCE; }\n    boolean tryTake() { return left.getAndDecrement() > 0; }\n}\n\nfinal class PartnerClient {\n    boolean send(String order) {\n        return PartnerQuota.getInstance().tryTake();          // then the HTTP call\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import static org.junit.jupiter.api.Assertions.*;\n\nimport org.junit.jupiter.api.MethodOrderer;\nimport org.junit.jupiter.api.Test;\nimport org.junit.jupiter.api.TestMethodOrder;\n\n@TestMethodOrder(MethodOrderer.MethodName.class)\nclass PartnerClientTest {\n    @Test\n    void refusesTheCallAfterTheHundredth() {\n        PartnerClient client = new PartnerClient();\n        for (int i = 0; i < 100; i++) assertTrue(client.send(\"A-\" + i));\n        assertFalse(client.send(\"A-100\"));\n    }\n\n    @Test\n    void sendsAnOrder() {\n        assertTrue(new PartnerClient().send(\"B-1\"));\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "together:\n  refusesTheCallAfterTheHundredth(): SUCCESSFUL\n  sendsAnOrder(): FAILED (expected: <true> but was: <false>)"
+    },
+    {
+      "type": "para",
+      "text": "Every test in one JVM shares the static instance, so the first test spent the budget the second one needed. Which test fails depends on the order. The usual patch, a `resetForTesting()` method called from `@BeforeEach`, works only while every test class remembers to call it and while tests run one at a time: with JUnit's parallel execution on, two tests share the instance while both are running."
+    },
+    {
+      "type": "para",
+      "text": "The fix is to stop looking the instance up. `PartnerQuota` becomes an ordinary class with a constructor, `PartnerClient` takes it as a constructor parameter (unit 8.1.5), and `main` builds the one instance and hands it to everyone who needs it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicInteger;\n\nfinal class PartnerQuota {\n    private final AtomicInteger left;\n    PartnerQuota(int perMinute) { left = new AtomicInteger(perMinute); }\n    boolean tryTake() { return left.getAndDecrement() > 0; }\n}\n\nfinal class PartnerClient {\n    private final PartnerQuota quota;\n    PartnerClient(PartnerQuota quota) { this.quota = quota; }\n    boolean send(String order) {\n        return quota.tryTake();                               // then the HTTP call\n    }\n}\n\nfinal class Main {\n    public static void main(String[] args) {\n        PartnerQuota quota = new PartnerQuota(100);           // the one instance, built once\n        PartnerClient orders = new PartnerClient(quota);\n        PartnerClient refunds = new PartnerClient(quota);\n        System.out.println(orders.send(\"A-1\") + \" \" + refunds.send(\"R-1\"));\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Each test now builds `new PartnerClient(new PartnerQuota(100))`, and the same two tests pass together and alone. No static field exists for reflection, serialization or a second loader to duplicate, and a test that wants an exhausted quota builds one with a limit of 0. Another `new PartnerQuota(100)` in production code compiles, though, and only review catches it. A DI container's singleton scope is the same arrangement, with the container as `main`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Private constructor** -- prevents external code from instantiating the class directly.",
-        "**Static field** -- holds the single instance reference.",
-        "**Static factory method** -- provides the global access point, creating the instance lazily or eagerly."
+        "**A private constructor stops `new`, and nothing else.** Reflection calls it; a guard that reads the `static final` instance field refuses the second call, one that reads a lazily set field doesn't.",
+        "**Deserialization builds a second instance without running the constructor.** `readResolve` returning the instance gives callers the live object and discards the state that was written.",
+        "**Each class loader has its own singleton, enum included.** One per process means one shared parent loader and no copy of the class in any child.",
+        "**The holder idiom decides when the instance is built; only the enum refuses copies without extra code.** No form survives a second loader, and every static form makes a failing constructor fatal for its class.",
+        "**A static singleton carries one test's state into the next.** Build the one instance in `main` and pass it through constructors; tests then build their own."
       ]
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Evolution of Singleton in Java"
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**What each form survives (Java 21, run with reflection before first use):**"
     },
     {
       "type": "table",
       "headers": [
-        "Era",
-        "Approach",
-        "Thread-Safe?",
-        "Notes"
+        "Form",
+        "Reflection",
+        "Serialization",
+        "Second class loader"
       ],
       "rows": [
         [
-          "Pre-Java 5",
-          "Eager initialization",
-          "Yes",
-          "Simple but wastes memory if never used"
+          "eager `static final`, private constructor",
+          "second instance",
+          "second instance",
+          "second instance"
         ],
         [
-          "Pre-Java 5",
-          "Synchronized method",
-          "Yes",
-          "Correct but slow due to lock contention"
+          "eager, guard reading `INSTANCE`, `readResolve`",
+          "`InvocationTargetException`, cause `IllegalStateException`",
+          "same instance",
+          "second instance"
         ],
         [
-          "Java 5+",
-          "Double-checked locking with volatile",
-          "Yes",
-          "Efficient and lazy; safe only since Java 5's memory model (JSR-133)"
+          "lazy field, guard reading the field",
+          "second instance if reflection comes first",
+          "depends on `readResolve`",
+          "second instance"
         ],
         [
-          "Java 5+",
-          "Enum-based singleton",
-          "Yes",
-          "Serialization-safe, reflection-safe (enums arrived in Java 5)"
+          "holder class",
+          "second instance",
+          "second instance",
+          "second instance"
         ],
         [
-          "Any Java version",
-          "Holder idiom (Bill Pugh)",
-          "Yes",
-          "Lazy, no synchronization overhead"
+          "holder, guard reading `Holder.INSTANCE`, `readResolve`",
+          "`InvocationTargetException`, cause `IllegalStateException`",
+          "same instance",
+          "second instance"
+        ],
+        [
+          "enum constant",
+          "`IllegalArgumentException: Cannot reflectively create enum objects`",
+          "same constant; fields not serialized",
+          "second instance"
         ]
       ]
     },
     {
       "type": "para",
-      "text": "The Holder idiom relies only on the JVM's thread-safe class initialization, which every Java version guarantees, so it works on any Java version. What Java 5's revised memory model (JSR-133) changed is `volatile`: it is what made double-checked locking safe, and it has nothing to do with the Holder idiom."
+      "text": "**Serialization hooks (`java.io.Serializable` javadoc):**"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Singleton guarantees only **one instance** per classloader, not per JVM (multiple classloaders can each load their own copy).",
-        "The private constructor prevents instantiation from outside the class.",
-        "Thread safety is critical -- naive lazy initialization leads to race conditions in multithreaded environments.",
-        "The `volatile` keyword is essential in double-checked locking to prevent instruction reordering.",
-        "Enum-based Singleton is recommended by Joshua Bloch (Effective Java) as the most robust approach.",
-        "Singletons can complicate unit testing because they introduce hidden global state.",
-        "In modern Java, dependency injection frameworks (Spring, Guice) often manage singleton scope more elegantly.",
-        "Serialization and reflection can break non-enum Singletons unless specifically guarded against."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Sealed classes**: A sealed class restricts subclassing to the classes it permits; it cannot be used to forbid subclassing altogether (a sealed class with no permitted subclasses does not compile). To prevent subclassing, declare the Singleton `final`, as the examples below do. Sealing is useful when a Singleton is one of a fixed set of implementations of a sealed interface.",
-        "**Records**: While records cannot be used directly for Singleton (a record's canonical constructor must be at least as accessible as the record itself, so a public record cannot hide its constructor), they can model the data a Singleton manages.",
-        "**Virtual threads**: Singletons managing thread pools should consider virtual threads for scalability. A Singleton executor service could return a virtual-thread-based executor.",
-        "**Pattern matching for switch**: Can be used when Singletons implement sealed interfaces, enabling exhaustive pattern matching over the singleton instances."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Method",
+        "When it runs",
+        "Use here"
+      ],
+      "rows": [
         [
-          "**Broken Singleton via reflection**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// An attacker can create a second instance\nConstructor<MySingleton> constructor = MySingleton.class.getDeclaredConstructor();\nconstructor.setAccessible(true);\nMySingleton second = constructor.newInstance(); // Different instance!"
-          },
-          "**Solution**: Throw an exception in the constructor if an instance already exists, or use an enum-based Singleton."
+          "`private Object readResolve()`",
+          "after the object is read, before `readObject` returns",
+          "return the existing instance"
         ],
         [
-          "**Broken Singleton via serialization**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Deserializing creates a new instance\nObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(\"singleton.ser\"));\noos.writeObject(MySingleton.getInstance());\nObjectInputStream ois = new ObjectInputStream(new FileInputStream(\"singleton.ser\"));\nMySingleton deserialized = (MySingleton) ois.readObject(); // Different instance!"
-          },
-          "**Solution**: Implement `readResolve()` to return the existing instance, or use an enum-based Singleton."
+          "`private Object writeReplace()`",
+          "before the object is written",
+          "write a small proxy instead"
         ],
         [
-          "**Double-checked locking without volatile**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BROKEN -- missing volatile\nprivate static MySingleton instance;\npublic static MySingleton getInstance() {\n    if (instance == null) {\n        synchronized (MySingleton.class) {\n            if (instance == null) {\n                instance = new MySingleton(); // Instruction reordering can expose partially constructed object\n            }\n        }\n    }\n    return instance;\n}"
-          },
-          "**Solution**: Always declare the instance field as `volatile`."
-        ],
-        "**Classloader issues**: In environments with multiple classloaders (e.g., application servers), each classloader can load its own copy of the Singleton class. **Solution**: Use a common parent classloader or a dependency injection framework to manage the scope.",
-        "**Singleton as a hidden dependency**: Code that uses `Singleton.getInstance()` everywhere creates tight coupling. **Solution**: Pass the Singleton as a constructor parameter (dependency injection) to improve testability."
+          "`private void readObject(ObjectInputStream)`",
+          "while the fields are read",
+          "validate; can't swap the result"
+        ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Prefer enum Singleton** for simplicity, thread safety, serialization safety, and reflection safety.",
-        "**Use the Holder idiom** (Bill Pugh) when you need a class-based Singleton with lazy initialization.",
-        "**Consider dependency injection** instead of the Singleton pattern -- frameworks like Spring manage singleton scope and make testing easier.",
-        "**Keep Singletons stateless** or minimize mutable state to reduce thread-safety complexity.",
-        "**Document thread-safety guarantees** for any Singleton that holds mutable state.",
-        "**Avoid eager initialization** if the Singleton is expensive to create and might not be used.",
-        "**Use interface-based design** -- have the Singleton implement an interface so it can be mocked in tests."
+        "A singleton is in a library that two web applications on one Tomcat both bundle. Moving the jar to Tomcat's shared `lib` makes it one instance. What else changes for those applications, such as redeploying one without the other?",
+        "Your codebase has 40 calls to `Clock.getInstance()`. Plan the move to a constructor-injected clock in steps that each leave the build green.",
+        "A metrics registry is a singleton so that libraries with no access to `main` can register gauges. Is that a reason to keep it static? What does the JDK's `ServiceLoader` (unit 8.1.5) offer instead?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null instance before first access**: Lazy Singletons must handle the initial null state safely. Use double-checked locking with volatile, the Holder idiom, or enum.",
-        "**Concurrent first access**: Multiple threads calling `getInstance()` simultaneously for the first time must be handled with proper synchronization.",
-        "**Garbage collection**: A Singleton referenced only by a WeakReference can be collected. Use strong references.",
-        "**Multiple classloaders**: Each classloader creates its own static fields. In web application servers, this can lead to multiple \"singletons.\"",
-        "**Singleton destruction**: Java does not guarantee finalization order. Avoid depending on Singleton cleanup in `finalize()`."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: One Instance Is a Decision of the Program, Not of the Class"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Different implementation approaches and their trade-offs",
-        "Thread-safety guarantees of each approach",
-        "Why double-checked locking requires `volatile`",
-        "How enum-based Singleton prevents reflection and serialization attacks",
-        "When NOT to use Singleton (testability concerns, hidden dependencies)",
-        "Difference between Singleton pattern and singleton scope in Spring"
-      ]
+      "text": "The pattern puts two decisions in one class: that the program needs exactly one of something, and how everyone finds it. The first is usually right. The second, a static field reachable from anywhere, is the part that reflection, serialization and class loaders duplicate and that tests can't replace."
     },
     {
       "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Can you break a Singleton? How would you prevent it?\"",
-        "\"Why is the Holder idiom thread-safe without explicit synchronization?\"",
-        "\"What happens if you serialize and deserialize a Singleton?\"",
-        "\"How many Singleton instances can exist in a JVM?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the Singleton pattern and when should you use it?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The Singleton pattern ensures a class has exactly one instance and provides a global access point to it.\n\nUse it when:\n1. Exactly one instance of a class is needed to coordinate actions across the system (e.g., a configuration manager,\n   logging service, or connection pool).\n2. The single instance should be extensible by subclassing, and clients should be able to use an extended instance\n   without modifying their code. (This is the intent the GoF book states. It conflicts with the `final` singletons\n   and private constructors shown in this lesson, which forbid subclassing; a subclassable singleton needs a\n   non-final class with a protected constructor and some registry that decides which subclass is the instance.)\n3. Controlled access to a shared resource is required (e.g., a file system or printer spooler).\n\nAvoid it when:\n1. The Singleton holds mutable state that makes testing difficult.\n2. You can use dependency injection to manage the lifecycle instead.\n3. Multiple instances might be needed in the future (e.g., multi-tenant systems)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Basic eager Singleton\npublic final class ConfigManager {\n    private static final ConfigManager INSTANCE = new ConfigManager();\n    private final Map<String, String> properties = new HashMap<>();\n\n    private ConfigManager() {\n        // Load configuration\n    }\n\n    public static ConfigManager getInstance() {\n        return INSTANCE;\n    }\n\n    public String getProperty(String key) {\n        return properties.get(key);\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: Explain the double-checked locking pattern. Why is `volatile` required?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Double-checked locking is a technique that reduces the overhead of acquiring a lock by first testing the\nlocking criterion without holding the lock. Only when the criterion is met does it proceed to acquire the lock and\ncheck again.\n\nThe volatile keyword is required because of the Java Memory Model (JMM):\n\n1. Without volatile, the JVM is allowed to reorder instructions. When \"instance = new Singleton()\" executes, the JVM\n   may: (a) allocate memory, (b) assign the reference to instance, (c) call the constructor. If steps (b) and (c)\n   are reordered, another thread can see a non-null but partially constructed instance.\n\n2. Volatile prevents this reordering by establishing a happens-before relationship. Once a volatile write completes,\n   all preceding writes are visible to other threads that subsequently read the volatile variable.\n\n3. Without volatile, the outer null check might see a stale cached value, or worse, a partially constructed object."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public final class LazyRegistry {\n    private static volatile LazyRegistry instance; // volatile is critical\n\n    private LazyRegistry() { }\n\n    public static LazyRegistry getInstance() {\n        if (instance == null) {                    // First check (no lock)\n            synchronized (LazyRegistry.class) {\n                if (instance == null) {            // Second check (with lock)\n                    instance = new LazyRegistry();\n                }\n            }\n        }\n        return instance;\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: Why is the enum-based Singleton considered the best approach in Java?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Joshua Bloch recommends enum-based Singleton in \"Effective Java\" because it provides three guarantees automatically:\n\n1. Thread safety: The JVM guarantees that enum values are instantiated exactly once, in a thread-safe manner, during\n   class initialization. No synchronization code is needed.\n\n2. Serialization safety: Java's serialization mechanism handles enums specially. It serializes only the enum constant's\n   name and deserializes by calling Enum.valueOf(), always returning the same instance. No readResolve() needed.\n\n3. Reflection safety: The JVM prevents reflective instantiation of enum types. Calling\n   Constructor.newInstance() on an enum throws IllegalArgumentException.\n\nLimitations:\n- Cannot extend another class (enums implicitly extend java.lang.Enum).\n- No separate lazy step (the instance is created when the enum class is initialized, i.e. on its first use, together\n  with all other static state of the enum).\n- Looks unusual to developers unfamiliar with the idiom."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum DatabaseConnectionPool {\n    INSTANCE;\n\n    private final List<String> connections = new ArrayList<>();\n\n    public void addConnection(String conn) {\n        connections.add(conn);\n    }\n\n    public List<String> getConnections() {\n        return Collections.unmodifiableList(connections);\n    }\n}\n\n// Usage:\n// DatabaseConnectionPool.INSTANCE.addConnection(\"jdbc:mysql://localhost/db\");"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: What is the Bill Pugh Singleton (Holder idiom) and why is it preferred over other approaches?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: The Bill Pugh Singleton, also known as the Initialization-on-Demand Holder idiom, uses a static inner class to\nhold the Singleton instance. It leverages the JVM's class loading mechanism for thread safety.\n\nHow it works:\n1. The inner holder class is NOT initialized when the outer class is initialized.\n2. The holder class is initialized only when getInstance() first reads Holder.INSTANCE.\n3. Class initialization in the JVM is guaranteed to be thread-safe (JLS 12.4.2 specifies this).\n4. Therefore, the instance is created lazily and safely without any explicit synchronization.\n\nAdvantages over other approaches:\n- Lazy initialization (unlike eager initialization).\n- No synchronization overhead (unlike synchronized method).\n- No volatile keyword needed (unlike double-checked locking).\n- Simpler to implement correctly than double-checked locking.\n\nThe only limitation compared to enum Singleton is that it does not automatically handle serialization or reflection\nattacks."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public final class ServiceRegistry {\n    private ServiceRegistry() {\n        // Prevent reflection attacks\n        if (Holder.INSTANCE != null) {\n            throw new IllegalStateException(\"Singleton already initialized\");\n        }\n    }\n\n    private static class Holder {\n        private static final ServiceRegistry INSTANCE = new ServiceRegistry();\n    }\n\n    public static ServiceRegistry getInstance() {\n        return Holder.INSTANCE;\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How can Singleton be broken and how do you prevent it?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: A non-enum Singleton can be broken in four ways:\n\n1. Reflection: Using setAccessible(true) on the private constructor allows creating new instances.\n   Prevention: Check in the constructor if an instance already exists and throw an exception.\n\n2. Serialization: Deserializing a serialized Singleton creates a new object.\n   Prevention: Implement readResolve() to return the existing instance.\n\n3. Cloning: If the Singleton extends a class that implements Cloneable, clone() creates a new instance.\n   Prevention: Override clone() to throw CloneNotSupportedException or return the existing instance.\n\n4. Multiple classloaders: Different classloaders load separate copies of the class, each with its own static field.\n   Prevention: Use a shared classloader or dependency injection framework.\n\nThe enum-based Singleton prevents attacks 1, 2, and 3 automatically. Only the classloader issue remains, and it is\nrare in practice."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public final class SecureSingleton implements Serializable {\n    @java.io.Serial\n    private static final long serialVersionUID = 1L;\n\n    // Declared BEFORE INSTANCE: static initializers run in textual order. If this line came after INSTANCE,\n    // its \"= false\" would run after the constructor had set the flag and reset it, disabling the guard.\n    private static boolean instantiated = false;\n    private static final SecureSingleton INSTANCE = new SecureSingleton();\n\n    private SecureSingleton() {\n        // Prevent reflection attack\n        if (instantiated) {\n            throw new IllegalStateException(\"Use getInstance()\");\n        }\n        instantiated = true;\n    }\n\n    public static SecureSingleton getInstance() {\n        return INSTANCE;\n    }\n\n    // Prevent serialization attack\n    @java.io.Serial\n    private Object readResolve() {\n        return INSTANCE;\n    }\n\n    // Prevent cloning attack\n    @Override\n    protected Object clone() throws CloneNotSupportedException {\n        throw new CloneNotSupportedException(\"Singleton cannot be cloned\");\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: What is the difference between the Singleton pattern and singleton scope in Spring?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: These are fundamentally different concepts:\n\nSingleton Pattern (GoF):\n- One instance per classloader.\n- The class itself controls its own instantiation.\n- Uses static methods / fields.\n- Difficult to test (hidden global state).\n- The class is responsible for thread safety.\n\nSpring Singleton Scope (default):\n- One instance per Spring IoC container (ApplicationContext).\n- The framework controls instantiation and lifecycle.\n- Uses dependency injection (no static getInstance()).\n- Easy to test (inject mocks via constructor injection).\n- Spring manages thread safety of the bean lifecycle (though not of the bean's internal state).\n\nKey differences:\n1. Spring singleton scope does NOT use the Singleton pattern internally -- it simply caches a single instance in\n   the container's bean registry.\n2. Multiple ApplicationContexts can each have their own \"singleton\" bean instance.\n3. Spring singletons are more testable because dependencies are injected rather than looked up globally.\n4. You can change a Spring bean's scope from singleton to prototype without changing the bean class."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Spring-style singleton (preferred in modern Java)\n// @Service  // This is a Spring singleton by default\npublic class UserService {\n    private final UserRepository repository;\n\n    // Constructor injection -- no static getInstance()\n    public UserService(UserRepository repository) {\n        this.repository = repository;\n    }\n\n    public String findUser(String id) {\n        return repository.findById(id);\n    }\n}\n\n// Compared to GoF Singleton (less testable)\npublic final class UserServiceSingleton {\n    private static final UserServiceSingleton INSTANCE = new UserServiceSingleton();\n\n    private UserServiceSingleton() { }\n\n    public static UserServiceSingleton getInstance() {\n        return INSTANCE;\n    }\n\n    public String findUser(String id) {\n        // Hard-coded dependency -- difficult to mock in tests\n        return \"user-\" + id;\n    }\n}"
+      "text": "Moving the decision to `main` costs the guarantee and some plumbing: every class that needs the quota has to receive it. The enum keeps the guarantee and the global access, which suits a stateless strategy or a constant table. For anything with state that tests need to control, or that must stay one per process across class loaders, one instance built at the composition root is the form that none of the three copies can reach and every test can replace."
     },
     {
       "type": "heading",
@@ -360,17 +394,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 12,
-    "paras": 13,
-    "code": 12,
-    "tables": 1,
-    "lists": 10,
+    "headings": 11,
+    "paras": 28,
+    "code": 17,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "c4fb235676979fef09c424f35ecf4e31beee1d7c3dc57a686c2bc06f72ab2327"
+  "content_sha256": "7a72f08d86460e426abaf05b9d4bdff499054f8b55fa2a24bf026b0fb3d875c7"
 }

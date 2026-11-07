@@ -18,237 +18,346 @@
       "text": "1.4.4 String Comparison in Java: equals() vs. =="
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "The sign-up service keeps usernames unique in a `HashSet<String>`, and since the duplicate-order bug of unit 1.1.2 it compares strings with `equals`, never `==`. Four tickets are still open. Two accounts are named `José`, and nobody can see a difference. `Jane` and `JANE` both registered after someone made the check ignore case. The admin list puts `Émile` after `zoe`, and a fix to the sort made three accounts disappear from it. And the profile editor's audit log records a change on every save, including saves that changed nothing."
     },
     {
       "type": "para",
-      "text": "In Java, comparing strings is a common operation, but it's crucial to understand the difference between using the `equals()` method and the `==` operator. This distinction is fundamental to avoiding subtle bugs and ensuring correct string comparisons."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "equals() Method"
-    },
-    {
-      "type": "para",
-      "text": "The `equals()` method compares the content of strings. It checks if two strings have the same sequence of characters."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "== Operator"
-    },
-    {
-      "type": "para",
-      "text": "The `==` operator compares object references. For strings, it checks if two string variables refer to the exact same object in memory."
+      "text": "`String.equals` answers one narrow question: is the argument a `String` holding the same UTF-16 units (unit 1.4.3)? Each ticket asked it a different question."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "equals Is True Only for Another String, and Its Receiver Must Not Be null"
+    },
+    {
+      "type": "para",
+      "text": "The editor keeps the name being edited in a `StringBuilder`, and the audit compares it with the saved value:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String saved = \"Jane Doe\";                                   // the stored value\nStringBuilder edited = new StringBuilder(\"Jane \").append(\"Doe\"); // the editor's buffer\nSystem.out.println(\"equals:         \" + saved.equals(edited));\nSystem.out.println(\"Objects.equals: \" + Objects.equals(saved, edited));\nSystem.out.println(\"contentEquals:  \" + saved.contentEquals(edited));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "equals:         false\nObjects.equals: false\ncontentEquals:  true"
+    },
+    {
+      "type": "para",
+      "text": "`equals` takes an `Object`, so the compiler accepts any argument, and javac says nothing even with `-Xlint:all`. A `StringBuilder`, a `Character` or an `Optional<String>` with the same text is never equal. `Objects.equals` adds null-safety and calls the same `equals`. `contentEquals(CharSequence)` compares the characters of any `CharSequence`. With `equals`, every save is a change, the customer gets a \"profile updated\" mail each time."
+    },
+    {
+      "type": "para",
+      "text": "The other half is the receiver. The nickname is optional and was never set (compiled with `-g`, so the message names the variable):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String nickname = null;                                      // optional, never set\nSystem.out.println(\"\\\"Jane\\\".equals(nickname):     \" + \"Jane\".equals(nickname));\nSystem.out.println(\"Objects.equals(nickname, null): \" + Objects.equals(nickname, null));\ntry {\n    nickname.equals(\"Jane\");\n} catch (NullPointerException e) {\n    System.out.println(e.getMessage());\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "\"Jane\".equals(nickname):     false\nObjects.equals(nickname, null): true\nCannot invoke \"String.equals(Object)\" because \"nickname\" is null"
+    },
+    {
+      "type": "para",
+      "text": "`x.equals(y)` throws when `x` is `null`; `equals(null)` is `false`. Put the literal first where `null` is a valid value. Use `Objects.equals` where both sides may be `null` and two `null`s count as equal. Where `null` means a bug upstream, the literal-first form hides it: reject it where it enters, with `Objects.requireNonNull` (unit 1.1.2)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Text That Looks the Same Can Be Different Code Points: Normalize Before Comparing"
+    },
+    {
+      "type": "para",
+      "text": "Unicode can write `é` two ways: as one code point, U+00E9, or as `e` followed by a combining acute accent, U+0301. Both render the same, and which one arrives depends on the keyboard, the operating system and whatever the text was copied from."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String typed = \"Jos\\u00e9\";                    // é as one code point, U+00E9\nString pasted = \"Jose\\u0301\";                  // e, then a combining acute accent U+0301\nSystem.out.println(typed + \" / \" + pasted + \"  equals: \" + typed.equals(pasted)\n        + \"  length: \" + typed.length() + \" / \" + pasted.length());\nSystem.out.println(\"hashCode: \" + typed.hashCode() + \" / \" + pasted.hashCode()\n        + \"  equalsIgnoreCase: \" + typed.equalsIgnoreCase(pasted));\nSystem.out.println(\"HashSet size: \" + new HashSet<>(List.of(typed, pasted)).size());\nString a = Normalizer.normalize(typed, Normalizer.Form.NFC);\nString b = Normalizer.normalize(pasted, Normalizer.Form.NFC);\nSystem.out.println(\"after NFC equals: \" + a.equals(b) + \"  length: \" + b.length());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "José / José  equals: false  length: 4 / 5\nhashCode: 2315003 / 71761770  equalsIgnoreCase: false\nHashSet size: 2\nafter NFC equals: true  length: 4"
+    },
+    {
+      "type": "para",
+      "text": "Different units give different hash codes, and the set keeps both: two accounts named `José`, and a login that finds one or the other depending on how the user typed it. Case was never the difference, so `equalsIgnoreCase` doesn't help. Unicode calls the two forms canonically equivalent, and `java.text.Normalizer` turns either into one form: NFC composes, NFD decomposes. Normalize once where the text enters and store the result; then `equals`, `hashCode` and `length()` agree."
+    },
+    {
+      "type": "para",
+      "text": "Removing the accents (NFD, then deleting the combining marks) is a different operation: it makes `René` and `Rene` one user. NFKC goes further than NFC and also folds compatibility forms, such as the ligature `ﬁ` into `fi`; use it only where such look-alikes should collide."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "equalsIgnoreCase Has No Matching hashCode: Compare and Hash One Key"
+    },
+    {
+      "type": "para",
+      "text": "The username check moved into a value class whose `equals` ignores case:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Username(String value) {\n    @Override public boolean equals(Object o) {\n        return o instanceof Username u && value.equalsIgnoreCase(u.value);\n    }\n    @Override public int hashCode() { return value.hashCode(); }\n}"
+    },
+    {
+      "type": "para",
+      "text": "With `Jane` in a `HashSet`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Set<Username> taken = new HashSet<>();\ntaken.add(new Username(\"Jane\"));\nSystem.out.println(\"equals: \" + new Username(\"Jane\").equals(new Username(\"JANE\"))\n        + \"  contains: \" + taken.contains(new Username(\"JANE\")));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "equals: true  contains: false"
+    },
+    {
+      "type": "para",
+      "text": "A `HashSet` picks the bucket by `hashCode` and calls `equals` only on entries with the same hash. `\"Jane\"` and `\"JANE\"` hash differently, `equals` is never asked, and `JANE` registers. `Object.hashCode` requires equal objects to have equal hash codes, and a hash of the raw text gives `Jane` and `JANE` different ones. Derive one key and use it for both:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record KeyedUsername(String value) {\n    String key() { return value.toLowerCase(Locale.ROOT); }   // one fold, used by both\n    @Override public boolean equals(Object o) {\n        return o instanceof KeyedUsername u && key().equals(u.key());\n    }\n    @Override public int hashCode() { return key().hashCode(); }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Set<KeyedUsername> keyed = new HashSet<>();\nkeyed.add(new KeyedUsername(\"Jane\"));\nSystem.out.println(\"keyed contains: \" + keyed.contains(new KeyedUsername(\"JANE\")));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "keyed contains: true"
+    },
+    {
+      "type": "para",
+      "text": "Never pair `equalsIgnoreCase` in `equals` with a lower-cased key in `hashCode`: the folds disagree. `equalsIgnoreCase` compares code point by code point, upper-casing then lower-casing each, with no locale:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Locale saved = Locale.getDefault();\nLocale.setDefault(Locale.forLanguageTag(\"tr-TR\"));\nSystem.out.println(\"tr-TR default: equalsIgnoreCase \" + \"TITLE\".equalsIgnoreCase(\"title\")\n        + \", toLowerCase().equals \" + \"TITLE\".toLowerCase().equals(\"title\"));\nLocale.setDefault(saved);\nSystem.out.println(\"STRASSE / straße: equalsIgnoreCase \" + \"STRASSE\".equalsIgnoreCase(\"stra\\u00dfe\"));\nSystem.out.println(\"ı / i: equalsIgnoreCase \" + \"\\u0131\".equalsIgnoreCase(\"i\")\n        + \", toLowerCase(ROOT) equal \" + \"\\u0131\".toLowerCase(Locale.ROOT).equals(\"i\".toLowerCase(Locale.ROOT)));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "tr-TR default: equalsIgnoreCase true, toLowerCase().equals false\nSTRASSE / straße: equalsIgnoreCase false\nı / i: equalsIgnoreCase true, toLowerCase(ROOT) equal false"
+    },
+    {
+      "type": "para",
+      "text": "It ignores the default locale, which `toLowerCase()` uses: under Turkish, `TITLE` lowers to `tıtle` (unit 1.2.4). It can't match `ß` with `SS`, since one character never equals two. And it treats the dotless `ı` as `i`, which a `toLowerCase(Locale.ROOT)` key doesn't, so an `equals` that calls `equalsIgnoreCase` beside a hash of that key breaks the contract on exactly those names. Where no hash is needed, a `TreeMap` with `String.CASE_INSENSITIVE_ORDER` folds the way `equalsIgnoreCase` does, and keeps the first spelling as the key:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Map<String, Integer> byName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);\nbyName.put(\"Jane\", 1);\nbyName.put(\"JANE\", 2);\nSystem.out.println(byName);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "{Jane=2}"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "compareTo Orders UTF-16 Units; People Need a Collator, and Its 0 Merges Set Entries"
+    },
+    {
+      "type": "para",
+      "text": "The admin list, sorted three ways:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> names = List.of(\"zoe\", \"Adam\", \"\\u00c9mile\", \"adam\", \"Zoe\", \"emile\", \"Bea\");\nSystem.out.println(\"compareTo:              \" + names.stream().sorted().toList());\nSystem.out.println(\"CASE_INSENSITIVE_ORDER: \" + names.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList());\nSystem.out.println(\"Collator (en):          \" + names.stream().sorted(Collator.getInstance(Locale.ENGLISH)).toList());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "compareTo:              [Adam, Bea, Zoe, adam, emile, zoe, Émile]\nCASE_INSENSITIVE_ORDER: [Adam, adam, Bea, emile, zoe, Zoe, Émile]\nCollator (en):          [adam, Adam, Bea, emile, Émile, zoe, Zoe]"
+    },
+    {
+      "type": "para",
+      "text": "`compareTo` compares the first differing `char` by its number. Uppercase ASCII letters (65–90) come before lowercase ones (97–122), and `É` (201) after both. `CASE_INSENSITIVE_ORDER` fixes case, not accents. A `java.text.Collator` orders by a language's rules: letters first, then accents, then case. Ask for an explicit locale, because `Collator.getInstance()` uses the server's default, and the order differs by language:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> staff = List.of(\"Olsson\", \"\\u00d6berg\", \"Zetterlund\", \"Andersson\");\nSystem.out.println(\"sv: \" + staff.stream().sorted(Collator.getInstance(Locale.forLanguageTag(\"sv-SE\"))).toList());\nSystem.out.println(\"de: \" + staff.stream().sorted(Collator.getInstance(Locale.GERMANY)).toList());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "sv: [Andersson, Olsson, Zetterlund, Öberg]\nde: [Andersson, Öberg, Olsson, Zetterlund]"
+    },
+    {
+      "type": "para",
+      "text": "Swedish sorts `Ö` as a letter after `Z`; German sorts it with `O`."
+    },
+    {
+      "type": "para",
+      "text": "The fix that lost accounts wanted `adam` and `Adam` side by side. It set the collator's strength to `PRIMARY`, which compares letters only, and kept the list in a `TreeSet`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Collator loose = Collator.getInstance(Locale.ENGLISH);\nloose.setStrength(Collator.PRIMARY);              // ignore case and accents\nSet<String> admin = new TreeSet<>(loose);\nadmin.addAll(names);\nSystem.out.println(admin);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[Adam, Bea, Émile, zoe]"
+    },
+    {
+      "type": "para",
+      "text": "A `TreeSet` never calls `equals`. When its comparator returns 0, the new name counts as already there and is not added, so the admin list shows four of seven accounts. Sort with a collator into a `List`. Use a sorted set or map only with a comparator whose 0 means what you want a duplicate to mean. `compareTo`'s 0 matches `equals`; a collator's 0 merges different strings, even at its default strength."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 5 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "Use `equals()` to compare string content.",
-        "Use `==` only when you want to check if two variables refer to the same object.",
-        "String literals with the same content share the same memory location due to string interning.",
-        "Strings created with `new` keyword always create a new object, even if the content is identical."
+        "**`equals` is true only for another `String`, and its receiver must not be `null`.** Compare a `StringBuilder` with `contentEquals`; use `Objects.equals` where both sides may be `null`.",
+        "**Text that looks the same can be different code points.** Normalize to NFC where text enters, or equal-looking names get different hash codes and both register.",
+        "**`equalsIgnoreCase` has no matching `hashCode`.** Derive one canonical key and use it for both `equals` and `hashCode`; a different fold in each breaks hash sets on the letters where they disagree.",
+        "**`compareTo` orders UTF-16 units.** Sort for people with a `Collator` for an explicit locale, and keep collated names in a `List`: a sorted set treats its comparator's 0 as a duplicate."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "para",
-      "text": "While string comparison hasn't changed significantly in Java 21, it's worth noting that Java continues to optimize string handling internally. The principles of `equals()` vs. `==` remain consistent across versions."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Call (Java 21)",
+        "Compares",
+        "Notes"
+      ],
+      "rows": [
         [
-          "Using `==` for string content comparison:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "Pitfall: `if (str1 == str2)` might give unexpected results.",
-              "Solution: Always use `if (str1.equals(str2))` for content comparison."
-            ]
-          }
+          "`a.equals(b)`",
+          "`b` is a `String` with the same UTF-16 units",
+          "`false` for a `StringBuilder` or `null`; NPE when `a` is `null`"
         ],
         [
-          "Forgetting to handle null values:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "Pitfall: `str1.equals(str2)` throws NullPointerException if `str1` is null.",
-              "Solution: Use `Objects.equals(str1, str2)` or null checks before comparison."
-            ]
-          }
+          "`Objects.equals(a, b)`",
+          "`true` for two `null`s, else `a.equals(b)` when `a` isn't `null`",
+          "no help with types"
         ],
         [
-          "Case sensitivity issues:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "Pitfall: `\"hello\".equals(\"Hello\")` returns false.",
-              "Solution: Use `equalsIgnoreCase()` for case-insensitive comparison."
-            ]
-          }
+          "`a.contentEquals(cs)`",
+          "the `char`s of any `CharSequence`",
+          "NPE when `cs` is `null`"
+        ],
+        [
+          "`a.equalsIgnoreCase(b)`",
+          "same length, each code point equal after `toUpperCase` then `toLowerCase`",
+          "no locale; `ß` ≠ `SS`; `ı` = `i`"
+        ],
+        [
+          "`a.compareTo(b)`",
+          "first differing `char`, else length",
+          "returns the difference: `\"apple\".compareTo(\"app\")` is 2, `\"Zoe\".compareTo(\"adam\")` is -7; 0 exactly when `equals` is true"
+        ],
+        [
+          "`compareToIgnoreCase`, `CASE_INSENSITIVE_ORDER`",
+          "as `compareTo`, after the fold `equalsIgnoreCase` uses",
+          "`\"ı\"` and `\"i\"` compare as 0"
+        ],
+        [
+          "`Collator`, strength `TERTIARY` (default)",
+          "letters, accents, case",
+          "`\"Jos\\u00e9\"` and `\"Jose\\u0301\"` compare as 0"
+        ],
+        [
+          "`Collator`, strength `SECONDARY`",
+          "letters, accents",
+          "`adam` = `Adam`; `emile` < `Émile`"
+        ],
+        [
+          "`Collator`, strength `PRIMARY`",
+          "letters",
+          "`adam` = `ÁDAM`"
+        ],
+        [
+          "`Normalizer`, NFC / NFD",
+          "canonical forms, composed / decomposed",
+          "`é` (U+00E9) and `e` + U+0301 become one form"
+        ],
+        [
+          "`Normalizer`, NFKC",
+          "NFC plus compatibility forms",
+          "`ﬁle` → `file`, fullwidth `ＡＢＣ` → `ABC`; NFC leaves `ﬁ` alone"
         ]
       ]
     },
     {
+      "type": "para",
+      "text": "`compareTo` compares surrogate units, not code points: `\"\\uFF61\".compareTo(\"\\uD83D\\uDE00\")` is positive although U+FF61 is below U+1F600."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Use `equals()` for content comparison.",
-        "Consider using `equalsIgnoreCase()` for case-insensitive comparisons.",
-        "For frequent comparisons, consider normalizing strings (e.g., converting to lowercase) once and then comparing.",
-        "Use `Objects.equals()` for null-safe comparisons."
+        "Your usernames are stored un-normalized in a database with a unique index. Plan the migration to NFC: what do you do with the pairs that collide, and how does the database's own collation change the answer?",
+        "Sorting 100,000 names with a `Collator` compares each pair from scratch. Measure it against sorting precomputed `CollationKey`s, and decide where the keys belong.",
+        "Find a class in a code base you know whose `equals` ignores case or trims. Does its `hashCode` apply the same fold, and does any `TreeMap` use a comparator that disagrees with it?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "Null strings:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "String str1 = null;\nString str2 = \"hello\";\nboolean result = Objects.equals(str1, str2); // Safely handles null"
-          }
-        ],
-        [
-          "Empty strings:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "String str1 = \"\";\nString str2 = new String(\"\");\nboolean result = str1.equals(str2); // true\nboolean sameObject = (str1 == str2); // false"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Interviewers often ask about the difference between `equals()` and `==` for strings.",
-        "Be prepared to explain string interning and its impact on `==` comparisons.",
-        "Understand the performance implications of different comparison methods."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 1,
-      "text": "Interview Q&A Section"
+      "text": "Design Note: Why String.equals Is Exact"
     },
     {
       "type": "para",
-      "text": "Q1: What's the difference between `equals()` and `==` when comparing strings in Java?"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "String str1 = \"Hello\";\nString str2 = new String(\"Hello\");\nString str3 = \"Hello\";\n\nSystem.out.println(str1.equals(str2)); // true\nSystem.out.println(str1 == str2);      // false\nSystem.out.println(str1 == str3);      // true"
+      "text": "`String.equals` compares units and nothing else. It needs no locale and gives the same answer on every server, which a hash key or a protocol value needs. Everything a person means by \"the same text\" (case, accents, the order of a list) depends on the language and on the application, so Java leaves it to explicit, separate tools: `Normalizer`, `equalsIgnoreCase` with its documented limits, and `Collator`."
     },
     {
       "type": "para",
-      "text": "A1: The `equals()` method compares the content of the strings, while `==` compares the object references. In the example:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`str1.equals(str2)` returns `true` because both strings have the same content.",
-        "`str1 == str2` returns `false` because `str2` is created using `new`, so it's a different object.",
-        "`str1 == str3` returns `true` because string literals with the same content are interned and share the same memory location."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Q2: How does string interning affect string comparison with `==`?"
-    },
-    {
-      "type": "para",
-      "text": "A2: String interning is a method of storing only one copy of each distinct string value in memory. In Java, string literals are automatically interned. This means that when you create string literals with the same content, they will reference the same object in memory. As a result, comparing these strings with `==` will return `true`. However, strings created with `new` or by string manipulation methods are not automatically interned, so `==` comparison with these strings may return `false` even if the content is the same."
-    },
-    {
-      "type": "para",
-      "text": "Q3: How would you safely compare two strings that might be null?"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public boolean safeStringCompare(String str1, String str2) {\n    return Objects.equals(str1, str2);\n}"
-    },
-    {
-      "type": "para",
-      "text": "A3: The safest way to compare two potentially null strings is to use `Objects.equals(str1, str2)`. This method handles null values gracefully:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "If both strings are null, it returns true.",
-        "If one is null and the other isn't, it returns false.",
-        "If neither is null, it calls `str1.equals(str2)`."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "This approach avoids NullPointerExceptions and provides a concise, null-safe comparison."
-    },
-    {
-      "type": "para",
-      "text": "Q4: What's the performance difference between `equals()` and `==` for string comparison?"
-    },
-    {
-      "type": "para",
-      "text": "A4: The `==` operator is generally faster than `equals()` because it only compares memory addresses, which is a simple operation. However, `equals()` compares the actual content of the strings, which can be slower, especially for long strings. Despite this, `equals()` should be preferred for string comparison because it's more reliable for comparing string content. The performance difference is usually negligible in most applications, and correct behavior should be prioritized over minor performance gains."
-    },
-    {
-      "type": "para",
-      "text": "Q5: How would you perform a case-insensitive string comparison in Java?"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "String str1 = \"Hello\";\nString str2 = \"hello\";\nboolean result = str1.equalsIgnoreCase(str2);\nSystem.out.println(result); // true"
-    },
-    {
-      "type": "para",
-      "text": "A5: For case-insensitive string comparison, use the `equalsIgnoreCase()` method. This method compares two strings, ignoring case considerations. It's more efficient than converting both strings to lowercase (or uppercase) and then comparing, as it avoids creating new String objects."
+      "text": "The price is that the plain call is the wrong one for user-facing text, and the compiler says nothing."
     },
     {
       "type": "heading",
@@ -268,17 +377,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 12,
-    "paras": 15,
-    "code": 3,
-    "tables": 0,
-    "lists": 8,
+    "headings": 10,
+    "paras": 22,
+    "code": 22,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 5,
     "disclosures": 0
   },
-  "content_sha256": "c652c3afecca5842ea156d5214ca9eff33d5b0392375029da8fd4f87fc3093fa"
+  "content_sha256": "52b57e1dbf4f0ed99b536eccc24f55296649c7c5cc4db79bfe100bb9e635514a"
 }

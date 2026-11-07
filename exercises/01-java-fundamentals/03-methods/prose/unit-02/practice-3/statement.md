@@ -1,10 +1,14 @@
-A method returns one value. To return two, return one object that carries both: since
-Java 16 a record does it in one line, `record MinMax(int min, int max) {}`.
+A web shop prices its basket through `PriceBook`. Prices the shop has on file come from a map; for
+anything else it asks the supplier's quote service, a slow remote call the supplier bills per
+request. Buyers add products the shop has never listed, and the catalogue team lists new products
+before their price is settled.
 
-`Range` gives you that record. Write `of(int[] numbers)` in `Range`. It returns the smallest
-and the largest value together, as an `Optional<MinMax>`:
+`PriceBook` already stores the listings. Finish the two `TODO`s in
+`src/main/java/practice/PriceBook.java`:
 
-- `of(new int[]{4, -2, 9, 3})` is `Optional.of(new MinMax(-2, 9))`;
-- a single value is both: `of(new int[]{7})` is `MinMax(7, 7)`;
-- an empty or `null` array has no smallest or largest value: return `Optional.empty()`,
-  not a made-up pair such as `MinMax(Integer.MAX_VALUE, Integer.MIN_VALUE)`.
+- `price(sku)`: the price on file for a product, if it has one;
+- `priceOrQuote(sku)`: the price on file, or else the supplier's quote.
+
+When you're done, any product a buyer can name gets an answer without an exception, and the
+supplier's bill shows a request only for products whose price isn't on file. About two lines in
+total.

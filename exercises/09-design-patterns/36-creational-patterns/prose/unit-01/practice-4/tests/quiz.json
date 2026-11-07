@@ -1,0 +1,188 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "09-design-patterns",
+    "36-creational-patterns"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 4,
+  "title": "Check yourself: singletons",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-framework-before-getinstance",
+        "stem": "An AuditLog singleton keeps `private static AuditLog instance;`, which a synchronized getInstance() fills on first call, and its private constructor throws if `instance != null`. At start-up a framework scans the package and calls each class's no-arg constructor through reflection, before any code has called getInstance(). Later the service calls getInstance(). How many AuditLog objects now exist?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Two, since the check read a field that was still null when the framework's call ran",
+            "correct": true,
+            "says": "the lazy field is set only by getInstance(), so a reflective call that comes first passes the guard, and getInstance() then builds another"
+          },
+          {
+            "id": "b",
+            "text": "Two, since code in a private constructor is skipped when reflection calls it",
+            "correct": false,
+            "says": "setAccessible(true) only switches off the access check; the constructor body, guard included, runs"
+          },
+          {
+            "id": "c",
+            "text": "One, since the check throws on the framework's call and getInstance() builds the only one",
+            "correct": false,
+            "says": "the guard throws only when the field is set, and nothing had set it when the framework called"
+          },
+          {
+            "id": "d",
+            "text": "One, since getInstance() returns the object that the framework's call built",
+            "correct": false,
+            "says": "the reflective call doesn't store its object in the field, so getInstance() finds null and builds a new one"
+          }
+        ],
+        "origin": {
+          "path": "36-creational-patterns/README_9.1.1.md",
+          "section": "A Private Constructor Stops new, and Nothing Else"
+        }
+      },
+      {
+        "id": "q-replicated-session",
+        "stem": "A FeatureFlags singleton implements Serializable. Its `static final FeatureFlags INSTANCE` is built eagerly, its private constructor throws if INSTANCE is already set, and it declares no serialization methods. A cluster node receives a replicated session that holds the flags object and reads it. What does the session on that node hold?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The node's existing INSTANCE, since static fields aren't written, so reading takes the local one",
+            "correct": false,
+            "says": "static fields are not written, but reading still builds a new object from the instance fields unless readResolve returns INSTANCE"
+          },
+          {
+            "id": "b",
+            "text": "The node's existing INSTANCE, since the constructor's check makes reading fall back to the instance already built",
+            "correct": false,
+            "says": "reading never calls the class's constructor, so the guard has no say"
+          },
+          {
+            "id": "c",
+            "text": "A second FeatureFlags object, since reading builds the object without calling the class's constructor",
+            "correct": true,
+            "says": "deserialization allocates the object and fills its fields, running only the no-arg constructor of the first non-serializable superclass"
+          },
+          {
+            "id": "d",
+            "text": "A second FeatureFlags object, since reading calls the constructor before INSTANCE is initialized on that node",
+            "correct": false,
+            "says": "the constructor isn't called at all while reading; the class's initialization ran its constructor once"
+          }
+        ],
+        "origin": {
+          "path": "36-creational-patterns/README_9.1.1.md",
+          "section": "Deserialization Makes a Second Instance Without Running the Constructor"
+        }
+      },
+      {
+        "id": "q-two-webapps-enum",
+        "stem": "Two web applications are deployed to one servlet container. Each bundles pricing-core.jar in its WEB-INF/lib, and the container doesn't have the jar on its own class path. The jar declares `enum RateCache { INSTANCE; ... }`, and each application puts prices into RateCache.INSTANCE. What does each application read back?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Both applications' prices, since an enum's constants are created once per JVM",
+            "correct": false,
+            "says": "an enum constant is a static field of its class, and each application's loader defines its own RateCache class"
+          },
+          {
+            "id": "b",
+            "text": "Both applications' prices, since each application's loader asks the container's loader, which defines RateCache once",
+            "correct": false,
+            "says": "the container's loader can't find a class that isn't on its class path, so each application's loader defines its own"
+          },
+          {
+            "id": "c",
+            "text": "Only the prices it put in, since each application's loader defines a separate RateCache class",
+            "correct": true,
+            "says": "a class is identified by its name and its defining loader, so two loaders give two classes and two constants"
+          },
+          {
+            "id": "d",
+            "text": "Only the prices it put in, since the container runs each application in a separate JVM",
+            "correct": false,
+            "says": "a servlet container runs its applications in one JVM; the separation comes from their class loaders"
+          }
+        ],
+        "origin": {
+          "path": "36-creational-patterns/README_9.1.1.md",
+          "section": "Each Class Loader Has Its Own Singleton, Enum Included"
+        }
+      },
+      {
+        "id": "q-holder-cache",
+        "stem": "ConfigSnapshot keeps its one instance in a private nested class, `private static final class Holder { static final ConfigSnapshot INSTANCE = new ConfigSnapshot(); }`, returned by getInstance(). It implements Serializable and has no other additions. A cache writes getInstance() out and reads it back. What comes back?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The existing instance, since Holder.INSTANCE is static final and can't be assigned a second object",
+            "correct": false,
+            "says": "reading never assigns Holder.INSTANCE; it builds a separate object that nothing stores in that field"
+          },
+          {
+            "id": "b",
+            "text": "The existing instance, since the class-initialization lock that guards Holder also guards reading",
+            "correct": false,
+            "says": "that lock makes the holder lazy and thread-safe; it has no part in deserialization"
+          },
+          {
+            "id": "c",
+            "text": "A second ConfigSnapshot, since reading initializes the Holder class again and builds a new INSTANCE",
+            "correct": false,
+            "says": "a class is initialized once per loader; the second object is built by deserialization, not by Holder"
+          },
+          {
+            "id": "d",
+            "text": "A second ConfigSnapshot, since reading allocates a new object and fills its fields without consulting Holder",
+            "correct": true,
+            "says": "the holder idiom gives laziness and safe initialization only; deserialization builds its own object, and without readResolve that object is returned"
+          }
+        ],
+        "origin": {
+          "path": "36-creational-patterns/README_9.1.1.md",
+          "section": "The Holder Idiom Chooses When the Instance Is Built; Only the Enum Refuses Copies"
+        }
+      },
+      {
+        "id": "q-reset-hook-parallel",
+        "stem": "A TokenStore singleton is reached through TokenStore.getInstance(). Its tests failed depending on their order, so every test class now calls TokenStore.resetForTesting() in @BeforeEach. Later the team turns on JUnit's parallel execution. What happens to the TokenStore tests?",
+        "options": [
+          {
+            "id": "a",
+            "text": "They stay green, since each test running at the same time starts from a freshly reset store",
+            "correct": false,
+            "says": "a reset at the start doesn't help a test whose neighbour, running at the same time, changes the shared store"
+          },
+          {
+            "id": "b",
+            "text": "They stay green, since tests running at the same time each see the static field of their own thread",
+            "correct": false,
+            "says": "a static field is one per class per class loader, shared by every thread"
+          },
+          {
+            "id": "c",
+            "text": "They fail now and then, since a test running at the same time can change the store another is using",
+            "correct": true,
+            "says": "the reset only works while tests run one at a time; parallel tests use and reset the same instance"
+          },
+          {
+            "id": "d",
+            "text": "They fail now and then, since a test running at the same time loads TokenStore again and misses the reset",
+            "correct": false,
+            "says": "classes are defined per class loader, not per thread; every test in the JVM shares the one store"
+          }
+        ],
+        "origin": {
+          "path": "36-creational-patterns/README_9.1.1.md",
+          "section": "A Static Singleton Carries One Test's State Into the Next"
+        }
+      }
+    ]
+  }
+}

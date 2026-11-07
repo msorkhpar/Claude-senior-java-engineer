@@ -1,170 +1,279 @@
 # 1.3.4 Method Overloading in Java
 
-## Concept Explanation
+One release of the inventory service brought three bugs. A SKU that is in the stock set is
+reported missing. The cleanup that retires the 1-second retry delay removes the 5-second one. An
+exported JSON array has no opening bracket. Overloads are methods with one name and different
+parameter lists, and the compiler picks one per call. Every line responsible compiled without a
+warning, and each call went to an overload its author didn't mean. Every output below is from
+Java 21.
 
-Method overloading is a feature in Java that allows a class to have multiple methods with the same name but different
-parameters. This enables you to create multiple methods that perform similar operations but with different input types
-or number of inputs.
+## The Compiler Chooses an Overload From the Arguments' Declared Types
 
-## Key Points to Remember
-
-1. Methods can be overloaded based on:
-    - Number of parameters
-    - Types of parameters
-    - Order of parameters
-2. Return type alone is not sufficient for method overloading
-3. Overloading happens at compile-time (static polymorphism)
-4. It improves code readability and reusability
-
-## Relevant Java 21 Features
-
-While method overloading itself is a long-standing feature in Java, Java 21 introduces pattern matching for switch
-statements, which can be useful when working with overloaded methods that handle different types.
-
-## Common Pitfalls and How to Avoid Them
-
-1. Overloading with only return type differences: This is not valid and will result in a compilation error.
-2. Ambiguous method calls: When two overloaded methods are equally valid for a given call, it results in a compilation
-   error.
-3. Autoboxing and varargs confusion: Be cautious when overloading methods with primitive types and their wrapper
-   classes, especially when varargs are involved.
-
-## Best Practices and Optimization Techniques
-
-1. Use meaningful method names that describe the operation
-2. Keep the number of parameters manageable (typically no more than 3-4)
-3. Use method overloading for closely related operations
-4. Consider using builder pattern or method chaining for complex parameter combinations
-
-## Edge Cases and Their Handling
-
-1. Null arguments: Be careful when overloading methods that can accept null values
-2. Widening and boxing conversions: Understand how Java chooses between overloaded methods when dealing with these
-   conversions
-
-## Interview-specific Insights
-
-Interviewers often ask about the differences between overloading and overriding,
-and may present scenarios to test understanding of method resolution in overloading.
-
-## Interview Q&A
-
-Q1: What is method overloading, and why is it useful?
-
-A1: Method overloading is a feature in Java that allows a class to have multiple methods with the same name but
-different parameters. It's useful because it:
-
-1. Improves code readability by using the same method name for related operations.
-2. Provides flexibility to call the same method with different types or numbers of arguments.
-3. Reduces the need to remember multiple method names for similar operations.
+### Spot the Problem: an equals That Works Until a Collection Calls It
 
 ```java
-class Calculator {
-    int add(int a, int b) { return a + b; }
-    double add(double a, double b) { return a + b; }
-    int add(int a, int b, int c) { return a + b + c; }
+import java.util.Objects;
+
+final class Sku {
+    final String code;
+    Sku(String code) { this.code = code; }
+
+    public boolean equals(Sku other) { return other != null && code.equals(other.code); }
+    @Override public int hashCode() { return Objects.hash(code); }
 }
 ```
 
-Q2: Can you overload methods based on return type alone?
-
-A2: No, you cannot overload methods based on return type alone. Java uses method signatures (method name and parameter
-list) to distinguish between overloaded methods. The return type is not part of the method signature. For example, this
-will result in a compilation error:
-
 ```java
-class Example {
-    int getValue() { return 0; }
-    // Compilation error: method getValue() is already defined
-    double getValue() { return 0.0; }
-}
+Sku a = new Sku("TEA-250");
+Sku b = new Sku("TEA-250");
+Set<Sku> stocked = new HashSet<>(List.of(a));
+Object asObject = b;
+System.out.println("a.equals(b):        " + a.equals(b));
+System.out.println("a.equals(asObject): " + a.equals(asObject));
+System.out.println("stocked.contains(b): " + stocked.contains(b));
+System.out.println("List.of(a).contains(b): " + List.of(a).contains(b));
 ```
 
-Q3: How does Java resolve calls to overloaded methods?
-
-A3: Java resolves calls to overloaded methods in the following order:
-
-1. Exact match by type
-2. Matching with type promotion
-3. Matching with autoboxing/unboxing
-4. Matching with varargs
-
-If there's ambiguity, the compiler will generate an error. For example:
-
-```java
-class OverloadResolution {
-    void method(int i) { System.out.println("int"); }
-    void method(long l) { System.out.println("long"); }
-    void method(Integer i) { System.out.println("Integer"); }
-
-    public static void main(String[] args) {
-        OverloadResolution or = new OverloadResolution();
-        or.method(5); // Calls method(int)
-        or.method(5L); // Calls method(long)
-        or.method(Integer.valueOf(5)); // Calls method(Integer)
-    }
-}
+```text
+a.equals(b):        true
+a.equals(asObject): false
+stocked.contains(b): false
+List.of(a).contains(b): false
 ```
 
-Q4: What's the difference between method overloading and method overriding?
+`equals(Sku)` doesn't override `Object.equals(Object)`: its parameter list differs, so it is an
+overload. At each call the compiler searches the methods of the receiver's declared type, compares
+the declared types of the arguments, and records which overload to call. With `b` declared `Sku` it chose `equals(Sku)`. `a.equals(asObject)`
+passes an `Object`, and so does the JDK's code in `HashSet` and `List`, so those calls go to
+`Object.equals`, which compares references. The object's class at run time takes part in only one choice: which
+override of the chosen method runs on the receiver (unit 1.3.1).
 
-A4:
-Method Overloading:
+The unit tests called `a.equals(b)` and passed, while every collection missed the SKU. Add
+`@Override` and javac rejects the method: `method does not override or implement a method from a
+supertype`. The fix takes an `Object`:
+`@Override public boolean equals(Object o) { return o instanceof Sku other && code.equals(other.code); }`.
+When behaviour must depend on an argument's class at run time, put the method on that class, or
+test the class with a type pattern, as this `equals` does.
 
-- Occurs in the same class, or between a class and its subclass (as `display(String)` in the example below)
-- Methods have the same name but different parameters
-- Resolved at compile-time (static polymorphism)
-- Return type can be different
+<!-- practice 1 -->
 
-Method Overriding:
+## Widening First, Then Boxing, Then Varargs: the First Phase That Fits Wins
 
-- Occurs in parent and child classes
-- Methods have the same name and parameters
-- Resolved at runtime (dynamic polymorphism)
-- Return type must be the same or a subtype (covariant return type)
-
-```java
-class Parent {
-    void display() { System.out.println("Parent"); }
-}
-
-class Child extends Parent {
-    // Method overriding
-    @Override
-    void display() { System.out.println("Child"); }
-
-    // Method overloading
-    void display(String message) { System.out.println(message); }
-}
-```
-
-Q5: Can you overload main method in Java?
-
-A5: Yes, you can overload the main method in Java, but the JVM will always call the standard main method signature:
+The compiler looks for an applicable overload in three phases. The first allows only subtyping and
+widening (`int` to `long`, `long` to `double`, `char` to `int`), the second adds boxing and unboxing, and the third
+varargs. It stops at the first phase that finds a candidate and takes the most specific one there.
+Predict each line:
 
 ```java
-public static void main(String[] args)
-```
+static String track(long value)    { return "track(long)"; }
+static String track(Object value)  { return "track(Object)"; }
 
-Other overloaded versions of main won't be called automatically by the JVM but can be called from the standard main
-method:
+static String tag(Object value)    { return "tag(Object)"; }
+static String tag(int... values)   { return "tag(int...)"; }
+```
 
 ```java
-public class MainOverload {
-    public static void main(String[] args) {
-        System.out.println("Standard main");
-        main("Overloaded");
-    }
-
-    public static void main(String arg) {
-        System.out.println("Overloaded main: " + arg);
-    }
-}
+int count = 3;
+Integer boxed = 3;
+System.out.println("track(count) -> " + track(count));
+System.out.println("track('x')   -> " + track('x'));
+System.out.println("track(boxed) -> " + track(boxed));
+System.out.println("tag(count)   -> " + tag(count));
+System.out.println("tag(1, 2)    -> " + tag(1, 2));
 ```
 
-These questions and answers cover the key aspects of method overloading that are often discussed in Java interviews.
-Remember to not only know the concepts but also be able to explain them clearly and provide relevant examples when
-asked.
+```text
+track(count) -> track(long)
+track('x')   -> track(long)
+track(boxed) -> track(Object)
+tag(count)   -> tag(Object)
+tag(1, 2)    -> tag(int...)
+```
+
+`char` is an integral type, so `'x'` widens to `long` in the first phase. An `Integer` is
+already an `Object`, so the first phase finds `track(Object)`, and unboxing to `long` is never
+tried. A single `int` reaches `tag(Object)` by boxing, before varargs is considered. The first
+phase matches how Java chose overloads before version 5 added boxing and varargs, so calls written
+before then still choose the same method.
+
+The JSON exporter's missing bracket is the `char` rule in the JDK:
+
+```java
+StringBuilder json = new StringBuilder('[');
+json.append("1,2").append(']');
+System.out.println(json);
+```
+
+```text
+1,2]
+```
+
+`StringBuilder` has no `char` constructor. `'['` widens to the `int` 91, so javac picks
+`StringBuilder(int capacity)`.
+
+<!-- practice 2 -->
+
+## On a List of Integers, remove(int) Takes an Index, Not a Value
+
+`List` has `remove(int index)` and `remove(Object o)`. An `int` argument fits `remove(int)` in the
+first phase, so it is never boxed:
+
+```java
+List<Integer> retryDelays = new ArrayList<>(List.of(30, 5, 1, 60));
+int retired = 1;
+retryDelays.remove(retired);
+System.out.println("remove(retired):                  " + retryDelays);
+
+retryDelays = new ArrayList<>(List.of(30, 5, 1, 60));
+retryDelays.remove(Integer.valueOf(retired));
+System.out.println("remove(Integer.valueOf(retired)): " + retryDelays);
+
+java.util.Collection<Integer> asCollection = new ArrayList<>(List.of(30, 5, 1, 60));
+asCollection.remove(retired);
+System.out.println("as a Collection, remove(retired): " + asCollection);
+
+try {
+    new ArrayList<>(List.of(30, 5, 1, 60)).remove(60);
+} catch (IndexOutOfBoundsException e) {
+    System.out.println("remove(60): " + e.getMessage());
+}
+
+Set<Long> blocked = new HashSet<>(List.of(7L, 8L));
+int userId = 7;
+System.out.println("blocked.remove(userId): " + blocked.remove(userId) + ", " + blocked);
+```
+
+```text
+remove(retired):                  [30, 1, 60]
+remove(Integer.valueOf(retired)): [30, 5, 60]
+as a Collection, remove(retired): [30, 5, 60]
+remove(60): Index 60 out of bounds for length 4
+blocked.remove(userId): false, [7, 8]
+```
+
+The 5-second delay went, and the 1 stayed. A value that isn't a valid index throws, so the bug
+is loud only for large values; whenever the value happens to be a valid index, the wrong element
+goes without an error. The
+same call through a variable declared `Collection<Integer>` removes the value, because
+`Collection` has only `remove(Object)`. `Integer.valueOf(retired)` states the intent. The last line
+is the trap from unit 1.1.3: on a `Set<Long>`, `remove` boxes an `int` to an `Integer`, which never
+equals a `Long`, and removes nothing.
+
+<!-- practice 3 -->
+
+## null Goes to the Most Specific Overload, and Two Unrelated Ones Don't Compile
+
+With `audit(Object)` and `audit(String)`, `audit(null)` calls `audit(String)`: both fit, and
+`String` is more specific because every `String` is an `Object`. Add `audit(Integer)`, and the
+same call stops compiling:
+
+```text
+Ambiguous.java:7: error: reference to audit is ambiguous
+        System.out.println(audit(null));
+                           ^
+  both method audit(String) in Ambiguous and method audit(Integer) in Ambiguous match
+1 error
+```
+
+Neither `String` nor `Integer` is more specific than the other. A cast picks one:
+`audit((String) null)`. So a library release that only adds an overload can break its callers'
+builds. `PrintStream` shows both sides. `System.out.println(null)` doesn't compile, since
+`println(char[])` and `println(String)` both match. A `char[]` variable holding `null` compiles,
+and throws:
+
+```java
+String noName = null;
+System.out.println(noName);
+char[] noChars = null;
+System.out.println(noChars);
+```
+
+```text
+null
+Exception in thread "main" java.lang.NullPointerException: Cannot read the array length because "cbuf" is null
+```
+
+## Overloads Must Differ in Erased Parameter Types: the Return Type and Type Arguments Don't Count
+
+A class can't declare two methods with the same signature, and a signature is the name and the
+parameter types: the return type isn't part of it, and type arguments are erased from it. Both of
+these fail:
+
+```text
+ReturnType.java:3: error: method parse(String) is already defined in class ReturnType
+    static long parse(String text)    { return Long.parseLong(text); }
+                ^
+1 error
+Erasure.java:5: error: name clash: total(List<Double>) and total(List<Integer>) have the same erasure
+    static double total(List<Double> prices)    { return prices.size(); }
+                  ^
+1 error
+```
+
+Give them different names, such as `totalQuantity` and `totalPrice`.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **The compiler chooses an overload from the arguments' declared types.** A narrower `equals`
+  is an overload that collections never call; `@Override` catches it.
+- **Widening first, then boxing, then varargs.** A `char` goes to an `int` or `long` overload,
+  and an `Integer` to `Object` before it would unbox.
+- **On a `List<Integer>`, an `int` argument is an index.** Box it to remove the value.
+- **`null` goes to the most specific overload**, and adding an unrelated one makes the call
+  ambiguous.
+- **Overloads differ in erased parameter types.** The return type and type arguments don't count.
+
+## Reference
+
+**Overloading and overriding:**
+
+| | Overloading | Overriding |
+|---|---|---|
+| parameter types | differ after erasure | the same |
+| chosen | at compile time, from the arguments' declared types | at run time, by the receiver's class |
+| return type | any | the same, or a subtype for a reference type |
+| `static` and `private` methods | can be overloaded | aren't overridden; a `static` one is hidden (unit 1.3.1) |
+
+**Choosing an overload (JLS 15.12.2):**
+
+| Phase | Conversions allowed |
+|---|---|
+| 1 | identity, widening primitive, subtyping |
+| 2 | phase 1, plus boxing and unboxing |
+| 3 | phase 2, plus varargs |
+
+Within the first phase that finds candidates, the most specific wins; if no candidate is more
+specific than all the others, the call is ambiguous and doesn't compile.
+
+## Challenges
+
+1. Search your code for `remove(` on lists of `Integer` or `Long`. Which calls pass a value that
+   is meant as a value?
+2. Your logging API has `log(String, Object...)`. A colleague proposes adding
+   `log(String, Object)` for speed. Which existing calls change overload, and could any break?
+3. Would you overload `send(Email)` and `send(Sms)`, or give each its own name? Consider a caller
+   that holds a `Message`.
+
+## Design Note: Why Overloads Are Bound at Compile Time
+
+Choosing at compile time is cheap and reports ambiguity before anything runs. The choice is
+written into the caller's class file, so a new overload reaches callers only when they are
+recompiled. A library adds `record(long)` beside `record(Object)`, and a caller of
+`Metrics.record(5)` runs against it before and after recompiling:
+
+```text
+compiled against v1, run on v1:
+record(Object): "5"
+compiled against v1, run on v2:
+record(Object): "5"
+recompiled against v2, run on v2:
+record(long): 5
+```
+
+Two services built from the same source, one rebuilt and one not, call different methods. Treat
+an overload that existing calls could fit better as a behaviour change, not an addition.
 
 ## Code Examples
 

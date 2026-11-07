@@ -1,22 +1,19 @@
-A lambda is a parameter list, the arrow `->`, and a body. The body is either a
-single expression, `(parameters) -> expression`, or a block of statements,
-`(parameters) -> { statements; }`, which may declare local variables and branch.
+The returns service archives incoming orders on a small worker pool. Its support queue has three
+complaints this week: a customer who submitted the same return twice has two archive entries; an
+order hit a moment when the archive volume was busy and was never archived, although the
+dispatcher is meant to retry such failures; and an order the archive refused every time was
+reported as archived.
 
-Write two static methods in `PriceRules`, each mapping a lambda over the prices:
+`OrderDispatch.dispatch(...)` already decides what to archive, retries and reports. It reads only
+the `Future`s that two methods return, and those two are still `TODO`s in
+`src/main/java/practice/OrderDispatch.java`:
 
-1. `discounted(List<Double> prices, double percent)` returns each price reduced
-   by `percent` per cent (which may have a fraction, like `12.5`). The final
-   price, not the discount, is rounded to the nearest cent with `Math.round`
-   (a half cent rounds up), even when `percent` is 0.
-2. `categorize(List<Double> prices)` names each price's band: below 10 is
-   `"cheap"` (0 included), below 100 `"moderate"`, below 1000 `"expensive"`, and anything
-   else `"premium"`.
+- `remember(orderId)`: records the id on the pool; `dispatch` skips the order when the `Future`'s
+  value is `false`;
+- `store(orderId)`: stores the order with `archive.store(...)` on the pool; `dispatch` retries
+  when the `Future` fails with an `IOException` as its cause, and treats a `Future` that ends
+  normally as stored.
 
-| call | answer |
-|---|---|
-| `discounted([100.0, 50.0], 10)` | `[90.0, 45.0]` |
-| `discounted([19.99], 15)` | `[16.99]` |
-| `categorize([5.0, 50.0, 500.0, 5000.0])` | `["cheap", "moderate", "expensive", "premium"]` |
+Keep the signatures: other callers depend on `Future<?>`. About four lines in total.
 
-Watch the prices that sit exactly on a limit, and what floating-point
-arithmetic leaves after a percentage.
+The tests run the dispatcher on a real `ExecutorService` with an archive that refuses some stores.

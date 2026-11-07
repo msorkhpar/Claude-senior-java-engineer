@@ -18,210 +18,305 @@
       "text": "1.4.5 StringBuilder and StringBuffer in Java"
     },
     {
+      "type": "para",
+      "text": "The payments service keeps its audit trail in one `StringBuffer` field, chosen because `StringBuffer` is thread-safe. Request threads append `user=… action=…` lines to it, and a flusher writes it to disk every second. After a load test the trail holds lines like `user=u4 action=loginuser=user=`. In review, one engineer wants a `StringBuilder`, because `StringBuffer` is slow. Another wants one `StringBuilder` per thread in a `ThreadLocal`, cleared with `setLength(0)`, to save allocations. The first change loses lines and throws; the second, in a service whose threads also build multi-megabyte reports, keeps hundreds of megabytes that nobody uses."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "StringBuffer Locks Each Call, So a Line Built from Several Calls Still Interleaves"
     },
     {
       "type": "para",
-      "text": "StringBuilder and StringBuffer are mutable sequences of characters in Java, designed to address the inefficiency of String concatenation and manipulation. Unlike String, which is immutable, StringBuilder and StringBuffer allow in-place modifications of character sequences without creating new objects for each operation."
+      "text": "Four threads record 50,000 lines each, three ways, in three rounds in one JVM (`\\0` prints as `.`):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "StringBuffer shared = new StringBuffer();\nreport(\"StringBuffer, three calls\", shared, (user, action) -> {\n    shared.append(\"user=\").append(user);\n    shared.append(\" action=\").append(action).append('\\n');\n});\nStringBuilder unsafe = new StringBuilder();\nreport(\"StringBuilder, three calls\", unsafe, (user, action) -> {\n    unsafe.append(\"user=\").append(user);\n    unsafe.append(\" action=\").append(action).append('\\n');\n});\nStringBuffer out = new StringBuffer();\nreport(\"local line, one append\", out, (user, action) -> {\n    StringBuilder line = new StringBuilder(48);\n    line.append(\"user=\").append(user).append(\" action=\").append(action).append('\\n');\n    out.append(line);\n});"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "round 1\n  StringBuffer, three calls   89,513 good, 110,487 broken\n      e.g. user=u4 action=loginuser=user=\n  StringBuilder, three calls  49,845 good,     269 broken, 3 of 4 threads died with ArrayIndexOutOfBoundsException\n      e.g. user=..........................................................\n  local line, one append     200,000 good,       0 broken\nround 2\n  StringBuffer, three calls  200,000 good,       0 broken\n  StringBuilder, three calls  51,156 good,   9,056 broken, 2 of 4 threads died with ArrayIndexOutOfBoundsException\n  local line, one append     200,000 good,       0 broken"
+    },
+    {
+      "type": "para",
+      "text": "Each `StringBuffer` call such as `append` or `length()` locks the buffer and sees what every earlier call wrote, but between two calls the thread holds no lock, so another thread's text lands mid-line. What must be atomic is the whole line, and no buffer method writes one: a compound action, as in unit 6.2.1."
+    },
+    {
+      "type": "para",
+      "text": "A shared `StringBuilder` also corrupts the text. Its appends read and update the length with no lock, so two threads write to the same positions, or one writes into the old array just after another copied it to a larger one; the dots are where a write was lost. And when one thread checks the capacity, then another advances the length, the first writes past the end of an array that is too small: `ArrayIndexOutOfBoundsException`, and here three of four threads died."
+    },
+    {
+      "type": "para",
+      "text": "The local builder never leaves its thread, so it needs no lock; the only shared operation is one `append` of a finished line, which `StringBuffer` does make atomic. Where several calls on a shared object must stay together, hold its lock across all of them, and build the text before you take it."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Warm-up hides it.** By round 2 the JIT had merged the adjacent locks on the same buffer into one (lock coarsening). With `-XX:-EliminateLocks`, which turns that off, every round broke 63 to 69 % of the lines. A concurrency test that passes after warm-up shows what this JIT did with this code, not what the language promises."
+        }
+      ]
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Key Differences:"
+      "level": 2,
+      "text": "A Builder Is an Array: Growing It and Inserting at the Front Copy What Is Already There"
+    },
+    {
+      "type": "para",
+      "text": "A builder keeps its text in an array with room to spare. The capacities a default builder passes through while we append one character at a time:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "capacities: 16, 34, 70, 142, 286, 574, 1150, 2302, 4606, 9214"
+    },
+    {
+      "type": "para",
+      "text": "When an append doesn't fit, JDK 21's `AbstractStringBuilder.newCapacity` picks the larger of what is needed and twice the old capacity plus 2, allocates that array and copies everything over. The copies add up to about the final size again, so appending stays linear, but the old arrays are garbage. We built a 1,400,000-character export from 100,000 rows, with the default builder and with one sized to the result:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "StringBuilder sb = initialCapacity < 0 ? new StringBuilder() : new StringBuilder(initialCapacity);\nfor (int i = 0; i < rows; i++) sb.append(ROW);\nreturn sb.toString();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "new StringBuilder()          1,400,000 chars  5,975 KB allocated    450 us\nnew StringBuilder(1400000)   1,400,000 chars  2,734 KB allocated    331 us"
+    },
+    {
+      "type": "para",
+      "text": "Sizing halved the allocation. Half of what remains is `toString()`, which always copies the text into a new `String`. Times varied from 0.3 to 1.4 ms across runs for both, so expect less garbage, not a reliable speed-up. Size a builder when you know the result's length, and don't guess high: an oversized builder holds its whole array until it is dropped."
+    },
+    {
+      "type": "para",
+      "text": "Appending at the end copies only on growth. `insert(0, row)` shifts every character already in the builder, on every call. A newest-first log view built that way:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": " 20,000 rows: insert(0, row)     23 ms   append(row)    446 us\n 40,000 rows: insert(0, row)     96 ms   append(row)    885 us\n 80,000 rows: insert(0, row)    409 ms   append(row)  1,030 us"
+    },
+    {
+      "type": "para",
+      "text": "Doubling the rows quadrupled the time, as with `+=` in unit 1.4.2. `deleteCharAt(0)` and `delete(0, n)` shift the rest the same way. Collect the rows, then append them in the order you want."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "setLength(0) Empties a Builder and Keeps Its Array"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "after setLength(0): length 0, capacity 3000000\nafter trimToSize(): length 0, capacity 0"
+    },
+    {
+      "type": "para",
+      "text": "`setLength(0)` only sets the length; the array the builder grew stays. We gave each of 32 pool threads one 3,000,000-character report to build with its `ThreadLocal` builder, then only short lines:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "heap held by 32 idle pool threads' builders: 160 MB\nafter the pool's threads end: 0 MB"
+    },
+    {
+      "type": "para",
+      "text": "Every thread that ever built something large keeps that much for as long as it lives, and pool threads live as long as the service. `trimToSize()` gives it back, but leaves capacity 0, so the next line regrows from nothing. For short lines, reuse saved nothing:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "setLength(0) on one builder  79 bytes,  21 ns per line (0)\nnew StringBuilder(256)      79 bytes,  15 ns per line (0)"
+    },
+    {
+      "type": "para",
+      "text": "79 bytes is the result `String`. The JIT removed the fresh builder entirely (with `-XX:-OptimizeStringConcat`, 375 bytes per line), but not for every chain: unit 1.4.2's chain with a `long` kept its builder. Create a builder where you build the text. If you do keep one, replace it when it has grown past what normal work needs."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Two Builders Are Equal Only When They Are the Same Object"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "StringBuilder a = new StringBuilder(\"ORD-\").append(7);\nStringBuilder b = new StringBuilder(\"ORD-\").append(7);\nSystem.out.println(\"a.equals(b):          \" + a.equals(b));\nSystem.out.println(\"hash codes equal:     \" + (a.hashCode() == b.hashCode()));\nSystem.out.println(\"a.compareTo(b):       \" + a.compareTo(b));\nSystem.out.println(\"a.toString().contentEquals(b): \" + a.toString().contentEquals(b));\nSet<StringBuilder> seen = new HashSet<>();\nseen.add(a);\nSystem.out.println(\"seen.contains(b):     \" + seen.contains(b));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "a.equals(b):          false\nhash codes equal:     false\na.compareTo(b):       0\na.toString().contentEquals(b): true\nseen.contains(b):     false"
+    },
+    {
+      "type": "para",
+      "text": "`StringBuilder` and `StringBuffer` inherit `equals` and `hashCode` from `Object`. A content hash on a mutable object would change with every append, and a set would lose the entry it filed under the old hash. So a `HashSet<StringBuilder>` used to drop duplicate messages keeps every one. Compare contents with `compareTo` (since Java 11), `CharSequence.compare`, or `String.contentEquals` (unit 1.4.4), and key collections by `toString()`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
+        "**`StringBuffer` locks each call, not the line.** Text written with several calls interleaves; build it in a local `StringBuilder` and publish it in one call. A shared `StringBuilder` loses text and throws.",
+        "**A builder is an array.** It grows to twice its capacity plus 2 by copying; sizing it halves the allocation, and `insert(0, …)` in a loop is quadratic.",
+        "**`setLength(0)` keeps the array.** A reused builder holds its largest size for the life of its thread, and saved nothing per line in our run.",
+        "**Builders compare by identity.** Use `compareTo`, `contentEquals` or `toString()` for content."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**Capacity (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call",
+        "Result"
+      ],
+      "rows": [
         [
-          "**Thread Safety:**",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "StringBuilder is not thread-safe.",
-              "StringBuffer is thread-safe (synchronized)."
-            ]
-          }
+          "`new StringBuilder()`",
+          "capacity 16"
         ],
         [
-          "**Performance:**",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "StringBuilder is generally faster in single-threaded scenarios due to lack of synchronization overhead.",
-              "StringBuffer has slightly lower performance due to synchronization, but is safer in multi-threaded environments."
-            ]
-          }
+          "`new StringBuilder(\"abc\")`",
+          "capacity 19: the text's length plus 16"
         ],
         [
-          "**Usage:**",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "Use StringBuilder in single-threaded contexts or when thread safety is not a concern.",
-              "Use StringBuffer in multi-threaded environments where multiple threads might modify the same buffer."
-            ]
-          }
+          "`new StringBuilder(-1)`",
+          "`NegativeArraySizeException`"
+        ],
+        [
+          "`new StringBuilder((String) null)`",
+          "`NullPointerException`"
+        ],
+        [
+          "an append that doesn't fit",
+          "new capacity max(needed, 2 × capacity + 2)"
+        ],
+        [
+          "`ensureCapacity(20)` on capacity 16",
+          "34; `ensureCapacity(50)` gives 50"
+        ],
+        [
+          "`setLength(0)`",
+          "length 0, capacity unchanged"
+        ],
+        [
+          "`trimToSize()`",
+          "capacity = length"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Edits:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call",
+        "Result"
+      ],
+      "rows": [
+        [
+          "`append((String) null)`, `append((Object) null)`",
+          "appends `null`"
+        ],
+        [
+          "`append((char[]) null)`",
+          "`NullPointerException`"
+        ],
+        [
+          "`append(null)`",
+          "does not compile: `append(CharSequence)` and `append(char[])` both match"
+        ],
+        [
+          "`\"abcdef\"`: `delete(2, 100)`",
+          "`ab`: an end past the length is clamped"
+        ],
+        [
+          "`\"abc\"`: `insert(4, \"x\")`, `charAt(3)`",
+          "`StringIndexOutOfBoundsException`"
+        ],
+        [
+          "`\"ab\"`: `setLength(4)`",
+          "length 4, padded with `\\0`"
+        ],
+        [
+          "`\"abcdef\"`: `replace(1, 3, \"XYZW\")`",
+          "`aXYZWdef`"
+        ],
+        [
+          "`append(…)`",
+          "returns the same builder, so calls chain"
+        ],
+        [
+          "`toString()`",
+          "a new `String` on every call, on both classes"
+        ],
+        [
+          "`\"ok 👍\"`: `reverse()`",
+          "`👍 ko`: a surrogate pair stays in order"
+        ],
+        [
+          "`\"cafe\\u0301\"` (`e` + combining acute): `reverse()`",
+          "the accent moves before `e`: a combining mark is not kept with its letter"
+        ],
+        [
+          "`\"ok 👍\"`: `deleteCharAt(length() - 1)` or `setLength(4)`",
+          "leaves a lone high surrogate (unit 1.4.3)"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Both classes implement the CharSequence interface.",
-        "They offer similar methods for string manipulation (e.g., append(), insert(), delete()).",
-        "The initial capacity can be specified to optimize performance.",
-        "They are mutable, unlike String.",
-        "Convert to String using the toString() method when done with manipulations."
+        "Find a `StringBuffer` in a codebase you know. Is it shared between threads, and if so, is every line written to it in one call?",
+        "A report's output varies from 2 KB to 40 MB. How would you size its builder, and what does a wrong estimate cost in each direction?",
+        "Measure what your service's per-thread builders hold: take a heap histogram after a day of traffic and look for large `byte[]` arrays reachable from `ThreadLocal`s."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Design Note: Why StringBuilder Came Eight Years After StringBuffer"
     },
     {
       "type": "para",
-      "text": "As of Java 21, there are no significant changes to StringBuilder or StringBuffer. Note that since Java 9 (JEP 280) the compiler no longer turns `+` concatenation into StringBuilder calls; it emits an `invokedynamic` call to `StringConcatFactory` instead (see 1.4.2). A loop that repeats `+=` still creates a new String per iteration."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Unnecessary use of StringBuffer:** Using StringBuffer when thread safety is not needed can lead to performance overhead.",
-        "**Forgetting to call toString():** Remember to call toString() when you need to use the result as a String.",
-        "**Ignoring initial capacity:** Not specifying an initial capacity when you know the approximate final length can lead to unnecessary reallocations."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Use StringBuilder by default unless thread safety is required.",
-        "Set an initial capacity if you know the approximate final length.",
-        "Chain method calls for cleaner code (e.g., `sb.append(\"a\").append(\"b\")`).",
-        "Use StringBuffer only when thread safety is necessary."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null values:** Appending null will result in the string \"null\" being added.",
-        "**Large strings:** Be cautious with very large strings to avoid OutOfMemoryError.",
-        "**Negative capacity:** Specifying a negative capacity will result in NegativeArraySizeException."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Be prepared to explain the differences between String, StringBuilder, and StringBuffer.",
-        "Understand the performance implications of each class.",
-        "Know when to use StringBuilder vs StringBuffer."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "References to Source Code and Test Files"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "[StringBuilderBuffer.java](src/main/java/com/github/msorkhpar/claudejavatutor/literals/StringBuilderBuffer.java)",
-        "[StringBuilderBufferTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/literals/StringBuilderBufferTest.java)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "Q1: What is the main difference between StringBuilder and StringBuffer? A1: The main difference is that StringBuffer is synchronized (thread-safe), while StringBuilder is not. This makes StringBuilder more efficient in single-threaded scenarios, while StringBuffer is safer in multi-threaded environments."
-    },
-    {
-      "type": "para",
-      "text": "Q2: When would you choose to use StringBuilder over String concatenation? A2: StringBuilder is preferred over String concatenation when you're performing multiple string manipulations, especially in loops. It's more efficient because it modifies a single object instead of creating new String objects for each concatenation."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Inefficient\nString result = \"\";\nfor (int i = 0; i < 1000; i++) {\n    result += \"a\";\n}\n\n// Efficient\nStringBuilder sb = new StringBuilder(1000);\nfor (int i = 0; i < 1000; i++) {\n    sb.append(\"a\");\n}\nString result = sb.toString();"
-    },
-    {
-      "type": "para",
-      "text": "Q3: How can you optimize StringBuilder performance? A3: You can optimize StringBuilder performance by:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Specifying an initial capacity if you know the approximate final length.",
-        "Chaining method calls to reduce the number of statements.",
-        "Using StringBuilder instead of StringBuffer when thread safety is not required."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "StringBuilder sb = new StringBuilder(100); // Initial capacity of 100\nsb.append(\"Hello\")\n  .append(\" \")\n  .append(\"World\")\n  .append(\"!\");"
-    },
-    {
-      "type": "para",
-      "text": "Q4: What happens if you append null to a StringBuilder? A4: If you append a null reference to a StringBuilder, it will append the string \"null\" to the sequence."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "StringBuilder sb = new StringBuilder();\nString missing = null;\nsb.append(missing);\nSystem.out.println(sb.toString()); // Outputs: null"
-    },
-    {
-      "type": "para",
-      "text": "Note that the bare literal `sb.append(null)` does not compile: `append` is overloaded for `String`, `StringBuffer`, `CharSequence`, `char[]` and `Object`, and the call is ambiguous. A typed null variable (or a cast) picks one."
-    },
-    {
-      "type": "para",
-      "text": "Q5: How does the capacity of StringBuilder work? A5: StringBuilder has an initial capacity (default is 16 characters). When this capacity is exceeded, it automatically increases. You can also set the initial capacity manually. The capacity is the number of character spaces allocated, which may be more than the current length of the string content."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "StringBuilder sb = new StringBuilder(20); // Initial capacity of 20\nSystem.out.println(sb.capacity()); // Outputs: 20\nSystem.out.println(sb.length());   // Outputs: 0"
+      "text": "Java 1.0 shipped `StringBuffer` with its methods synchronized, and `javac` compiled `+` to it. Java 5 added `StringBuilder`, the same class without the locks, and moved the compiler to it: nearly every buffer is local to one method, and each concatenation paid for locks no other thread could contend. `StringBuffer` stays for compatibility, and today it is worth choosing only where an old API asks for one."
     },
     {
       "type": "heading",
@@ -241,17 +336,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 12,
-    "paras": 8,
-    "code": 4,
-    "tables": 0,
-    "lists": 9,
+    "headings": 10,
+    "paras": 17,
+    "code": 11,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "1af4d3d8ef0c56a93245cdbf36025bee935f7f241bb1dcf78262ba928be1153d"
+  "content_sha256": "7aeccd0a22c3c8b60a122a4038568d947ac49f9edc4f3593a3a0a3a18427d8cb"
 }

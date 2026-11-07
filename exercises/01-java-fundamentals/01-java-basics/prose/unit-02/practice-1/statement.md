@@ -1,14 +1,13 @@
-A variable of a reference type holds a **reference** to an object, not the
-object. Copying the variable copies the reference, so two variables can point
-at one object: change it through one and the other sees the change (aliasing).
+A travel agency's agents change a booked trip by editing an amendment of it: they drop a leg,
+add one, move a passenger to another seat, add a bag. The amendment replaces the booking only
+when the customer confirms it. Last week a customer who never confirmed anything found their
+return flight gone from the booking and a bicycle on their first leg.
 
-`Playlist` holds a name and a `List<Song>`, and a `Song`'s title can change.
-Write its two copy methods:
+`Itinerary` and its `Leg` already hold a trip. Finish the two `TODO`s in
+`src/main/java/practice/Itinerary.java`:
 
-- `shallowCopy()` returns a new `Playlist` that **shares** this playlist's list:
-  a song added to the original's list is in the copy's list too.
-- `deepCopy()` returns a new `Playlist` with **its own** list and **its own**
-  `Song` objects: nothing done to the original afterwards, to its list or to one
-  of its songs, reaches the copy.
+- `Leg.copy()`: a leg like this one, for an amendment;
+- `amendment()`: the itinerary the agent edits.
 
-Both copies are new `Playlist` objects with the same name and the same song titles.
+When you're done, an amendment starts as the booked trip, the agent can make any of those changes
+to it, and none of them shows up on the booking. About five lines in total.

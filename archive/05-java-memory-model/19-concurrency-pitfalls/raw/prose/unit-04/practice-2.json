@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A service registry without check-then-act",
+  "title": "Open the instance once its caches are loaded",
   "blocks": [
     {
       "type": "heading",
@@ -19,51 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's `UnsafeRegistry` does `if (!containsKey(name)) put(name, endpoint)` on a `HashMap`: a check-then-act race on a map that is not thread-safe. Its fix uses `ConcurrentHashMap` and one **atomic** call instead of two, and the page's best practices prefer `computeIfAbsent` to a manual check-then-act, because its function runs **at most once per key**."
+      "text": "Each instance of the pricing service warms its caches at startup, each cache on a thread of its own, and tells the load balancer it is ready only when every loader has finished. A cache that can't be loaded doesn't stop the instance: it starts without that cache and logs which ones are missing."
     },
     {
       "type": "para",
-      "text": "Write `ServiceRegistry`, safe to use from many threads:"
+      "text": "The gate that holds the startup thread back has failed twice. One instance never reported ready, although its log showed all three caches loaded, the first of them within a few milliseconds. On the day the tax-rules service was down, no instance reported ready at all."
+    },
+    {
+      "type": "para",
+      "text": "Finish the two `TODO`s in `src/main/java/practice/StartupGate.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`register(name, endpoint)` adds the service and returns `true`, or returns `false` and changes nothing when the name is already registered.",
-        "`lookup(name)` returns `Optional.of(endpoint)`, or `Optional.empty()`.",
-        "`unregister(name)` removes it and returns whether it was there.",
-        "`names()` returns the registered names.",
-        "`resolve(name, resolver)` returns the endpoint for `name`, calling `resolver.apply(name)` to find it when it is not registered yet, and registering the result. Two threads resolving the same unknown name at once call the resolver **once**."
+        "`runLoader(...)`: each loader's thread runs its loader through it;",
+        "`awaitLoaded(...)`: the startup thread waits there, up to its timeout."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "result"
-      ],
-      "rows": [
-        [
-          "`register(\"auth\", \"http://auth:8080\")`",
-          "`true`"
-        ],
-        [
-          "`register(\"auth\", \"http://other:1\")`",
-          "`false`; `lookup(\"auth\")` is still `http://auth:8080`"
-        ],
-        [
-          "`resolve(\"billing\", n -> \"http://\" + n + \":9000\")`",
-          "`http://billing:9000`, now registered"
-        ],
-        [
-          "`unregister(\"nope\")`",
-          "`false`"
-        ],
-        [
-          "another thread's `resolve(\"billing\", …)` is still resolving; `register(\"billing\", \"http://other:1\")`",
-          "`false`, once that resolve ends; `lookup(\"billing\")` is the resolved endpoint"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, the startup thread gets `true` as soon as every loader has finished, however early they finished and whether or not they failed, and `false` if its time runs out first. About eight lines in total; you may add fields."
     },
     {
       "type": "heading",
@@ -78,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\npublic final class ServiceRegistry {\n\n    private final ConcurrentHashMap<String, String> services = new ConcurrentHashMap<>();\n\n    /** Adds the service; false, and no change, when the name is already registered. */\n    public boolean register(String name, String endpoint) {\n        return services.putIfAbsent(name, endpoint) == null;\n    }\n\n    public Optional<String> lookup(String name) {\n        return Optional.ofNullable(services.get(name));\n    }\n\n    public boolean unregister(String name) {\n        return services.remove(name) != null;\n    }\n\n    public Set<String> names() {\n        return Set.copyOf(services.keySet());\n    }\n\n    /** The endpoint for name, resolved and registered on first use; the resolver runs once per name. */\n    public String resolve(String name, Function<String, String> resolver) {\n        return services.computeIfAbsent(name, resolver);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Queue;\nimport java.util.concurrent.ConcurrentLinkedQueue;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Holds traffic back until every cache loader of an instance has finished. Each loader runs on\n * a thread of its own and calls runLoader; the startup thread calls awaitLoaded before it tells\n * the load balancer the instance is ready. A loader that fails doesn't stop the instance from\n * starting: it starts without that cache, and failed() names the caches it is missing.\n */\npublic class StartupGate {\n\n    private final Queue<String> failed = new ConcurrentLinkedQueue<>();\n    private final CountDownLatch remaining;\n\n    public StartupGate(int loaders) {\n        this.remaining = new CountDownLatch(loaders);\n    }\n\n    /** Runs one cache's loader on the calling thread. Never throws what the loader throws. */\n    public void runLoader(String cache, Runnable loader) {\n        try {\n            loader.run();\n        } catch (RuntimeException e) {\n            failed.add(cache);\n        } finally {\n            remaining.countDown();\n        }\n    }\n\n    /** Waits at most the given time for every loader to finish. True if they all have. */\n    public boolean awaitLoaded(long timeout, TimeUnit unit) throws InterruptedException {\n        return remaining.await(timeout, unit);\n    }\n\n    /** The caches whose loader failed, for the startup log. */\n    public List<String> failed() {\n        return List.copyOf(failed);\n    }\n}\n"
         }
       ]
     },
@@ -90,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.function.Function;\n\npublic final class ServiceRegistry {\n\n    /** Adds the service; false, and no change, when the name is already registered. */\n    public boolean register(String name, String endpoint) {\n        throw new UnsupportedOperationException(\"write register\");\n    }\n\n    public Optional<String> lookup(String name) {\n        throw new UnsupportedOperationException(\"write lookup\");\n    }\n\n    public boolean unregister(String name) {\n        throw new UnsupportedOperationException(\"write unregister\");\n    }\n\n    public Set<String> names() {\n        throw new UnsupportedOperationException(\"write names\");\n    }\n\n    /** The endpoint for name, resolved and registered on first use; the resolver runs once per name. */\n    public String resolve(String name, Function<String, String> resolver) {\n        throw new UnsupportedOperationException(\"write resolve\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Queue;\nimport java.util.concurrent.ConcurrentLinkedQueue;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Holds traffic back until every cache loader of an instance has finished. Each loader runs on\n * a thread of its own and calls runLoader; the startup thread calls awaitLoaded before it tells\n * the load balancer the instance is ready. A loader that fails doesn't stop the instance from\n * starting: it starts without that cache, and failed() names the caches it is missing.\n */\npublic class StartupGate {\n\n    private final Queue<String> failed = new ConcurrentLinkedQueue<>();\n    private final int loaders;\n\n    public StartupGate(int loaders) {\n        this.loaders = loaders;\n    }\n\n    /** Runs one cache's loader on the calling thread. Never throws what the loader throws. */\n    public void runLoader(String cache, Runnable loader) {\n        // TODO: Run the loader and record that this cache is done, whether it loaded or failed.\n        //       A failed cache goes into `failed`.\n        throw new IllegalStateException(\"TODO: runLoader\");\n    }\n\n    /** Waits at most the given time for every loader to finish. True if they all have. */\n    public boolean awaitLoaded(long timeout, TimeUnit unit) throws InterruptedException {\n        // TODO: Answer true as soon as all `loaders` loaders have finished, even if they finished\n        //       before this call; false once the time is up.\n        throw new IllegalStateException(\"TODO: awaitLoaded\");\n    }\n\n    /** The caches whose loader failed, for the startup log. */\n    public List<String> failed() {\n        return List.copyOf(failed);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -98,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -109,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5fa8f213beeee79f2f0ae62ef70ac77cda706089d9e26505b3697c771df38418",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.function.Function;\n\npublic final class ServiceRegistry {\n\n    /** Adds the service; false, and no change, when the name is already registered. */\n    public boolean register(String name, String endpoint) {\n        throw new UnsupportedOperationException(\"write register\");\n    }\n\n    public Optional<String> lookup(String name) {\n        throw new UnsupportedOperationException(\"write lookup\");\n    }\n\n    public boolean unregister(String name) {\n        throw new UnsupportedOperationException(\"write unregister\");\n    }\n\n    public Set<String> names() {\n        throw new UnsupportedOperationException(\"write names\");\n    }\n\n    /** The endpoint for name, resolved and registered on first use; the resolver runs once per name. */\n    public String resolve(String name, Function<String, String> resolver) {\n        throw new UnsupportedOperationException(\"write resolve\");\n    }\n}\n",
+  "content_sha256": "8da9faf0c80395ba30cdee22b928a88fd8a4cf80bc76b836309b3b837296521d",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Queue;\nimport java.util.concurrent.ConcurrentLinkedQueue;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Holds traffic back until every cache loader of an instance has finished. Each loader runs on\n * a thread of its own and calls runLoader; the startup thread calls awaitLoaded before it tells\n * the load balancer the instance is ready. A loader that fails doesn't stop the instance from\n * starting: it starts without that cache, and failed() names the caches it is missing.\n */\npublic class StartupGate {\n\n    private final Queue<String> failed = new ConcurrentLinkedQueue<>();\n    private final int loaders;\n\n    public StartupGate(int loaders) {\n        this.loaders = loaders;\n    }\n\n    /** Runs one cache's loader on the calling thread. Never throws what the loader throws. */\n    public void runLoader(String cache, Runnable loader) {\n        // TODO: Run the loader and record that this cache is done, whether it loaded or failed.\n        //       A failed cache goes into `failed`.\n        throw new IllegalStateException(\"TODO: runLoader\");\n    }\n\n    /** Waits at most the given time for every loader to finish. True if they all have. */\n    public boolean awaitLoaded(long timeout, TimeUnit unit) throws InterruptedException {\n        // TODO: Answer true as soon as all `loaders` loaders have finished, even if they finished\n        //       before this call; false once the time is up.\n        throw new IllegalStateException(\"TODO: awaitLoaded\");\n    }\n\n    /** The caches whose loader failed, for the startup log. */\n    public List<String> failed() {\n        return List.copyOf(failed);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-2/src/main/java/practice/ServiceRegistry.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-2/src/test/java/practice/ServiceRegistryTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-2/src/main/java/practice/StartupGate.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-2/src/test/java/practice/StartupGateTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -134,24 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ServiceRegistryTest#registersLooksUpAndUnregisters",
+        "id": "practice.StartupGateTest#theGateOpensWhenTheLastLoaderFinishes",
         "kind": "main",
-        "says": "register, lookup, unregister and names keep a map of service names to endpoints."
+        "says": "a startup thread that is already waiting is let through once the last of three loaders finishes"
       },
       {
-        "id": "practice.ServiceRegistryTest#aDuplicateRegistrationKeepsTheFirst",
-        "kind": "edge",
-        "says": "Registering a name that is already there returns false and keeps the first endpoint."
+        "id": "practice.StartupGateTest#theGateStaysShutWhileALoaderIsStillRunning",
+        "kind": "main",
+        "says": "with one of three loaders unfinished, the wait ends with false when its time is up"
       },
       {
-        "id": "practice.ServiceRegistryTest#racingResolvesCallTheResolverOnce",
+        "id": "practice.StartupGateTest#loadersThatFinishedBeforeAnyoneWaitedStillOpenTheGate",
         "kind": "edge",
-        "says": "Two threads resolving the same unknown name at the same time make the resolver run exactly once, and both get its endpoint."
+        "says": "when every loader finished before the startup thread began to wait, the wait answers true at once"
       },
       {
-        "id": "practice.ServiceRegistryTest#aRegistrationDuringAResolveDoesNotOverwriteIt",
+        "id": "practice.StartupGateTest#aLoaderThatFailsLetsTheInstanceStartWithoutItsCache",
         "kind": "edge",
-        "says": "register() of a name that a resolve is registering at that moment returns false and leaves the resolved endpoint in place: its check and its insert are one step."
+        "says": "a loader that throws still counts as finished, and its cache is listed as failed"
       }
     ],
     "report": {
@@ -160,11 +136,11 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.4.md",
-      "section": "4. Using HashMap in concurrent contexts instead of ConcurrentHashMap"
+      "section": "A Latch or a Queue Remembers a Signal That wait() Can Miss"
     },
     "concepts": [
-      "A shared map needs ConcurrentHashMap and one atomic call such as putIfAbsent, never a containsKey-then-put.",
-      "ConcurrentHashMap.computeIfAbsent runs its mapping function at most once per key, even under concurrent access."
+      "A latch remembers only what it is told: a loader that throws before countDown() leaves the waiter waiting until its timeout.",
+      "notifyAll() wakes only threads already waiting and records nothing, while a latch keeps its count, so a signal sent before the wait is not lost."
     ]
   }
 }

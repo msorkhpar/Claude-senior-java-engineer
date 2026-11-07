@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Wrap a failed read in an exception that names the file",
+  "title": "Take the cost out of the router's refusals",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A handler should be able to react to *which* file failed without parsing the message. Write the checked `FileProcessingException` and a `FileProcessor` that uses it."
+      "text": "The parcel router tries its routing rules in order, and the first rule that applies picks the hub. A rule that doesn't apply throws `NoRouteException`, and `route()` catches it and tries the next rule; a typical parcel is refused by forty rules before one applies. The router is the busiest service in the depot, and a profile of it shows 40% of its CPU time inside `NoRouteException`'s constructor. When no rule applies at all, the failure goes to the caller and into the error log, and the on-call engineer has to be able to see where it came from and which rule refused last."
+    },
+    {
+      "type": "para",
+      "text": "Finish the two `TODO`s in `src/main/java/practice/Routing.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`FileProcessingException(String message, String fileName, Throwable cause)` and `getFileName()`.",
-        "`FileProcessor(FileStore store)` and `int countLines(String fileName)`: read the file through `store.read(fileName)` and return how many lines it has (`String.lines()` counts them). When the store throws an `IOException`, throw `FileProcessingException` with the message `Error processing file: <fileName>` and that file name."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "store behaviour for the name",
-        "`countLines`"
-      ],
-      "rows": [
-        [
-          "`\"notes.txt\"` reads `\"a\\nb\\nc\"`",
-          "`3`"
-        ],
-        [
-          "`\"empty.txt\"` reads `\"\"`",
-          "`0`"
-        ],
-        [
-          "`\"blank-line.txt\"` reads `\"\\n\"`",
-          "`1`"
-        ],
-        [
-          "`\"nonexistent.txt\"` throws `IOException(\"File not found\")`",
-          "throws `FileProcessingException(\"Error processing file: nonexistent.txt\")`, `getFileName()` is `\"nonexistent.txt\"`"
-        ]
+        "the constructor of `NoRouteException`;",
+        "`unroutable(...)`, the exception `route()` throws when no rule applies."
       ]
     },
     {
       "type": "para",
-      "text": "The tests' store fails only with `IOException`; what happens to any other exception from the store is not part of this task."
-    },
-    {
-      "type": "para",
-      "text": "The exception may be caught, logged and rethrown by several layers: think about what the original failure should look like to the last of them, and whether any of them should be able to change the exception's data."
+      "text": "About three lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.io.IOException;\n\n/** Reads a file's whole content by name. */\ninterface FileStore {\n    String read(String name) throws IOException;\n}\n\n/** Checked: a file could not be processed. Carries the file's name. */\nclass FileProcessingException extends Exception {\n\n    private final String fileName;\n\n    FileProcessingException(String message, String fileName, Throwable cause) {\n        super(message, cause);\n        this.fileName = fileName;\n    }\n\n    String getFileName() {\n        return fileName;\n    }\n}\n\npublic class FileProcessor {\n\n    private final FileStore store;\n\n    public FileProcessor(FileStore store) {\n        this.store = store;\n    }\n\n    /** Counts the lines of the named file; a failed read becomes a FileProcessingException. */\n    public int countLines(String fileName) throws FileProcessingException {\n        try {\n            return (int) store.read(fileName).lines().count();\n        } catch (IOException e) {\n            throw new FileProcessingException(\"Error processing file: \" + fileName, fileName, e);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Picks the route of a parcel: tries each rule in turn, and the first rule that applies decides.\n * A rule that doesn't apply says so by throwing NoRouteException, which route() catches before it\n * tries the next rule. Most parcels are refused by most rules.\n */\npublic class Routing {\n\n    /** Thrown by a rule that doesn't apply to a parcel. Caught inside route(), never by its callers. */\n    public static class NoRouteException extends RuntimeException {\n        public NoRouteException(String rule, String parcelId) {\n            super(\"rule \" + rule + \" does not apply to parcel \" + parcelId, null, false, false);\n        }\n    }\n\n    /** What route()'s callers receive when no rule applies. */\n    public static class UnroutableParcelException extends RuntimeException {\n        public UnroutableParcelException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    /** One routing rule: returns the hub for the parcel, or throws NoRouteException. */\n    public interface Rule {\n        String hubFor(String parcelId, String postcode);\n    }\n\n    private final List<Rule> rules;\n\n    public Routing(List<Rule> rules) {\n        this.rules = rules;\n    }\n\n    /** The hub the parcel goes to. */\n    public String route(String parcelId, String postcode) {\n        NoRouteException lastMiss = null;\n        for (Rule rule : rules) {\n            try {\n                return rule.hubFor(parcelId, postcode);\n            } catch (NoRouteException miss) {\n                lastMiss = miss;\n            }\n        }\n        throw unroutable(parcelId, lastMiss);\n    }\n\n    /** The failure route() reports when no rule applies; lastMiss is the last rule's refusal. */\n    RuntimeException unroutable(String parcelId, NoRouteException lastMiss) {\n        return new UnroutableParcelException(\"no rule routes parcel \" + parcelId, lastMiss);\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.io.IOException;\n\n/** Reads a file's whole content by name. */\ninterface FileStore {\n    String read(String name) throws IOException;\n}\n\n/** Checked: a file could not be processed. Carries the file's name. */\nclass FileProcessingException extends Exception {\n\n    FileProcessingException(String message, String fileName, Throwable cause) {\n        throw new UnsupportedOperationException(\"write FileProcessingException(String, String, Throwable)\");\n    }\n\n    String getFileName() {\n        throw new UnsupportedOperationException(\"write getFileName\");\n    }\n}\n\npublic class FileProcessor {\n\n    public FileProcessor(FileStore store) {\n    }\n\n    /** Counts the lines of the named file; a failed read becomes a FileProcessingException. */\n    public int countLines(String fileName) throws FileProcessingException {\n        throw new UnsupportedOperationException(\"write countLines\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Picks the route of a parcel: tries each rule in turn, and the first rule that applies decides.\n * A rule that doesn't apply says so by throwing NoRouteException, which route() catches before it\n * tries the next rule. Most parcels are refused by most rules.\n */\npublic class Routing {\n\n    /** Thrown by a rule that doesn't apply to a parcel. Caught inside route(), never by its callers. */\n    public static class NoRouteException extends RuntimeException {\n        public NoRouteException(String rule, String parcelId) {\n            // TODO: Build the refusal of this rule for this parcel. A profile of the router shows\n            //       40% of its CPU time spent creating these exceptions.\n            super((String) null);\n            throw new IllegalStateException(\"TODO: NoRouteException\");\n        }\n    }\n\n    /** What route()'s callers receive when no rule applies. */\n    public static class UnroutableParcelException extends RuntimeException {\n        public UnroutableParcelException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    /** One routing rule: returns the hub for the parcel, or throws NoRouteException. */\n    public interface Rule {\n        String hubFor(String parcelId, String postcode);\n    }\n\n    private final List<Rule> rules;\n\n    public Routing(List<Rule> rules) {\n        this.rules = rules;\n    }\n\n    /** The hub the parcel goes to. */\n    public String route(String parcelId, String postcode) {\n        NoRouteException lastMiss = null;\n        for (Rule rule : rules) {\n            try {\n                return rule.hubFor(parcelId, postcode);\n            } catch (NoRouteException miss) {\n                lastMiss = miss;\n            }\n        }\n        throw unroutable(parcelId, lastMiss);\n    }\n\n    /** The failure route() reports when no rule applies; lastMiss is the last rule's refusal. */\n    RuntimeException unroutable(String parcelId, NoRouteException lastMiss) {\n        // TODO: The exception route()'s caller receives. It ends up in the error log, where the\n        //       on-call engineer has to be able to tell what happened and where.\n        throw new IllegalStateException(\"TODO: unroutable\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -106,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "385ecac498565e35e011a6c60ec73a079af18726e8072298d8b798dd007d8bf3",
-  "starting_code": "package practice;\n\nimport java.io.IOException;\n\n/** Reads a file's whole content by name. */\ninterface FileStore {\n    String read(String name) throws IOException;\n}\n\n/** Checked: a file could not be processed. Carries the file's name. */\nclass FileProcessingException extends Exception {\n\n    FileProcessingException(String message, String fileName, Throwable cause) {\n        throw new UnsupportedOperationException(\"write FileProcessingException(String, String, Throwable)\");\n    }\n\n    String getFileName() {\n        throw new UnsupportedOperationException(\"write getFileName\");\n    }\n}\n\npublic class FileProcessor {\n\n    public FileProcessor(FileStore store) {\n    }\n\n    /** Counts the lines of the named file; a failed read becomes a FileProcessingException. */\n    public int countLines(String fileName) throws FileProcessingException {\n        throw new UnsupportedOperationException(\"write countLines\");\n    }\n}\n",
+  "content_sha256": "e34e006587309a285a0e4786e6e1910d4c56b1987e5a7ad00d2356cfee5ac745",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\n/**\n * Picks the route of a parcel: tries each rule in turn, and the first rule that applies decides.\n * A rule that doesn't apply says so by throwing NoRouteException, which route() catches before it\n * tries the next rule. Most parcels are refused by most rules.\n */\npublic class Routing {\n\n    /** Thrown by a rule that doesn't apply to a parcel. Caught inside route(), never by its callers. */\n    public static class NoRouteException extends RuntimeException {\n        public NoRouteException(String rule, String parcelId) {\n            // TODO: Build the refusal of this rule for this parcel. A profile of the router shows\n            //       40% of its CPU time spent creating these exceptions.\n            super((String) null);\n            throw new IllegalStateException(\"TODO: NoRouteException\");\n        }\n    }\n\n    /** What route()'s callers receive when no rule applies. */\n    public static class UnroutableParcelException extends RuntimeException {\n        public UnroutableParcelException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    /** One routing rule: returns the hub for the parcel, or throws NoRouteException. */\n    public interface Rule {\n        String hubFor(String parcelId, String postcode);\n    }\n\n    private final List<Rule> rules;\n\n    public Routing(List<Rule> rules) {\n        this.rules = rules;\n    }\n\n    /** The hub the parcel goes to. */\n    public String route(String parcelId, String postcode) {\n        NoRouteException lastMiss = null;\n        for (Rule rule : rules) {\n            try {\n                return rule.hubFor(parcelId, postcode);\n            } catch (NoRouteException miss) {\n                lastMiss = miss;\n            }\n        }\n        throw unroutable(parcelId, lastMiss);\n    }\n\n    /** The failure route() reports when no rule applies; lastMiss is the last rule's refusal. */\n    RuntimeException unroutable(String parcelId, NoRouteException lastMiss) {\n        // TODO: The exception route()'s caller receives. It ends up in the error log, where the\n        //       on-call engineer has to be able to tell what happened and where.\n        throw new IllegalStateException(\"TODO: unroutable\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-3/src/main/java/practice/FileProcessor.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-3/src/test/java/practice/FileProcessorTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-3/src/main/java/practice/Routing.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-3/src/test/java/practice/RoutingTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,29 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FileProcessorTest#countsTheLinesOfAReadableFile",
+        "id": "practice.RoutingTest#theFirstRuleThatAppliesRoutesTheParcel",
         "kind": "main",
-        "says": "A file the store can read has its lines counted."
+        "says": "the first rule that doesn't refuse picks the hub"
       },
       {
-        "id": "practice.FileProcessorTest#aFailedReadNamesTheFile",
+        "id": "practice.RoutingTest#aParcelNoRuleAppliesToIsReportedToTheCaller",
         "kind": "main",
-        "says": "A failed read becomes a FileProcessingException whose message and getFileName() name the file."
+        "says": "a parcel no rule applies to reaches the caller as an exception naming the parcel"
       },
       {
-        "id": "practice.FileProcessorTest#theIoFailureIsKeptAsTheCause",
+        "id": "practice.RoutingTest#aRefusalCostsNoStackWalk",
         "kind": "edge",
-        "says": "The IOException itself is the cause, so its message and stack trace are not lost."
+        "says": "a rule's refusal captures no stack trace and still names the rule and the parcel"
       },
       {
-        "id": "practice.FileProcessorTest#theContextFieldsAreFinal",
+        "id": "practice.RoutingTest#theReportedFailureShowsWhereItWasThrown",
         "kind": "edge",
-        "says": "Every context field of the exception is final, so no layer can change what another reads."
+        "says": "the failure that leaves route() is an ordinary exception with a stack trace, not the cheap refusal"
       },
       {
-        "id": "practice.FileProcessorTest#emptyAndBlankFilesAreCountedExactly",
+        "id": "practice.RoutingTest#theReportedFailureSaysWhichRuleRefusedLast",
         "kind": "edge",
-        "says": "An empty file has 0 lines and a file holding only \"\\n\" has 1, as String.lines() counts them."
+        "says": "the failure that leaves route() keeps the last refusal as its cause"
       }
     ],
     "report": {
@@ -162,11 +137,11 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.1.md",
-      "section": "Adding context"
+      "section": "Filling In the Stack Trace Is Most of the Cost; Skip It Only Where Nobody Reads the Trace"
     },
     "concepts": [
-      "The (message, cause) constructor lets a catch block keep the original failure as the cause.",
-      "Extra context lives in final fields with getters, so a handler never parses the message."
+      "An exception without a stack trace prints no at lines, so a failure that leaves the code is an ordinary exception with the miss as cause.",
+      "writableStackTrace = false (or an overridden fillInStackTrace) skips the stack walk that makes up most of an exception's cost, so it suits exceptions used as control flow that never leave the code that catches them."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Chain validators with decorators",
+  "title": "Make a new ledger entry type stop the build",
   "blocks": [
     {
       "type": "heading",
@@ -19,42 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page's second pitfall is a validator that is edited for every new rule:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class Validator {\n    boolean isValid(String s) {\n        return s != null && !s.isEmpty() && s.length() >= 5; // keep adding conditions\n    }\n}"
+      "text": "The core banking team owns three kinds of ledger entry, `Deposit`, `Withdrawal` and `Fee`, and adds one every year or two. Reports on them are added every month by other teams in the same codebase. The last time a kind was added, the balance report learned about it and the monthly statement didn't: customers got statements that skipped the new lines, and nobody noticed for three weeks. `Reversal` is coming next."
     },
     {
       "type": "para",
-      "text": "Its fix is the Decorator pattern: **each decorator implements the same `Validator` interface as the validator it wraps, asks that validator first, and adds its own rule**. No validator is ever edited to add a rule. In `Checks`, write:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`NonNullValidator`: valid when the value is not null;",
-        "`NonEmptyValidator(delegate)`: valid when the delegate says valid and the value is not empty (`\"  \"` is not empty);",
-        "`MinLengthValidator(delegate, min)`: valid when the delegate says valid and the value has at least `min` characters, spaces included (`value.length()`, nothing trimmed)."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Each decorator **always asks its delegate first**, with the same value, and only then applies its own rule."
-    },
-    {
-      "type": "para",
-      "text": "The page composes them as"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Validator<String> validator = new MinLengthValidator(\n    new NonEmptyValidator(new NonNullValidator()), 5);"
-    },
-    {
-      "type": "para",
-      "text": "which rejects `null`, `\"\"` and `\"abc\"` and accepts `\"hello\"`. A decorator wraps **any** `Validator<String>`, including a lambda written later, so `new MinLengthValidator(v -> v != null && v.startsWith(\"A\"), 3)` accepts `\"Anna\"` and rejects `\"Bob12\"`."
+      "text": "In `src/main/java/practice/Ledger.java`, finish `balanceCents(...)` and `statementLine(...)` (the formats are in their comments), and set up `Entry` so that adding a fourth kind can't build until every method that looks at an entry's kind has been told about it. About twelve lines in total."
     },
     {
       "type": "heading",
@@ -69,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class Checks {\n\n    private Checks() {\n    }\n\n    public interface Validator<T> {\n        boolean isValid(T value);\n    }\n\n    /** The base validator: never modified. */\n    public static final class NonNullValidator implements Validator<String> {\n        public boolean isValid(String value) {\n            return value != null;\n        }\n    }\n\n    /** A decorator: adds a rule, and asks the validator it wraps first. */\n    public static final class NonEmptyValidator implements Validator<String> {\n        private final Validator<String> delegate;\n\n        public NonEmptyValidator(Validator<String> delegate) {\n            this.delegate = Objects.requireNonNull(delegate);\n        }\n\n        public boolean isValid(String value) {\n            return delegate.isValid(value) && !value.isEmpty();\n        }\n    }\n\n    /** A decorator: adds a minimum length, and asks the validator it wraps first. */\n    public static final class MinLengthValidator implements Validator<String> {\n        private final Validator<String> delegate;\n        private final int min;\n\n        public MinLengthValidator(Validator<String> delegate, int min) {\n            this.delegate = Objects.requireNonNull(delegate);\n            this.min = min;\n        }\n\n        public boolean isValid(String value) {\n            return delegate.isValid(value) && value.length() >= min;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\n\npublic final class Ledger {\n\n    private Ledger() {\n    }\n\n    /** One line of an account's ledger. Amounts are positive cents. */\n    public sealed interface Entry permits Deposit, Withdrawal, Fee {\n    }\n\n    public record Deposit(long cents) implements Entry {\n    }\n\n    public record Withdrawal(long cents) implements Entry {\n    }\n\n    public record Fee(long cents, String reason) implements Entry {\n    }\n\n    /** The account's balance after every entry, starting from zero. */\n    static long balanceCents(List<? extends Entry> entries) {\n        long balance = 0;\n        for (Entry e : entries) {\n            balance += switch (e) {\n                case Deposit d -> d.cents();\n                case Withdrawal w -> -w.cents();\n                case Fee f -> -f.cents();\n            };\n        }\n        return balance;\n    }\n\n    /** The entry as the monthly statement prints it: \"+12.00 deposit\", \"-3.50 fee: card replacement\". */\n    static String statementLine(Entry e) {\n        return switch (e) {\n            case Deposit d -> money('+', d.cents()) + \" deposit\";\n            case Withdrawal w -> money('-', w.cents()) + \" withdrawal\";\n            case Fee f -> money('-', f.cents()) + \" fee: \" + f.reason();\n        };\n    }\n\n    private static String money(char sign, long cents) {\n        return sign + String.format(\"%d.%02d\", cents / 100, cents % 100);\n    }\n}\n"
         }
       ]
     },
@@ -81,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Checks {\n\n    private Checks() {\n    }\n\n    public interface Validator<T> {\n        boolean isValid(T value);\n    }\n\n    /** The base validator: never modified. */\n    public static final class NonNullValidator implements Validator<String> {\n        public boolean isValid(String value) {\n            throw new UnsupportedOperationException(\"write isValid\");\n        }\n    }\n\n    /** A decorator: adds a rule, and asks the validator it wraps first. */\n    public static final class NonEmptyValidator implements Validator<String> {\n\n        public NonEmptyValidator(Validator<String> delegate) {\n        }\n\n        public boolean isValid(String value) {\n            throw new UnsupportedOperationException(\"write isValid\");\n        }\n    }\n\n    /** A decorator: adds a minimum length, and asks the validator it wraps first. */\n    public static final class MinLengthValidator implements Validator<String> {\n\n        public MinLengthValidator(Validator<String> delegate, int min) {\n        }\n\n        public boolean isValid(String value) {\n            throw new UnsupportedOperationException(\"write isValid\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Ledger {\n\n    private Ledger() {\n    }\n\n    /** One line of an account's ledger. Amounts are positive cents. */\n    public interface Entry {\n    }\n\n    public record Deposit(long cents) implements Entry {\n    }\n\n    public record Withdrawal(long cents) implements Entry {\n    }\n\n    public record Fee(long cents, String reason) implements Entry {\n    }\n\n    /** The account's balance after every entry, starting from zero. */\n    static long balanceCents(List<? extends Entry> entries) {\n        throw new IllegalStateException(\"TODO: balance after every entry\");\n    }\n\n    /** The entry as the monthly statement prints it: \"+12.00 deposit\", \"-3.50 fee: card replacement\". */\n    static String statementLine(Entry e) {\n        throw new IllegalStateException(\"TODO: the statement's line for one entry\");\n    }\n\n    private static String money(char sign, long cents) {\n        return sign + String.format(\"%d.%02d\", cents / 100, cents % 100);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 5,
-    "code": 3,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -100,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "530481211b892cf7cabffbb8a5cda4b16c502295ce93c9d4bec7a0aad4f6be63",
-  "starting_code": "package practice;\n\npublic final class Checks {\n\n    private Checks() {\n    }\n\n    public interface Validator<T> {\n        boolean isValid(T value);\n    }\n\n    /** The base validator: never modified. */\n    public static final class NonNullValidator implements Validator<String> {\n        public boolean isValid(String value) {\n            throw new UnsupportedOperationException(\"write isValid\");\n        }\n    }\n\n    /** A decorator: adds a rule, and asks the validator it wraps first. */\n    public static final class NonEmptyValidator implements Validator<String> {\n\n        public NonEmptyValidator(Validator<String> delegate) {\n        }\n\n        public boolean isValid(String value) {\n            throw new UnsupportedOperationException(\"write isValid\");\n        }\n    }\n\n    /** A decorator: adds a minimum length, and asks the validator it wraps first. */\n    public static final class MinLengthValidator implements Validator<String> {\n\n        public MinLengthValidator(Validator<String> delegate, int min) {\n        }\n\n        public boolean isValid(String value) {\n            throw new UnsupportedOperationException(\"write isValid\");\n        }\n    }\n}\n",
+  "content_sha256": "08e963c794f3794ffd5c5c6edb6a5451616a983a1ad7856ecb2d1e33524a55ac",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Ledger {\n\n    private Ledger() {\n    }\n\n    /** One line of an account's ledger. Amounts are positive cents. */\n    public interface Entry {\n    }\n\n    public record Deposit(long cents) implements Entry {\n    }\n\n    public record Withdrawal(long cents) implements Entry {\n    }\n\n    public record Fee(long cents, String reason) implements Entry {\n    }\n\n    /** The account's balance after every entry, starting from zero. */\n    static long balanceCents(List<? extends Entry> entries) {\n        throw new IllegalStateException(\"TODO: balance after every entry\");\n    }\n\n    /** The entry as the monthly statement prints it: \"+12.00 deposit\", \"-3.50 fee: card replacement\". */\n    static String statementLine(Entry e) {\n        throw new IllegalStateException(\"TODO: the statement's line for one entry\");\n    }\n\n    private static String money(char sign, long cents) {\n        return sign + String.format(\"%d.%02d\", cents / 100, cents % 100);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-2/src/main/java/practice/Checks.java",
-    "test_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-2/src/test/java/practice/ChecksTest.java",
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-2/src/main/java/practice/Ledger.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-2/src/test/java/practice/LedgerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -125,24 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ChecksTest#theComposedChainAppliesEveryRule",
+        "id": "practice.LedgerTest#balanceAddsDepositsAndSubtractsWithdrawalsAndFees",
         "kind": "main",
-        "says": "The page's chain rejects \"\" and \"abc\" and accepts \"hello\"."
+        "says": "the balance adds deposits and subtracts withdrawals and fees, and is zero for no entries"
       },
       {
-        "id": "practice.ChecksTest#aDecoratorAsksTheValidatorItWrapsFirst",
-        "kind": "edge",
-        "says": "null is rejected by every chain, because each decorator asks its delegate before looking at the value."
+        "id": "practice.LedgerTest#statementPrintsEachKindOfEntry",
+        "kind": "main",
+        "says": "the statement prints each kind of entry with its sign, amount and, for a fee, its reason"
       },
       {
-        "id": "practice.ChecksTest#anyValidatorCanBeDecorated",
+        "id": "practice.LedgerTest#theEntryKindsAreAFixedSetTheCompilerKnows",
         "kind": "edge",
-        "says": "Wrapping a lambda that wants a leading A keeps that rule: \"Bob12\" is rejected."
-      },
-      {
-        "id": "practice.ChecksTest#lengthCountsCharsNotCodePoints",
-        "kind": "edge",
-        "says": "Length is value.length(): two emoji are four chars, so they pass a minimum of 4."
+        "says": "Entry is sealed and permits exactly Deposit, Withdrawal and Fee, so a switch over it is checked for every kind"
       }
     ],
     "report": {
@@ -151,10 +115,10 @@
     },
     "origin": {
       "path": "31-solid-principles/README_8.1.2.md",
-      "section": "8.1.2.3. Extending Behavior Without Modifying Existing Code"
+      "section": "When the Types Are Fixed and the Operations Grow, Seal the Hierarchy and Let javac List the Switches"
     },
     "concepts": [
-      "A decorator implements the same interface as the object it wraps and delegates to it, so validation rules are added without editing any validator."
+      "Over a sealed type, adding a permitted type makes javac report every switch without a default, and a new operation is one new method; the choice between sealed and open follows who adds types."
     ]
   }
 }

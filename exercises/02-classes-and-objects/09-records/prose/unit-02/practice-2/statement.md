@@ -1,29 +1,12 @@
-A record may customise what it generates: validate in a compact constructor,
-override `toString`, and add methods of its own.
+The nightly import reads CSV rows into DTOs through `RowBinder`, which was written when every DTO
+was a JavaBean. This sprint the team turned the DTOs into records, and the first import after the
+release failed on its first row with `NoSuchMethodException: ...<init>()`.
 
-Complete `record Employee(String name, int id, LocalDate hireDate)`:
+`RowBinder.bind` already sends records to `bindRecord`. Finish the `TODO` in
+`src/main/java/practice/RowBinder.java` so that `bindRecord` builds the record from the row. The
+row is a map from column name to value, as the CSV reader produced it: numbers arrive boxed, and
+the columns come in the file's order, which is not always the order of the record's components.
+When a record refuses a value, the import reports the record's own exception, the one its author
+wrote the message for.
 
-- **compact constructor**: a `null` name is refused with a
-  `NullPointerException` whose message is `Name cannot be null`; a `null`
-  hire date with a `NullPointerException` whose message is
-  `Hire date cannot be null`; an `id` of 0 or less with an
-  `IllegalArgumentException` whose message is `ID must be positive`
-  (`Objects.requireNonNull(value, message)` helps);
-- **`toString()`**: `Employee(name=<name>, id=<id>, hired on <hireDate>)`;
-- **`boolean isNewHire(LocalDate today)`**: `true` when the hire date is
-  strictly after the date six months before `today`.
-
-## Examples
-
-```
-new Employee("Alice Smith", 4, LocalDate.of(2023, 4, 1)).toString()
-        -> "Employee(name=Alice Smith, id=4, hired on 2023-04-01)"
-new Employee(null, 1, date)       -> NullPointerException: Name cannot be null
-new Employee("Test", 0, date)     -> IllegalArgumentException: ID must be positive
-new Employee("Test", 1, null)     -> NullPointerException: Hire date cannot be null
-
-today = 2023-08-22
-hired 2023-05-01 -> isNewHire(today) = true
-hired 2022-01-01 -> isNewHire(today) = false
-hired 2023-02-22 -> isNewHire(today) = false   (exactly six months)
-```
+About twelve lines in total.

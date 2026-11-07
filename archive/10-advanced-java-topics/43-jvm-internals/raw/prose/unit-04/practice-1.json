@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Work out the heap a java command line asks for",
+  "title": "Tell the on-call engineer which thread everyone waits for",
   "blocks": [
     {
       "type": "heading",
@@ -19,70 +19,27 @@
     },
     {
       "type": "para",
-      "text": "`-Xmx` and `-Xms` set the maximum and initial heap, and `-Xss` each thread's stack. In a container, `-XX:MaxRAMPercentage=75.0` sizes the heap as a share of the container's memory limit instead. Sizes take a suffix `k`, `m` or `g` (**powers of 1024, upper or lower case**); a bare number is bytes."
+      "text": "The payments service hangs a few times a month, and each time the on-call engineer scrolls through a `jcmd <pid> Thread.print` of four hundred threads, looking for the one that everybody else is waiting for. The dump has no deadlock section, because there is no cycle. We want a tool that reads the dump and answers that question directly."
     },
     {
       "type": "para",
-      "text": "Write `HeapSizing.parse(args, containerLimitBytes)` that answers:"
+      "text": "`DumpReader` already splits a dump into threads and joins the answers into a report. Finish the two `TODO`s in `src/main/java/practice/DumpReader.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`maxHeapBytes()`: **`-Xmx` when given**, otherwise `MaxRAMPercentage` (default `25.0`) percent of the container limit, rounded down.",
-        "`threadStackBytes()`: `-Xss`, default 1 MiB."
+        "`waitingFor(thread)`: the monitor the thread is blocked trying to enter, or `null`;",
+        "`held(thread)`: the monitors the thread holds while the dump is taken."
       ]
     },
     {
       "type": "para",
-      "text": "Other arguments are ignored, and when a flag appears twice **the last one wins**. An `-Xms` **larger than `-Xmx`** is refused with `IllegalArgumentException`, as the JVM refuses to start with that pair."
+      "text": "When you're done, `whoBlocksWhom(dump)` maps each thread that is blocked on a `synchronized` lock to the threads that really hold that lock, and to no one else. Threads that sleep, park or wait for a notify are not blocked by anybody. About fifteen lines in total, including any helper you add to read a lock line."
     },
     {
-      "type": "table",
-      "headers": [
-        "args",
-        "container limit",
-        "max heap",
-        "stack"
-      ],
-      "rows": [
-        [
-          "`-Xmx4g -Xss512k`",
-          "8 GiB",
-          "4 GiB",
-          "512 KiB"
-        ],
-        [
-          "`-XX:MaxRAMPercentage=75.0`",
-          "8 GiB",
-          "6 GiB",
-          "1 MiB"
-        ],
-        [
-          "(none)",
-          "8 GiB",
-          "2 GiB",
-          "1 MiB"
-        ],
-        [
-          "`-Xmx2G -XX:MaxRAMPercentage=75.0`",
-          "8 GiB",
-          "2 GiB",
-          "1 MiB"
-        ],
-        [
-          "`-Xmx1g -Xmx3g`",
-          "8 GiB",
-          "3 GiB",
-          "1 MiB"
-        ],
-        [
-          "`-Xms4g -Xmx2g`",
-          "8 GiB",
-          "`IllegalArgumentException`",
-          ""
-        ]
-      ]
+      "type": "para",
+      "text": "The tests feed it thread blocks cut from a real Java 21 dump of a payments program, so print one with `jcmd` from a small program of your own if you want to see every kind of line first."
     },
     {
       "type": "heading",
@@ -97,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Locale;\n\npublic final class HeapSizing {\n\n    private final long maxHeap;\n    private final long threadStack;\n\n    private HeapSizing(long maxHeap, long threadStack) {\n        this.maxHeap = maxHeap;\n        this.threadStack = threadStack;\n    }\n\n    /** Reads the heap and stack flags from {@code args} for a container of {@code containerLimitBytes}. */\n    public static HeapSizing parse(List<String> args, long containerLimitBytes) {\n        Long xmx = null;\n        Long xms = null;\n        long xss = 1024L * 1024;\n        double percentage = 25.0;\n        for (String arg : args) {\n            if (arg.startsWith(\"-Xmx\")) {\n                xmx = size(arg.substring(4));\n            } else if (arg.startsWith(\"-Xms\")) {\n                xms = size(arg.substring(4));\n            } else if (arg.startsWith(\"-Xss\")) {\n                xss = size(arg.substring(4));\n            } else if (arg.startsWith(\"-XX:MaxRAMPercentage=\")) {\n                percentage = Double.parseDouble(arg.substring(\"-XX:MaxRAMPercentage=\".length()));\n            }\n        }\n        long maxHeap = xmx != null ? xmx : (long) (containerLimitBytes * percentage / 100);\n        if (xmx != null && xms != null && xms > xmx) {\n            throw new IllegalArgumentException(\"initial heap \" + xms + \" is larger than the maximum \" + xmx);\n        }\n        return new HeapSizing(maxHeap, xss);\n    }\n\n    private static long size(String text) {\n        String t = text.toLowerCase(Locale.ROOT);\n        long unit = switch (t.isEmpty() ? ' ' : t.charAt(t.length() - 1)) {\n            case 'k' -> 1024L;\n            case 'm' -> 1024L * 1024;\n            case 'g' -> 1024L * 1024 * 1024;\n            default -> 1L;\n        };\n        String digits = unit == 1L ? t : t.substring(0, t.length() - 1);\n        return Long.parseLong(digits) * unit;\n    }\n\n    public long maxHeapBytes() {\n        return maxHeap;\n    }\n\n    public long threadStackBytes() {\n        return threadStack;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashSet;\nimport java.util.LinkedHashSet;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeMap;\n\n/**\n * Reads the text of a thread dump ({@code jcmd <pid> Thread.print} or {@code jstack <pid>}) and\n * reports, for every thread blocked on a monitor, which threads hold that monitor.\n */\npublic class DumpReader {\n\n    /** One thread of the dump: its name and the lines below its header. */\n    record ThreadEntry(String name, List<String> lines) {}\n\n    /** Each blocked thread's name, mapped to the names of the threads holding what it waits for. */\n    public static Map<String, List<String>> whoBlocksWhom(String dump) {\n        List<ThreadEntry> threads = threads(dump);\n        Map<String, List<String>> holders = new TreeMap<>();       // monitor -> threads holding it\n        for (ThreadEntry t : threads) {\n            for (String monitor : held(t)) {\n                holders.computeIfAbsent(monitor, k -> new ArrayList<>()).add(t.name());\n            }\n        }\n        Map<String, List<String>> report = new TreeMap<>();\n        for (ThreadEntry t : threads) {\n            String monitor = waitingFor(t);\n            if (monitor != null && holders.containsKey(monitor)) {\n                report.put(t.name(), holders.get(monitor).stream().sorted().toList());\n            }\n        }\n        return report;\n    }\n\n    /** Splits a dump into threads. A thread's block starts with its quoted name and ends at a blank line. */\n    static List<ThreadEntry> threads(String dump) {\n        List<ThreadEntry> threads = new ArrayList<>();\n        String name = null;\n        List<String> lines = new ArrayList<>();\n        for (String line : dump.split(\"\\n\", -1)) {\n            if (line.startsWith(\"\\\"\")) {\n                name = line.substring(1, line.indexOf('\"', 1));\n                lines = new ArrayList<>();\n            } else if (line.isBlank()) {\n                if (name != null) threads.add(new ThreadEntry(name, lines));\n                name = null;\n            } else if (name != null) {\n                lines.add(line.strip());\n            }\n        }\n        if (name != null) threads.add(new ThreadEntry(name, lines));\n        return threads;\n    }\n\n    /** The monitor this thread is blocked trying to enter, or null when it isn't blocked on one. */\n    static String waitingFor(ThreadEntry t) {\n        for (String line : t.lines()) {\n            if (line.startsWith(\"- waiting to lock <\")) return monitorIn(line);\n        }\n        return null;\n    }\n\n    /** The monitors this thread holds at the moment of the dump. */\n    static Set<String> held(ThreadEntry t) {\n        Set<String> released = new HashSet<>();\n        Set<String> held = new LinkedHashSet<>();\n        for (String line : t.lines()) {\n            if (line.startsWith(\"- waiting on <\")) released.add(monitorIn(line));\n            else if (line.startsWith(\"- locked <\")) held.add(monitorIn(line));\n        }\n        held.removeAll(released);\n        return held;\n    }\n\n    /** The text between the angle brackets of a lock line, such as {@code 0x00000005ab816bf0}. */\n    static String monitorIn(String line) {\n        return line.substring(line.indexOf('<') + 1, line.indexOf('>'));\n    }\n}\n"
         }
       ]
     },
@@ -109,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class HeapSizing {\n\n    private HeapSizing() {\n    }\n\n    /** Reads the heap and stack flags from {@code args} for a container of {@code containerLimitBytes}. */\n    public static HeapSizing parse(List<String> args, long containerLimitBytes) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public long maxHeapBytes() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public long threadStackBytes() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeMap;\n\n/**\n * Reads the text of a thread dump ({@code jcmd <pid> Thread.print} or {@code jstack <pid>}) and\n * reports, for every thread blocked on a monitor, which threads hold that monitor.\n */\npublic class DumpReader {\n\n    /** One thread of the dump: its name and the lines below its header. */\n    record ThreadEntry(String name, List<String> lines) {}\n\n    /** Each blocked thread's name, mapped to the names of the threads holding what it waits for. */\n    public static Map<String, List<String>> whoBlocksWhom(String dump) {\n        List<ThreadEntry> threads = threads(dump);\n        Map<String, List<String>> holders = new TreeMap<>();       // monitor -> threads holding it\n        for (ThreadEntry t : threads) {\n            for (String monitor : held(t)) {\n                holders.computeIfAbsent(monitor, k -> new ArrayList<>()).add(t.name());\n            }\n        }\n        Map<String, List<String>> report = new TreeMap<>();\n        for (ThreadEntry t : threads) {\n            String monitor = waitingFor(t);\n            if (monitor != null && holders.containsKey(monitor)) {\n                report.put(t.name(), holders.get(monitor).stream().sorted().toList());\n            }\n        }\n        return report;\n    }\n\n    /** Splits a dump into threads. A thread's block starts with its quoted name and ends at a blank line. */\n    static List<ThreadEntry> threads(String dump) {\n        List<ThreadEntry> threads = new ArrayList<>();\n        String name = null;\n        List<String> lines = new ArrayList<>();\n        for (String line : dump.split(\"\\n\", -1)) {\n            if (line.startsWith(\"\\\"\")) {\n                name = line.substring(1, line.indexOf('\"', 1));\n                lines = new ArrayList<>();\n            } else if (line.isBlank()) {\n                if (name != null) threads.add(new ThreadEntry(name, lines));\n                name = null;\n            } else if (name != null) {\n                lines.add(line.strip());\n            }\n        }\n        if (name != null) threads.add(new ThreadEntry(name, lines));\n        return threads;\n    }\n\n    /** The monitor this thread is blocked trying to enter, or null when it isn't blocked on one. */\n    static String waitingFor(ThreadEntry t) {\n        // TODO: A thread can be stopped in many ways: parked on a latch, sleeping, waiting for a\n        //       notify, or blocked at the entry of a synchronized block. Return the monitor only\n        //       in the last case, in a form that held(...) returns for the thread holding it.\n        throw new IllegalStateException(\"TODO: waitingFor\");\n    }\n\n    /** The monitors this thread holds at the moment of the dump. */\n    static Set<String> held(ThreadEntry t) {\n        // TODO: Return every monitor this thread really holds while the dump is taken, so that\n        //       whoBlocksWhom names exactly the threads another thread is waiting for.\n        throw new IllegalStateException(\"TODO: held\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -117,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -128,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a57b1ccc551dec49a73520965b338935cbaea11096b9fd0afee9b7c5913ee8f9",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class HeapSizing {\n\n    private HeapSizing() {\n    }\n\n    /** Reads the heap and stack flags from {@code args} for a container of {@code containerLimitBytes}. */\n    public static HeapSizing parse(List<String> args, long containerLimitBytes) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public long maxHeapBytes() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public long threadStackBytes() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "163c37d9af076c1d8442b6401f9becba8863de25fc470e4d0047f9325986ad0a",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeMap;\n\n/**\n * Reads the text of a thread dump ({@code jcmd <pid> Thread.print} or {@code jstack <pid>}) and\n * reports, for every thread blocked on a monitor, which threads hold that monitor.\n */\npublic class DumpReader {\n\n    /** One thread of the dump: its name and the lines below its header. */\n    record ThreadEntry(String name, List<String> lines) {}\n\n    /** Each blocked thread's name, mapped to the names of the threads holding what it waits for. */\n    public static Map<String, List<String>> whoBlocksWhom(String dump) {\n        List<ThreadEntry> threads = threads(dump);\n        Map<String, List<String>> holders = new TreeMap<>();       // monitor -> threads holding it\n        for (ThreadEntry t : threads) {\n            for (String monitor : held(t)) {\n                holders.computeIfAbsent(monitor, k -> new ArrayList<>()).add(t.name());\n            }\n        }\n        Map<String, List<String>> report = new TreeMap<>();\n        for (ThreadEntry t : threads) {\n            String monitor = waitingFor(t);\n            if (monitor != null && holders.containsKey(monitor)) {\n                report.put(t.name(), holders.get(monitor).stream().sorted().toList());\n            }\n        }\n        return report;\n    }\n\n    /** Splits a dump into threads. A thread's block starts with its quoted name and ends at a blank line. */\n    static List<ThreadEntry> threads(String dump) {\n        List<ThreadEntry> threads = new ArrayList<>();\n        String name = null;\n        List<String> lines = new ArrayList<>();\n        for (String line : dump.split(\"\\n\", -1)) {\n            if (line.startsWith(\"\\\"\")) {\n                name = line.substring(1, line.indexOf('\"', 1));\n                lines = new ArrayList<>();\n            } else if (line.isBlank()) {\n                if (name != null) threads.add(new ThreadEntry(name, lines));\n                name = null;\n            } else if (name != null) {\n                lines.add(line.strip());\n            }\n        }\n        if (name != null) threads.add(new ThreadEntry(name, lines));\n        return threads;\n    }\n\n    /** The monitor this thread is blocked trying to enter, or null when it isn't blocked on one. */\n    static String waitingFor(ThreadEntry t) {\n        // TODO: A thread can be stopped in many ways: parked on a latch, sleeping, waiting for a\n        //       notify, or blocked at the entry of a synchronized block. Return the monitor only\n        //       in the last case, in a form that held(...) returns for the thread holding it.\n        throw new IllegalStateException(\"TODO: waitingFor\");\n    }\n\n    /** The monitors this thread holds at the moment of the dump. */\n    static Set<String> held(ThreadEntry t) {\n        // TODO: Return every monitor this thread really holds while the dump is taken, so that\n        //       whoBlocksWhom names exactly the threads another thread is waiting for.\n        throw new IllegalStateException(\"TODO: held\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-04/practice-1/src/main/java/practice/HeapSizing.java",
-    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-04/practice-1/src/test/java/practice/HeapSizingTest.java",
+    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-04/practice-1/src/main/java/practice/DumpReader.java",
+    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-04/practice-1/src/test/java/practice/DumpReaderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -153,29 +110,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HeapSizingTest#sizesTheHeapAndTheStack",
+        "id": "practice.DumpReaderTest#aBlockedThreadIsChargedToTheThreadHoldingItsLock",
         "kind": "main",
-        "says": "-Xmx4g gives a 4 GiB heap and -Xss512k a 512 KiB stack; with no -Xmx the heap is MaxRAMPercentage (25 by default) of the container limit, and the stack defaults to 1 MiB."
+        "says": "a thread blocked at a synchronized block is reported with the thread that holds that lock"
       },
       {
-        "id": "practice.HeapSizingTest#sizeSuffixesCountIn1024s",
-        "kind": "edge",
-        "says": "k, m and g multiply by 1024, 1024^2 and 1024^3, in either case, and a bare number is bytes."
+        "id": "practice.DumpReaderTest#threadsThatOnlyParkBlockNobody",
+        "kind": "main",
+        "says": "a dump whose threads only park on a latch reports no one as blocked"
       },
       {
-        "id": "practice.HeapSizingTest#anExplicitXmxBeatsThePercentage",
+        "id": "practice.DumpReaderTest#aThreadInWaitDoesNotHoldTheMonitorItWaitsOn",
         "kind": "edge",
-        "says": "When both -Xmx and -XX:MaxRAMPercentage are given, -Xmx sets the heap."
+        "says": "a thread inside wait() is not reported as holding the monitor it waits on, though its stack lists it as locked"
       },
       {
-        "id": "practice.HeapSizingTest#theLastOccurrenceWins",
+        "id": "practice.DumpReaderTest#aThreadWaitingForANotifyIsNotBlocked",
         "kind": "edge",
-        "says": "A flag given twice takes its later value."
+        "says": "a thread inside wait() is not reported as blocked by whoever holds that monitor"
       },
       {
-        "id": "practice.HeapSizingTest#anInitialHeapAboveTheMaximumIsRefused",
+        "id": "practice.DumpReaderTest#twoLocksOfTheSameClassAreTwoLocks",
         "kind": "edge",
-        "says": "-Xms larger than -Xmx is refused with IllegalArgumentException, in either order; equal sizes are allowed."
+        "says": "a thread waiting for one object is charged to that object's holder, not to a thread holding another object of the same class"
+      },
+      {
+        "id": "practice.DumpReaderTest#aThreadCanHoldSeveralMonitorsAtOnce",
+        "kind": "edge",
+        "says": "a thread holding nested locks is reported for every one of them"
       }
     ],
     "report": {
@@ -184,11 +146,11 @@
     },
     "origin": {
       "path": "43-jvm-internals/README_10.5.4.md",
-      "section": "1. Memory Configuration"
+      "section": "A Thread Dump Names a Deadlock Cycle, Not a Thread Stuck Behind a Holder That Waits"
     },
     "concepts": [
-      "In a container the JVM sizes its heap from the memory limit, and MaxRAMPercentage sets the share when -Xmx is not given.",
-      "-Xmx, -Xms and -Xss size the heap and thread stacks, in sizes with k, m or g suffixes, and -Xms may not exceed -Xmx."
+      "A thread BLOCKED on a monitor names the object's address; the thread whose stack lists that address as locked is the one it waits for, and two objects of one class are two locks.",
+      "A thread keeps its monitors while it parks, sleeps or reads; only Object.wait() gives up the one it waits on, though the dump still lists it as locked below a waiting-on line."
     ]
   }
 }

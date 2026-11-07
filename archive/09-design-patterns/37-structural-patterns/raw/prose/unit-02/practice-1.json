@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Stack SMS and Slack decorators on an email notifier",
+  "title": "End a compressed message without closing the connection",
   "blocks": [
     {
       "type": "heading",
@@ -19,62 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page's notifiers: an `EmailNotifier` is the component, and SMS and Slack are decorators that implement the same `Notifier` interface, delegate to the notifier they wrap and then add their own part. The page's first pitfall is a decorator that forgets to delegate, so **every method delegates to the wrapped notifier**, `getDescription()` as much as `send()`."
+      "text": "The warehouse service sends stock reports to its branch servers over long-lived connections, one gzip-compressed message after another on the same stream. When `send(...)` returns, the server writes the next message on that connection. Since the reports moved to gzip, some branches see the next message fail on a closed connection, and others get a report that is cut short."
     },
     {
       "type": "para",
-      "text": "Given: `Notifier` and `EmailNotifier`. Write:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`NotifierDecorator`, an abstract base that keeps the wrapped notifier and passes both methods on. **A `null` wrappee is refused in the constructor** with `NullPointerException`.",
-        "`SmsDecorator(wrappee, phone)`: `send` returns the wrapped result followed by `\" | SMS to <phone>: <message>\"`; the description adds `\" + SMS(<phone>)\"`.",
-        "`SlackDecorator(wrappee, channel)`: adds `\" | Slack #<channel>: <message>\"` and `\" + Slack(#<channel>)\"`."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Decorators stack in any combination, and **the same decorator applied twice adds its part twice**."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "notifier",
-        "`send(\"alert\")`"
-      ],
-      "rows": [
-        [
-          "`Email(\"a@example.org\")`",
-          "`Email to a@example.org: alert`"
-        ],
-        [
-          "`Sms(Email, \"+1\")`",
-          "`Email to a@example.org: alert | SMS to +1: alert`"
-        ],
-        [
-          "`Slack(Sms(Email, \"+1\"), \"ops\")`",
-          "`... | SMS to +1: alert | Slack #ops: alert`"
-        ],
-        [
-          "`Sms(Sms(Email, \"+1\"), \"+2\")`",
-          "`... | SMS to +1: alert | SMS to +2: alert`"
-        ]
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "notifier",
-        "`getDescription()`"
-      ],
-      "rows": [
-        [
-          "`Slack(Sms(Email, \"+1\"), \"ops\")`",
-          "`Email(a@example.org) + SMS(+1) + Slack(#ops)`"
-        ]
-      ]
+      "text": "`ReportResponder.send(...)` already builds the layers and writes the rows. Finish `complete(...)` in `src/main/java/practice/ReportResponder.java`, so that the branch receives every row of a short or a long report as one complete gzip body, and the connection is still usable afterwards. About two lines in total."
     },
     {
       "type": "heading",
@@ -89,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class Notifiers {\n\n    private Notifiers() {\n    }\n\n    public interface Notifier {\n        String send(String message);\n\n        String getDescription();\n    }\n\n    /** The concrete component. */\n    public static final class EmailNotifier implements Notifier {\n        private final String address;\n\n        public EmailNotifier(String address) {\n            this.address = Objects.requireNonNull(address, \"address must not be null\");\n        }\n\n        @Override\n        public String send(String message) {\n            return \"Email to \" + address + \": \" + message;\n        }\n\n        @Override\n        public String getDescription() {\n            return \"Email(\" + address + \")\";\n        }\n    }\n\n    /** The base decorator: keeps the wrapped notifier and passes every call on. */\n    public abstract static class NotifierDecorator implements Notifier {\n\n        protected final Notifier wrappee;\n\n        protected NotifierDecorator(Notifier wrappee) {\n            this.wrappee = Objects.requireNonNull(wrappee, \"wrapped notifier must not be null\");\n        }\n\n        @Override\n        public String send(String message) {\n            return wrappee.send(message);\n        }\n\n        @Override\n        public String getDescription() {\n            return wrappee.getDescription();\n        }\n    }\n\n    public static final class SmsDecorator extends NotifierDecorator {\n\n        private final String phone;\n\n        public SmsDecorator(Notifier wrappee, String phone) {\n            super(wrappee);\n            this.phone = Objects.requireNonNull(phone, \"phone must not be null\");\n        }\n\n        @Override\n        public String send(String message) {\n            return super.send(message) + \" | SMS to \" + phone + \": \" + message;\n        }\n\n        @Override\n        public String getDescription() {\n            return super.getDescription() + \" + SMS(\" + phone + \")\";\n        }\n    }\n\n    public static final class SlackDecorator extends NotifierDecorator {\n\n        private final String channel;\n\n        public SlackDecorator(Notifier wrappee, String channel) {\n            super(wrappee);\n            this.channel = Objects.requireNonNull(channel, \"channel must not be null\");\n        }\n\n        @Override\n        public String send(String message) {\n            return super.send(message) + \" | Slack #\" + channel + \": \" + message;\n        }\n\n        @Override\n        public String getDescription() {\n            return super.getDescription() + \" + Slack(#\" + channel + \")\";\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.BufferedWriter;\nimport java.io.IOException;\nimport java.io.OutputStream;\nimport java.io.OutputStreamWriter;\nimport java.io.Writer;\nimport java.nio.charset.StandardCharsets;\nimport java.util.List;\nimport java.util.zip.GZIPOutputStream;\n\n/**\n * Sends a stock report, gzip-compressed, as one message on a connection that carries many. The\n * connection is owned by the server: once send() returns, it writes the next message on it.\n */\npublic class ReportResponder {\n\n    /** Writes each row and a newline, as UTF-8, gzip-compressed, into the message body. */\n    public void send(List<String> rows, OutputStream body) throws IOException {\n        GZIPOutputStream gzip = new GZIPOutputStream(body);\n        Writer writer = new BufferedWriter(new OutputStreamWriter(gzip, StandardCharsets.UTF_8));\n        for (String row : rows) {\n            writer.write(row);\n            writer.write('\\n');\n        }\n        complete(writer, gzip);\n    }\n\n    /** Ends the compressed body that send() wrote through these two layers. */\n    void complete(Writer writer, GZIPOutputStream gzip) throws IOException {\n        writer.flush();\n        gzip.finish();\n    }\n}\n"
         }
       ]
     },
@@ -101,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class Notifiers {\n\n    private Notifiers() {\n    }\n\n    public interface Notifier {\n        String send(String message);\n\n        String getDescription();\n    }\n\n    /** The concrete component. */\n    public static final class EmailNotifier implements Notifier {\n        private final String address;\n\n        public EmailNotifier(String address) {\n            this.address = Objects.requireNonNull(address, \"address must not be null\");\n        }\n\n        @Override\n        public String send(String message) {\n            return \"Email to \" + address + \": \" + message;\n        }\n\n        @Override\n        public String getDescription() {\n            return \"Email(\" + address + \")\";\n        }\n    }\n\n    /** The base decorator: keeps the wrapped notifier and passes every call on. */\n    public abstract static class NotifierDecorator implements Notifier {\n\n        protected NotifierDecorator(Notifier wrappee) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        @Override\n        public String send(String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        @Override\n        public String getDescription() {\n            throw new UnsupportedOperationException(\"write getDescription\");\n        }\n    }\n\n    public static final class SmsDecorator extends NotifierDecorator {\n\n        public SmsDecorator(Notifier wrappee, String phone) {\n            super(wrappee);\n        }\n    }\n\n    public static final class SlackDecorator extends NotifierDecorator {\n\n        public SlackDecorator(Notifier wrappee, String channel) {\n            super(wrappee);\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.BufferedWriter;\nimport java.io.IOException;\nimport java.io.OutputStream;\nimport java.io.OutputStreamWriter;\nimport java.io.Writer;\nimport java.nio.charset.StandardCharsets;\nimport java.util.List;\nimport java.util.zip.GZIPOutputStream;\n\n/**\n * Sends a stock report, gzip-compressed, as one message on a connection that carries many. The\n * connection is owned by the server: once send() returns, it writes the next message on it.\n */\npublic class ReportResponder {\n\n    /** Writes each row and a newline, as UTF-8, gzip-compressed, into the message body. */\n    public void send(List<String> rows, OutputStream body) throws IOException {\n        GZIPOutputStream gzip = new GZIPOutputStream(body);\n        Writer writer = new BufferedWriter(new OutputStreamWriter(gzip, StandardCharsets.UTF_8));\n        for (String row : rows) {\n            writer.write(row);\n            writer.write('\\n');\n        }\n        complete(writer, gzip);\n    }\n\n    /** Ends the compressed body that send() wrote through these two layers. */\n    void complete(Writer writer, GZIPOutputStream gzip) throws IOException {\n        // TODO: The client must receive every row as one complete gzip body, and the server\n        //       must still be able to write its next message on this connection afterwards.\n        throw new IllegalStateException(\"TODO: complete\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -109,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 2,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -120,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0900e202fff87f6dd89f70dc90df5a54e679e2e0f48803e1fd1cf30d298f355e",
-  "starting_code": "package practice;\n\nimport java.util.Objects;\n\npublic final class Notifiers {\n\n    private Notifiers() {\n    }\n\n    public interface Notifier {\n        String send(String message);\n\n        String getDescription();\n    }\n\n    /** The concrete component. */\n    public static final class EmailNotifier implements Notifier {\n        private final String address;\n\n        public EmailNotifier(String address) {\n            this.address = Objects.requireNonNull(address, \"address must not be null\");\n        }\n\n        @Override\n        public String send(String message) {\n            return \"Email to \" + address + \": \" + message;\n        }\n\n        @Override\n        public String getDescription() {\n            return \"Email(\" + address + \")\";\n        }\n    }\n\n    /** The base decorator: keeps the wrapped notifier and passes every call on. */\n    public abstract static class NotifierDecorator implements Notifier {\n\n        protected NotifierDecorator(Notifier wrappee) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        @Override\n        public String send(String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        @Override\n        public String getDescription() {\n            throw new UnsupportedOperationException(\"write getDescription\");\n        }\n    }\n\n    public static final class SmsDecorator extends NotifierDecorator {\n\n        public SmsDecorator(Notifier wrappee, String phone) {\n            super(wrappee);\n        }\n    }\n\n    public static final class SlackDecorator extends NotifierDecorator {\n\n        public SlackDecorator(Notifier wrappee, String channel) {\n            super(wrappee);\n        }\n    }\n}\n",
+  "content_sha256": "9f19abdee443191d8c1e49c51fcff225a19f27c6f32d5806cb9bffee5f54e396",
+  "starting_code": "package practice;\n\nimport java.io.BufferedWriter;\nimport java.io.IOException;\nimport java.io.OutputStream;\nimport java.io.OutputStreamWriter;\nimport java.io.Writer;\nimport java.nio.charset.StandardCharsets;\nimport java.util.List;\nimport java.util.zip.GZIPOutputStream;\n\n/**\n * Sends a stock report, gzip-compressed, as one message on a connection that carries many. The\n * connection is owned by the server: once send() returns, it writes the next message on it.\n */\npublic class ReportResponder {\n\n    /** Writes each row and a newline, as UTF-8, gzip-compressed, into the message body. */\n    public void send(List<String> rows, OutputStream body) throws IOException {\n        GZIPOutputStream gzip = new GZIPOutputStream(body);\n        Writer writer = new BufferedWriter(new OutputStreamWriter(gzip, StandardCharsets.UTF_8));\n        for (String row : rows) {\n            writer.write(row);\n            writer.write('\\n');\n        }\n        complete(writer, gzip);\n    }\n\n    /** Ends the compressed body that send() wrote through these two layers. */\n    void complete(Writer writer, GZIPOutputStream gzip) throws IOException {\n        // TODO: The client must receive every row as one complete gzip body, and the server\n        //       must still be able to write its next message on this connection afterwards.\n        throw new IllegalStateException(\"TODO: complete\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-1/src/main/java/practice/Notifiers.java",
-    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-1/src/test/java/practice/NotifiersTest.java",
+    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-1/src/main/java/practice/ReportResponder.java",
+    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-1/src/test/java/practice/ReportResponderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -145,24 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NotifiersTest#eachLayerAddsAfterTheWrappedResult",
+        "id": "practice.ReportResponderTest#theBodyIsGzipCompressed",
         "kind": "main",
-        "says": "Slack(Sms(Email)).send(\"alert\") returns the email text, then the SMS part, then the Slack part, joined by \" | \"."
+        "says": "the message body starts with the gzip header"
       },
       {
-        "id": "practice.NotifiersTest#everyMethodDelegates",
+        "id": "practice.ReportResponderTest#theServerCanWriteTheNextMessageOnTheSameConnection",
         "kind": "edge",
-        "says": "getDescription also goes through every layer: Slack(Sms(Email)) describes itself as \"Email(a@example.org) + SMS(+1) + Slack(#ops)\"."
+        "says": "send() leaves the connection open, so the server can write its next message on it"
       },
       {
-        "id": "practice.NotifiersTest#decoratingTwiceIsCumulative",
+        "id": "practice.ReportResponderTest#everyRowReachesTheClientInAShortReportAndALongOne",
         "kind": "edge",
-        "says": "Sms(Sms(Email, \"+1\"), \"+2\") sends to both numbers, one part per layer."
+        "says": "every row reaches the client, including the ones still held by the writer when the report ends"
       },
       {
-        "id": "practice.NotifiersTest#aNullWrappeeIsRefusedAtOnce",
+        "id": "practice.ReportResponderTest#theClientCanDecompressTheBodyToItsEnd",
         "kind": "edge",
-        "says": "new SmsDecorator(null, \"+1\") and new SlackDecorator(null, \"ops\") throw NullPointerException immediately."
+        "says": "the body is complete gzip data that the client can decompress to its end"
       }
     ],
     "report": {
@@ -171,13 +120,11 @@
     },
     "origin": {
       "path": "37-structural-patterns/README_9.2.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "finish() Completes the GZIP Data Without Closing, but Only What Has Reached the Compressor"
     },
     "concepts": [
-      "An abstract base decorator holds the wrapped component and passes every method on, so concrete decorators override only what they change.",
-      "A decorator's constructor refuses a null wrapped component.",
-      "A decorator implements the same interface as the component it wraps, delegates every operation to it and adds its own behaviour before or after.",
-      "Decorators stack in any combination at run time, and applying the same decorator twice has a cumulative effect."
+      "close() on a decorator flushes it and closes the stream it wraps, so closing the outermost stream writes every layer's bytes and closes everything below, while closing or flushing only an inner layer leaves data behind.",
+      "GZIPOutputStream.finish() completes the compressed data and writes the trailer without closing, but only for what has reached it: layers above must be flushed before it and layers below after it."
     ]
   }
 }

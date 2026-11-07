@@ -1,24 +1,12 @@
-Data hiding starts with the fields: **make them private**, and expose only what is
-necessary. The page's one exception is a constant (`public static final`), which
-cannot be changed by anybody.
+The authorizer builds one `AccessPolicy` at startup from a table the config loader produces,
+and asks it on every request. Last week an auditor exported customer data the policy had never
+granted. The loader reuses its lists when it reloads, and a plugin ships a class that extends
+`AccessPolicy`.
 
-Write `FieldAudit.exposed(Class<?> type)`, a code-review helper. It returns the
-names of the fields **declared by `type` itself** that break the rule, sorted
-alphabetically. A field breaks the rule when:
+Finish `src/main/java/practice/AccessPolicy.java` so that a policy, once built, answers the same
+for as long as it lives: whatever its caller later does with the map and lists it passed in, or
+with what `actionsFor` and `roles` return, and whatever class a caller passes off as an
+`AccessPolicy`. Requests for a role or an action the table doesn't give are still refused, and
+`actionsFor` keeps the order the table gave.
 
-- it is not `private`, and
-- it is not a constant: a field that is both `static` and `final`.
-
-Fields the compiler adds on its own (synthetic fields; see
-`java.lang.reflect.Field.isSynthetic()`) are not the author's and are never
-reported.
-
-Examples:
-
-```
-class Account { public double balance; private String id; }
-exposed(Account.class)   -> [balance]
-
-class Limits { static final int MAX = 5; static int counter; int size; }
-exposed(Limits.class)    -> [counter, size]
-```
+About five lines in total, in `frozenCopy` and the class declaration.

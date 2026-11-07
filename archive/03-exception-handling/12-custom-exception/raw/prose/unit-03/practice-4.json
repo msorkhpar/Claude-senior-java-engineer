@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Import records: never swallow a failure, and log it once",
+  "title": "Log a skipped import once, with everything needed to fix it",
   "blocks": [
     {
       "type": "heading",
@@ -19,42 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Two anti-patterns hide or blur a failure: *swallowing* it in an empty `catch`, and *logging and rethrowing* it so that every layer logs it again. Log a failure once, where it is finally handled. Write `Importer(List<String> log)`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`int importAll(List<String> records) throws ImportException` parses every record as an `int` and returns their sum. At the first record that is not an `int` as `Integer.parseInt` reads it (a number out of the `int` range is not one) it throws `ImportException(\"Bad record at line <n>: <record>\")` (lines count from 1). This layer does **not** log.",
-        "`int importOrZero(List<String> records)` is the handler: it returns `importAll(records)`, or, when that throws, appends `\"import failed: \" + message` to the log and returns `0`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "records",
-        "`importAll`",
-        "`importOrZero`",
-        "log afterwards"
-      ],
-      "rows": [
-        [
-          "`[\"1\", \"2\", \"3\"]`",
-          "`6`",
-          "`6`",
-          "`[]`"
-        ],
-        [
-          "`[\"1\", \"x\", \"3\"]`",
-          "throws `ImportException(\"Bad record at line 2: x\")`",
-          "`0`",
-          "`[\"import failed: Bad record at line 2: x\"]`"
-        ]
-      ]
+      "text": "An energy company imports electricity meter readings every night, one file per region. A file with a line that isn't a reading is skipped and tried again the next night, after someone has fixed it. The operations team counts the job's log records at `WARNING` and above to decide how many files need a person in the morning, and the person then needs to find the broken line from the log alone."
     },
     {
       "type": "para",
-      "text": "Records with surrounding spaces are not among the inputs. `ImportException` is given. Whoever investigates the failure later wants to see the parse error behind it too."
+      "text": "Finish `importFile` and `runNightly` in `src/main/java/practice/MeterImport.java`. The logger is `MeterImport.LOG` (`java.util.logging`). About ten lines in total."
     },
     {
       "type": "heading",
@@ -69,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\n/** Checked: a batch could not be imported. */\nclass ImportException extends Exception {\n    ImportException(String message) {\n        super(message);\n    }\n\n    ImportException(String message, Throwable cause) {\n        super(message, cause);\n    }\n}\n\npublic class Importer {\n\n    private final List<String> log;\n\n    public Importer(List<String> log) {\n        this.log = log;\n    }\n\n    /** Sums the records; the first bad one throws ImportException(\"Bad record at line n: record\"). Logs nothing. */\n    public int importAll(List<String> records) throws ImportException {\n        int sum = 0;\n        for (int i = 0; i < records.size(); i++) {\n            String record = records.get(i);\n            try {\n                sum += Integer.parseInt(record);\n            } catch (NumberFormatException e) {\n                throw new ImportException(\"Bad record at line \" + (i + 1) + \": \" + record, e);\n            }\n        }\n        return sum;\n    }\n\n    /** importAll's sum, or 0 after logging \"import failed: \" + message once. */\n    public int importOrZero(List<String> records) {\n        try {\n            return importAll(records);\n        } catch (ImportException e) {\n            log.add(\"import failed: \" + e.getMessage());\n            return 0;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/**\n * The nightly import of electricity meter readings. Each file holds one reading per line, in\n * kilowatt-hours. A file that can't be read whole is skipped and retried the next night.\n */\npublic class MeterImport {\n\n    static final Logger LOG = Logger.getLogger(\"practice.meters\");\n\n    /** A file of readings could not be imported. */\n    public static class ImportException extends Exception {\n        public ImportException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    /** Parses one line; throws NumberFormatException when it isn't a whole number of kWh. */\n    static long parseReading(String line) {\n        return Long.parseLong(line.strip());\n    }\n\n    /** Returns the total kWh of the file, or throws ImportException naming the file and the line. */\n    long importFile(String file, List<String> lines) throws ImportException {\n        long total = 0;\n        for (int i = 0; i < lines.size(); i++) {\n            try {\n                total += parseReading(lines.get(i));\n            } catch (NumberFormatException e) {\n                throw new ImportException(file + \" line \" + (i + 1) + \" is not a reading\", e);\n            }\n        }\n        return total;\n    }\n\n    /** The nightly job: imports one file and returns the line it prints to the job report. */\n    public String runNightly(String file, List<String> lines) {\n        try {\n            return \"imported \" + file + \": \" + importFile(file, lines) + \" kWh\";\n        } catch (ImportException e) {\n            LOG.log(Level.SEVERE, \"skipping \" + file + \" until tomorrow\", e);\n            return \"skipped \" + file;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -81,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\n/** Checked: a batch could not be imported. */\nclass ImportException extends Exception {\n    ImportException(String message) {\n        super(message);\n    }\n\n    ImportException(String message, Throwable cause) {\n        super(message, cause);\n    }\n}\n\npublic class Importer {\n\n    public Importer(List<String> log) {\n    }\n\n    /** Sums the records; the first bad one throws ImportException(\"Bad record at line n: record\"). Logs nothing. */\n    public int importAll(List<String> records) throws ImportException {\n        throw new UnsupportedOperationException(\"write importAll\");\n    }\n\n    /** importAll's sum, or 0 after logging \"import failed: \" + message once. */\n    public int importOrZero(List<String> records) {\n        throw new UnsupportedOperationException(\"write importOrZero\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/**\n * The nightly import of electricity meter readings. Each file holds one reading per line, in\n * kilowatt-hours. A file that can't be read whole is skipped and retried the next night.\n */\npublic class MeterImport {\n\n    static final Logger LOG = Logger.getLogger(\"practice.meters\");\n\n    /** A file of readings could not be imported. */\n    public static class ImportException extends Exception {\n        public ImportException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    /** Parses one line; throws NumberFormatException when it isn't a whole number of kWh. */\n    static long parseReading(String line) {\n        return Long.parseLong(line.strip());\n    }\n\n    /** Returns the total kWh of the file, or throws ImportException naming the file and the line. */\n    long importFile(String file, List<String> lines) throws ImportException {\n        // TODO: Add up the file's readings with parseReading. A line that isn't a reading makes\n        //       the whole file fail with ImportException, saying which file and which line.\n        throw new IllegalStateException(\"TODO: importFile\");\n    }\n\n    /** The nightly job: imports one file and returns the line it prints to the job report. */\n    public String runNightly(String file, List<String> lines) {\n        // TODO: Return \"imported <file>: <total> kWh\". When the file can't be imported, return\n        //       \"skipped <file>\"; whoever investigates tomorrow morning must find out from the\n        //       log why it was skipped.\n        throw new IllegalStateException(\"TODO: runNightly\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -100,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5a449748bc94464f55b66bbd9d5c2a8d0be7e0ebf1587077024cfe3825728919",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\n/** Checked: a batch could not be imported. */\nclass ImportException extends Exception {\n    ImportException(String message) {\n        super(message);\n    }\n\n    ImportException(String message, Throwable cause) {\n        super(message, cause);\n    }\n}\n\npublic class Importer {\n\n    public Importer(List<String> log) {\n    }\n\n    /** Sums the records; the first bad one throws ImportException(\"Bad record at line n: record\"). Logs nothing. */\n    public int importAll(List<String> records) throws ImportException {\n        throw new UnsupportedOperationException(\"write importAll\");\n    }\n\n    /** importAll's sum, or 0 after logging \"import failed: \" + message once. */\n    public int importOrZero(List<String> records) {\n        throw new UnsupportedOperationException(\"write importOrZero\");\n    }\n}\n",
+  "content_sha256": "8e0af0ecc75df40efd9754546e6462c565b89e41ef0df83a9887017262b99580",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/**\n * The nightly import of electricity meter readings. Each file holds one reading per line, in\n * kilowatt-hours. A file that can't be read whole is skipped and retried the next night.\n */\npublic class MeterImport {\n\n    static final Logger LOG = Logger.getLogger(\"practice.meters\");\n\n    /** A file of readings could not be imported. */\n    public static class ImportException extends Exception {\n        public ImportException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    /** Parses one line; throws NumberFormatException when it isn't a whole number of kWh. */\n    static long parseReading(String line) {\n        return Long.parseLong(line.strip());\n    }\n\n    /** Returns the total kWh of the file, or throws ImportException naming the file and the line. */\n    long importFile(String file, List<String> lines) throws ImportException {\n        // TODO: Add up the file's readings with parseReading. A line that isn't a reading makes\n        //       the whole file fail with ImportException, saying which file and which line.\n        throw new IllegalStateException(\"TODO: importFile\");\n    }\n\n    /** The nightly job: imports one file and returns the line it prints to the job report. */\n    public String runNightly(String file, List<String> lines) {\n        // TODO: Return \"imported <file>: <total> kWh\". When the file can't be imported, return\n        //       \"skipped <file>\"; whoever investigates tomorrow morning must find out from the\n        //       log why it was skipped.\n        throw new IllegalStateException(\"TODO: runNightly\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-4/src/main/java/practice/Importer.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-4/src/test/java/practice/ImporterTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-4/src/main/java/practice/MeterImport.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-4/src/test/java/practice/MeterImportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -125,39 +94,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ImporterTest#sumsGoodRecords",
+        "id": "practice.MeterImportTest#aGoodFileIsImportedAndLogsNoProblem",
         "kind": "main",
-        "says": "Good records are summed by both methods, and nothing is logged."
+        "says": "a file of readings is added up and nothing is logged as a problem"
       },
       {
-        "id": "practice.ImporterTest#aBadRecordFailsTheImport",
+        "id": "practice.MeterImportTest#aBadFileIsSkippedAndTheReasonIsLogged",
         "kind": "main",
-        "says": "A bad record makes importAll throw ImportException naming its line, and importOrZero return 0."
+        "says": "a file with an unreadable line is skipped and the problem is logged"
       },
       {
-        "id": "practice.ImporterTest#aHandledFailureIsLogged",
+        "id": "practice.MeterImportTest#oneSkippedFileIsOneProblemInTheLog",
         "kind": "edge",
-        "says": "The handler logs the failure it handles; an empty catch would hide it."
+        "says": "one skipped file produces exactly one log record at WARNING or above"
       },
       {
-        "id": "practice.ImporterTest#aFailureIsLoggedExactlyOnce",
+        "id": "practice.MeterImportTest#theLoggedProblemCarriesItsStackTrace",
         "kind": "edge",
-        "says": "Only the handler logs: the layer that throws does not log and rethrow, so the failure appears once."
+        "says": "the log record carries the ImportException itself, naming the file and the line"
       },
       {
-        "id": "practice.ImporterTest#theParseErrorIsTheCause",
+        "id": "practice.MeterImportTest#theLoggedProblemLeadsToTheLineThatCouldNotBeParsed",
         "kind": "edge",
-        "says": "The NumberFormatException is kept as the cause of the ImportException."
-      },
-      {
-        "id": "practice.ImporterTest#theFirstBadRecordStopsTheImport",
-        "kind": "edge",
-        "says": "The first bad record is the one reported, even when later records are bad too."
-      },
-      {
-        "id": "practice.ImporterTest#aNumberBeyondIntIsABadRecord",
-        "kind": "edge",
-        "says": "A number that does not fit an int, such as 4294967297, is a bad record, not a wrapped-around value."
+        "says": "the logged exception's cause chain reaches the NumberFormatException for the bad line"
       }
     ],
     "report": {
@@ -166,12 +125,10 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Log an Exception Where It Is Handled, Never Where It Is Rethrown"
     },
     "concepts": [
-      "Logging and rethrowing makes every layer log the same failure; log it once, where it is handled.",
-      "An empty catch block hides a failure; handle it, rethrow it, or at least log it.",
-      "Throw early where the input is checked, catch late where the caller can act."
+      "An exception is logged once, with its stack trace, by the layer that handles it; lower layers add context to the exception they throw instead of logging."
     ]
   }
 }

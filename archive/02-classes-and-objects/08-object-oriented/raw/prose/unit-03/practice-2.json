@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A car that is a Vehicle and a Drivable",
+  "title": "Downsample sensor readings from any kind of list",
   "blocks": [
     {
       "type": "heading",
@@ -19,30 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Abstraction in Java comes from **abstract classes** (shared state and partial implementation) and **interfaces** (contracts, with optional default methods). A class can extend one abstract class and implement an interface at the same time: it inherits the concrete methods of the one and the defaults of the other, and must implement the abstract methods of both."
+      "text": "The monitoring charts can't draw millions of points, so `Downsampler` keeps every `step`-th sensor reading: positions 0, `step`, 2·`step`, and so on. Two callers use it. The live dashboard passes buffers of four million readings and keeps one in a thousand. The archive job passes readings it replays from disk into a linked list, and keeps one in seven. The first version was correct on both, and the archive job ran for hours; the second fixed the archive job, and the dashboard started reading every reading in the buffer to keep a thousandth of them."
     },
     {
       "type": "para",
-      "text": "This is the course's own `Vehicle`, `Drivable` and `Car`, returning their messages instead of printing them. In `Garage`, write:"
+      "text": "Finish the `TODO` in `src/main/java/practice/Downsampler.java`: `pick(readings, step)` returns the kept readings in order, and stays fast for both callers, and for any other `List` that reaches it. About eight lines."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Vehicle(String brand)` stores the brand; `stop()` is concrete and returns `\"<brand> vehicle is stopping.\"` for every vehicle.",
-        "`Drivable.honk()` is a default method returning `\"Honk honk!\"`.",
-        "`Car(String brand)` implements `start()` (`\"<brand> car is starting.\"`), `accelerate()` (`\"<brand> car is accelerating.\"`) and `brake()` (`\"<brand> car is braking.\"`). It keeps `stop()` and `honk()` as they are inherited: write each message once, where it belongs."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Vehicle v = new Car(\"Toyota\");   v.start()      -> \"Toyota car is starting.\"\nDrivable d = new Car(\"Toyota\");  d.accelerate() -> \"Toyota car is accelerating.\"\n                                 d.brake()      -> \"Toyota car is braking.\"\nnew Car(\"Toyota\").stop()                        -> \"Toyota vehicle is stopping.\"\nnew Car(\"Toyota\").honk()                        -> \"Honk honk!\""
+      "type": "para",
+      "text": "The tests count the links a linked list walks, and the readings a buffer is asked for."
     },
     {
       "type": "heading",
@@ -57,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Garage {\n\n    public abstract static class Vehicle {\n        protected final String brand;\n\n        public Vehicle(String brand) {\n            this.brand = brand;\n        }\n\n        public abstract String start();\n\n        public String stop() {\n            return brand + \" vehicle is stopping.\";\n        }\n    }\n\n    public interface Drivable {\n        String accelerate();\n\n        String brake();\n\n        default String honk() {\n            return \"Honk honk!\";\n        }\n    }\n\n    public static class Car extends Vehicle implements Drivable {\n\n        public Car(String brand) {\n            super(brand);\n        }\n\n        @Override\n        public String start() {\n            return brand + \" car is starting.\";\n        }\n\n        @Override\n        public String accelerate() {\n            return brand + \" car is accelerating.\";\n        }\n\n        @Override\n        public String brake() {\n            return brand + \" car is braking.\";\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Iterator;\nimport java.util.List;\nimport java.util.RandomAccess;\n\n/** Thins out sensor readings for the charts: keeps every step-th reading. */\npublic class Downsampler {\n\n    private final int step;\n\n    public Downsampler(int step) {\n        if (step < 1) throw new IllegalArgumentException(\"step must be at least 1: \" + step);\n        this.step = step;\n    }\n\n    /** The readings at positions 0, step, 2·step, … of {@code readings}, in order. */\n    public <T> List<T> sample(List<T> readings) {\n        return List.copyOf(pick(readings, step));\n    }\n\n    /** Picks the readings at positions 0, step, 2·step, … into a new list. */\n    static <T> List<T> pick(List<T> readings, int step) {\n        List<T> picked = new ArrayList<>();\n        if (readings instanceof RandomAccess) {\n            for (int i = 0; i < readings.size(); i += step) picked.add(readings.get(i));\n        } else {\n            Iterator<T> it = readings.iterator();\n            for (int i = 0; it.hasNext(); i++) {\n                T reading = it.next();\n                if (i % step == 0) picked.add(reading);\n            }\n        }\n        return picked;\n    }\n}\n"
         }
       ]
     },
@@ -69,18 +54,18 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Garage {\n\n    public abstract static class Vehicle {\n        protected final String brand;\n\n        public Vehicle(String brand) {\n            throw new UnsupportedOperationException(\"write the Vehicle constructor\");\n        }\n\n        public abstract String start();\n\n        public String stop() {\n            throw new UnsupportedOperationException(\"write Vehicle.stop\");\n        }\n    }\n\n    public interface Drivable {\n        String accelerate();\n\n        String brake();\n\n        default String honk() {\n            throw new UnsupportedOperationException(\"write Drivable.honk\");\n        }\n    }\n\n    public static class Car extends Vehicle implements Drivable {\n\n        public Car(String brand) {\n            super(brand);\n        }\n\n        @Override\n        public String start() {\n            throw new UnsupportedOperationException(\"write Car.start\");\n        }\n\n        @Override\n        public String accelerate() {\n            throw new UnsupportedOperationException(\"write Car.accelerate\");\n        }\n\n        @Override\n        public String brake() {\n            throw new UnsupportedOperationException(\"write Car.brake\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\n\n/** Thins out sensor readings for the charts: keeps every step-th reading. */\npublic class Downsampler {\n\n    private final int step;\n\n    public Downsampler(int step) {\n        if (step < 1) throw new IllegalArgumentException(\"step must be at least 1: \" + step);\n        this.step = step;\n    }\n\n    /** The readings at positions 0, step, 2·step, … of {@code readings}, in order. */\n    public <T> List<T> sample(List<T> readings) {\n        return List.copyOf(pick(readings, step));\n    }\n\n    /** Picks the readings at positions 0, step, 2·step, … into a new list. */\n    static <T> List<T> pick(List<T> readings, int step) {\n        // TODO: The live dashboard passes lists of millions of readings and wants every\n        //       thousandth; the archive passes the readings it has replayed from disk. Pick the\n        //       readings at positions 0, step, 2*step, ... in order, in time that stays\n        //       reasonable for both.\n        throw new IllegalStateException(\"TODO: pick\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
-    "paras": 2,
-    "code": 2,
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -88,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7947b065c5beff83215805a4360d956d3dd4dc21c01215eb78ea1642f8837a62",
-  "starting_code": "package practice;\n\npublic class Garage {\n\n    public abstract static class Vehicle {\n        protected final String brand;\n\n        public Vehicle(String brand) {\n            throw new UnsupportedOperationException(\"write the Vehicle constructor\");\n        }\n\n        public abstract String start();\n\n        public String stop() {\n            throw new UnsupportedOperationException(\"write Vehicle.stop\");\n        }\n    }\n\n    public interface Drivable {\n        String accelerate();\n\n        String brake();\n\n        default String honk() {\n            throw new UnsupportedOperationException(\"write Drivable.honk\");\n        }\n    }\n\n    public static class Car extends Vehicle implements Drivable {\n\n        public Car(String brand) {\n            super(brand);\n        }\n\n        @Override\n        public String start() {\n            throw new UnsupportedOperationException(\"write Car.start\");\n        }\n\n        @Override\n        public String accelerate() {\n            throw new UnsupportedOperationException(\"write Car.accelerate\");\n        }\n\n        @Override\n        public String brake() {\n            throw new UnsupportedOperationException(\"write Car.brake\");\n        }\n    }\n}\n",
+  "content_sha256": "6435bacd2b04f55779f534791013e95d6e0c0f670e40be78499e1152a46ab620",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\n/** Thins out sensor readings for the charts: keeps every step-th reading. */\npublic class Downsampler {\n\n    private final int step;\n\n    public Downsampler(int step) {\n        if (step < 1) throw new IllegalArgumentException(\"step must be at least 1: \" + step);\n        this.step = step;\n    }\n\n    /** The readings at positions 0, step, 2·step, … of {@code readings}, in order. */\n    public <T> List<T> sample(List<T> readings) {\n        return List.copyOf(pick(readings, step));\n    }\n\n    /** Picks the readings at positions 0, step, 2·step, … into a new list. */\n    static <T> List<T> pick(List<T> readings, int step) {\n        // TODO: The live dashboard passes lists of millions of readings and wants every\n        //       thousandth; the archive passes the readings it has replayed from disk. Pick the\n        //       readings at positions 0, step, 2*step, ... in order, in time that stays\n        //       reasonable for both.\n        throw new IllegalStateException(\"TODO: pick\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-03/practice-2/src/main/java/practice/Garage.java",
-    "test_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-03/practice-2/src/test/java/practice/GarageTest.java",
+    "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-03/practice-2/src/main/java/practice/Downsampler.java",
+    "test_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-03/practice-2/src/test/java/practice/DownsamplerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,19 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.GarageTest#aCarDoesWhatBothTypesPromise",
+        "id": "practice.DownsamplerTest#keepsEveryStepThReadingOfAnyList",
         "kind": "main",
-        "says": "A Toyota starts, accelerates and brakes with its own messages, seen as a Vehicle and as a Drivable."
+        "says": "the readings at positions 0, step, 2·step and so on are kept, in order, from array-backed, linked and immutable lists"
       },
       {
-        "id": "practice.GarageTest#stopIsInheritedFromVehicle",
-        "kind": "edge",
-        "says": "A car stops with the message the abstract Vehicle class writes for every vehicle."
+        "id": "practice.DownsamplerTest#samplesTheReplayedReadingsCorrectly",
+        "kind": "main",
+        "says": "a short list of replayed readings is sampled correctly"
       },
       {
-        "id": "practice.GarageTest#honkIsTheInterfacesDefault",
+        "id": "practice.DownsamplerTest#walksTheReplayedReadingsOnce",
         "kind": "edge",
-        "says": "A car honks with Drivable's default message."
+        "says": "sampling a linked list walks its links about once, not once per kept reading"
+      },
+      {
+        "id": "practice.DownsamplerTest#readsOnlyTheLiveReadingsItKeeps",
+        "kind": "edge",
+        "says": "sampling a list with fast random access reads only the readings it keeps"
       }
     ],
     "report": {
@@ -134,10 +124,10 @@
     },
     "origin": {
       "path": "08-object-oriented/README_2.3.3.md",
-      "section": "Interfaces as Contracts"
+      "section": "An Abstraction Hides Its Cost Too: List.get(i) Is O(n) on a LinkedList"
     },
     "concepts": [
-      "A class can extend one abstract class and implement an interface at once, inheriting concrete methods from the one and defaults from the other."
+      "List does not promise what get(i) costs: it walks the links on a LinkedList, so code over any List iterates, and uses indexes only on a RandomAccess list."
     ]
   }
 }

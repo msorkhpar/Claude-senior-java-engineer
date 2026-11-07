@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A tracing dynamic proxy",
+  "title": "Bind price rules through method handles",
   "blocks": [
     {
       "type": "heading",
@@ -19,59 +19,23 @@
     },
     {
       "type": "para",
-      "text": "`Proxy.newProxyInstance(loader, interfaces, handler)` creates an object that implements the interfaces and sends **every** call to `handler.invoke(proxy, method, args)`. Three traps:"
+      "text": "The shop's checkout applies price rules named in its config, such as `practice.Seasonal#winterSale`: a class and one of its public methods that takes a price in cents and returns the new price in cents. The checkout binds every rule once when it starts and then applies it to every basket, so the binding is where a wrong entry should be caught. Last month an entry named a method that returns an `int`, and it was accepted: baskets went through with prices cut to whole euros until someone noticed."
+    },
+    {
+      "type": "para",
+      "text": "`PriceRules.bind` already creates the rule's object and wraps the call. Finish the two `TODO`s in `src/main/java/practice/PriceRules.java` with `java.lang.invoke` method handles:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "For a method with no parameters, **`args` is `null`**, not an empty array.",
-        "`method.invoke(target, args)` wraps the target's exception in `InvocationTargetException`. Rethrowing that checked exception from the handler makes the proxy throw `UndeclaredThrowableException`: **rethrow the cause**.",
-        "**`equals`, `hashCode` and `toString` reach the handler too**. Forwarding `equals` to the target makes `proxy.equals(proxy)` false."
+        "`lookup(type, methodName)`: the handle for the rule method;",
+        "the call in `call(handle, target, cents)`."
       ]
     },
     {
       "type": "para",
-      "text": "Write `Tracing.trace(iface, target, log)`. It returns a proxy of `iface` that calls `target` and adds to `log`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "before the call: `name(arg1, arg2)` (arguments by `String.valueOf`, joined by `\", \"`; `name()` for none);",
-        "after it: `name -> result`, or `name !! ExceptionSimpleName` when the target throws, and then the caller gets **the target's own exception**.",
-        "`equals`, `hashCode` and `toString` are answered by the handler and **not logged**: `equals` is true only for the proxy itself, `hashCode` is `System.identityHashCode(proxy)`, `toString` is `\"Traced(\" + target + \")\"`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call on the proxy",
-        "returns",
-        "log gains"
-      ],
-      "rows": [
-        [
-          "`greet(\"World\")`",
-          "`\"Hello, World\"`",
-          "`greet(World)`, `greet -> Hello, World`"
-        ],
-        [
-          "`size()`",
-          "`3`",
-          "`size()`, `size -> 3`"
-        ],
-        [
-          "`fail(\"bad\")`",
-          "throws `IllegalArgumentException(\"bad\")`",
-          "`fail(bad)`, `fail !! IllegalArgumentException`"
-        ],
-        [
-          "`equals(proxy)`",
-          "`true`",
-          "nothing"
-        ]
-      ]
+      "text": "When you're done, a bound rule returns what its method returns for any price, and an entry whose method doesn't exist or doesn't take and return a price in cents is refused when it is bound, with an `IllegalArgumentException` that names the method. About seven lines in total."
     },
     {
       "type": "heading",
@@ -86,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Proxy;\nimport java.util.Arrays;\nimport java.util.List;\nimport java.util.stream.Collectors;\n\npublic final class Tracing {\n\n    private Tracing() {\n    }\n\n    /** A proxy of iface that calls target and logs every call and its outcome. */\n    public static <T> T trace(Class<T> iface, T target, List<String> log) {\n        InvocationHandler handler = (proxy, method, args) -> {\n            if (method.getDeclaringClass() == Object.class) {\n                return switch (method.getName()) {\n                    case \"equals\" -> proxy == args[0];\n                    case \"hashCode\" -> System.identityHashCode(proxy);\n                    default -> \"Traced(\" + target + \")\";\n                };\n            }\n            Object[] actual = args == null ? new Object[0] : args;\n            log.add(method.getName() + Arrays.stream(actual)\n                    .map(String::valueOf)\n                    .collect(Collectors.joining(\", \", \"(\", \")\")));\n            try {\n                Object result = method.invoke(target, actual);\n                log.add(method.getName() + \" -> \" + result);\n                return result;\n            } catch (InvocationTargetException e) {\n                Throwable cause = e.getCause();\n                log.add(method.getName() + \" !! \" + cause.getClass().getSimpleName());\n                throw cause;\n            }\n        };\n        return iface.cast(Proxy.newProxyInstance(iface.getClassLoader(), new Class<?>[] {iface}, handler));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.invoke.MethodHandle;\nimport java.lang.invoke.MethodHandles;\nimport java.lang.invoke.MethodType;\nimport java.lang.reflect.UndeclaredThrowableException;\n\n/**\n * Binds the price rules named in the shop's config, such as {@code practice.Seasonal#winterSale},\n * to the checkout. A rule is a public instance method that takes a price in cents and returns\n * the new price in cents. Rules are bound once, when the checkout starts, and applied to every\n * basket.\n */\npublic class PriceRules {\n\n    /** A rule as the checkout calls it. */\n    public interface Rule {\n        long apply(long cents);\n    }\n\n    /** Creates one instance of {@code type} and binds its method {@code methodName} as a rule. */\n    public static Rule bind(Class<?> type, String methodName) {\n        MethodHandle handle = lookup(type, methodName);\n        Object target = newInstance(type);\n        return cents -> call(handle, target, cents);\n    }\n\n    static Object newInstance(Class<?> type) {\n        try {\n            return type.getDeclaredConstructor().newInstance();\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalArgumentException(\"cannot create \" + type.getName(), e);\n        }\n    }\n\n    static MethodHandle lookup(Class<?> type, String methodName) {\n        try {\n            return MethodHandles.lookup()\n                    .findVirtual(type, methodName, MethodType.methodType(long.class, long.class))\n                    .asType(MethodType.methodType(long.class, Object.class, long.class));\n        } catch (NoSuchMethodException | IllegalAccessException e) {\n            throw new IllegalArgumentException(type.getName() + \"#\" + methodName + \" is not a price rule\", e);\n        }\n    }\n\n    static long call(MethodHandle handle, Object target, long cents) {\n        try {\n            return (long) handle.invokeExact(target, cents);\n        } catch (RuntimeException | Error e) {\n            throw e;\n        } catch (Throwable t) {\n            throw new UndeclaredThrowableException(t);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -98,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Tracing {\n\n    private Tracing() {\n    }\n\n    /** A proxy of iface that calls target and logs every call and its outcome. */\n    public static <T> T trace(Class<T> iface, T target, List<String> log) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.invoke.MethodHandle;\nimport java.lang.invoke.MethodHandles;\nimport java.lang.invoke.MethodType;\nimport java.lang.reflect.UndeclaredThrowableException;\n\n/**\n * Binds the price rules named in the shop's config, such as {@code practice.Seasonal#winterSale},\n * to the checkout. A rule is a public instance method that takes a price in cents and returns\n * the new price in cents. Rules are bound once, when the checkout starts, and applied to every\n * basket.\n */\npublic class PriceRules {\n\n    /** A rule as the checkout calls it. */\n    public interface Rule {\n        long apply(long cents);\n    }\n\n    /** Creates one instance of {@code type} and binds its method {@code methodName} as a rule. */\n    public static Rule bind(Class<?> type, String methodName) {\n        MethodHandle handle = lookup(type, methodName);\n        Object target = newInstance(type);\n        return cents -> call(handle, target, cents);\n    }\n\n    static Object newInstance(Class<?> type) {\n        try {\n            return type.getDeclaredConstructor().newInstance();\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalArgumentException(\"cannot create \" + type.getName(), e);\n        }\n    }\n\n    /**\n     * A handle for the rule method {@code methodName} of {@code type}, ready for call(...).\n     */\n    static MethodHandle lookup(Class<?> type, String methodName) {\n        // TODO: Find the rule method, and refuse anything that isn't one with an\n        //       IllegalArgumentException that names it, so a wrong config entry stops the\n        //       checkout from starting. The handle you return is what call(...) receives.\n        throw new IllegalStateException(\"TODO: lookup\");\n    }\n\n    static long call(MethodHandle handle, Object target, long cents) {\n        try {\n            // TODO: Apply the rule through the handle from lookup(...), on target.\n            throw new IllegalStateException(\"TODO: call\");\n        } catch (RuntimeException | Error e) {\n            throw e;\n        } catch (Throwable t) {\n            throw new UndeclaredThrowableException(t);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -106,10 +70,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 2,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -117,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f34477dfc3f6e69e466b35f87bee6d088fa481b30ae609541c20c4a59756ef3e",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Tracing {\n\n    private Tracing() {\n    }\n\n    /** A proxy of iface that calls target and logs every call and its outcome. */\n    public static <T> T trace(Class<T> iface, T target, List<String> log) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "006e4e8adf309c96d2ec3616d5a6cdbaa559cdd27695f2fc81378bf4368ec249",
+  "starting_code": "package practice;\n\nimport java.lang.invoke.MethodHandle;\nimport java.lang.invoke.MethodHandles;\nimport java.lang.invoke.MethodType;\nimport java.lang.reflect.UndeclaredThrowableException;\n\n/**\n * Binds the price rules named in the shop's config, such as {@code practice.Seasonal#winterSale},\n * to the checkout. A rule is a public instance method that takes a price in cents and returns\n * the new price in cents. Rules are bound once, when the checkout starts, and applied to every\n * basket.\n */\npublic class PriceRules {\n\n    /** A rule as the checkout calls it. */\n    public interface Rule {\n        long apply(long cents);\n    }\n\n    /** Creates one instance of {@code type} and binds its method {@code methodName} as a rule. */\n    public static Rule bind(Class<?> type, String methodName) {\n        MethodHandle handle = lookup(type, methodName);\n        Object target = newInstance(type);\n        return cents -> call(handle, target, cents);\n    }\n\n    static Object newInstance(Class<?> type) {\n        try {\n            return type.getDeclaredConstructor().newInstance();\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalArgumentException(\"cannot create \" + type.getName(), e);\n        }\n    }\n\n    /**\n     * A handle for the rule method {@code methodName} of {@code type}, ready for call(...).\n     */\n    static MethodHandle lookup(Class<?> type, String methodName) {\n        // TODO: Find the rule method, and refuse anything that isn't one with an\n        //       IllegalArgumentException that names it, so a wrong config entry stops the\n        //       checkout from starting. The handle you return is what call(...) receives.\n        throw new IllegalStateException(\"TODO: lookup\");\n    }\n\n    static long call(MethodHandle handle, Object target, long cents) {\n        try {\n            // TODO: Apply the rule through the handle from lookup(...), on target.\n            throw new IllegalStateException(\"TODO: call\");\n        } catch (RuntimeException | Error e) {\n            throw e;\n        } catch (Throwable t) {\n            throw new UndeclaredThrowableException(t);\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-3/src/main/java/practice/Tracing.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-3/src/test/java/practice/TracingTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-3/src/main/java/practice/PriceRules.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-3/src/test/java/practice/PriceRulesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -142,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TracingTest#tracesACall",
+        "id": "practice.PriceRulesTest#appliesTheNamedRuleToEveryPrice",
         "kind": "main",
-        "says": "greet(\"World\") through the proxy returns \"Hello, World\" and logs [greet(World), greet -> Hello, World]."
+        "says": "a bound rule returns what the named method returns, for prices beyond the int range too"
       },
       {
-        "id": "practice.TracingTest#aZeroArgumentCallIsTraced",
-        "kind": "edge",
-        "says": "size() has no arguments: it returns 3 and logs [size(), size -> 3]."
+        "id": "practice.PriceRulesTest#appliesARuleThatUsesItsOwnState",
+        "kind": "main",
+        "says": "the rule runs on the instance bind created, with that instance's state"
       },
       {
-        "id": "practice.TracingTest#theTargetsExceptionPassesThrough",
-        "kind": "edge",
-        "says": "fail(\"bad\") throws IllegalArgumentException in the target, and the caller gets that IllegalArgumentException; the log ends with fail !! IllegalArgumentException."
+        "id": "practice.PriceRulesTest#aMethodThatDoesNotExistIsRefusedWhenBound",
+        "kind": "main",
+        "says": "a method name the class doesn't have is refused at bind time with IllegalArgumentException naming it"
       },
       {
-        "id": "practice.TracingTest#aProxyEqualsItself",
+        "id": "practice.PriceRulesTest#aMethodThatReturnsAnotherTypeIsRefusedWhenBound",
         "kind": "edge",
-        "says": "proxy.equals(proxy) is true, equals of another object is false, hashCode is the proxy's identity hash, toString is Traced(target), and none of them is logged."
+        "says": "a method that takes a long but returns an int is refused at bind time, because the lookup includes the return type"
       }
     ],
     "report": {
@@ -168,13 +132,10 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Method Handle Has a Type, and invokeExact Holds the Call Site to It"
     },
     "concepts": [
-      "Proxy.newProxyInstance creates an object implementing interfaces whose every call goes to an InvocationHandler, as a logging proxy does.",
-      "InvocationHandler.invoke receives null, not an empty array, for a method with no parameters.",
-      "equals, hashCode and toString of a proxy reach the handler, which must answer them itself.",
-      "An exception from Method.invoke arrives as InvocationTargetException, and its cause is what must be rethrown."
+      "findVirtual looks a method up by its full type, return type included, and a type that doesn't match fails at the lookup."
     ]
   }
 }

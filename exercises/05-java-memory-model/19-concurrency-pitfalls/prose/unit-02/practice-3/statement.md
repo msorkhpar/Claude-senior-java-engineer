@@ -1,20 +1,14 @@
-When two fields must always agree, updating them one after the other is an
-atomicity violation: a reader can see the new balance with the old transaction
-count. The page's first fix (its `MultiVariableAtomicity`, approach 1) guards
-**every** read and write of both fields with one lock: `synchronized` methods on the
-object.
+A connection pool keeps at least `min` connections open and never more than `max`. Operators
+change the limits by hand and the autoscaler changes them on its own, from different threads,
+and every change must also pass the platform's `Policy` (a ceiling per service tier, for
+example). Last week one service ran with `min` 16 and `max` 12 for an hour: an operator raised the
+minimum while the autoscaler lowered the maximum, and both changes were accepted. Each limit is
+an `AtomicInteger` today.
 
-Write `Account`, with a balance and a count of successful transactions, both
-starting at 0. Guard both fields with the account object's own monitor
-(`synchronized` methods, or `synchronized (this)`):
+Finish `limits()`, `setMin(...)` and `setMax(...)` in `src/main/java/practice/PoolLimits.java`.
+You may change how the limits are stored. The policy check calls the config service and can take
+seconds, and a change must not wait for another change's policy check. When you're done, the
+limits can never be seen with `min` above `max`, every change that was accepted is in force, and a
+change that a concurrent change made invalid is refused. About twelve lines in total.
 
-- `deposit(amount)` adds to the balance and counts one transaction;
-- `withdraw(amount)` takes from the balance and counts one transaction, or returns
-  `false` and changes nothing when the balance is too small;
-- `snapshot()` returns a `Snapshot(balance, transactions)` read in one step.
-
-| calls | answer | `snapshot()` |
-|---|---|---|
-| `deposit(100)` | | `(100, 1)` |
-| `withdraw(30)` | `true` | `(70, 2)` |
-| `withdraw(500)` | `false` | `(70, 2)` |
+The tests make one change's policy check slow and make another change while it waits.

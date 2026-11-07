@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Flatten nested totals into small named methods",
+  "title": "Give every import its own rejected-row count",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Three levels of nested `stream().map(...reduce...)` inside one lambda are hard to read. The page's cure is a small method for each level, each pipeline calling the next one by name, with `mapToDouble(...).sum()` for the sums. That shape is advice; the tests check the totals."
+      "text": "A warehouse system imports supplier files and reports, for each file, how many rows failed validation. One `ImportAudit` serves the whole system, and several files can be imported at the same time on different threads. Rows arrive only through a callback: `RowSource.forEachRow` hands them one at a time to the action you pass it."
     },
     {
       "type": "para",
-      "text": "The file declares `enum Status { PENDING, COMPLETED }`, `record Item(double price)`, `record Order(Status status, List<Item> items)` and `record Customer(String name, List<Order> orders)`. Write four static methods of `Totals`:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`double orderTotal(Order order)`: the sum of all the order's item prices, negative ones included.",
-        "`double customerTotal(Customer customer)`: the sum of the customer's order totals.",
-        "`List<Double> customerTotals(List<Customer> customers)`: each customer's total, in order.",
-        "`double completedRevenue(List<Order> orders)`: the sum of item prices over orders whose status is `COMPLETED` (a `null` status is not), orders only, counting only prices above zero."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`orderTotal(Order(COMPLETED, [10.0, 2.5]))`",
-          "`12.5`"
-        ],
-        [
-          "`customerTotal(Customer(\"Ann\", [that order, Order(PENDING, [7.5])]))`",
-          "`20.0`"
-        ],
-        [
-          "`completedRevenue([Order(COMPLETED, [10.0, 2.5]), Order(COMPLETED, [4.0])])`",
-          "`16.5`"
-        ]
-      ]
+      "text": "Write `rejected(source)` in `src/main/java/practice/ImportAudit.java`: the number of the file's rows that `check` doesn't accept."
     },
     {
       "type": "para",
-      "text": "An order can be empty and so can a customer's order list; `completedRevenue` has two filters, not one."
+      "text": "When you're done, each file's report holds that file's count and nothing else, however many files were audited before it or alongside it. About four lines."
     },
     {
       "type": "heading",
@@ -73,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\nenum Status { PENDING, COMPLETED }\n\nrecord Item(double price) {\n}\n\nrecord Order(Status status, List<Item> items) {\n}\n\nrecord Customer(String name, List<Order> orders) {\n}\n\npublic final class Totals {\n\n    private Totals() {\n    }\n\n    public static double orderTotal(Order order) {\n        return order.items().stream()\n                .mapToDouble(Item::price)\n                .sum();\n    }\n\n    public static double customerTotal(Customer customer) {\n        return customer.orders().stream()\n                .mapToDouble(Totals::orderTotal)\n                .sum();\n    }\n\n    public static List<Double> customerTotals(List<Customer> customers) {\n        return customers.stream()\n                .map(Totals::customerTotal)\n                .toList();\n    }\n\n    public static double completedRevenue(List<Order> orders) {\n        return orders.stream()\n                .filter(Totals::isCompleted)\n                .flatMap(order -> order.items().stream())\n                .mapToDouble(Item::price)\n                .filter(price -> price > 0)\n                .sum();\n    }\n\n    private static boolean isCompleted(Order order) {\n        return order.status() == Status.COMPLETED;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.Consumer;\n\n/** Audits a file import: how many of its rows the validation rejects. One instance serves every import. */\npublic class ImportAudit {\n\n    /** Validates one row of an import file. */\n    public interface RowCheck {\n        boolean accepts(String row);\n    }\n\n    /** Streams the rows of one import file to an action, one row at a time, on the caller's thread. */\n    public interface RowSource {\n        void forEachRow(Consumer<String> action);\n    }\n\n    private final RowCheck check;\n\n    public ImportAudit(RowCheck check) {\n        this.check = check;\n    }\n\n    /** How many rows of this import the check rejects. Several imports may be audited at the same time. */\n    public int rejected(RowSource source) {\n        AtomicInteger rejected = new AtomicInteger();\n        source.forEachRow(row -> {\n            if (!check.accepts(row)) rejected.incrementAndGet();\n        });\n        return rejected.get();\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\nenum Status { PENDING, COMPLETED }\n\nrecord Item(double price) {\n}\n\nrecord Order(Status status, List<Item> items) {\n}\n\nrecord Customer(String name, List<Order> orders) {\n}\n\npublic final class Totals {\n\n    private Totals() {\n    }\n\n    public static double orderTotal(Order order) {\n        throw new UnsupportedOperationException(\"write orderTotal\");\n    }\n\n    public static double customerTotal(Customer customer) {\n        throw new UnsupportedOperationException(\"write customerTotal\");\n    }\n\n    public static List<Double> customerTotals(List<Customer> customers) {\n        throw new UnsupportedOperationException(\"write customerTotals\");\n    }\n\n    public static double completedRevenue(List<Order> orders) {\n        throw new UnsupportedOperationException(\"write completedRevenue\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.Consumer;\n\n/** Audits a file import: how many of its rows the validation rejects. One instance serves every import. */\npublic class ImportAudit {\n\n    /** Validates one row of an import file. */\n    public interface RowCheck {\n        boolean accepts(String row);\n    }\n\n    /** Streams the rows of one import file to an action, one row at a time, on the caller's thread. */\n    public interface RowSource {\n        void forEachRow(Consumer<String> action);\n    }\n\n    private final RowCheck check;\n\n    public ImportAudit(RowCheck check) {\n        this.check = check;\n    }\n\n    /** How many rows of this import the check rejects. Several imports may be audited at the same time. */\n    public int rejected(RowSource source) {\n        throw new IllegalStateException(\"TODO: count the rejected rows of this import\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -104,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b4961f486e6d354fd73df916537edd2e282c0d33e130ccef98df54ebfbb3c9ba",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\nenum Status { PENDING, COMPLETED }\n\nrecord Item(double price) {\n}\n\nrecord Order(Status status, List<Item> items) {\n}\n\nrecord Customer(String name, List<Order> orders) {\n}\n\npublic final class Totals {\n\n    private Totals() {\n    }\n\n    public static double orderTotal(Order order) {\n        throw new UnsupportedOperationException(\"write orderTotal\");\n    }\n\n    public static double customerTotal(Customer customer) {\n        throw new UnsupportedOperationException(\"write customerTotal\");\n    }\n\n    public static List<Double> customerTotals(List<Customer> customers) {\n        throw new UnsupportedOperationException(\"write customerTotals\");\n    }\n\n    public static double completedRevenue(List<Order> orders) {\n        throw new UnsupportedOperationException(\"write completedRevenue\");\n    }\n}\n",
+  "content_sha256": "35e865f8cd5b0c5a09bf13f845c3d7bc64972e8e8bbc86072b67e1efe9b1fd49",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.Consumer;\n\n/** Audits a file import: how many of its rows the validation rejects. One instance serves every import. */\npublic class ImportAudit {\n\n    /** Validates one row of an import file. */\n    public interface RowCheck {\n        boolean accepts(String row);\n    }\n\n    /** Streams the rows of one import file to an action, one row at a time, on the caller's thread. */\n    public interface RowSource {\n        void forEachRow(Consumer<String> action);\n    }\n\n    private final RowCheck check;\n\n    public ImportAudit(RowCheck check) {\n        this.check = check;\n    }\n\n    /** How many rows of this import the check rejects. Several imports may be audited at the same time. */\n    public int rejected(RowSource source) {\n        throw new IllegalStateException(\"TODO: count the rejected rows of this import\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-3/src/main/java/practice/Totals.java",
-    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-3/src/test/java/practice/TotalsTest.java",
+    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-3/src/main/java/practice/ImportAudit.java",
+    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-3/src/test/java/practice/ImportAuditTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,24 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TotalsTest#addsUpOrdersAndCustomers",
+        "id": "practice.ImportAuditTest#countsTheRowsTheCheckRejects",
         "kind": "main",
-        "says": "Order and customer totals add up every item price, negative ones too, and completed revenue adds up the completed orders."
+        "says": "one import's count is the number of its rows the check rejects"
       },
       {
-        "id": "practice.TotalsTest#emptyOrdersAndCustomersTotalZero",
+        "id": "practice.ImportAuditTest#eachImportIsCountedFromZero",
         "kind": "edge",
-        "says": "An order with no items, or a customer with no orders, totals 0.0 rather than failing."
+        "says": "a second import audited by the same instance is counted from zero"
       },
       {
-        "id": "practice.TotalsTest#pendingOrdersAreLeftOut",
+        "id": "practice.ImportAuditTest#twoImportsAuditedAtTheSameTimeEachGetTheirOwnCount",
         "kind": "edge",
-        "says": "completedRevenue leaves out every order that is not COMPLETED, a null status included."
-      },
-      {
-        "id": "practice.TotalsTest#nonPositivePricesAreSkipped",
-        "kind": "edge",
-        "says": "completedRevenue skips item prices that are zero or below."
+        "says": "when another import is audited while one is half read, each gets only its own rows' count"
       }
     ],
     "report": {
@@ -155,10 +119,10 @@
     },
     "origin": {
       "path": "13-lambda-expressions/README_4.1.4.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "State a Lambda Changes Through an Array or a Field Is Shared by Every Invocation"
     },
     "concepts": [
-      "Totals over nested collections start from zero when a collection is empty, and each filter in the chain applies on its own."
+      "State a lambda reaches through a captured array or a field is shared by every invocation, and a field by every call of the method; a counter kept there adds across calls or is reset by a concurrent caller."
     ]
   }
 }

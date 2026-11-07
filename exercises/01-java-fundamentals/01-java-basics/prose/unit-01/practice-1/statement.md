@@ -1,17 +1,14 @@
-Java has four signed integer types, and each has a fixed size and a fixed range:
-`byte` (8 bits), `short` (16), `int` (32) and `long` (64).
+The storage service places every new tenant: it gives the tenant a quota in bytes and picks the
+shard that holds each of the tenant's keys. Two reports came in after the last onboarding wave.
+A tenant with 4,000 users was given a negative quota and could store nothing. And one key of one
+tenant, out of millions, fails on every write with an `ArrayIndexOutOfBoundsException` from the
+shard router.
 
-Write `NarrowestType.narrowestType(long value)`. It returns the name of the
-**narrowest** of those four types that can hold `value` exactly: `"byte"`,
-`"short"`, `"int"` or `"long"`.
+`TenantStorage.place` already puts the two answers together. Finish the two `TODO`s in
+`src/main/java/practice/TenantStorage.java`:
 
-| value | answer |
-|---|---|
-| `100` | `"byte"` |
-| `1000` | `"short"` |
-| `100000` | `"int"` |
-| `10000000000L` | `"long"` |
+- `quotaBytes(users, mbPerUser)`: the exact quota for any tenant the service accepts, up to
+  tens of thousands of users with up to a hundred gigabytes each;
+- `shardFor(key)`: a shard from `0` to `shards - 1` for every key, the same one each time.
 
-Mind the ends of every range: both bounds belong to the type, and the negative
-end of a two's-complement range reaches one further than the positive end.
-The wrapper classes (`Byte`, `Short`, `Integer`, `Long`) name each bound.
+About two lines in total.

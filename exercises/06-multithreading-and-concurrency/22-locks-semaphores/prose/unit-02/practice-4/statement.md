@@ -1,21 +1,13 @@
-A semaphore's permits belong to nobody: **any thread** may `release()`, and a
-`release()` that comes **before** any `acquire()` is not lost, it simply raises
-the count. The page's start gate uses `new Semaphore(0)`, and its edge cases
-note that the count may even start **below zero**: `new Semaphore(-2)` needs
-two releases before one acquire can succeed.
+The order store keeps every record on several replicas. A write is confirmed to the caller once a
+quorum of replicas has acknowledged it; the rest catch up later. Replicas acknowledge from their
+own threads, and a fast one may acknowledge before the writer has even started to wait.
 
-Write `Rendezvous`, which lets a coordinator wait until `workers` workers have
-each reported ready, using one `Semaphore`:
+Two reports came in after a replica failure last week. Writes that had exactly the quorum of
+replicas behind them were reported as failed. And just after a slow replica went down, one write
+was confirmed although only one replica had stored it.
 
-- `void ready()` is called once by each worker, from any thread, at any time,
-  even before the coordinator waits.
-- `boolean awaitAll(long timeout, TimeUnit unit)` waits **at most** `timeout`
-  for every worker to be ready, and returns whether they all were.
-
-| workers | calls | answer |
-|---|---|---|
-| 3 | three threads each call `ready()`; then `awaitAll(1, SECONDS)` | `true` |
-| 3 | `ready()` twice; `awaitAll(100, MILLISECONDS)` | `false` |
-| 3 | then a third `ready()`; `awaitAll(3, SECONDS)` | `true` |
-| 2 | nobody ready; `awaitAll(100_000, MICROSECONDS)` | `false` after about 100 ms |
-| 2 | a coordinator waits in `awaitAll(8, SECONDS)`; two other threads call `ready()` | the coordinator gets `true` |
+Finish `acksForNextWrite()` and `awaitQuorum(...)` in `src/main/java/practice/QuorumWriter.java`.
+`write(...)` already sends the record and passes each replica an acknowledgement that releases one
+permit. When you're done, a write is confirmed exactly when a quorum of replicas acknowledged that
+write, and a write that can't reach a quorum returns `false` once `timeoutMillis` has passed.
+About two lines in total.

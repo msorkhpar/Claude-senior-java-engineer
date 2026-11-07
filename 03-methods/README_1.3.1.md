@@ -1,185 +1,239 @@
 # 1.3.1 Method Declaration and Invocation in Java
 
-## Concept Explanation
+One release of the export service brought three tickets. CSV exports arrive named `report.dat`.
+With debug logging off, every order is still rendered for a log line nobody writes, and while
+auditing is off the audit sequence numbers keep being used up. A support thread with 12,000 replies
+fails with `StackOverflowError` for a few minutes after every deploy, then loads. Parameters,
+argument passing and overloading are units 1.3.2 to 1.3.4.
 
-In Java, a method is a block of code that performs a specific task. Methods are fundamental to Java programming as they
-allow for code reuse, modularity, and better organization of code. Method declaration defines the method's structure,
-while invocation is the process of calling or executing the method.
+## An Instance Method Is Chosen by the Object; a Static Method by the Declared Type
 
-### Method Declaration
-
-A method declaration consists of six components:
-
-1. Access Modifier: Determines the visibility of the method (public, protected, private, or none, which means
-   package-private; `default` is not an access modifier on a class method).
-2. Return Type: Specifies the type of value the method returns (or void if it doesn't return anything).
-3. Method Name: The identifier used to refer to the method.
-4. Parameter List: Input parameters that the method accepts (can be empty).
-5. Exception List: Optional list of exceptions that the method can throw.
-6. Method Body: The actual code of the method, enclosed in curly braces {}.
-
-General syntax:
+Both exporters declare a static `extension()` and an instance `format()`:
 
 ```java
-accessModifier returnType methodName(parameterList) throws exceptionList {
-    // method body
+class Exporter {
+    static String extension() { return "dat"; }
+    String format() { return "generic"; }
+}
+
+class CsvExporter extends Exporter {
+    static String extension() { return "csv"; }
+    @Override String format() { return "csv"; }
 }
 ```
 
-### Method Invocation
-
-Method invocation is the process of calling a method to execute its code. There are several ways to invoke a method:
-
-1. On an object of a class (for instance methods)
-2. On the class itself (for static methods)
-3. Within the same class (can use `this` keyword)
-4. Using method references (Java 8+)
-
-## Key Points to Remember
-
-1. Methods must be declared within a class in Java.
-2. The method name should be descriptive and follow camelCase convention.
-3. Methods can have zero or more parameters.
-4. The `return` statement is used to return a value from the method.
-5. If a method doesn't return anything, use `void` as the return type.
-6. Method overloading allows multiple methods with the same name but different parameter lists.
-
-## Relevant Java 21 Features
-
-1. Sealed Classes and Interfaces: While not directly related to method declaration, they can affect how methods are
-   declared in subclasses.
-2. Pattern Matching for switch: Can be used within method bodies for more expressive code.
-
-## Common Pitfalls and How to Avoid Them
-
-1. Forgetting to specify a return type: Always declare a return type, even if it's `void`.
-2. Incorrect access modifiers: Be mindful of the intended visibility of your methods.
-3. Not handling exceptions properly: Use try-catch blocks or declare throws in the method signature.
-4. Naming conflicts: A parameter or local variable with the same name as a field shadows the field; use `this.name`
-   to reach the field. (Declaring a local variable with the same name as a parameter does not compile.)
-
-## Best Practices and Optimization Techniques
-
-1. Keep methods short and focused on a single task (Single Responsibility Principle).
-2. Use meaningful and descriptive method names.
-3. Limit the number of parameters (aim for 3 or fewer).
-4. Use method overloading judiciously to provide convenience methods.
-5. Consider using static methods for utility functions that don't require instance state.
-
-## Edge Cases and Their Handling
-
-1. Null parameters: Always check for null inputs if your method can't handle them.
-2. Empty collections: Handle cases where input collections might be empty.
-3. Boundary values: Consider min/max values for numeric inputs.
-
-## Interview-specific Insights
-
-1. Be prepared to explain the difference between static and instance methods.
-2. Understand how method overloading works and its limitations.
-3. Be able to discuss the trade-offs between long parameter lists and using objects to group parameters.
-
-Q1: What is the difference between static and instance methods?
-
-```text
-A1: Static methods belong to the class itself, not to any specific instance of the class. They can be called using the class name without creating an object. Instance methods, on the other hand, belong to instances of the class and require an object to be created before they can be called.
-
-Key differences:
-1. Invocation: Static methods are called on the class, while instance methods are called on objects.
-2. Access to instance members: Static methods cannot directly access instance variables or call instance methods, while instance methods can access both static and instance members.
-3. 'this' keyword: Static methods cannot use the 'this' keyword, as they don't have an instance context.
-4. Memory: The code of both static and instance methods is loaded once, with the class; creating an object does not load or copy any method. Only instance fields are allocated per object.
-
-Example:
-```
+Predict the four lines:
 
 ```java
-public class Example {
-    private int instanceVar = 5;
-    private static int staticVar = 10;
+Exporter exporter = new CsvExporter();
+System.out.println("format():    " + exporter.format());
+System.out.println("extension(): " + exporter.extension());
 
-    public static void staticMethod() {
-        System.out.println(staticVar); // OK
-        // System.out.println(instanceVar); // Compilation error
-        // instanceMethod(); // Compilation error
-    }
-
-    public void instanceMethod() {
-        System.out.println(instanceVar); // OK
-        System.out.println(staticVar); // OK
-        staticMethod(); // OK
-    }
-}
-
-// Usage
-Example.staticMethod(); // Valid
-Example obj = new Example();
-obj.instanceMethod(); // Valid
+Exporter none = null;
+System.out.println("extension() through null: " + none.extension());
+System.out.println("format() through null: " + none.format());
 ```
 
-Q2: How does method overloading work in Java?
+Compiled with `-g`, which names the variable in the message:
 
 ```text
-A2: Method overloading is a feature in Java that allows a class to have multiple methods with the same name but different parameter lists. The compiler distinguishes between overloaded methods based on the number, type, and order of the parameters.
-
-Key points:
-1. Methods must have the same name but different parameter lists.
-2. Return type alone is not sufficient to distinguish overloaded methods.
-3. Access modifiers can be different for overloaded methods.
-4. It improves code readability and reusability.
-
-Example:
+format():    csv
+extension(): dat
+extension() through null: dat
+Exception in thread "main" java.lang.NullPointerException: Cannot invoke "Exporter.format()" because "none" is null
 ```
+
+An instance call's implementation is chosen when it runs: the JVM looks at the object's class and
+runs its override, so `format()` says `csv`. A static call is resolved by the compiler, from the
+type of the expression left of the dot. That expression is still evaluated, but its value is
+thrown away, which is why the call through `null` works. `javap -c` shows the two instructions:
+
+```text
+      12: invokevirtual #16                 // Method Exporter.format:()Ljava/lang/String;
+      28: invokestatic  #32                 // Method Exporter.extension:()Ljava/lang/String;
+```
+
+`CsvExporter.extension()` *hides* `Exporter.extension()`: it runs only when the call names
+`CsvExporter` or an expression of that type. The compiler can tell you: `@Override` on a static
+method fails with `static methods cannot be annotated with @Override`, and `javac -Xlint:static`
+warns about every static call made through an expression.
+
+The export service built names as `base + "." + exporter.extension()` with `exporter` typed as
+`Exporter`, so every format got `.dat`. The call through `null` is a latent bug: it works until
+someone turns the method into an instance method, and then a null that was always there throws.
+
+<!-- practice 1 -->
+
+## A Private Method Is Never Overridden, So the Class's Own Calls Keep Using It
+
+An importer checks each row in a private method. A stricter importer declares its own `validate`:
 
 ```java
-public class Calculator {
-    public int add(int a, int b) {
-        return a + b;
+class Importer {
+    void run(String row) {
+        System.out.println(getClass().getSimpleName() + " accepts \"" + row + "\": " + validate(row));
     }
-
-    public double add(double a, double b) {
-        return a + b;
-    }
-
-    public int add(int a, int b, int c) {
-        return a + b + c;
-    }
+    private boolean validate(String row) { return !row.isEmpty(); }
 }
 
-// Usage
-Calculator calc = new Calculator();
-System.out.println(calc.add(5, 10));       // Calls the first method
-System.out.println(calc.add(5.5, 10.5));   // Calls the second method
-System.out.println(calc.add(5, 10, 15));   // Calls the third method
+class StrictImporter extends Importer {
+    boolean validate(String row) { return row.matches("\\d+(,\\d+)*"); }
+}
 ```
 
-Q3: What are the advantages of using methods in Java programming?
+`new StrictImporter().run("12,x,7")` prints:
 
 ```text
-A3: Using methods in Java programming offers several advantages:
-
-1. Code Reusability: Methods allow you to write a block of code once and use it multiple times in your program, reducing redundancy.
-
-2. Modularity: Methods help break down complex problems into smaller, manageable parts, making the code more organized and easier to understand.
-
-3. Abstraction: Methods can hide complex implementations behind a simple interface, allowing users of the method to focus on what it does rather than how it does it.
-
-4. Maintainability: When code is organized into methods, it's easier to update or fix specific functionalities without affecting the entire program.
-
-5. Readability: Well-named methods make the code self-documenting and easier to read, as method names can describe their purpose.
-
-6. Testing: Methods facilitate unit testing by allowing you to test specific functionalities in isolation.
-
-7. Encapsulation: Methods can be used to control access to data, supporting the principle of encapsulation in object-oriented programming.
-
-8. Flexibility: Through method overloading and overriding, Java provides flexibility in how methods can be implemented and used.
-
-9. Code Organization: Methods help in organizing code logically, grouping related operations together within a class.
-
-10. Parameterization: Methods allow for parameterization, making code more flexible and adaptable to different inputs.
+StrictImporter accepts "12,x,7": true
 ```
 
-These examples and explanations should provide a comprehensive understanding of method declaration and invocation in
-Java, suitable for a senior Java engineer interview preparation.
+A private method is not inherited, so `StrictImporter.validate` is a new method that shares a
+name. `Importer.run` calls its own private method whatever the object is, and rows the strict
+importer exists to reject go in. With `@Override` on `StrictImporter.validate` the mistake
+doesn't compile (`method does not override or implement a method from a supertype`). Annotate
+every method you mean as an override, and make the hook `protected` or package-private.
+
+<!-- practice 4 -->
+
+## Every Argument Is Evaluated, Left to Right, Before the Method Runs
+
+As with operands (unit 1.1.4), Java evaluates the expression before the dot, then each argument
+in order, and only then checks the receiver for `null` and enters the method. Debug is off and
+`debug` checks the level itself, `audit()` returns `null` because auditing is off, and `render`
+and `nextSeq` print when they run:
+
+```java
+log.debug("placing " + render("A-7"));            // debug(String)
+log.debug(() -> "placing " + render("A-7"));      // debug(Supplier<String>)
+audit().record(nextSeq(), render("A-7"));         // audit() returns null
+```
+
+The program prints a header before each call, catches the exception, then takes the next number:
+
+```text
+debug(String):
+  render(A-7)
+debug(Supplier):
+audit().record(...):
+  audit()
+  nextSeq() -> 42
+  render(A-7)
+  Cannot invoke "Audit.record(long, String)" because the return value of "Orders.audit()" is null
+the next record:
+  nextSeq() -> 43
+```
+
+`debug(String)` never used its argument, but the order was rendered before `debug` started. A logging placeholder (`"placing {}", render(order)`) defers only the
+formatting: `render` still runs. A `Supplier` lets the method decide whether the work happens.
+The same holds for any "default" argument, such as `Optional.orElse(...)` or
+`Map.getOrDefault(key, ...)`: it is computed whether or not it is needed.
+
+The null receiver threw only after both arguments ran, so sequence number 42 went to a record that
+was never written. Check a receiver that can be `null` before computing arguments with side
+effects.
+
+<!-- practice 2 -->
+
+## Each Call Holds a Stack Frame Until It Returns, So Recursion Depth Is Limited by the Stack
+
+A call's frame, with its parameters and locals, stays on the stack until the method returns, so
+recursion keeps the whole chain's frames alive. The support page renders replies recursively, and
+the failing thread is a chain of 12,000 replies, each answering the one before:
+
+```java
+static void render(Reply r, int depth) {
+    lines++;                                       // stands in for appending one indented line
+    for (Reply child : r.replies) render(child, depth + 1);
+}
+```
+
+We render it right after the JVM starts, then again after rendering 20,000 short discussions has
+warmed `render` up, on the default 1 MB stack:
+
+```text
+just after start: StackOverflowError after 11112 lines
+after warm-up   : rendered 12000 lines
+```
+
+Two more runs failed after 10,203 and 10,972 lines. The limit is bytes of stack. A frame of the interpreted method is larger than the frame of the same method once the JIT
+has compiled it, and when that happens varies from run to run. So the thread fails after each
+deploy and loads once the server is warm.
+
+`-Xss2m` made the first attempt succeed too, but it only moves the limit, for every thread that
+doesn't set its own. HotSpot doesn't eliminate tail calls either: `return count(n - 1, acc + 1);`
+still overflowed at 1,000,000. For data whose depth users control, keep the pending work on the
+heap:
+
+```java
+static void renderIteratively(Reply root) {
+    Deque<Reply> pending = new ArrayDeque<>();
+    pending.push(root);
+    while (!pending.isEmpty()) {
+        Reply r = pending.pop();
+        lines++;
+        for (int i = r.replies.size() - 1; i >= 0; i--) pending.push(r.replies.get(i));
+    }
+}
+```
+
+```text
+iterative, 1,000,000 deep: rendered 1000000 lines
+```
+
+The children are pushed last first, so they come off in the recursion's order. This version
+leaves out the depth, which the stack would have to carry too.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **An instance method is chosen by the object's class at run time; a static method by the
+  declared type at compile time.** A subclass's static method hides the parent's, and a static
+  call through `null` runs.
+- **A private method is never overridden.** The class's own calls keep using it; `@Override`
+  turns the mistake into a compile error.
+- **Every argument is evaluated, left to right, before the method runs**, even when the method
+  ignores it and even when the receiver turns out to be `null`.
+- **Recursion depth is limited by stack bytes, which change as the JIT compiles.** Recursion over
+  data whose depth users control needs an explicit stack.
+
+## Reference
+
+**Which method a call runs (Java 21):**
+
+| Method | Chosen by | A subclass method with the same signature |
+|---|---|---|
+| instance, not `private`, not `final` | the object's class, at run time | overrides it if instance; doesn't compile if static: `overriding method is static` |
+| `final` instance | the declaring class | doesn't compile: `overridden method is final` |
+| `private` | the declaring class, at compile time | is a separate method |
+| `static` | the type of the expression left of the dot, at compile time | hides it if static; doesn't compile if instance: `overridden method is static` |
+
+**The stack (Java 21, HotSpot, Linux x64):**
+
+| Fact | Value |
+|---|---|
+| default thread stack | 1 MB (`ThreadStackSize = 1024`), set with `-Xss` |
+| one thread's stack | `new Thread(group, task, name, stackSize)`; the javadoc allows a platform to ignore it |
+| `StackOverflowError` | an `Error`; the thread can catch it and go on, but state the overflow cut short may be inconsistent |
+| tail calls | not eliminated |
+
+## Challenges
+
+1. Compile your codebase with `-Xlint:static`. Which flagged calls would change behaviour if
+   the method became an instance method?
+2. Your logger has `debug(String, Object...)`. Which call sites still pay for their arguments with
+   debug off?
+3. A JSON parser recurses once per nesting level. What depth do you accept from an untrusted
+   client, and do you enforce it with a counter or by catching `StackOverflowError`?
+
+## Design Note: Why a Static Call Is Bound at Compile Time
+
+A static method has no receiver, so when it runs there is no object whose class could pick an
+override. Java resolves the call against the type the compiler sees, which is cheap, and leaves
+per-type behaviour to objects. The cost comes when a static utility, such as a clock, later needs
+to vary. It must become an instance method on an object that callers receive, and every caller
+changes. That is why code meant to be tested takes a `java.time.Clock` instead of calling
+`System.currentTimeMillis()`.
 
 ## Code Examples
 

@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "17-java-memory-model"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "ordinal": 3,
+  "title": "Check yourself: synchronization and memory consistency",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-batch-before-block",
+        "stem": "An import thread fills a new Batch object with plain writes (`batch.rows = 812; batch.checksum = 0x5A17;`), then runs `synchronized (registry) { pending.add(batch); }`. Later a worker runs `synchronized (registry) { b = pending.poll(); }`, gets that batch, and reads `b.rows` after it has left its block. What can the worker read?",
+        "options": [
+          {
+            "id": "a",
+            "text": "812, since the import's unlock of registry flushed rows to main memory, where the worker's read finds it",
+            "correct": false,
+            "says": "an unlock publishes to the next thread that locks the same object, not to a shared memory every reader sees; a thread that takes no lock is promised nothing"
+          },
+          {
+            "id": "b",
+            "text": "812, since the import wrote rows before it released registry, and the worker read rows after it locked registry",
+            "correct": true,
+            "says": "an unlock happens-before every later lock of the same monitor, and the edge covers every write the releasing thread made before the unlock and every read the locking thread makes after its lock"
+          },
+          {
+            "id": "c",
+            "text": "812 or 0, since the import wrote rows before it locked registry, outside the part that its unlock publishes",
+            "correct": false,
+            "says": "the unlock publishes every write made before it in program order, including those made before the block"
+          },
+          {
+            "id": "d",
+            "text": "812 or 0, since the worker read rows after it unlocked registry, outside the part that its lock covers",
+            "correct": false,
+            "says": "everything the worker does after its lock comes after the import's unlock, inside its block or after it"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.3.md",
+          "section": "Releasing a Lock Publishes Every Write Made Before It, to the Next Thread That Takes the Same Lock"
+        }
+      },
+      {
+        "id": "q-static-and-instance",
+        "stem": "A rate limiter keeps its limit in a `static int limit`. Operators change it through `synchronized void setLimit(int l) { limit = l; }`, an instance method of the one limiter object, and request threads read it through `static synchronized int limit()`. An operator lowers the limit from 100 to 20. What may a request thread read afterwards?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It reads 20 from its next call, since setLimit's unlock of the limiter publishes limit to the lock limit() takes",
+            "correct": false,
+            "says": "an unlock gives an edge only to later locks of the same monitor; setLimit locks the limiter object and limit() the Class object"
+          },
+          {
+            "id": "b",
+            "text": "It reads 20 from its next call, since limit() locks the limiter's class, and the limiter is that class's one instance",
+            "correct": false,
+            "says": "a static synchronized method locks the Class object, which is a different object from the class's instance"
+          },
+          {
+            "id": "c",
+            "text": "It may keep reading 100, since setLimit locks the limiter object and limit() locks the limiter's Class object",
+            "correct": true,
+            "says": "the two methods lock different objects, and no edge connects an unlock of one with a lock of the other"
+          },
+          {
+            "id": "d",
+            "text": "It may keep reading 100, since setLimit writes a static field from an instance method, which no lock publishes",
+            "correct": false,
+            "says": "the unlock publishes every write made before it, static fields included; the problem is that the reader locks another object"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.3.md",
+          "section": "A Lock on a Different Object Gives No Edge"
+        }
+      },
+      {
+        "id": "q-audit-without-lock",
+        "stem": "A ledger moves money with `synchronized (this) { checking -= amount; savings += amount; }`, and checking + savings is 5,000 whenever no transfer is running. An audit thread computes `checking + savings` without taking the ledger's lock while transfers run. What can the audit report?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Other totals besides 5,000, since the audit can read checking after one transfer's write and savings before its write",
+            "correct": true,
+            "says": "a reader that skips the lock can run between the transfer's two writes and see one field already written and the other not yet"
+          },
+          {
+            "id": "b",
+            "text": "Other totals besides 5,000, since the audit reads checking and savings from a copy its core took before the transfers",
+            "correct": false,
+            "says": "a stale view of both fields from one moment would still add up to 5,000; the wrong totals come from reading between one transfer's two writes"
+          },
+          {
+            "id": "c",
+            "text": "5,000 and no other total, since each transfer changes checking and savings while holding the ledger's monitor",
+            "correct": false,
+            "says": "the lock excludes only threads that take it; the audit can run between the transfer's two writes"
+          },
+          {
+            "id": "d",
+            "text": "5,000 and no other total, since the ledger's unlock makes the new checking and savings visible at the same time",
+            "correct": false,
+            "says": "the release publishes only to a thread that later takes the same lock, and the audit can read before the release"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.3.md",
+          "section": "A Reader That Skips the Lock Can See Two Fields That Were Never Written Together"
+        }
+      },
+      {
+        "id": "q-session-plain-field",
+        "stem": "A client keeps its session in a plain field and creates it with `if (session == null) { synchronized (this) { if (session == null) session = new Session(token, expiry); } } return session;`. Session's fields are plain. One thread creates the session; a moment later another thread calls the method. What can the second thread get?",
+        "options": [
+          {
+            "id": "a",
+            "text": "A session with a null token, since its check outside the block can find the field set without taking the lock",
+            "correct": true,
+            "says": "the check outside the block reads without the lock, so nothing orders the constructor's writes before the caller's reads"
+          },
+          {
+            "id": "b",
+            "text": "A session with a null token, since the creating thread stores session before it runs Session's constructor",
+            "correct": false,
+            "says": "in the creating thread's program order the constructor runs first; the caller may see otherwise only because it has no edge to that thread"
+          },
+          {
+            "id": "c",
+            "text": "A finished session, since Session's constructor completes before the creating thread stores the reference",
+            "correct": false,
+            "says": "that order holds in the creating thread; a thread with no edge to it may see the reference before the constructor's writes"
+          },
+          {
+            "id": "d",
+            "text": "A finished session, since the creating thread stores the reference while it holds the client's lock",
+            "correct": false,
+            "says": "a caller that finds the field set never takes the lock, so the lock gives it no edge"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.3.md",
+          "section": "Double-Checked Locking Reads Without the Lock, So Its Field Must Be volatile"
+        }
+      }
+    ]
+  }
+}

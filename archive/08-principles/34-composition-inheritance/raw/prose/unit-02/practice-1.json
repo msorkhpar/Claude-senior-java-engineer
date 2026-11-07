@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Compose a retry policy into an executor",
+  "title": "Keep each device token once while tokens rotate",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Instead of a hierarchy of executor subclasses, one for each retry policy, the page composes a **strategy**: the executor holds a `RetryStrategy` and asks it, after each failed attempt, whether to try again and how long to wait."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n    long delayMillis(int attempt);\n}"
+      "text": "The notification service keeps the push tokens of each user's devices in a `DeviceTokens` store. Request threads register a token when an app starts, revoke it on logout, and rotate it when the push provider renews a device's token. The sender takes a `snapshot()` for every notification. Since the store went live, some users get each notification twice, and support has a log where a renewed token shows up twice in a snapshot."
     },
     {
       "type": "para",
-      "text": "The waiting is composed too: the executor is given a `LongConsumer sleeper` and calls it with each delay, so a test can record the waits instead of sleeping (production code passes a sleeper that calls `Thread.sleep`)."
-    },
-    {
-      "type": "para",
-      "text": "Write `ResilientExecutor` and `ExponentialBackoff`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/DeviceTokens.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`new ResilientExecutor(strategy, sleeper)`, then `execute(task)` calls `task.get()`. If it throws, the executor asks `strategy.shouldRetry(attempt, e)`, where `attempt` is the attempt that just failed (counting from 1) and `e` is the exception it threw; on yes it passes `strategy.delayMillis(attempt)` for that same attempt to the sleeper (only when it is above 0; a delay of 0 is not slept) and tries again. A task that fails twice under a strategy allowing 3 retries with a 7 ms delay returns its result after 3 attempts and 2 sleeps of 7;",
-        "the executor uses **the injected strategy** and nothing else to decide: a strategy that never retries stops after 1 attempt, one that allows 5 retries survives 5 failures;",
-        "when the strategy says stop, `execute` rethrows **the last exception** the task threw, itself, not a wrapper;",
-        "`attempts()` counts every call to a task this executor made, added up over all its `execute` calls;",
-        "`ExponentialBackoff(maxRetries, initialDelayMs, maxDelayMs)` retries while `attempt <= maxRetries` and waits `initialDelayMs * 2^(attempt - 1)`, capped at `maxDelayMs`: with `(5, 100, 1000)` the delays are 100, 200, 400, 800, and 1000 for every attempt after that;",
-        "the page's warning: compute the doubling as a shift that is **checked first**, or a large attempt overflows. `delayMillis(64)` and `delayMillis(Integer.MAX_VALUE)` are still 1000."
+        "`register(token)`: add the token unless it is already registered, and say whether it was added;",
+        "`rotate(oldToken, newToken)`: replace the old token by the new one, only if the old one is registered and the new one isn't; when it can't, change nothing and return `false`."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, a token is stored once however many threads register or rotate onto it at the same moment, and a rotation that returns `false` has left the store as it was. About ten lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The list inside the store is a `Collections.synchronizedList`. The tests hand the store a list of their own through the package-private constructor, which holds a thread right after a lookup with `contains` or `indexOf`, so look tokens up with one of those."
     },
     {
       "type": "heading",
@@ -59,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.LongConsumer;\nimport java.util.function.Supplier;\n\n/** A retry policy: whether to try again after a failed attempt, and how long to wait first. */\ninterface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n\n    long delayMillis(int attempt);\n}\n\n/** Retries up to maxRetries times, waiting initialDelayMs * 2^(attempt - 1), capped at maxDelayMs. */\nclass ExponentialBackoff implements RetryStrategy {\n    private final int maxRetries;\n    private final long initialDelayMs;\n    private final long maxDelayMs;\n\n    ExponentialBackoff(int maxRetries, long initialDelayMs, long maxDelayMs) {\n        this.maxRetries = maxRetries;\n        this.initialDelayMs = initialDelayMs;\n        this.maxDelayMs = maxDelayMs;\n    }\n\n    @Override\n    public boolean shouldRetry(int attempt, Exception lastException) {\n        return attempt <= maxRetries;\n    }\n\n    @Override\n    public long delayMillis(int attempt) {\n        if (attempt <= 1 || initialDelayMs == 0) {\n            return Math.min(initialDelayMs, maxDelayMs);\n        }\n        int shift = attempt - 1;\n        if (shift >= Long.SIZE - 1 || initialDelayMs > (maxDelayMs >> shift)) {\n            return maxDelayMs;\n        }\n        return Math.min(initialDelayMs << shift, maxDelayMs);\n    }\n}\n\n/** Runs a task, retrying it as the composed strategy decides. */\npublic class ResilientExecutor {\n    private final RetryStrategy strategy;\n    private final LongConsumer sleeper;\n    private int attempts;\n\n    public ResilientExecutor(RetryStrategy strategy, LongConsumer sleeper) {\n        this.strategy = Objects.requireNonNull(strategy, \"strategy\");\n        this.sleeper = Objects.requireNonNull(sleeper, \"sleeper\");\n    }\n\n    public <T> T execute(Supplier<T> task) throws Exception {\n        int attempt = 0;\n        while (true) {\n            attempt++;\n            attempts++;\n            try {\n                return task.get();\n            } catch (Exception e) {\n                if (!strategy.shouldRetry(attempt, e)) {\n                    throw e;\n                }\n                long delay = strategy.delayMillis(attempt);\n                if (delay > 0) {\n                    sleeper.accept(delay);\n                }\n            }\n        }\n    }\n\n    /** How many times this executor has called a task, over every execute call. */\n    public int attempts() {\n        return attempts;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\n\n/**\n * The push tokens registered for one user's devices. Request threads register tokens, revoke\n * them, and rotate them when a device's token is renewed; the sender takes a snapshot for each\n * notification.\n */\npublic class DeviceTokens {\n\n    private final Object lock = new Object();\n    private final List<String> tokens;\n\n    public DeviceTokens() {\n        this(Collections.synchronizedList(new ArrayList<>()));\n    }\n\n    /** The store keeps this list to itself. The tests use it to watch what happens inside. */\n    DeviceTokens(List<String> store) {\n        this.tokens = store;\n    }\n\n    /**\n     * Registers the token unless it is already registered. Returns whether it was added.\n     * However many threads register the same token at once, it ends up in the store once.\n     */\n    public boolean register(String token) {\n        synchronized (lock) {\n            if (tokens.contains(token)) return false;\n            tokens.add(token);\n            return true;\n        }\n    }\n\n    /**\n     * A device's token was renewed: replaces oldToken by newToken, only if oldToken is registered\n     * and newToken isn't. Returns whether it replaced anything; when it returns false the store\n     * is unchanged. No other operation of this class ever sees the store halfway through.\n     */\n    public boolean rotate(String oldToken, String newToken) {\n        synchronized (lock) {\n            int i = tokens.indexOf(oldToken);\n            if (i < 0 || tokens.contains(newToken)) return false;\n            tokens.set(i, newToken);\n            return true;\n        }\n    }\n\n    public boolean revoke(String token) {\n        synchronized (lock) {\n            return tokens.remove(token);\n        }\n    }\n\n    public List<String> snapshot() {\n        synchronized (lock) {\n            return List.copyOf(tokens);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.LongConsumer;\nimport java.util.function.Supplier;\n\n/** A retry policy: whether to try again after a failed attempt, and how long to wait first. */\ninterface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n\n    long delayMillis(int attempt);\n}\n\n/** Retries up to maxRetries times, waiting initialDelayMs * 2^(attempt - 1), capped at maxDelayMs. */\nclass ExponentialBackoff implements RetryStrategy {\n    private final int maxRetries;\n    private final long initialDelayMs;\n    private final long maxDelayMs;\n\n    ExponentialBackoff(int maxRetries, long initialDelayMs, long maxDelayMs) {\n        this.maxRetries = maxRetries;\n        this.initialDelayMs = initialDelayMs;\n        this.maxDelayMs = maxDelayMs;\n    }\n\n    @Override\n    public boolean shouldRetry(int attempt, Exception lastException) {\n        throw new UnsupportedOperationException(\"write shouldRetry\");\n    }\n\n    @Override\n    public long delayMillis(int attempt) {\n        throw new UnsupportedOperationException(\"write delayMillis\");\n    }\n}\n\n/** Runs a task, retrying it as the composed strategy decides. */\npublic class ResilientExecutor {\n\n    public ResilientExecutor(RetryStrategy strategy, LongConsumer sleeper) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public <T> T execute(Supplier<T> task) throws Exception {\n        throw new UnsupportedOperationException(\"write execute\");\n    }\n\n    /** How many times this executor has called a task, over every execute call. */\n    public int attempts() {\n        throw new UnsupportedOperationException(\"write attempts\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\n\n/**\n * The push tokens registered for one user's devices. Request threads register tokens, revoke\n * them, and rotate them when a device's token is renewed; the sender takes a snapshot for each\n * notification.\n */\npublic class DeviceTokens {\n\n    private final Object lock = new Object();\n    private final List<String> tokens;\n\n    public DeviceTokens() {\n        this(Collections.synchronizedList(new ArrayList<>()));\n    }\n\n    /** The store keeps this list to itself. The tests use it to watch what happens inside. */\n    DeviceTokens(List<String> store) {\n        this.tokens = store;\n    }\n\n    /**\n     * Registers the token unless it is already registered. Returns whether it was added.\n     * However many threads register the same token at once, it ends up in the store once.\n     */\n    public boolean register(String token) {\n        // TODO: add the token unless it is already registered\n        throw new IllegalStateException(\"TODO: register\");\n    }\n\n    /**\n     * A device's token was renewed: replaces oldToken by newToken, only if oldToken is registered\n     * and newToken isn't. Returns whether it replaced anything; when it returns false the store\n     * is unchanged. No other operation of this class ever sees the store halfway through.\n     */\n    public boolean rotate(String oldToken, String newToken) {\n        // TODO: replace oldToken by newToken in one step\n        throw new IllegalStateException(\"TODO: rotate\");\n    }\n\n    public boolean revoke(String token) {\n        synchronized (lock) {\n            return tokens.remove(token);\n        }\n    }\n\n    public List<String> snapshot() {\n        synchronized (lock) {\n            return List.copyOf(tokens);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,8 +74,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -90,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "61a540b75946eacdb61651091ea35ee2ecd9cf0c5f81ea836dabccd44fb9aac0",
-  "starting_code": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.LongConsumer;\nimport java.util.function.Supplier;\n\n/** A retry policy: whether to try again after a failed attempt, and how long to wait first. */\ninterface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n\n    long delayMillis(int attempt);\n}\n\n/** Retries up to maxRetries times, waiting initialDelayMs * 2^(attempt - 1), capped at maxDelayMs. */\nclass ExponentialBackoff implements RetryStrategy {\n    private final int maxRetries;\n    private final long initialDelayMs;\n    private final long maxDelayMs;\n\n    ExponentialBackoff(int maxRetries, long initialDelayMs, long maxDelayMs) {\n        this.maxRetries = maxRetries;\n        this.initialDelayMs = initialDelayMs;\n        this.maxDelayMs = maxDelayMs;\n    }\n\n    @Override\n    public boolean shouldRetry(int attempt, Exception lastException) {\n        throw new UnsupportedOperationException(\"write shouldRetry\");\n    }\n\n    @Override\n    public long delayMillis(int attempt) {\n        throw new UnsupportedOperationException(\"write delayMillis\");\n    }\n}\n\n/** Runs a task, retrying it as the composed strategy decides. */\npublic class ResilientExecutor {\n\n    public ResilientExecutor(RetryStrategy strategy, LongConsumer sleeper) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public <T> T execute(Supplier<T> task) throws Exception {\n        throw new UnsupportedOperationException(\"write execute\");\n    }\n\n    /** How many times this executor has called a task, over every execute call. */\n    public int attempts() {\n        throw new UnsupportedOperationException(\"write attempts\");\n    }\n}\n",
+  "content_sha256": "db6cf521146e459ec8ab6a782e1c736f64c42780efcc1c8bbee75bc98c50f7ff",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\n\n/**\n * The push tokens registered for one user's devices. Request threads register tokens, revoke\n * them, and rotate them when a device's token is renewed; the sender takes a snapshot for each\n * notification.\n */\npublic class DeviceTokens {\n\n    private final Object lock = new Object();\n    private final List<String> tokens;\n\n    public DeviceTokens() {\n        this(Collections.synchronizedList(new ArrayList<>()));\n    }\n\n    /** The store keeps this list to itself. The tests use it to watch what happens inside. */\n    DeviceTokens(List<String> store) {\n        this.tokens = store;\n    }\n\n    /**\n     * Registers the token unless it is already registered. Returns whether it was added.\n     * However many threads register the same token at once, it ends up in the store once.\n     */\n    public boolean register(String token) {\n        // TODO: add the token unless it is already registered\n        throw new IllegalStateException(\"TODO: register\");\n    }\n\n    /**\n     * A device's token was renewed: replaces oldToken by newToken, only if oldToken is registered\n     * and newToken isn't. Returns whether it replaced anything; when it returns false the store\n     * is unchanged. No other operation of this class ever sees the store halfway through.\n     */\n    public boolean rotate(String oldToken, String newToken) {\n        // TODO: replace oldToken by newToken in one step\n        throw new IllegalStateException(\"TODO: rotate\");\n    }\n\n    public boolean revoke(String token) {\n        synchronized (lock) {\n            return tokens.remove(token);\n        }\n    }\n\n    public List<String> snapshot() {\n        synchronized (lock) {\n            return List.copyOf(tokens);\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/src/main/java/practice/ResilientExecutor.java",
-    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/src/test/java/practice/ResilientExecutorTest.java",
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/src/main/java/practice/DeviceTokens.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/src/test/java/practice/DeviceTokensTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,29 +110,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ResilientExecutorTest#retriesUntilTheTaskSucceeds",
+        "id": "practice.DeviceTokensTest#registersEachTokenOnce",
         "kind": "main",
-        "says": "A task failing twice under 3 allowed retries returns \"ok\" after 3 attempts and two 7 ms sleeps."
+        "says": "registering a token that is already there adds nothing and reports false"
       },
       {
-        "id": "practice.ResilientExecutorTest#givesUpWithTheLastException",
-        "kind": "edge",
-        "says": "When the strategy says stop, the exception thrown is the task's last exception itself."
+        "id": "practice.DeviceTokensTest#rotateReplacesARegisteredToken",
+        "kind": "main",
+        "says": "rotating a registered token replaces it; rotating an unknown one changes nothing"
       },
       {
-        "id": "practice.ResilientExecutorTest#theInjectedStrategyDecidesHowOftenToRetry",
+        "id": "practice.DeviceTokensTest#twoRegistrationsOfOneTokenAtOnceStoreItOnce",
         "kind": "edge",
-        "says": "A never-retry strategy stops after 1 attempt, and a 5-retry strategy survives 5 failures."
+        "says": "two threads registering the same token at once leave it stored once, even though the list inside is a synchronized list"
       },
       {
-        "id": "practice.ResilientExecutorTest#backoffDoublesAndIsCapped",
+        "id": "practice.DeviceTokensTest#aRegistrationDuringARotationOntoTheSameTokenStoresItOnce",
         "kind": "edge",
-        "says": "ExponentialBackoff(5, 100, 1000) waits 100, 200, 400, 800, 1000, 1000 and retries through attempt 5."
+        "says": "a registration of a token that a rotation is about to write waits for the rotation, so the token is stored once"
       },
       {
-        "id": "practice.ResilientExecutorTest#aHugeAttemptStillWaitsTheCap",
+        "id": "practice.DeviceTokensTest#aRotationOntoATokenAlreadyRegisteredChangesNothing",
         "kind": "edge",
-        "says": "delayMillis(64) and delayMillis(Integer.MAX_VALUE) return the 1000 ms cap, not an overflowed delay."
+        "says": "a rotation that can't happen leaves the old token registered"
       }
     ],
     "report": {
@@ -146,12 +141,10 @@
     },
     "origin": {
       "path": "34-composition-inheritance/README_8.4.2.md",
-      "section": "Interview Q&A Section"
+      "section": "A Class That Owns the State and the Lock Doesn't Depend on What It Wraps"
     },
     "concepts": [
-      "Exponential backoff doubles the delay each attempt and caps it, computing the doubling so a large attempt cannot overflow to a zero or negative delay.",
-      "When the strategy says stop, the executor rethrows the last exception the task threw.",
-      "Retry behaviour is a strategy object injected into the executor, so a policy is swapped without subclassing the executor."
+      "A class that keeps the collection private and runs every read and write under its own lock makes a compound action atomic whatever the inner collection is."
     ]
   }
 }

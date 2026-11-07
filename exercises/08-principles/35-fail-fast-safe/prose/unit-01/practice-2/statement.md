@@ -1,34 +1,12 @@
-Removing through the collection inside a for-each loop is the classic fail-fast bug. The page's
-wrong version and its two fixes:
+The nightly report export reads a small settings file when it starts. Last month an operator set
+`export.batchsize=40` to ease the load on the database; the export ran with batches of 500 all
+week, and nobody knew until the database team asked. Another night the file was deployed without
+its `export.dir` line, and the reports were written to whatever directory the exporter happened to
+start in.
 
-```java
-// WRONG -- usually throws ConcurrentModificationException (and if "remove-me" is the
-// second-to-last element, the loop just ends early and silently skips the last one)
-for (String item : list) {
-    if (item.equals("remove-me")) {
-        list.remove(item);
-    }
-}
+`ExportSettings.from(...)` already builds the settings from the three methods it calls. Finish the
+three `TODO`s in `src/main/java/practice/ExportSettings.java`, using `DEFAULTS` and `REQUIRED`.
 
-// FIX -- use Iterator.remove()
-Iterator<String> it = list.iterator();
-while (it.hasNext()) {
-    if (it.next().equals("remove-me")) {
-        it.remove();
-    }
-}
-
-// BETTER FIX (Java 8+) -- use removeIf
-list.removeIf(item -> item.equals("remove-me"));
-```
-
-Write `removeAll(List<String> items, String target)` in `Purge`. It removes every element equal
-to `target` from the caller's list, in place, and keeps the order of the rest. `target` is
-never `null`, but the list may hold `null` elements, which stay.
-
-- `["keep", "drop", "keep2", "drop"]` with `"drop"` becomes `["keep", "keep2"]`;
-- matches next to each other are all removed: `["drop", "drop", "keep"]` becomes `["keep"]`;
-- elements are compared by content, so a `"drop"` built at run time is removed too;
-- only an exact match goes: `"Drop"` and `"drop "` (other case, a trailing space) stay, and so
-  does a different string that happens to share the target's hash code;
-- `["a", null, "drop"]` becomes `["a", null]`.
+When you're done, a file the exporter can use starts it, with the defaults filling in the optional
+settings the file leaves out. A file it can't use stops it with an `IllegalArgumentException` whose
+message names the setting at fault. About twelve lines in total.

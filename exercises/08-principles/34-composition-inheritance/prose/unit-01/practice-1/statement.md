@@ -1,38 +1,15 @@
-The page's classic bug: a subclass of `HashSet` counts the elements added to it, and gets
-the count wrong.
+The config service keeps feature flags in a `Map<String, Boolean>`, and the audit needs to know
+how many flag writes each deploy made. Flags are written one at a time from the admin UI (`put`)
+and in batches by the config sync (`putAll`). The store isn't always the same map: production
+passes a `HashMap`, the nightly report a `TreeMap` so its output is sorted. The audit also
+compares each snapshot of the flags with the previous one, and keeps the snapshots it has
+already filed in a `HashSet` so the same one isn't filed twice.
 
-```java
-public class InstrumentedHashSet<E> extends HashSet<E> {
-    private int addCount = 0;
+`WriteCountingMap.java` holds a `WriteCountingMap` that wraps whatever map it is given, on top of
+a `ForwardingMap` that already passes every `Map` method on to that map. Finish the four `TODO`
+methods, about six lines in total:
 
-    @Override
-    public boolean add(E e) {
-        addCount++;
-        return super.add(e);
-    }
-
-    @Override
-    public boolean addAll(Collection<? extends E> c) {
-        addCount += c.size();
-        return super.addAll(c); // BUG: HashSet.addAll calls add() internally!
-    }
-}
-```
-
-`HashSet.addAll` calls `add` for each element, so every element is counted twice. That is
-the **fragile base class problem**: the subclass depends on how its superclass is
-implemented, not only on its contract.
-
-The fix is **composition**: a `ForwardingSet` holds any `Set` and forwards each call to it,
-and `InstrumentedSet` extends the forwarding class, not `HashSet`. The starter gives you
-`ForwardingSet` with the `Set` methods already forwarded. Finish it:
-
-- `InstrumentedSet.add` and `addAll` count every element offered (duplicates included), and
-  `getAddCount()` returns the count. `add("a")`, `add("b")`, `add("a")` gives a count of 3
-  and a set of 2, and `addAll` of three elements adds exactly 3. A duplicate offered to
-  `addAll` counts too: `add("a")` then `addAll(List.of("a", "b"))` gives a count of 3;
-- the wrapper is a **view** of the set it wraps: what is added through it lands in that set,
-  and what is added to that set is seen through it;
-- `ForwardingSet` also forwards `equals`, `hashCode` and `toString`, so the wrapper equals
-  any set with the same elements, and such a set equals the wrapper;
-- the constructor refuses a `null` set with a `NullPointerException` (`Objects.requireNonNull`).
+- `WriteCountingMap.put` and `putAll`: `writes()` counts every mapping written through the
+  wrapper, an overwrite of an existing key included, whichever map is underneath;
+- `ForwardingMap.equals` and `hashCode`: a wrapper compares and hashes like the map it wraps, so
+  the audit's comparisons and its `HashSet` treat it as the flags it holds.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Find a method by its exact signature",
+  "title": "Give the ops console's commands the right status",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,51 @@
     },
     {
       "type": "para",
-      "text": "`getDeclaredMethod(name, types...)` wants the **exact** parameter types. Autoboxing does not apply to lookup: a method `add(int, int)` is not found with `Integer.class, Integer.class`. With overloads the types pick the method. `getDeclaredMethod` searches only the class itself, and `getMethod` finds public methods only."
+      "text": "The warehouse's ops console lets an operator type a command, such as `reserve SKU-7731 12`, and runs the public method of that name on a handler object. The console colours its reply by status, and the on-call rota is paged for every 500. Operators complain that a typo in a quantity pages someone, while a quantity typed as a word gets an answer that blames the command."
     },
     {
       "type": "para",
-      "text": "Write `MethodFinder`:"
+      "text": "`call(...)` already finds the method. Finish the `TODO` in `src/main/java/practice/Dispatcher.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`find(type, name, params...)`: the method with exactly these parameter types, declared on `type` or **any superclass** at **any access level**, or `Optional.empty()`.",
-        "`overloads(type, name)`: `\"name(Type,Type)\"` (simple type names, no spaces) for every method `type` itself declares with that name, **private ones too**, sorted."
+        "`run(method, args)`: call the method on the handler and turn what happened into a `Reply`."
       ]
     },
     {
       "type": "para",
-      "text": "With `Base { private String secret(); }` and `MathOps extends Base { public int add(int,int); public double add(double,double); private long add(long,long); ... }`:"
+      "text": "The statuses the console expects:"
     },
     {
       "type": "table",
       "headers": [
-        "call",
-        "result"
+        "What happened",
+        "Reply"
       ],
       "rows": [
         [
-          "`find(MathOps.class, \"add\", int.class, int.class)`",
-          "the `int` version"
+          "the command returned",
+          "200, `String.valueOf` of the result"
         ],
         [
-          "`find(MathOps.class, \"add\", Integer.class, Integer.class)`",
-          "empty"
+          "the command threw `IllegalArgumentException`",
+          "422, the command's message"
         ],
         [
-          "`find(MathOps.class, \"secret\")`",
-          "`Base.secret`"
+          "the arguments don't fit the command's parameters",
+          "400, starting with `bad arguments`"
         ],
         [
-          "`overloads(MathOps.class, \"add\")`",
-          "`[add(double,double), add(int,int), add(long,long)]`"
+          "the command threw anything else",
+          "500, the simple class name of what it threw"
         ]
       ]
+    },
+    {
+      "type": "para",
+      "text": "About ten lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +78,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.Arrays;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.stream.Collectors;\n\npublic final class MethodFinder {\n\n    private MethodFinder() {\n    }\n\n    /** The method with exactly these parameter types on type or a superclass, any access level. */\n    public static Optional<Method> find(Class<?> type, String name, Class<?>... params) {\n        for (Class<?> current = type; current != null; current = current.getSuperclass()) {\n            try {\n                return Optional.of(current.getDeclaredMethod(name, params));\n            } catch (NoSuchMethodException e) {\n                // not declared here: try the parent\n            }\n        }\n        return Optional.empty();\n    }\n\n    /** \"name(Type,Type)\" for every method type declares with that name, sorted. */\n    public static List<String> overloads(Class<?> type, String name) {\n        return Arrays.stream(type.getDeclaredMethods())\n                .filter(m -> m.getName().equals(name))\n                .map(MethodFinder::signature)\n                .sorted()\n                .toList();\n    }\n\n    private static String signature(Method method) {\n        return method.getName() + Arrays.stream(method.getParameterTypes())\n                .map(Class::getSimpleName)\n                .collect(Collectors.joining(\",\", \"(\", \")\"));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\n\n/** Runs an operator's command by name against a handler object, for the ops console. */\npublic final class Dispatcher {\n\n    /** What the console shows: an HTTP-like status and a line of text. */\n    public record Reply(int status, String body) {\n    }\n\n    private final Object handler;\n\n    public Dispatcher(Object handler) {\n        this.handler = handler;\n    }\n\n    /** Runs the handler's public method called {@code command} with {@code args}. */\n    public Reply call(String command, Object... args) {\n        for (Method method : handler.getClass().getMethods()) {\n            if (method.getName().equals(command) && method.getDeclaringClass() != Object.class) {\n                return run(method, args);\n            }\n        }\n        return new Reply(404, \"no command \" + command);\n    }\n\n    /**\n     * 200 with {@code String.valueOf} of the result when the command completes; 422 with the\n     * command's own message when the command rejects its input with an\n     * {@code IllegalArgumentException}; 400, starting \"bad arguments\", when the arguments don't\n     * fit the command's parameters; 500 with the simple class name of whatever else the command\n     * threw.\n     */\n    Reply run(Method method, Object... args) {\n        try {\n            return new Reply(200, String.valueOf(method.invoke(handler, args)));\n        } catch (InvocationTargetException e) {\n            Throwable cause = e.getCause();\n            if (cause instanceof IllegalArgumentException) return new Reply(422, cause.getMessage());\n            return new Reply(500, cause.getClass().getSimpleName());\n        } catch (IllegalArgumentException e) {\n            return new Reply(400, \"bad arguments for \" + method.getName() + \": \" + e.getMessage());\n        } catch (IllegalAccessException e) {\n            return new Reply(500, e.getClass().getSimpleName());\n        }\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +90,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class MethodFinder {\n\n    private MethodFinder() {\n    }\n\n    /** The method with exactly these parameter types on type or a superclass, any access level. */\n    public static Optional<Method> find(Class<?> type, String name, Class<?>... params) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** \"name(Type,Type)\" for every method type declares with that name, sorted. */\n    public static List<String> overloads(Class<?> type, String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Method;\n\n/** Runs an operator's command by name against a handler object, for the ops console. */\npublic final class Dispatcher {\n\n    /** What the console shows: an HTTP-like status and a line of text. */\n    public record Reply(int status, String body) {\n    }\n\n    private final Object handler;\n\n    public Dispatcher(Object handler) {\n        this.handler = handler;\n    }\n\n    /** Runs the handler's public method called {@code command} with {@code args}. */\n    public Reply call(String command, Object... args) {\n        for (Method method : handler.getClass().getMethods()) {\n            if (method.getName().equals(command) && method.getDeclaringClass() != Object.class) {\n                return run(method, args);\n            }\n        }\n        return new Reply(404, \"no command \" + command);\n    }\n\n    /**\n     * 200 with {@code String.valueOf} of the result when the command completes; 422 with the\n     * command's own message when the command rejects its input with an\n     * {@code IllegalArgumentException}; 400, starting \"bad arguments\", when the arguments don't\n     * fit the command's parameters; 500 with the simple class name of whatever else the command\n     * threw.\n     */\n    Reply run(Method method, Object... args) {\n        // TODO: call the method on the handler and turn what happens into a Reply.\n        throw new IllegalStateException(\"TODO: run \" + method.getName());\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,7 +98,7 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
     "tables": 1,
     "lists": 1,
@@ -106,11 +109,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7307898cf161a9e9b74449f5d8ee2f3988eeedc0ee7bb2d27f29e53e44a40ffa",
-  "starting_code": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class MethodFinder {\n\n    private MethodFinder() {\n    }\n\n    /** The method with exactly these parameter types on type or a superclass, any access level. */\n    public static Optional<Method> find(Class<?> type, String name, Class<?>... params) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** \"name(Type,Type)\" for every method type declares with that name, sorted. */\n    public static List<String> overloads(Class<?> type, String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "37b10fe45d6acf4b8be69b3f089ac9ebeac1a5d590eb56a6fd386ac3d8c4bcee",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Method;\n\n/** Runs an operator's command by name against a handler object, for the ops console. */\npublic final class Dispatcher {\n\n    /** What the console shows: an HTTP-like status and a line of text. */\n    public record Reply(int status, String body) {\n    }\n\n    private final Object handler;\n\n    public Dispatcher(Object handler) {\n        this.handler = handler;\n    }\n\n    /** Runs the handler's public method called {@code command} with {@code args}. */\n    public Reply call(String command, Object... args) {\n        for (Method method : handler.getClass().getMethods()) {\n            if (method.getName().equals(command) && method.getDeclaringClass() != Object.class) {\n                return run(method, args);\n            }\n        }\n        return new Reply(404, \"no command \" + command);\n    }\n\n    /**\n     * 200 with {@code String.valueOf} of the result when the command completes; 422 with the\n     * command's own message when the command rejects its input with an\n     * {@code IllegalArgumentException}; 400, starting \"bad arguments\", when the arguments don't\n     * fit the command's parameters; 500 with the simple class name of whatever else the command\n     * threw.\n     */\n    Reply run(Method method, Object... args) {\n        // TODO: call the method on the handler and turn what happens into a Reply.\n        throw new IllegalStateException(\"TODO: run \" + method.getName());\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-3/src/main/java/practice/MethodFinder.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-3/src/test/java/practice/MethodFinderTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-3/src/main/java/practice/Dispatcher.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-3/src/test/java/practice/DispatcherTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +134,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.MethodFinderTest#findsAMethodAndListsPublicOverloads",
+        "id": "practice.DispatcherTest#aCommandThatCompletesIs200AndOneThatFailsIs500NamingWhatItThrew",
         "kind": "main",
-        "says": "find(MathOps, \"add\", int, int) is the int version, a missing name is empty, and overloads(MathOps, \"scale\") lists both public overloads."
+        "says": "a command that completes answers 200 with its result, and one that fails answers 500 with the name of the exception it threw, checked or unchecked"
       },
       {
-        "id": "practice.MethodFinderTest#wrapperTypesDoNotFindAPrimitiveMethod",
+        "id": "practice.DispatcherTest#aCommandRejectingItsInputIs422WithTheCommandsMessage",
         "kind": "edge",
-        "says": "find(MathOps, \"add\", Integer, Integer) is empty: add takes int, and lookup does not box."
+        "says": "an IllegalArgumentException thrown by the command itself answers 422 with the command's message"
       },
       {
-        "id": "practice.MethodFinderTest#aPrivateMethodOfASuperclassIsFound",
+        "id": "practice.DispatcherTest#argumentsThatDontFitTheCommandAre400",
         "kind": "edge",
-        "says": "find(MathOps, \"secret\") finds the private method MathOps inherits from Base."
-      },
-      {
-        "id": "practice.MethodFinderTest#overloadsListEveryAccessLevel",
-        "kind": "edge",
-        "says": "overloads(MathOps, \"add\") holds the private add(long,long) as well as the two public ones."
+        "says": "arguments of the wrong type or number answer 400, not 422, although the call fails with an IllegalArgumentException"
       }
     ],
     "report": {
@@ -157,11 +155,10 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Method.invoke Wraps the Method's Exceptions and Throws Its Own Argument Errors Unwrapped"
     },
     "concepts": [
-      "Method and constructor lookup needs the exact parameter types, so Integer.class does not find an int parameter, and overloads are told apart by their types.",
-      "getMethods() and getConstructors() return public members only, while the getDeclared...() family returns the class's own members at every access level."
+      "Method.invoke wraps whatever the method throws, checked or unchecked, in InvocationTargetException, while its own refusal of unfitting arguments is an unwrapped IllegalArgumentException."
     ]
   }
 }

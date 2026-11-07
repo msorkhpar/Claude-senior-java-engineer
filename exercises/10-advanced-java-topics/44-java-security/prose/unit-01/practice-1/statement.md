@@ -1,24 +1,15 @@
-The page's rule is **validate with an allow-list**: say exactly what is
-allowed and refuse everything else, rather than hunting for bad patterns.
-Unicode input is first **normalized with NFKC**, so that different encodings of
-the same text (full-width letters, for example) are validated as one form.
-Normalization does not remove homoglyphs, so the allow-list itself stays
-**ASCII only**.
+Members of a community site choose a public handle at sign-up. Last week someone registered
+`ｓｕｐｐｏｒｔ`, in full-width letters. On a profile page it looks like the staff account, and the
+mention service, which looks handles up after NFKC normalisation, now delivers some `@support`
+mentions to it. A second account, `ѕupport`, starts with a Cyrillic letter.
 
-Write `SignupForm` with two methods; both refuse bad input (including `null`)
-with `IllegalArgumentException`:
+`HandleRegistry.register` already refuses reserved and taken handles. Finish the two `TODO`s in
+`src/main/java/practice/HandleRegistry.java`:
 
-- `username(raw)`: normalizes `raw` with NFKC, then accepts it only if **the
-  whole input** is 3 to 20 ASCII letters or digits, and returns the
-  **normalized** username.
-- `age(raw)`: accepts only ASCII digits whose value is 0 to 150, and returns
-  the number.
+- `canonical(raw)`: the form of the handle that the registry checks, stores and compares;
+- `allowed(handle)`: whether the handle keeps to the rules below.
 
-| call | result |
-|---|---|
-| `username("alice99")` | `"alice99"` |
-| `username("ａｌｉｃｅ")` (full-width) | `"alice"` |
-| `username("bob!")`, `username("ab")` | `IllegalArgumentException` |
-| `username("аdmin")` (Cyrillic `а`) | `IllegalArgumentException` |
-| `age("42")`, `age("150")` | `42`, `150` |
-| `age("151")`, `age("+42")`, `age("abc")` | `IllegalArgumentException` |
+A handle is 3 to 20 characters long, each one a lowercase letter of the Latin script (accents are
+fine: `zoë_m`, `renée`), a digit `0`–`9`, or `_`. When you're done, any two spellings the mention
+service treats as one handle are one handle here too, and a handle that only looks like a Latin
+one is refused. About three lines in total.

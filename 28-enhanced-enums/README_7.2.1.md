@@ -1,375 +1,325 @@
 # 7.2.1. Limitations of Traditional Enums
 
-## Concept Explanation
+Release 2 of the order service adds `ON_HOLD` to `OrderStatus`, between `PAID` and `SHIPPED`,
+where it reads best. The morning after the deploy, every shipped order shows as on hold and every
+delivered one as shipped. Nobody touched the database, and nothing threw. The status column holds
+`ordinal()`, which is what JPA stores unless the mapping says `EnumType.STRING`.
 
-Java enums, introduced in Java 5, are a powerful feature that provides type-safe constants. An enum type is a special
-class that implicitly extends `java.lang.Enum<E>` and whose instances are fixed at compile time. While enums solve many
-problems elegantly -- such as replacing magic constants, providing type safety, and enabling switch exhaustiveness
-checking -- they come with significant limitations that senior Java engineers must understand.
+An enum is a class with a fixed list of instances, and most of its limits follow from that.
 
-**Real-world analogy**: Think of a traditional enum like a printed restaurant menu. The items are fixed when printed
-(compile time), every item is the same "type" (a menu entry), and you cannot add daily specials at runtime. If you want
-a different cuisine, you need an entirely new menu. Enhanced enum patterns are like a digital menu system where items can
-carry rich metadata, link to different preparation strategies, and be extended dynamically.
+## An Enum's Type Is Closed: It Can't Extend a Class, Take a Type Parameter, or Be Extended
 
-The limitations fall into several categories: inability to be generic, inability to extend other classes, fixed constant
-sets, no runtime instantiation, and shared type constraints across all constants.
-
-## Key Points to Remember
-
-1. **Enums implicitly extend `java.lang.Enum<E>`** -- because Java allows only single inheritance, enums cannot extend
-   any other class.
-2. **Enums cannot be generic** -- you cannot write `enum Setting<T>`. Every constant shares the same type parameter
-   constraints.
-3. **Enum constants are fixed at compile time** -- no new instances can be created at runtime: `new` on an enum is a
-   compile error, and reflective `Constructor.newInstance` throws `IllegalArgumentException("Cannot reflectively create
-   enum objects")`.
-4. **All constants share the same return type** -- if one constant returns `Integer` and another returns `String`, the
-   common method signature must use `Object` or require unsafe casts.
-5. **Enums cannot be subclassed** (even though no keyword is written) -- an enum is implicitly `final`, or implicitly
-   `sealed` when some constants have class bodies; either way you cannot extend it to add more constants.
-6. **Serialization is special** -- enums are serialized by name only; custom fields are not serialized by the default
-   mechanism.
-7. **EnumSet and EnumMap only work with a single enum type** -- you cannot mix constants from different enums in one
-   `EnumSet`.
-
-## Relevant Java 21 Features
-
-- **Sealed classes and interfaces (JEP 409)**: Provide an alternative to enums when you need a fixed set of subtypes
-  that can each carry different generic parameters.
-- **Pattern matching for switch (JEP 441)**: Works with sealed hierarchies as well as enums, making sealed types a
-  viable replacement for some enum patterns.
-- **Record patterns (JEP 440)**: When combined with sealed interfaces, records can simulate "generic enum constants"
-  where each constant is a record with its own type parameter.
-- **Evolution**: Java 5 introduced enums; Java 8 added lambda support that makes enum-based strategy patterns cleaner;
-  Java 17 sealed classes opened new design options; Java 21 completes pattern matching for exhaustive switch on sealed
-  types.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using `Object` as a catch-all return type**
-
-   ```java
-   // Problem: No type safety, ClassCastException at runtime
-   public enum Setting {
-       MAX_RETRIES("maxRetries", 3),
-       APP_NAME("appName", "MyApp");
-       
-       private final String key;
-       private final Object value;
-       Setting(String key, Object value) { this.key = key; this.value = value; }
-       public Object getValue() { return value; }
-   }
-   // Caller must cast: Integer retries = (Integer) Setting.MAX_RETRIES.getValue();
-   ```
-
-   **Fix**: Use a sealed interface with per-constant records (see section 7.2.2) or store a `Class<?>` token and
-   provide a checked cast method.
-
-2. **Trying to subclass an enum to extend it**
-
-   ```java
-   // This will NOT compile
-   // enum ExtendedSeverity extends StandardSeverity { CRITICAL }
-   ```
-
-   **Fix**: Define a common interface (e.g., `Severity`) and have multiple enums implement it.
-
-3. **Assuming enum fields are serialized**
-
-   ```java
-   // Problem: transient-like behavior for custom fields during serialization
-   public enum Color {
-       RED(255, 0, 0);
-       private final int r, g, b;
-       // These fields are NOT included in default enum serialization
-   }
-   ```
-
-   **Fix**: Don't rely on serialization for this state. `readResolve`, `writeReplace`, `readObject` and `writeObject`
-   are all ignored for enums; the receiving side gets its own constant (looked up by `name()`) with whatever field values
-   that JVM has. Serialize the extra state separately (e.g., in a DTO) if it must travel.
-
-4. **Using `ordinal()` for persistent storage**
-
-   ```java
-   // Problem: Reordering constants breaks persisted ordinals
-   database.store(status.ordinal()); // Fragile!
-   ```
-
-   **Fix**: Use `name()` or a dedicated stable code field for persistence.
-
-## Best Practices and Optimization Techniques
-
-1. **Use interfaces for cross-enum polymorphism** -- define a common interface and have multiple enums implement it.
-2. **Use `safeValueOf` utility** -- wrap `Enum.valueOf` with `Optional` to avoid `IllegalArgumentException`.
-3. **Create lookup maps** -- for frequently accessed enums by a non-name key, build a static `Map` in a static
-   initializer block.
-4. **Prefer `EnumSet` and `EnumMap`** -- they are highly optimized (backed by bit vectors and arrays respectively).
-5. **Consider sealed interfaces** -- for cases where you need generic type parameters per constant, sealed interfaces
-   with records are often a cleaner solution than workaround patterns.
-
-## Edge Cases and Their Handling
-
-1. **Null handling in `Enum.valueOf()`**: Passing `null` to `Enum.valueOf()` throws `NullPointerException`. Always
-   validate input before lookup.
-2. **Empty enums**: An enum with zero constants is legal but unusual; `values()` returns an empty array.
-3. **Enum constants with the same field values**: Two constants can have identical constructor arguments; they remain
-   distinct instances (`==` comparison works, `.equals()` uses identity).
-4. **Thread safety of enum initialization**: Enum constants are initialized in a thread-safe manner by the JVM class
-   loader. However, mutable state within enum constants (e.g., collections) still requires synchronization.
-
-## Interview-specific Insights
-
-Interviewers often ask about enum limitations to gauge whether a candidate can make architectural decisions about when to
-use enums vs. other patterns. Key areas:
-
-- Why enums cannot be generic and what workarounds exist
-- The difference between enum extensibility and interface-based extensibility
-- When sealed classes are preferable to enums
-- Thread safety guarantees of enum initialization
-- Serialization behavior of enums
-
-Common tricky questions:
-
-- "Can you extend an enum to add more constants?"
-- "Why are enums implicitly final?"
-- "What happens if you serialize an enum with custom fields?"
-
-## Interview Q&A Section
-
-**Q1: What are the main limitations of Java enums?**
+Three designs come up in review: a `Plan` enum that inherits pricing rules from a base class, a
+`Key<T>` enum whose constants carry their value type, and a plug-in that adds a `CRITICAL` level
+to the core `Severity` enum. None of them compiles (javac 21; the first error of each):
 
 ```text
-A1: The main limitations of Java enums are:
-
-1. Cannot be generic - you cannot declare `enum Foo<T>`. All constants share the same type.
-2. Cannot extend classes - enums implicitly extend java.lang.Enum, and Java has single inheritance.
-3. Fixed constant set - instances are determined at compile time; no new instances at runtime.
-4. All constants share the same method return types - you cannot have one constant return Integer
-   and another return String in a type-safe way without using Object.
-5. Cannot be subclassed - enums are effectively final; you cannot add constants via inheritance.
-6. Serialization only preserves the name - custom fields come from the receiving JVM's constant,
-   not from the serialized stream.
-
-These limitations mean that for complex scenarios requiring per-constant type parameters or
-runtime extensibility, alternative patterns (sealed interfaces, class hierarchies) may be better.
+a/Plan.java:3: error: '{' expected
+enum Plan extends BaseRule { FREE, PRO }
+         ^
+b/Key.java:1: error: enums cannot be generic
+enum Key<T> { TIMEOUT, NAME }
+         ^
+c/Severities.java:3: error: cannot inherit from final Severity
+class Critical extends Severity { }
+                       ^
+c/Severities.java:3: error: enum classes are not extensible
+class Critical extends Severity { }
+^
 ```
 
-```java
-// Demonstrating the limitation: no generics
-// This is ILLEGAL in Java:
-// enum Setting<T> { MAX_RETRIES(3), APP_NAME("MyApp"); }
+Every enum `E` already extends `java.lang.Enum<E>`, and a class has one superclass, so the enum
+grammar has no `extends` clause at all: the first error is a parse error. Writing that superclass
+yourself is refused too:
 
-// Workaround: Use Object and unsafe cast
-enum Setting {
-    MAX_RETRIES("maxRetries", 3),
-    APP_NAME("appName", "MyApp");
-    
-    private final String key;
-    private final Object value;
-    Setting(String key, Object value) { this.key = key; this.value = value; }
-    
-    @SuppressWarnings("unchecked")
-    public <T> T getValue() { return (T) value; }
+```text
+d/MyEnum.java:1: error: classes cannot directly extend java.lang.Enum
+abstract class MyEnum extends Enum<MyEnum> { }
+         ^
+```
+
+The constants are all the instances there are, created when the enum class initialises. A
+subclass could add instances that `values()`, `switch` and `EnumSet` don't know, so subclassing
+is forbidden. An enum with no constant bodies is implicitly `final`.
+
+The missing type parameter is a language choice, not an effect of erasure: a generic class can
+hold `static final` constants with different type arguments. JEP 301 proposed generic enums and
+was withdrawn. In Java 21 a constant can't say "my value is an `Integer`". A shared `Object`
+field and a cast at every call site is what teams write instead, and a wrong cast fails at the
+caller, at run time.
+
+What does work: an enum may implement interfaces, so several enums can share a contract (unit
+7.2.3), and typed keys are a final class or a sealed interface with records (unit 7.2.2).
+
+## A Constant With a Body Is an Anonymous Subclass, So getClass() Isn't the Enum
+
+A constant may override a method in a body of its own:
+
+```java
+enum Fee {
+    FLAT {
+        long on(long cents) { return 30; }
+    },
+    PERCENT {
+        long on(long cents) { return cents * 2 / 100; }
+    },
+    NONE;
+
+    long on(long cents) { return 0; }
 }
 ```
 
-**Q2: Why can't Java enums extend other classes?**
-
-```text
-A2: Java enums cannot extend other classes because every enum implicitly extends
-java.lang.Enum<E extends Enum<E>>. Since Java supports only single inheritance for classes,
-the inheritance slot is already taken. This is a deliberate design choice:
-
-1. java.lang.Enum provides essential functionality: name(), ordinal(), compareTo(),
-   the static valueOf(Class, String), serialization support, and identity-based
-   equals/hashCode. (values() and valueOf(String) are generated by the compiler for
-   each enum type; they are not members of java.lang.Enum.)
-2. The Enum base class ensures consistent behavior across all enum types.
-3. The self-referential generic bound (Enum<E extends Enum<E>>) enables type-safe
-   operations like compareTo.
-
-However, enums CAN implement multiple interfaces, which provides the primary
-extensibility mechanism for enums. This is the standard workaround for the
-inheritance limitation.
-```
-
 ```java
-// Enums can implement interfaces as a workaround
-interface Severity {
-    String label();
-    int level();
-}
-
-enum StandardSeverity implements Severity {
-    LOW("Low", 1), MEDIUM("Medium", 2), HIGH("High", 3);
-    private final String label;
-    private final int level;
-    StandardSeverity(String label, int level) { this.label = label; this.level = level; }
-    public String label() { return label; }
-    public int level() { return level; }
+for (Fee f : Fee.values()) {
+    System.out.printf("%-8s getClass()=%-12s getDeclaringClass()=%s%n",
+            f, f.getClass().getName(), f.getDeclaringClass().getName());
 }
 ```
 
-**Q3: How does enum serialization work, and what are the gotchas?**
-
 ```text
-A3: Enum serialization in Java is handled specially:
-
-1. Only the enum constant's name is serialized (not ordinal or custom fields).
-2. During deserialization, Enum.valueOf() is called to reconstruct the instance.
-3. This means the deserialized object is always the same singleton instance (==).
-4. Custom writeObject/readObject methods are ignored for enums.
-5. Enums are immune to the "create a second instance via deserialization" attack
-   that affects regular Singletons.
-
-Gotchas:
-- If you rename an enum constant, previously serialized data becomes invalid.
-- If you remove an enum constant, deserialization throws InvalidObjectException
-  ("enum constant X does not exist in class Y").
-- Adding new constants is safe for deserialization of old data.
-- Custom mutable state in enums is NOT persisted; the deserialized reference is the receiving
-  JVM's existing constant, with whatever state that constant has there.
+FLAT     getClass()=Bodies$Fee$1 getDeclaringClass()=Bodies$Fee
+PERCENT  getClass()=Bodies$Fee$2 getDeclaringClass()=Bodies$Fee
+NONE     getClass()=Bodies$Fee   getDeclaringClass()=Bodies$Fee
 ```
+
+Each body compiles to a class of its own, `Fee$1` and `Fee$2`, which extends `Fee`. These are the
+only subclasses the language allows: each is `final`, and `Fee` becomes implicitly `sealed`,
+permitting exactly them (`Fee.class.isSealed()` printed `true`).
+`getDeclaringClass()` returns the enum for every constant; `getClass()` returns it only for
+constants without a body.
+
+Code that identifies a value by `getClass()` now treats two constants of one enum differently.
+A formatter registry keyed by class:
 
 ```java
-// Serialization example
-enum Status { ACTIVE, INACTIVE }
-
-// Serialization writes only "ACTIVE"
-// Deserialization calls Status.valueOf("ACTIVE") -> same instance
-// Status.ACTIVE == deserializedStatus is TRUE
+Map<Class<?>, String> formats = new HashMap<>();
+formats.put(Fee.class, "fee");
+for (Fee f : Fee.values()) {
+    System.out.println("format for " + f + ": " + formats.get(f.getClass()));
+}
 ```
-
-**Q4: How can you create a type-safe lookup for enum constants by a non-name key?**
 
 ```text
-A4: The standard pattern is to build a static unmodifiable Map in a static initializer
-or using a stream collector. This avoids iterating through values() on every lookup,
-providing O(1) access instead of O(n).
-
-Key considerations:
-1. Build the map once in a static block or static final field.
-2. Use Collections.unmodifiableMap() or Collectors.toUnmodifiableMap() to prevent modification.
-3. Return Optional from the lookup method to avoid null/exception confusion.
-4. Ensure the key extractor produces unique values; duplicates cause exceptions
-   with toUnmodifiableMap().
+format for FLAT: null
+format for PERCENT: null
+format for NONE: fee
 ```
 
-```java
-import java.util.*;
-import java.util.stream.Collectors;
+The same run printed `false` for `FLAT.getClass().isEnum()` and an empty string for
+`FLAT.getClass().getSimpleName()`, so a log line built from it shows no type at all.
+`EnumSet.allOf(FLAT.getClass())` doesn't compile, but framework code that holds the class as a raw
+`Class` and passes it on gets `ClassCastException: class Bodies$Fee$1 not an enum`. All of this
+starts the day someone adds a body to one constant.
 
-enum HttpStatus {
-    OK(200), NOT_FOUND(404), ERROR(500);
-    
-    private final int code;
-    HttpStatus(int code) { this.code = code; }
-    
-    // Pre-built lookup map for O(1) access
-    private static final Map<Integer, HttpStatus> CODE_MAP =
-        Arrays.stream(values())
-              .collect(Collectors.toUnmodifiableMap(s -> s.code, s -> s));
-    
-    public static Optional<HttpStatus> fromCode(int code) {
-        return Optional.ofNullable(CODE_MAP.get(code));
+What doesn't break: `instanceof Fee`, `switch`, `EnumSet.of(FLAT)`, `EnumMap` keys and
+`Enum.valueOf(Fee.class, ...)` all go through the declared enum type. Use `getDeclaringClass()`
+wherever code asks "which enum is this?"
+
+<!-- practice 1 -->
+
+## An Ordinal Is a Position, and Inserting a Constant Moves It
+
+`ordinal()` is the constant's index in declaration order. The opening incident, in two releases
+and three rows:
+
+```java
+/** Release 1. */
+enum Status { PLACED, PAID, SHIPPED, DELIVERED }
+
+/** Release 2: ON_HOLD added where it reads best, after PAID. */
+enum Status2 { PLACED, PAID, ON_HOLD, SHIPPED, DELIVERED }
+```
+
+Release 1 writes `ordinal()` into one column and `name()` into another; release 2 reads both back,
+with `Status2.values()[storedOrdinal]` and `Status2.valueOf(storedName)`:
+
+```text
+order 4711  stored as 1 -> PAID       stored as PAID      -> PAID
+order 4712  stored as 2 -> ON_HOLD    stored as SHIPPED   -> SHIPPED
+order 4713  stored as 3 -> SHIPPED    stored as DELIVERED -> DELIVERED
+```
+
+Every row after the insertion point now means the constant before it, and every one is a valid
+status, so no check fails. Support releases "held" orders that already shipped, and the
+warehouse ships them again. Rows written by release 2 use the new meaning; after a rollback to
+release 1 they shift again, and old and new rows can't be told apart. Deleting a constant or
+sorting the list alphabetically does the same.
+
+Never let an ordinal leave the running process: not into a database column, a message, a cache
+or a file. Store `name()`, or a code of your own that you never change (unit 7.2.3 maps a
+code back to its constant). Not `toString()`: a constant may override it with display text that
+`valueOf` doesn't know. JPA's `@Enumerated` defaults to `EnumType.ORDINAL`, so the safe mapping
+has to be written: `@Enumerated(EnumType.STRING)`. `EnumSet` and `EnumMap` use ordinals inside,
+which is safe because they never outlive the class.
+
+<!-- practice 2 -->
+
+## valueOf Accepts Only the Exact Name and Throws on Anything Else
+
+Storing names moves the risk to the read. `valueOf` is the generated lookup, and it is strict:
+
+```java
+String[] inputs = { "SHIPPED", "shipped", "SHIPPED ", "RETURNED", "", null };
+for (String in : inputs) {
+    String shown = in == null ? "null" : "\"" + in + "\"";
+    try {
+        System.out.printf("%-12s -> %s%n", shown, Status.valueOf(in));
+    } catch (RuntimeException e) {
+        System.out.printf("%-12s -> %s%n", shown, e);
     }
 }
 ```
 
-**Q5: When should you use a sealed interface hierarchy instead of an enum?**
+```text
+"SHIPPED"    -> SHIPPED
+"shipped"    -> java.lang.IllegalArgumentException: No enum constant ValueOf.Status.shipped
+"SHIPPED "   -> java.lang.IllegalArgumentException: No enum constant ValueOf.Status.SHIPPED
+"RETURNED"   -> java.lang.IllegalArgumentException: No enum constant ValueOf.Status.RETURNED
+""           -> java.lang.IllegalArgumentException: No enum constant ValueOf.Status.
+null         -> java.lang.NullPointerException: Name is null
+```
+
+It never returns `null`. A name it doesn't know is an `IllegalArgumentException`, but a `null`
+name is a `NullPointerException`, so a `catch (IllegalArgumentException e)` around it misses the
+nullable column.
+
+The unknown name is the production case. During a rolling deploy, release 3 writes `RETURNED`
+while release 2 still serves reads; a page that lists an order's history calls `valueOf` on every
+row, and one new row fails the whole page until the rollout ends, or for good after a rollback.
+Decide what an unknown name means (skip it, map it to `UNKNOWN`, or return an empty `Optional`) at
+the one boundary where names enter, not by letting the exception decide.
+
+Renaming a constant is now the breaking change that inserting one used to be: old rows hold the
+old name. Normalising case before the lookup has a trap of its own:
 
 ```text
-A5: Use sealed interfaces instead of enums when:
-
-1. You need per-constant generic type parameters (e.g., one constant holds Integer,
-   another holds String, with compile-time type safety).
-2. You need constants with different fields/structure (not just different values
-   of the same fields).
-3. You want pattern matching with deconstruction (record patterns in switch).
-4. You need to carry complex state that varies per subtype.
-
-Stick with enums when:
-1. All constants have the same structure and fields.
-2. You need EnumSet/EnumMap performance.
-3. You need ordinal-based ordering.
-4. You want built-in name()/valueOf() support.
-5. Serialization simplicity is important.
-
-Java 21's exhaustive switch on sealed types means sealed interfaces get the same
-compile-time exhaustiveness checking that enums enjoy.
+tr-TR: "shipped".toUpperCase() = SHİPPED
+  No enum constant ValueOf.Status.SHİPPED
+toUpperCase(Locale.ROOT) = SHIPPED
 ```
+
+Use `toUpperCase(Locale.ROOT)`.
+
+<!-- practice 3 -->
+
+## A Constructor Runs Before the Enum's Static Fields Are Assigned
+
+A currency enum that indexes itself by ISO code as each constant is built looks natural:
 
 ```java
-// Sealed interface approach for type-safe heterogeneous constants
-sealed interface AppSetting<T> permits AppSetting.MaxRetries, AppSetting.AppName {
-    String key();
-    T defaultValue();
-    Class<T> valueType();
-    
-    record MaxRetries() implements AppSetting<Integer> {
-        public String key() { return "max.retries"; }
-        public Integer defaultValue() { return 3; }
-        public Class<Integer> valueType() { return Integer.class; }
-    }
-    
-    record AppName() implements AppSetting<String> {
-        public String key() { return "app.name"; }
-        public String defaultValue() { return "MyApp"; }
-        public Class<String> valueType() { return String.class; }
-    }
+EUR("978"), USD("840"), JPY("392");
+
+private static final Map<String, Currency> BY_CODE = new HashMap<>();
+private static final int MAX_CODES = 3;          // a constant variable: allowed
+
+private final String code;
+
+Currency(String code) {
+    this.code = code;
+    if (code.length() > MAX_CODES) throw new IllegalArgumentException(code);
+    BY_CODE.put(code, this);
 }
 ```
-
-**Q6: What are the thread safety guarantees of enum initialization?**
 
 ```text
-A6: Enum initialization has strong thread safety guarantees:
-
-1. Enum constants are initialized during class loading, which is inherently
-   thread-safe (the JVM holds a lock on the class during initialization).
-2. All static fields and instance fields of enum constants are safely published
-   to all threads after class loading completes.
-3. This makes enums an excellent choice for thread-safe Singletons (the
-   "Enum Singleton" pattern recommended by Joshua Bloch in Effective Java).
-
-However, mutable state WITHIN enum constants is NOT automatically thread-safe:
-- If an enum constant contains a mutable collection or counter, concurrent
-  access still requires synchronization.
-- The initialization guarantee only covers the initial state, not subsequent
-  modifications.
-
-Best practice: Keep enum constants immutable. If you must have mutable state,
-use thread-safe data structures (ConcurrentHashMap, AtomicInteger, etc.).
+a/Currency.java:15: error: illegal reference to static field from initializer
+        BY_CODE.put(code, this);
+        ^
 ```
 
-```java
-// Thread-safe Singleton via enum
-enum DatabaseConnection {
-    INSTANCE;
-    
-    private final String url = "jdbc:mysql://localhost:3306/db";
-    
-    public void connect() {
-        // Thread-safe: INSTANCE is guaranteed to be a singleton
-    }
-}
+`BY_CODE` is declared after the constants, as it must be, since the constants come first in an
+enum's body. Static fields are assigned in the order they are declared, and the
+constants are static fields too, so `EUR` is constructed while `BY_CODE` is still `null`. The
+compiler refuses a constructor that refers to an enum's own static field, unless the field is a
+constant variable: `MAX_CODES`, a `static final int` initialised with `3`, compiled without
+complaint.
 
-// Mutable state requires care
-enum Counter {
-    INSTANCE;
-    
-    // NOT thread-safe without synchronization!
-    // private int count = 0;
-    
-    // Thread-safe approach:
-    private final java.util.concurrent.atomic.AtomicInteger count = 
-        new java.util.concurrent.atomic.AtomicInteger(0);
-    
-    public int increment() { return count.incrementAndGet(); }
-}
+The compiler only checks direct references. Moving the `put` into a `private static void
+register(Currency c)` and calling that from the constructor compiles, and fails when the class
+first initialises:
+
+```text
+use 1: java.lang.ExceptionInInitializerError
+  caused by java.lang.NullPointerException: Cannot invoke "java.util.Map.put(Object, Object)" because "Registered$Currency.BY_CODE" is null
+use 2: java.lang.NoClassDefFoundError: Could not initialize class Registered$Currency
+  caused by java.lang.ExceptionInInitializerError: Exception java.lang.NullPointerException [in thread "main"]
 ```
+
+A class whose initialisation failed stays failed for the life of its class loader. The first
+request gets the real cause; every later one gets `NoClassDefFoundError`, which reads like a
+packaging problem, until a restart or a redeploy loads the class again. Build the index in a `static` block after the
+constants, from `values()` (unit 7.2.3).
+
+<!-- practice 4 -->
+
+## Summary
+
+- **An enum's type is closed.** It can't extend a class, declare a type parameter (JEP 301 was
+  withdrawn) or be subclassed; enums share behaviour through interfaces.
+- **A constant with a body is an anonymous subclass.** `getClass()` is then not the enum; use
+  `getDeclaringClass()`. `switch`, `EnumSet` and `EnumMap` are unaffected.
+- **An ordinal is a position.** A stored ordinal silently points at another constant after an
+  insertion, deletion or reorder; store the name or a code of your own.
+- **`valueOf` accepts only the exact name.** It throws `IllegalArgumentException` on an unknown
+  name and `NullPointerException` on `null`; decide what an unknown name means where it enters.
+- **A constructor runs before the enum's static fields are assigned.** A direct read is a compile
+  error, an indirect one an `ExceptionInInitializerError` that leaves the class unusable.
+
+## Reference
+
+**What javac 21 says:**
+
+| You write | Error |
+|---|---|
+| `enum Plan extends BaseRule { ... }` | `'{' expected` (a parse error: no `extends` clause) |
+| `enum Key<T> { ... }` | `enums cannot be generic` |
+| `class Critical extends Severity { }` | `cannot inherit from final Severity`, `enum classes are not extensible` |
+| `final class Surcharge extends Fee { }` (`Fee` has a constant body) | `enum classes are not extensible` |
+| `class MyEnum extends Enum<MyEnum>` | `classes cannot directly extend java.lang.Enum` |
+| constructor reads a non-constant static field of its enum | `illegal reference to static field from initializer` |
+
+**A constant with a body, `FLAT`, of `enum Fee` (Java 21):**
+
+| Expression | Result |
+|---|---|
+| `FLAT.getClass()` | `Fee$1`, a `final` subclass of `Fee` |
+| `FLAT.getDeclaringClass()` | `Fee` |
+| `FLAT.getClass().isEnum()` | `false` |
+| `FLAT.getClass().getSimpleName()` | `""` |
+| `Fee.class.isSealed()` | `true` |
+| `EnumSet.allOf((Class) FLAT.getClass())` (raw, as framework code holds it) | throws `ClassCastException` |
+| `Enum.valueOf((Class) FLAT.getClass(), "PERCENT")` (raw) | throws `IllegalArgumentException` |
+| `EnumSet.of(FLAT)`, `new EnumMap<>(Fee.class)`, `switch`, `instanceof Fee` | work as for any constant |
+
+**Lookup by name:**
+
+| Call | Result |
+|---|---|
+| `Status.valueOf("SHIPPED")` | `SHIPPED` |
+| `Status.valueOf("shipped")`, `"SHIPPED "`, `""` | `IllegalArgumentException: No enum constant ...` |
+| `Status.valueOf(null)` | `NullPointerException: Name is null` |
+
+## Challenges
+
+1. Your table has ten million rows of `ordinal()` values, and release 2 needs a constant in the
+   middle. Plan the migration so that release 1 and release 2 can run side by side during the
+   rollout. What do you store while both are live?
+2. A partner sends a status you don't know yet. Where do you choose between rejecting the
+   message, mapping it to `UNKNOWN`, and keeping the raw text, and what does each choice cost a
+   report written a year later?
+3. Search a codebase you know for `getClass()` in `equals`, in serializers and in maps keyed by
+   `Class`. Which of them could receive an enum constant, and what happens on the day someone adds
+   a body to it?
+
+## Design Note: Why the Instances Are Closed
+
+Each limit protects one guarantee: the constants listed in the source are all the
+instances there will ever be. That lets `==` replace `equals`, makes `switch` exhaustive, lets
+`EnumSet` be one bit per constant, and makes an enum the simplest safe singleton (unit 7.2.5).
+A subclass, a type argument per constant, or a constant added at run time would each break one of
+those. The price is that an enum fits a set you control and change only by redeploying. When the
+set comes from configuration or from other teams, or each member needs a type or fields of its
+own, a sealed interface or a registry is the better shape, and you give up the guarantees above.
 
 ## Code Examples
 

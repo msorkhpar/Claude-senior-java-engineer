@@ -1,27 +1,15 @@
-A subclass declared with `extends` inherits the superclass's non-private fields
-and methods, and adds its own. Constructors are **not** inherited: a subclass
-constructor hands its part of the state up with `super(...)`. An overriding
-method (marked `@Override`) runs in place of the superclass version, and
-`super.method()` still reaches the superclass version.
+Every service applies its schema migrations on start. `Migrations.Migration` is the class each
+team extends, and each subclass writes the statements of one change. Three incidents this quarter
+came from the same place:
 
-`Animals` holds two nested classes, taken from the lesson's own example.
-Write their bodies:
+- a team overrode `apply` to log timings, dropped the history check, and its change ran twice on
+  the next deploy;
+- a deploy script called `migrate` on a migration it had loaded and ran the change with nobody
+  holding the lock;
+- a change that failed halfway left the history locked, and every later deploy refused to start.
 
-- `Animal(String name)` stores the name in the `protected` field `name`;
-  `getName()` returns it; `makeSound()` returns `"The animal makes a sound"`.
-- `Dog(String name)` is an `Animal`. Its constructor gives the name to
-  `Animal`: `Dog` declares **no** field of its own.
-- `Dog.makeSound()` overrides the sound: `"<name> barks: Woof! Woof!"`.
-- `Dog.makeAnimalSound()` returns the sound **`Animal`'s version** makes.
-- `Dog.wagTail()` returns `"<name> is wagging its tail"`.
-
-## Examples
-
-```
-Animal pet = new Dog("Rex");
-pet.makeSound()               -> "Rex barks: Woof! Woof!"
-((Dog) pet).wagTail()         -> "Rex is wagging its tail"
-new Dog("Rex").makeAnimalSound() -> "The animal makes a sound"
-new Dog("Rex").getName()      -> "Rex"
-new Animal("Generic").makeSound() -> "The animal makes a sound"
-```
+Finish `src/main/java/practice/Migrations.java` so that a migration runs its change at most once
+per database and only while holding the history's lock, a change that throws is not recorded and
+releases the lock, and none of the three incidents can be repeated by a team's subclass or by
+code that holds a migration. Teams write their subclasses in their own packages and must keep
+being able to. About ten lines in total, most of them in `apply`.

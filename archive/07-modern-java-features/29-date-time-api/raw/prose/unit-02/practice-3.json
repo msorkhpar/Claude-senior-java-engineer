@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Choosing among the java.time types",
+  "title": "Check yourself: choosing and using the java.time types",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,146 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-switch-default",
-        "stem": "Per this page, a pattern switch over a Temporal value has a case for LocalDate, one for LocalTime and one for Instant. What else must it have to compile?",
+        "id": "q-approvals-after-move",
+        "stem": "An audit table records when each order was approved, in a LocalDateTime column filled with LocalDateTime.now() on servers whose JVMs ran in Europe/Amsterdam. The service moves to servers whose JVMs run in UTC, and a new report converts every stored value with atZone(ZoneOffset.UTC).toInstant() to list approvals by the moment they happened. What does it show for the approvals stored before the move?",
         "options": [
           {
             "id": "a",
-            "text": "Nothing more, since the java.time interfaces are sealed",
-            "correct": false,
-            "says": "The page says the temporal interfaces are not sealed, so these cases alone do not cover every possible value."
+            "text": "Each one at a moment later than it happened, since the stored value has no offset and the report supplies one for it",
+            "correct": true,
+            "says": "a LocalDateTime holds no zone or offset, so turning it back into a moment uses whatever zone the reader passes; Amsterdam's +01:00/+02:00 readings taken as UTC land one or two hours late"
           },
           {
             "id": "b",
-            "text": "A default branch, since the java.time interfaces are open",
-            "correct": true,
-            "says": "The page says the temporal interfaces are not sealed, so such a switch needs a default branch."
+            "text": "Each one at the moment it happened, since the stored value has no offset and the conversion supplies the one it was written with",
+            "correct": false,
+            "says": "the offset was dropped when the value became a LocalDateTime; the conversion uses the zone it is given, UTC, not Amsterdam's"
           },
           {
             "id": "c",
-            "text": "A null case, since the java.time interfaces are open",
+            "text": "An error for each one, since a value stored without an offset can't be converted to an Instant",
             "correct": false,
-            "says": "The page names a default branch as what such a switch needs; a null case does not cover the other types."
+            "says": "only a conversion that supplies no zone, such as Instant.from(ldt), fails; atZone(...) gives the zone, so the conversion succeeds with whatever zone it is given"
+          },
+          {
+            "id": "d",
+            "text": "An error for each one, since the value was written under zone rules other than the ones the report runs with",
+            "correct": false,
+            "says": "a LocalDateTime carries no zone rules to compare; the conversion uses the zone it is given and succeeds"
           }
         ],
         "origin": {
           "path": "29-date-time-api/README_7.3.2.md",
-          "section": "Relevant Java 21 Features"
+          "section": "Each Type Answers One Question, and Only Instant Is a Moment"
         }
       },
       {
-        "id": "q-timestamp-type",
-        "stem": "Per this page, which type should an audit log use to record the moment each event happened?",
+        "id": "q-auckland-delivery-date",
+        "stem": "A courier in Auckland (UTC+12 in June) records each delivery as an Instant. The daily summary runs on a server set to UTC and files each delivery under LocalDate.ofInstant(delivered, ZoneId.systemDefault()). A parcel is delivered at 08:00 on 10 June, Auckland time. Under which date does the summary file it?",
         "options": [
           {
             "id": "a",
-            "text": "LocalTime, the type the page gives for alarms",
+            "text": "10 June, since the Instant carries the zone it was recorded in, and ofInstant uses that",
             "correct": false,
-            "says": "The page gives LocalTime for opening hours and alarms, a time of day with no date, not for timestamps."
+            "says": "an Instant has no date and no zone; the date comes from the zone passed to ofInstant"
           },
           {
             "id": "b",
-            "text": "LocalDate, the type the page gives for holidays",
+            "text": "10 June, since ofInstant dates the value in the zone where it was recorded",
             "correct": false,
-            "says": "The page gives LocalDate for birthdays and holidays, dates with no time, not for timestamps."
+            "says": "ofInstant uses the zone it is given, here the server's default, not the place of the event"
           },
           {
             "id": "c",
-            "text": "Instant, the type the page gives for machine time",
+            "text": "9 June, since ofInstant dates the value in the zone it is passed",
             "correct": true,
-            "says": "The page lists Instant for timestamps and machine time, and says to store timestamps as Instant."
+            "says": "08:00 in Auckland is 20:00 UTC the day before, and ZoneId.systemDefault() is UTC on this server"
+          },
+          {
+            "id": "d",
+            "text": "9 June, since the Instant is kept in UTC, and ofInstant uses that",
+            "correct": false,
+            "says": "ofInstant applies the zone argument, not a zone stored in the Instant; the answer is 9 June only because this server's default zone is UTC"
           }
         ],
         "origin": {
           "path": "29-date-time-api/README_7.3.2.md",
-          "section": "Best Practices and Optimization Techniques"
+          "section": "Between a Moment and a Date There Is Always a Zone"
+        }
+      },
+      {
+        "id": "q-shorten-stay",
+        "stem": "A hotel booking holds its check-out date as a LocalDate field returned by checkOut(). To let a guest leave a day early, the service runs `booking.checkOut().minusDays(1); repository.save(booking);`. A guest booked from 12 to 15 May. Which check-out date does the repository hold afterwards?",
+        "options": [
+          {
+            "id": "a",
+            "text": "15 May, since minusDays returns a new date and the code never stores it",
+            "correct": true,
+            "says": "java.time values are immutable: minusDays leaves the date it was called on unchanged and returns 14 May, which the code drops"
+          },
+          {
+            "id": "b",
+            "text": "15 May, since save() writes the booking as it was loaded and skips changed fields",
+            "correct": false,
+            "says": "nothing changed: the booking's date is the same object as before, because minusDays never altered it"
+          },
+          {
+            "id": "c",
+            "text": "14 May, since minusDays changes the date that the booking's field refers to",
+            "correct": false,
+            "says": "that is Calendar.add's behaviour; a LocalDate never changes after it is created"
+          },
+          {
+            "id": "d",
+            "text": "14 May, since checkOut() hands out the field itself, so a change to it reaches the booking",
+            "correct": false,
+            "says": "handing out the field is safe precisely because a LocalDate can't be changed; minusDays returned a separate date"
+          }
+        ],
+        "origin": {
+          "path": "29-date-time-api/README_7.3.2.md",
+          "section": "Values Never Change: Keep What plusDays Returns"
+        }
+      },
+      {
+        "id": "q-coupon-new-year",
+        "stem": "A shop in Singapore issues coupons valid until the end of 31 December, Singapore time. The coupon service checks `!LocalDate.now().isAfter(lastDay)`. The team wants a test that shows a coupon is refused at 00:00:30 on 1 January in Singapore (2026-12-31T16:00:30Z), and the test must give the same result on any day and on any machine. Which change makes that possible?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The service takes a Clock and reads LocalDate.now(clock); the test passes Clock.fixed(2026-12-31T16:00:30Z, ZoneId.of(\"Asia/Singapore\"))",
+            "correct": true,
+            "says": "a Clock supplies both the instant and the zone that now(clock) reads, so a fixed clock in the shop's zone decides the date: 1 January, on any day and machine"
+          },
+          {
+            "id": "b",
+            "text": "The service takes a Clock and reads LocalDate.now(clock.withZone(ZoneOffset.UTC)); the test passes Clock.fixed(2026-12-31T16:00:30Z, ZoneId.of(\"Asia/Singapore\"))",
+            "correct": false,
+            "says": "withZone(UTC) dates the fixed instant in UTC, where it is still 31 December, so the coupon is accepted"
+          },
+          {
+            "id": "c",
+            "text": "The service keeps LocalDate.now(); the test JVM runs with -Duser.timezone=Asia/Singapore",
+            "correct": false,
+            "says": "the default zone is only one of now()'s two inputs; the instant still comes from the system clock, so the result depends on the day the test runs"
+          },
+          {
+            "id": "d",
+            "text": "The service takes a ZoneId and reads LocalDate.now(zone); the test passes ZoneId.of(\"Asia/Singapore\")",
+            "correct": false,
+            "says": "now(zone) still reads the system clock; only the zone is chosen, not the instant"
+          }
+        ],
+        "origin": {
+          "path": "29-date-time-api/README_7.3.2.md",
+          "section": "Code That Needs the Current Time Takes a Clock"
         }
       }
     ],
     "concepts": [
-      "The temporal interfaces are not sealed, so a pattern switch over the concrete java.time types needs a default branch.",
-      "Instant fits timestamps, LocalDate birthdays and holidays, LocalTime opening hours and ZonedDateTime cross-zone scheduling."
+      "Because the values are immutable and thread-safe, a constant can be shared across threads and a getter can return its field without a defensive copy.",
+      "A LocalDateTime holds no zone or offset, so it becomes a moment only with a zone supplied by the reader; Instant.from refuses it, and a wrong zone gives a wrong moment without an error.",
+      "java.time has one type per question: Instant for a moment, ZonedDateTime and OffsetDateTime for a wall-clock reading with a zone or offset, LocalDateTime/LocalDate/LocalTime for values with no place, ZoneId/ZoneOffset for the rules, Duration and Period for amounts."
     ]
   }
 }

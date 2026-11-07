@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Follow references that may be null",
+  "title": "Tell a leak hunter which objects a collection would free",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,22 @@
     },
     {
       "type": "para",
-      "text": "The default value of a reference is `null`, and following a `null` reference throws a `NullPointerException`. The page's advice is to check for `null` or to use `Optional`."
+      "text": "An operations team hunts memory leaks with a small tool that reads a heap dump: every object in the heap, the objects each one's fields refer to, and the GC roots (static fields and the local variables of live threads). Its report lists the objects the next collection would free. An engineer reads it to find what is holding the rest, so a report that names a held object as garbage, or a freed one as held, sends them after the wrong code."
     },
     {
       "type": "para",
-      "text": "`Directory.Person` has an `address`, and `Directory.Address` has a `city`. Any of the three can be missing: the person itself, their address, or the address's city."
+      "text": "`garbage(...)` already builds the report. Finish the `TODO` in `src/main/java/practice/HeapDump.java`:"
     },
     {
-      "type": "para",
-      "text": "Write `Directory.cityOf(Person person)`. It returns the person's city, or `\"Unknown\"` when any link on the way is `null`."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "person",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`new Person(\"Ann\", new Address(\"Oslo\"))`",
-          "`\"Oslo\"`"
-        ],
-        [
-          "`null`",
-          "`\"Unknown\"`"
-        ],
-        [
-          "`new Person(\"Bo\", null)`",
-          "`\"Unknown\"`"
-        ],
-        [
-          "`new Person(\"Cy\", new Address(null))`",
-          "`\"Unknown\"`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`retained(heap, roots)`: the objects of the heap that a collection must keep."
       ]
+    },
+    {
+      "type": "para",
+      "text": "About seven lines."
     },
     {
       "type": "heading",
@@ -67,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Optional;\n\npublic final class Directory {\n\n    /** An address; its city may be unknown (null). */\n    public record Address(String city) {\n    }\n\n    /** A person; their address may be unknown (null). */\n    public record Person(String name, Address address) {\n    }\n\n    private Directory() {\n    }\n\n    /** Returns the city {@code person} lives in, or \"Unknown\" when any link on the way is null. */\n    public static String cityOf(Person person) {\n        return Optional.ofNullable(person)\n                .map(Person::address)\n                .map(Address::city)\n                .orElse(\"Unknown\");\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.Deque;\nimport java.util.IdentityHashMap;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.TreeSet;\n\n/**\n * A heap dump as a leak hunter's tool reads it: every object in the heap with the objects its\n * fields refer to, and the GC roots (static fields, the local variables of live threads).\n */\npublic class HeapDump {\n\n    /** One object of the dump; ids are unique within a dump. */\n    public static final class Obj {\n        private final String id;\n        private final List<Obj> refs = new ArrayList<>();\n\n        public Obj(String id) {\n            this.id = id;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        /** The objects this object's fields refer to. */\n        public List<Obj> refs() {\n            return refs;\n        }\n\n        /** Records that this object's fields refer to {@code others}; returns this object. */\n        public Obj refersTo(Obj... others) {\n            Collections.addAll(refs, others);\n            return this;\n        }\n    }\n\n    /** The ids of the objects that a collection would free, sorted, for the tool's report. */\n    public static Set<String> garbage(List<Obj> heap, List<Obj> roots) {\n        Set<Obj> kept = retained(heap, roots);\n        Set<String> ids = new TreeSet<>();\n        for (Obj o : heap) {\n            if (!kept.contains(o)) ids.add(o.id());\n        }\n        return ids;\n    }\n\n    /** The objects of {@code heap} that a collection must keep. */\n    static Set<Obj> retained(List<Obj> heap, List<Obj> roots) {\n        Set<Obj> kept = Collections.newSetFromMap(new IdentityHashMap<>());\n        Deque<Obj> toVisit = new ArrayDeque<>(roots);\n        while (!toVisit.isEmpty()) {\n            Obj o = toVisit.pop();\n            if (kept.add(o)) toVisit.addAll(o.refs());\n        }\n        return kept;\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\n\npublic final class Directory {\n\n    /** An address; its city may be unknown (null). */\n    public record Address(String city) {\n    }\n\n    /** A person; their address may be unknown (null). */\n    public record Person(String name, Address address) {\n    }\n\n    private Directory() {\n    }\n\n    /** Returns the city {@code person} lives in, or \"Unknown\" when any link on the way is null. */\n    public static String cityOf(Person person) {\n        throw new UnsupportedOperationException(\"write cityOf\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.Deque;\nimport java.util.IdentityHashMap;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.TreeSet;\n\n/**\n * A heap dump as a leak hunter's tool reads it: every object in the heap with the objects its\n * fields refer to, and the GC roots (static fields, the local variables of live threads).\n */\npublic class HeapDump {\n\n    /** One object of the dump; ids are unique within a dump. */\n    public static final class Obj {\n        private final String id;\n        private final List<Obj> refs = new ArrayList<>();\n\n        public Obj(String id) {\n            this.id = id;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        /** The objects this object's fields refer to. */\n        public List<Obj> refs() {\n            return refs;\n        }\n\n        /** Records that this object's fields refer to {@code others}; returns this object. */\n        public Obj refersTo(Obj... others) {\n            Collections.addAll(refs, others);\n            return this;\n        }\n    }\n\n    /** The ids of the objects that a collection would free, sorted, for the tool's report. */\n    public static Set<String> garbage(List<Obj> heap, List<Obj> roots) {\n        Set<Obj> kept = retained(heap, roots);\n        Set<String> ids = new TreeSet<>();\n        for (Obj o : heap) {\n            if (!kept.contains(o)) ids.add(o.id());\n        }\n        return ids;\n    }\n\n    /** The objects of {@code heap} that a collection must keep. */\n    static Set<Obj> retained(List<Obj> heap, List<Obj> roots) {\n        // TODO: Work out which objects of the heap a collection must keep, from the roots and\n        //       the references between objects. The heap can be large and its references\n        //       can lead back to objects already seen.\n        throw new IllegalStateException(\"TODO: retained\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,8 +71,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "eb5d714ffcc548a7737b469c973fd13d333b2b87b1c417d72f72c55e0d15ad7b",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\n\npublic final class Directory {\n\n    /** An address; its city may be unknown (null). */\n    public record Address(String city) {\n    }\n\n    /** A person; their address may be unknown (null). */\n    public record Person(String name, Address address) {\n    }\n\n    private Directory() {\n    }\n\n    /** Returns the city {@code person} lives in, or \"Unknown\" when any link on the way is null. */\n    public static String cityOf(Person person) {\n        throw new UnsupportedOperationException(\"write cityOf\");\n    }\n}\n",
+  "content_sha256": "e1cb9ac318964c15584e702827d71ea21a7a9edceb7332b05cfacc93afdd364d",
+  "starting_code": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.Deque;\nimport java.util.IdentityHashMap;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.TreeSet;\n\n/**\n * A heap dump as a leak hunter's tool reads it: every object in the heap with the objects its\n * fields refer to, and the GC roots (static fields, the local variables of live threads).\n */\npublic class HeapDump {\n\n    /** One object of the dump; ids are unique within a dump. */\n    public static final class Obj {\n        private final String id;\n        private final List<Obj> refs = new ArrayList<>();\n\n        public Obj(String id) {\n            this.id = id;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        /** The objects this object's fields refer to. */\n        public List<Obj> refs() {\n            return refs;\n        }\n\n        /** Records that this object's fields refer to {@code others}; returns this object. */\n        public Obj refersTo(Obj... others) {\n            Collections.addAll(refs, others);\n            return this;\n        }\n    }\n\n    /** The ids of the objects that a collection would free, sorted, for the tool's report. */\n    public static Set<String> garbage(List<Obj> heap, List<Obj> roots) {\n        Set<Obj> kept = retained(heap, roots);\n        Set<String> ids = new TreeSet<>();\n        for (Obj o : heap) {\n            if (!kept.contains(o)) ids.add(o.id());\n        }\n        return ids;\n    }\n\n    /** The objects of {@code heap} that a collection must keep. */\n    static Set<Obj> retained(List<Obj> heap, List<Obj> roots) {\n        // TODO: Work out which objects of the heap a collection must keep, from the roots and\n        //       the references between objects. The heap can be large and its references\n        //       can lead back to objects already seen.\n        throw new IllegalStateException(\"TODO: retained\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-3/src/main/java/practice/Directory.java",
-    "test_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-3/src/test/java/practice/DirectoryTest.java",
+    "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-3/src/main/java/practice/HeapDump.java",
+    "test_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-3/src/test/java/practice/HeapDumpTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,24 +105,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DirectoryTest#readsTheCity",
+        "id": "practice.HeapDumpTest#anObjectNoRootLeadsToIsGarbage",
         "kind": "main",
-        "says": "It returns the city of a person with a full address."
+        "says": "an object that no root refers to is reported as garbage, and the objects a root refers to are not"
       },
       {
-        "id": "practice.DirectoryTest#noPersonIsUnknown",
+        "id": "practice.HeapDumpTest#anObjectAtTheEndOfAChainFromARootIsKept",
         "kind": "edge",
-        "says": "A null person gives \"Unknown\" instead of a NullPointerException."
+        "says": "an object reached from a root through several references is kept"
       },
       {
-        "id": "practice.DirectoryTest#noAddressIsUnknown",
+        "id": "practice.HeapDumpTest#objectsThatOnlyReferToEachOtherAreGarbage",
         "kind": "edge",
-        "says": "A person with no address gives \"Unknown\"."
+        "says": "two objects that refer only to each other, with no root leading to them, are garbage"
       },
       {
-        "id": "practice.DirectoryTest#noCityIsUnknown",
+        "id": "practice.HeapDumpTest#aCycleARootLeadsToIsKeptAndTheReportStillEnds",
         "kind": "edge",
-        "says": "An address with no city gives \"Unknown\", never null."
+        "says": "a cycle that a root leads to is kept, and the report still finishes"
       }
     ],
     "report": {
@@ -149,10 +131,11 @@
     },
     "origin": {
       "path": "01-java-basics/README_1.1.2.md",
-      "section": "Best Practices:"
+      "section": "An Object Lives While Something Reachable Refers to It"
     },
     "concepts": [
-      "A reference defaults to null; guard it with a null check or Optional."
+      "The collector keeps what it can reach from the GC roots; an unreachable cycle is collected, and anything a static field reaches is kept.",
+      "A static collection that only grows keeps every entry reachable, so the heap after collection grows until OutOfMemoryError."
     ]
   }
 }

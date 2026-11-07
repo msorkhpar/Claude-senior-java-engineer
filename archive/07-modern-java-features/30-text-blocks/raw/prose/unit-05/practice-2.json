@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A parameterized query from a text block",
+  "title": "Make the export check pass on Windows without hiding real changes",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Text blocks make SQL readable, and `formatted()` makes it easy to fill in. The page's warning: `formatted()` has no SQL escaping, so a value typed by a user must never be formatted into a query. Its safe version keeps a `?` placeholder and binds the value later with a `PreparedStatement`."
+      "text": "The warehouse service exports stock levels as CSV every night, and a test compares the export with an expected file kept as a text block. The test passes on the Linux build agents and fails on the Windows one, with the message `line 1 differs` although the two texts look the same. A colleague's quick fix made the check ignore all white space, and a week later a row with a trailing space, which the partner's strict CSV parser rejects, went through unnoticed."
     },
     {
       "type": "para",
-      "text": "Write `Sql.select(String table, List<String> columns, String filterColumn)`. It returns these three lines joined by `\\n`, with no newline at the end:"
+      "text": "The partner's parser accepts lines ending with `\\n` or `\\r\\n`, and a last row with or without a line break after it. Every other character counts."
     },
     {
-      "type": "code",
-      "lang": "text",
-      "text": "SELECT <columns>\nFROM <table>\nWHERE <filterColumn> = ?"
+      "type": "para",
+      "text": "Finish the two `TODO`s in `src/main/java/practice/ExportCheck.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`<columns>` is the column names joined by `, `, or `*` when the list is empty.",
-        "The value to filter by never appears: the query keeps the `?`.",
-        "Names are code, not data, so each one is checked: `table`, every column and `filterColumn` must each be **one whole identifier**, a letter or `_` followed by letters, digits or `_` (ASCII only; no `$`, no line break). Anything else throws `IllegalArgumentException`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "table, columns, filterColumn",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`users`, `[name, email]`, `id`",
-          "`SELECT name, email` / `FROM users` / `WHERE id = ?`"
-        ],
-        [
-          "`orders`, `[]`, `status`",
-          "`SELECT *` / `FROM orders` / `WHERE status = ?`"
-        ],
-        [
-          "`users; DROP TABLE users`, `[name]`, `id`",
-          "throws `IllegalArgumentException`"
-        ],
-        [
-          "`users`, `[name, \"1=1 --\"]`, `id`",
-          "throws `IllegalArgumentException`"
-        ]
+        "`linesOf(text)`: the lines of a text;",
+        "`firstDifference(expected, actual)`: the number of the first line that differs, counting from 1, or 0 when the texts match. A line that one text has and the other doesn't is a difference."
       ]
     },
     {
       "type": "para",
-      "text": "(`/` separates the lines here.)"
+      "text": "About seven lines in total."
     },
     {
       "type": "heading",
@@ -81,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.regex.Pattern;\n\npublic final class Sql {\n\n    private static final Pattern IDENTIFIER = Pattern.compile(\"[A-Za-z_][A-Za-z0-9_]*\");\n\n    private Sql() {\n    }\n\n    /** Returns a SELECT query on {@code table} filtered by {@code filterColumn} with a ? placeholder. */\n    public static String select(String table, List<String> columns, String filterColumn) {\n        requireIdentifier(table);\n        columns.forEach(Sql::requireIdentifier);\n        requireIdentifier(filterColumn);\n        String selected = columns.isEmpty() ? \"*\" : String.join(\", \", columns);\n        return \"\"\"\n                SELECT %s\n                FROM %s\n                WHERE %s = ?\"\"\".formatted(selected, table, filterColumn);\n    }\n\n    private static void requireIdentifier(String name) {\n        if (name == null || !IDENTIFIER.matcher(name).matches()) {\n            throw new IllegalArgumentException(\"not an identifier: \" + name);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Checks the nightly CSV export against an expected file kept as a text block in the tests.\n * The export runs on Linux and on Windows hosts, and the partner's parser accepts either line\n * ending and either way of ending the last line.\n */\npublic class ExportCheck {\n\n    /** A one-line verdict for the build log. */\n    public static String verdict(String expected, String actual) {\n        int line = firstDifference(expected, actual);\n        if (line == 0) return \"export matches\";\n        List<String> want = linesOf(expected);\n        List<String> got = linesOf(actual);\n        return \"line %d differs: expected [%s], got [%s]\".formatted(line,\n                line <= want.size() ? want.get(line - 1) : \"<none>\",\n                line <= got.size() ? got.get(line - 1) : \"<none>\");\n    }\n\n    /** The lines of a text, without their line terminators. */\n    static List<String> linesOf(String text) {\n        return text.lines().toList();\n    }\n\n    /** The number (from 1) of the first line that differs, or 0 when the two texts match. */\n    static int firstDifference(String expected, String actual) {\n        List<String> want = linesOf(expected);\n        List<String> got = linesOf(actual);\n        for (int i = 0; i < Math.max(want.size(), got.size()); i++) {\n            if (i >= want.size() || i >= got.size() || !want.get(i).equals(got.get(i))) {\n                return i + 1;\n            }\n        }\n        return 0;\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Sql {\n\n    private Sql() {\n    }\n\n    /** Returns a SELECT query on {@code table} filtered by {@code filterColumn} with a ? placeholder. */\n    public static String select(String table, List<String> columns, String filterColumn) {\n        throw new UnsupportedOperationException(\"write select\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Checks the nightly CSV export against an expected file kept as a text block in the tests.\n * The export runs on Linux and on Windows hosts, and the partner's parser accepts either line\n * ending and either way of ending the last line.\n */\npublic class ExportCheck {\n\n    /** A one-line verdict for the build log. */\n    public static String verdict(String expected, String actual) {\n        int line = firstDifference(expected, actual);\n        if (line == 0) return \"export matches\";\n        List<String> want = linesOf(expected);\n        List<String> got = linesOf(actual);\n        return \"line %d differs: expected [%s], got [%s]\".formatted(line,\n                line <= want.size() ? want.get(line - 1) : \"<none>\",\n                line <= got.size() ? got.get(line - 1) : \"<none>\");\n    }\n\n    /** The lines of a text, without their line terminators. */\n    static List<String> linesOf(String text) {\n        // TODO: Split the text into its lines. The export may come from Linux or from Windows,\n        //       and may or may not end its last row with a line break.\n        throw new IllegalStateException(\"TODO: linesOf\");\n    }\n\n    /** The number (from 1) of the first line that differs, or 0 when the two texts match. */\n    static int firstDifference(String expected, String actual) {\n        // TODO: Compare the two texts line by line. A missing or extra line is a difference too.\n        throw new IllegalStateException(\"TODO: firstDifference\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
-    "tables": 1,
+    "paras": 4,
+    "code": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -112,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "726fe4d993b8aa3084703295f2dd83a843bba3e442ff96b761ad9c41b397cf35",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Sql {\n\n    private Sql() {\n    }\n\n    /** Returns a SELECT query on {@code table} filtered by {@code filterColumn} with a ? placeholder. */\n    public static String select(String table, List<String> columns, String filterColumn) {\n        throw new UnsupportedOperationException(\"write select\");\n    }\n}\n",
+  "content_sha256": "c68d27ad35414d7e6a68e28e51e668816e790d8969ee42db98b710a732a22a25",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\n/**\n * Checks the nightly CSV export against an expected file kept as a text block in the tests.\n * The export runs on Linux and on Windows hosts, and the partner's parser accepts either line\n * ending and either way of ending the last line.\n */\npublic class ExportCheck {\n\n    /** A one-line verdict for the build log. */\n    public static String verdict(String expected, String actual) {\n        int line = firstDifference(expected, actual);\n        if (line == 0) return \"export matches\";\n        List<String> want = linesOf(expected);\n        List<String> got = linesOf(actual);\n        return \"line %d differs: expected [%s], got [%s]\".formatted(line,\n                line <= want.size() ? want.get(line - 1) : \"<none>\",\n                line <= got.size() ? got.get(line - 1) : \"<none>\");\n    }\n\n    /** The lines of a text, without their line terminators. */\n    static List<String> linesOf(String text) {\n        // TODO: Split the text into its lines. The export may come from Linux or from Windows,\n        //       and may or may not end its last row with a line break.\n        throw new IllegalStateException(\"TODO: linesOf\");\n    }\n\n    /** The number (from 1) of the first line that differs, or 0 when the two texts match. */\n    static int firstDifference(String expected, String actual) {\n        // TODO: Compare the two texts line by line. A missing or extra line is a difference too.\n        throw new IllegalStateException(\"TODO: firstDifference\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-05/practice-2/src/main/java/practice/Sql.java",
-    "test_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-05/practice-2/src/test/java/practice/SqlTest.java",
+    "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-05/practice-2/src/main/java/practice/ExportCheck.java",
+    "test_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-05/practice-2/src/test/java/practice/ExportCheckTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,24 +110,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SqlTest#buildsTheQueryWithAPlaceholder",
+        "id": "practice.ExportCheckTest#theSameExportMatches",
         "kind": "main",
-        "says": "The query lists the columns, names the table and filters with a ? placeholder, never a value."
+        "says": "an export with the same text as the expected one matches"
       },
       {
-        "id": "practice.SqlTest#noColumnsSelectsEverything",
-        "kind": "edge",
-        "says": "An empty column list selects *."
+        "id": "practice.ExportCheckTest#aChangedValueIsReportedOnItsLine",
+        "kind": "main",
+        "says": "a changed value is reported with the number of its line"
       },
       {
-        "id": "practice.SqlTest#anInjectedTableNameIsRefused",
-        "kind": "edge",
-        "says": "A table name that is more than one identifier, such as users; DROP TABLE users, is refused with IllegalArgumentException."
+        "id": "practice.ExportCheckTest#aMissingRowIsReported",
+        "kind": "main",
+        "says": "a row missing at the end is reported as a difference on that row's line"
       },
       {
-        "id": "practice.SqlTest#anInjectedColumnNameIsRefused",
+        "id": "practice.ExportCheckTest#anExportWrittenOnWindowsMatches",
         "kind": "edge",
-        "says": "A column name that is not an identifier is refused too."
+        "says": "an export whose lines end with \\r\\n matches the same rows ending with \\n"
+      },
+      {
+        "id": "practice.ExportCheckTest#anExportWithoutANewlineAfterItsLastRowMatches",
+        "kind": "edge",
+        "says": "an export that doesn't end its last row with a line break matches one that does"
+      },
+      {
+        "id": "practice.ExportCheckTest#aTrailingSpaceIsADifference",
+        "kind": "edge",
+        "says": "a space added at the end of a row is reported as a difference on that row"
       }
     ],
     "report": {
@@ -163,11 +146,10 @@
     },
     "origin": {
       "path": "30-text-blocks/README_7.4.5.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Text Block Fixture Has `\\n` Line Endings, So Compare Lines When the Format Doesn't Care"
     },
     "concepts": [
-      "A user value must never be formatted into SQL; the query keeps a ? placeholder bound by a PreparedStatement.",
-      "A text block keeps a SQL query's lines and layout readable."
+      "A text block fixture ends its lines with \\n and has an exact final newline, so against text from a file or another program compare lines when the format ignores line endings, without ignoring other characters."
     ]
   }
 }

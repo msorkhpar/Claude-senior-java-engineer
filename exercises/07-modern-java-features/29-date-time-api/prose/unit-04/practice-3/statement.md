@@ -1,20 +1,13 @@
-An `Instant` holds nanoseconds, but `toEpochMilli()` **truncates** to whole
-milliseconds. For full precision the page reads `getEpochSecond()` and
-`getNano()`. Note that the nano part is always between 0 and 999,999,999, even
-before the epoch: half a second before the epoch is epoch second `-1` plus
-500,000,000 nanoseconds.
+A streaming service sells monthly subscriptions. The terms say a subscription renews one calendar
+month after it was paid, at the same time of day, by the customer's own calendar: paid on
+14 March at 21:00 their time, it renews on 14 April at 21:00 their time. Payments are recorded as
+`Instant`s, and each customer has a `ZoneId`. Customers write in when a renewal comes a day or two
+early or late, and when the date on their receipt is not the day it happened for them.
 
-A log format writes an instant as its time since the epoch in **decimal
-seconds with exactly nine decimal places**. Write `EpochStamp`:
+`Renewals` already picks the subscriptions that are due and prints receipts. Finish its two
+`TODO` methods in `src/main/java/practice/Renewals.java`:
 
-- `static String encode(Instant instant)` writes the stamp.
-- `static Instant decode(String stamp)` reads a stamp back into the same instant.
+- `nextRenewal(...)`: the moment the subscription renews;
+- `renewalDate(...)`: the date of that renewal as the customer's calendar shows it.
 
-| instant | stamp |
-|---|---|
-| `Instant.ofEpochSecond(1710523800, 123_000_000)` | `"1710523800.123000000"` |
-| `Instant.ofEpochSecond(1710523800, 123_456_789)` | `"1710523800.123456789"` |
-| `Instant.ofEpochSecond(100, 5)` | `"100.000000005"` |
-| `Instant.ofEpochSecond(-1, 500_000_000)` | `"-0.500000000"` |
-
-`java.math.BigDecimal` can hold such a number exactly.
+About two lines in total.

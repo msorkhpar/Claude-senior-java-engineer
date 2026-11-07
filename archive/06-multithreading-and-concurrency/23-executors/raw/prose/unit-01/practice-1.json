@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A bounded pool with named threads",
+  "title": "Size the OCR pool for a burst of uploads",
   "blocks": [
     {
       "type": "heading",
@@ -19,51 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page warns that `Executors.newFixedThreadPool(n)` queues without limit, and recommends building a `ThreadPoolExecutor` yourself: a **bounded** queue, a rejection policy, and a `ThreadFactory` that gives the threads useful names. Its interview answer walks a pool of core 2, maximum 4 and a queue of 2 through seven tasks."
+      "text": "The document service reads the text out of every uploaded scan, a few seconds of OCR each. On a normal day three workers keep up. At the end of the month the accountants upload in bursts, and last month the service ran out of memory with forty thousand scans waiting."
     },
     {
       "type": "para",
-      "text": "Write `BoundedPool.create(core, max, queueCapacity, name)`, returning a `ThreadPoolExecutor` that:"
+      "text": "The team's decision: three workers normally, and at most six scans waiting for one. When six are already waiting, the service may take on extra workers for the burst, five at most in total. A scan that arrives when all five are busy and six are waiting must not be lost or refused: the upload thread that brought it reads it itself, which slows that uploader down until the burst passes."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "keeps `core` threads (idle core threads do not time out) and grows to at most `max` threads;",
-        "holds at most `queueCapacity` waiting tasks;",
-        "refuses a task it cannot take by throwing `RejectedExecutionException`;",
-        "names its threads `name-1`, `name-2`, ... in the order it creates them, as daemon threads. (Threads may be created from several submitting threads at once, so count them thread-safely; the tests submit from one thread, so they cannot catch a racy count.)"
-      ]
+      "type": "para",
+      "text": "Write `create()` in `src/main/java/practice/OcrPool.java`. The class already has the numbers and a `ThreadFactory` that names the threads. About five lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "`create(2, 4, 2, \"orders\")`, then tasks that stay busy",
-        "pool size",
-        "queued"
-      ],
-      "rows": [
-        [
-          "after 4 tasks",
-          "`2`",
-          "`2`"
-        ],
-        [
-          "after 6 tasks",
-          "`4`",
-          "`2`"
-        ],
-        [
-          "a 7th task",
-          "`RejectedExecutionException`",
-          ""
-        ],
-        [
-          "names of the threads running the first 6 tasks",
-          "`orders-1` .. `orders-4`",
-          ""
-        ]
-      ]
+      "type": "para",
+      "text": "The tests hand scans to your pool from a thread named `uploader` and read the pool's size and its queue."
     },
     {
       "type": "heading",
@@ -78,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ArrayBlockingQueue;\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic final class BoundedPool {\n\n    private BoundedPool() {\n    }\n\n    /** A pool of core..max named daemon threads, a queue of queueCapacity, refusing what it cannot take. */\n    public static ThreadPoolExecutor create(int core, int max, int queueCapacity, String name) {\n        AtomicInteger created = new AtomicInteger();\n        ThreadFactory factory = task -> {\n            Thread thread = new Thread(task, name + \"-\" + created.incrementAndGet());\n            thread.setDaemon(true);\n            return thread;\n        };\n        return new ThreadPoolExecutor(core, max, 60L, TimeUnit.SECONDS,\n                new ArrayBlockingQueue<>(queueCapacity), factory, new ThreadPoolExecutor.AbortPolicy());\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ArrayBlockingQueue;\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The pool that reads text out of uploaded scans. Each upload thread hands it one task per scan\n * with execute(). A scan takes a few seconds of OCR.\n */\npublic class OcrPool {\n\n    /** Workers the pool keeps on a normal day. */\n    static final int WORKERS = 3;\n    /** Workers it may run during a burst. */\n    static final int MAX_WORKERS = 5;\n    /** Scans that may wait for a worker. */\n    static final int WAITING = 6;\n\n    /** Names the pool's threads ocr-1, ocr-2, ... and makes them daemons. */\n    static ThreadFactory namedThreads() {\n        AtomicInteger next = new AtomicInteger(1);\n        return task -> {\n            Thread t = new Thread(task, \"ocr-\" + next.getAndIncrement());\n            t.setDaemon(true);\n            return t;\n        };\n    }\n\n    /** Builds the OCR pool. */\n    public static ThreadPoolExecutor create() {\n        return new ThreadPoolExecutor(WORKERS, MAX_WORKERS, 30, TimeUnit.SECONDS,\n                new ArrayBlockingQueue<>(WAITING), namedThreads(), new ThreadPoolExecutor.CallerRunsPolicy());\n    }\n}\n"
         }
       ]
     },
@@ -90,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.ThreadPoolExecutor;\n\npublic final class BoundedPool {\n\n    private BoundedPool() {\n    }\n\n    /** A pool of core..max named daemon threads, a queue of queueCapacity, refusing what it cannot take. */\n    public static ThreadPoolExecutor create(int core, int max, int queueCapacity, String name) {\n        throw new UnsupportedOperationException(\"write create\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The pool that reads text out of uploaded scans. Each upload thread hands it one task per scan\n * with execute(). A scan takes a few seconds of OCR.\n */\npublic class OcrPool {\n\n    /** Workers the pool keeps on a normal day. */\n    static final int WORKERS = 3;\n    /** Workers it may run during a burst. */\n    static final int MAX_WORKERS = 5;\n    /** Scans that may wait for a worker. */\n    static final int WAITING = 6;\n\n    /** Names the pool's threads ocr-1, ocr-2, ... and makes them daemons. */\n    static ThreadFactory namedThreads() {\n        AtomicInteger next = new AtomicInteger(1);\n        return task -> {\n            Thread t = new Thread(task, \"ocr-\" + next.getAndIncrement());\n            t.setDaemon(true);\n            return t;\n        };\n    }\n\n    /** Builds the OCR pool. */\n    public static ThreadPoolExecutor create() {\n        // TODO: Build the pool the uploads need: WORKERS threads on a normal day, at most\n        //       WAITING scans waiting, extra workers up to MAX_WORKERS only for a burst, and a\n        //       scan that finds everything full must still be read, by the upload thread that\n        //       brought it. Use namedThreads() for the pool's threads.\n        throw new IllegalStateException(\"TODO: create\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -98,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -109,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6cbec4158c0015e91eb9c74dc894462d07010917671b2c45e2761353dddfe8aa",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.ThreadPoolExecutor;\n\npublic final class BoundedPool {\n\n    private BoundedPool() {\n    }\n\n    /** A pool of core..max named daemon threads, a queue of queueCapacity, refusing what it cannot take. */\n    public static ThreadPoolExecutor create(int core, int max, int queueCapacity, String name) {\n        throw new UnsupportedOperationException(\"write create\");\n    }\n}\n",
+  "content_sha256": "30f778a98b31aa7fe0d1b4cf48ede31e1836d86a637b4c75abac755e47beb2d7",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The pool that reads text out of uploaded scans. Each upload thread hands it one task per scan\n * with execute(). A scan takes a few seconds of OCR.\n */\npublic class OcrPool {\n\n    /** Workers the pool keeps on a normal day. */\n    static final int WORKERS = 3;\n    /** Workers it may run during a burst. */\n    static final int MAX_WORKERS = 5;\n    /** Scans that may wait for a worker. */\n    static final int WAITING = 6;\n\n    /** Names the pool's threads ocr-1, ocr-2, ... and makes them daemons. */\n    static ThreadFactory namedThreads() {\n        AtomicInteger next = new AtomicInteger(1);\n        return task -> {\n            Thread t = new Thread(task, \"ocr-\" + next.getAndIncrement());\n            t.setDaemon(true);\n            return t;\n        };\n    }\n\n    /** Builds the OCR pool. */\n    public static ThreadPoolExecutor create() {\n        // TODO: Build the pool the uploads need: WORKERS threads on a normal day, at most\n        //       WAITING scans waiting, extra workers up to MAX_WORKERS only for a burst, and a\n        //       scan that finds everything full must still be read, by the upload thread that\n        //       brought it. Use namedThreads() for the pool's threads.\n        throw new IllegalStateException(\"TODO: create\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-1/src/main/java/practice/BoundedPool.java",
-    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-1/src/test/java/practice/BoundedPoolTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-1/src/main/java/practice/OcrPool.java",
+    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-1/src/test/java/practice/OcrPoolTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -134,29 +102,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BoundedPoolTest#fillsCoreThreadsThenTheQueue",
+        "id": "practice.OcrPoolTest#everyScanIsReadOnAnOcrThread",
         "kind": "main",
-        "says": "The first tasks start core threads, and the next ones wait in the queue."
+        "says": "scans uploaded one after another are all read, on the pool's named threads"
       },
       {
-        "id": "practice.BoundedPoolTest#growsPastCoreOnlyWhenTheQueueIsFull",
+        "id": "practice.OcrPoolTest#aFourthScanWaitsForOneOfTheThreeWorkers",
         "kind": "edge",
-        "says": "Threads beyond the core size start only once the bounded queue is full."
+        "says": "with three workers busy, a fourth scan waits instead of starting a fourth worker"
       },
       {
-        "id": "practice.BoundedPoolTest#rejectsWhenPoolAndQueueAreFull",
+        "id": "practice.OcrPoolTest#aBurstThatFillsTheWaitingRoomBringsInExtraWorkers",
         "kind": "edge",
-        "says": "A task that finds the pool at its maximum and the queue full is refused with RejectedExecutionException."
+        "says": "once six scans are waiting, further scans bring in extra workers, up to five"
       },
       {
-        "id": "practice.BoundedPoolTest#namesItsThreads",
+        "id": "practice.OcrPoolTest#aScanThatFindsEverythingFullIsReadByItsUploader",
         "kind": "edge",
-        "says": "Each pool's threads are daemons named after the pool, numbered from 1 in every new pool."
-      },
-      {
-        "id": "practice.BoundedPoolTest#coreThreadsAreKept",
-        "kind": "edge",
-        "says": "The pool keeps its core threads when idle: core 2 and maximum 4 as asked, and core threads never time out."
+        "says": "a scan that finds five workers busy and six waiting is still read, on the upload thread that brought it"
       }
     ],
     "report": {
@@ -165,13 +128,11 @@
     },
     "origin": {
       "path": "23-executors/README_6.4.1.md",
-      "section": "Interview Q&A Section"
+      "section": "A Full Pool Has to Refuse Work: Bound the Queue and Choose Who Pays"
     },
     "concepts": [
-      "With the default AbortPolicy, a task that finds the pool and the queue full is refused with RejectedExecutionException.",
-      "A production pool is built directly with a bounded queue and a rejection policy, instead of the unbounded queue of newFixedThreadPool.",
-      "A ThreadPoolExecutor starts core threads first, then queues, and starts threads beyond the core size only once the queue is full.",
-      "A custom ThreadFactory names the pool's threads and can make them daemons, so thread dumps are readable."
+      "A ThreadPoolExecutor starts core threads first, then queues, and starts threads past the core only when the queue refuses a task; with an unbounded queue the maximum is never used.",
+      "A bounded pool hands a task it cannot take to its policy: AbortPolicy throws to the submitter, CallerRunsPolicy runs it on the submitting thread, and the discard policies drop a task silently."
     ]
   }
 }

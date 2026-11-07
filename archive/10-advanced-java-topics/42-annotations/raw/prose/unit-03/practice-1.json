@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Read an annotation type's retention",
+  "title": "Fix what release 4.2 shipped in its class files",
   "blocks": [
     {
       "type": "heading",
@@ -19,59 +19,24 @@
     },
     {
       "type": "para",
-      "text": "An annotation type's retention is itself an annotation, `@Retention`, and it is RUNTIME-retained, so reflection can read it from the annotation's class object. The page's key points: **with no `@Retention` the policy is CLASS**, not RUNTIME, and the stages nest as `SOURCE < CLASS < RUNTIME`, so **a longer retention includes the shorter stages**."
-    },
-    {
-      "type": "para",
-      "text": "Write `Retentions`:"
+      "text": "Release 4.2 of the invoicing module went out with three complaints:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`policyOf(Class<? extends Annotation> type)`: the retention policy of `type`.",
-        "`availableIn(Class<? extends Annotation> type, RetentionPolicy stage)`: whether an annotation of `type` still exists at `stage` (`SOURCE` = in the source, `CLASS` = in the `.class` file, `RUNTIME` = to reflection)."
+        "a partner ran `javap -v` on the released jar and read one of the team's review notes, word for word, in `InvoiceService`'s class file;",
+        "the coverage report suddenly counts `InvoiceMapper`, which the mapper generator writes and the coverage tool is supposed to leave out (the tool reads compiled `.class` files, never sources);",
+        "the cache layer caches nothing."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "type",
-        "`policyOf`",
-        "`availableIn(.., SOURCE)`",
-        "`CLASS`",
-        "`RUNTIME`"
-      ],
-      "rows": [
-        [
-          "`Deprecated`",
-          "`RUNTIME`",
-          "`true`",
-          "`true`",
-          "`true`"
-        ],
-        [
-          "`Override`",
-          "`SOURCE`",
-          "`true`",
-          "`false`",
-          "`false`"
-        ],
-        [
-          "`@Retention(CLASS) @interface Generated`",
-          "`CLASS`",
-          "`true`",
-          "`true`",
-          "`false`"
-        ],
-        [
-          "`@interface Plain` (no `@Retention`)",
-          "`CLASS`",
-          "`true`",
-          "`true`",
-          "`false`"
-        ]
-      ]
+      "type": "para",
+      "text": "All three annotations are declared in `src/main/java/practice/Invoicing.java`, each with a `TODO` above the retention it shipped with. Give each the retention its reader needs, then write `cacheSeconds(Class<?>)`, which the cache layer calls on every service class at start-up: each method the class declares with `@Cached`, by name, with its seconds."
+    },
+    {
+      "type": "para",
+      "text": "About eight lines in total. The tests read the compiled class files the same way the coverage tool does, and call `cacheSeconds` on classes of their own."
     },
     {
       "type": "heading",
@@ -86,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\n\npublic final class Retentions {\n\n    private Retentions() {\n    }\n\n    /** The retention policy of the annotation type. */\n    public static RetentionPolicy policyOf(Class<? extends Annotation> type) {\n        Retention retention = type.getAnnotation(Retention.class);\n        return retention == null ? RetentionPolicy.CLASS : retention.value();\n    }\n\n    /** Whether an annotation of type still exists at the given stage. */\n    public static boolean availableIn(Class<? extends Annotation> type, RetentionPolicy stage) {\n        return policyOf(type).compareTo(stage) >= 0;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The invoicing module: its annotations, the code that carries them, and the cache settings\n * the cache layer reads from them while the service runs.\n */\npublic class Invoicing {\n\n    /** A note for the people reviewing the code: why something unusual is the way it is. */\n    @Retention(RetentionPolicy.SOURCE)\n    @Target({ElementType.TYPE, ElementType.METHOD})\n    @interface ReviewNote {\n        String value();\n    }\n\n    /**\n     * Marks classes written by the mapper generator. The build's coverage tool reads the\n     * compiled .class files (never the sources) and leaves out every class marked this way.\n     */\n    @Retention(RetentionPolicy.CLASS)\n    @Target(ElementType.TYPE)\n    @interface Generated {\n        String by();\n    }\n\n    /** How long the cache layer keeps a method's result, in seconds. */\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    @interface Cached {\n        int seconds();\n    }\n\n    static class InvoiceService {\n\n        @Cached(seconds = 300)\n        @ReviewNote(\"totals skip rounding for partner 12 until the ledger fix ships\")\n        String totals(String account) {\n            return \"totals for \" + account;\n        }\n\n        @Cached(seconds = 45)\n        String history(String account) {\n            return \"history of \" + account;\n        }\n\n        String send(String account) {\n            return \"sent to \" + account;\n        }\n    }\n\n    @Generated(by = \"mapper-gen 2.3\")\n    static class InvoiceMapper {\n        String toCsv(String account, long cents) {\n            return account + \",\" + cents;\n        }\n    }\n\n    /**\n     * The cache settings of a class: for every method the class declares with @Cached, its\n     * name mapped to the number of seconds, sorted by name.\n     */\n    static Map<String, Integer> cacheSeconds(Class<?> type) {\n        Map<String, Integer> seconds = new TreeMap<>();\n        for (Method m : type.getDeclaredMethods()) {\n            Cached cached = m.getAnnotation(Cached.class);\n            if (cached != null) seconds.put(m.getName(), cached.seconds());\n        }\n        return seconds;\n    }\n}\n"
         }
       ]
     },
@@ -98,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.RetentionPolicy;\n\npublic final class Retentions {\n\n    private Retentions() {\n    }\n\n    /** The retention policy of the annotation type. */\n    public static RetentionPolicy policyOf(Class<? extends Annotation> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Whether an annotation of type still exists at the given stage. */\n    public static boolean availableIn(Class<? extends Annotation> type, RetentionPolicy stage) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The invoicing module: its annotations, the code that carries them, and the cache settings\n * the cache layer reads from them while the service runs.\n */\npublic class Invoicing {\n\n    /** A note for the people reviewing the code: why something unusual is the way it is. */\n    // TODO: Release 4.2 shipped with this retention. Make it right for what the note is for.\n    @Retention(RetentionPolicy.CLASS)\n    @Target({ElementType.TYPE, ElementType.METHOD})\n    @interface ReviewNote {\n        String value();\n    }\n\n    /**\n     * Marks classes written by the mapper generator. The build's coverage tool reads the\n     * compiled .class files (never the sources) and leaves out every class marked this way.\n     */\n    // TODO: Release 4.2 shipped with this retention. Make it right for the coverage tool.\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    @interface Generated {\n        String by();\n    }\n\n    /** How long the cache layer keeps a method's result, in seconds. */\n    // TODO: Release 4.2 shipped this annotation with no retention. Make it right for the cache layer.\n    @Target(ElementType.METHOD)\n    @interface Cached {\n        int seconds();\n    }\n\n    static class InvoiceService {\n\n        @Cached(seconds = 300)\n        @ReviewNote(\"totals skip rounding for partner 12 until the ledger fix ships\")\n        String totals(String account) {\n            return \"totals for \" + account;\n        }\n\n        @Cached(seconds = 45)\n        String history(String account) {\n            return \"history of \" + account;\n        }\n\n        String send(String account) {\n            return \"sent to \" + account;\n        }\n    }\n\n    @Generated(by = \"mapper-gen 2.3\")\n    static class InvoiceMapper {\n        String toCsv(String account, long cents) {\n            return account + \",\" + cents;\n        }\n    }\n\n    /**\n     * The cache settings of a class: for every method the class declares with @Cached, its\n     * name mapped to the number of seconds, sorted by name.\n     */\n    static Map<String, Integer> cacheSeconds(Class<?> type) {\n        // TODO: Collect the cache settings of the class, as described above.\n        throw new IllegalStateException(\"TODO: cacheSeconds\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -106,9 +71,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -117,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "cad54dc99ab4eab705ffc2dacd4be492e24e7287e7706e6e48dcae07cbede5c4",
-  "starting_code": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.RetentionPolicy;\n\npublic final class Retentions {\n\n    private Retentions() {\n    }\n\n    /** The retention policy of the annotation type. */\n    public static RetentionPolicy policyOf(Class<? extends Annotation> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Whether an annotation of type still exists at the given stage. */\n    public static boolean availableIn(Class<? extends Annotation> type, RetentionPolicy stage) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "7a8e5597fbc6c70f0f8a76a03ac5e415a3d7d5df66522903d420c3df2dba9fb1",
+  "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The invoicing module: its annotations, the code that carries them, and the cache settings\n * the cache layer reads from them while the service runs.\n */\npublic class Invoicing {\n\n    /** A note for the people reviewing the code: why something unusual is the way it is. */\n    // TODO: Release 4.2 shipped with this retention. Make it right for what the note is for.\n    @Retention(RetentionPolicy.CLASS)\n    @Target({ElementType.TYPE, ElementType.METHOD})\n    @interface ReviewNote {\n        String value();\n    }\n\n    /**\n     * Marks classes written by the mapper generator. The build's coverage tool reads the\n     * compiled .class files (never the sources) and leaves out every class marked this way.\n     */\n    // TODO: Release 4.2 shipped with this retention. Make it right for the coverage tool.\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    @interface Generated {\n        String by();\n    }\n\n    /** How long the cache layer keeps a method's result, in seconds. */\n    // TODO: Release 4.2 shipped this annotation with no retention. Make it right for the cache layer.\n    @Target(ElementType.METHOD)\n    @interface Cached {\n        int seconds();\n    }\n\n    static class InvoiceService {\n\n        @Cached(seconds = 300)\n        @ReviewNote(\"totals skip rounding for partner 12 until the ledger fix ships\")\n        String totals(String account) {\n            return \"totals for \" + account;\n        }\n\n        @Cached(seconds = 45)\n        String history(String account) {\n            return \"history of \" + account;\n        }\n\n        String send(String account) {\n            return \"sent to \" + account;\n        }\n    }\n\n    @Generated(by = \"mapper-gen 2.3\")\n    static class InvoiceMapper {\n        String toCsv(String account, long cents) {\n            return account + \",\" + cents;\n        }\n    }\n\n    /**\n     * The cache settings of a class: for every method the class declares with @Cached, its\n     * name mapped to the number of seconds, sorted by name.\n     */\n    static Map<String, Integer> cacheSeconds(Class<?> type) {\n        // TODO: Collect the cache settings of the class, as described above.\n        throw new IllegalStateException(\"TODO: cacheSeconds\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-03/practice-1/src/main/java/practice/Retentions.java",
-    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-03/practice-1/src/test/java/practice/RetentionsTest.java",
+    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-03/practice-1/src/main/java/practice/Invoicing.java",
+    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-03/practice-1/src/test/java/practice/InvoicingTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -142,19 +107,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.RetentionsTest#readsTheDeclaredRetention",
+        "id": "practice.InvoicingTest#theCacheLayerFindsEveryCachedMethodOfTheService",
         "kind": "main",
-        "says": "@Deprecated is RUNTIME, @Override is SOURCE, and an annotation declared with @Retention(CLASS) is CLASS."
+        "says": "the cache settings of InvoiceService name each @Cached method with its seconds"
       },
       {
-        "id": "practice.RetentionsTest#noRetentionMeansClass",
-        "kind": "edge",
-        "says": "An annotation type with no @Retention has the default policy CLASS."
+        "id": "practice.InvoicingTest#theCacheLayerReadsAnotherServiceToo",
+        "kind": "main",
+        "says": "the cache settings work for another class compiled against the same annotation, and are empty for a class with none"
       },
       {
-        "id": "practice.RetentionsTest#aLongerRetentionIncludesTheShorterStages",
+        "id": "practice.InvoicingTest#theShippedServiceClassCarriesNoReviewNote",
         "kind": "edge",
-        "says": "A RUNTIME annotation is also available in the source and the class file, and a CLASS one in the source, but a CLASS one is not available at run time."
+        "says": "the compiled InvoiceService class holds neither the review note's text nor its annotation"
+      },
+      {
+        "id": "practice.InvoicingTest#theCoverageToolFindsTheGeneratedMarkInTheMapperClassFile",
+        "kind": "edge",
+        "says": "the compiled InvoiceMapper class still carries the @Generated mark the coverage tool looks for"
       }
     ],
     "report": {
@@ -163,11 +133,11 @@
     },
     "origin": {
       "path": "42-annotations/README_10.4.3.md",
-      "section": "Key Points to Remember"
+      "section": "SOURCE Stops at the Compiler, CLASS Stops in the Class File, Only RUNTIME Reaches Reflection"
     },
     "concepts": [
-      "An annotation type without @Retention has the default policy CLASS, so reflection cannot see it.",
-      "Retention stages nest as SOURCE < CLASS < RUNTIME, and an annotation type's own @Retention can be read from its class object."
+      "A CLASS annotation ships in the class file with its values, so only SOURCE keeps it out of the jar, and a tool that reads class files needs CLASS or RUNTIME.",
+      "javac drops a SOURCE annotation, writes a CLASS annotation to RuntimeInvisibleAnnotations and a RUNTIME one to RuntimeVisibleAnnotations; only the last is returned by reflection."
     ]
   }
 }

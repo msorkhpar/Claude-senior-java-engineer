@@ -1,22 +1,17 @@
-The page's shutdown idiom has two phases. `shutdown()` stops new work but lets
-running and queued tasks finish, and `awaitTermination()` waits for them. If
-they do not finish in time, `shutdownNow()` interrupts the running tasks and
-returns the ones that never started, and a second `awaitTermination()` waits
-again. Its edge cases add: if the waiting thread is interrupted, fall back to
-`shutdownNow()` and re-interrupt the thread.
+The invoice service takes invoice runs from a message broker and hands them to a worker pool.
+On a deploy the orchestrator gives the old process a grace period, then kills it. Two things go
+wrong today: runs that would have finished in a few seconds are cut off, and the runs that were
+waiting in the pool are simply lost, so customers miss their invoices until someone notices.
 
-Write `Shutdown.close(executor, timeout, unit)`, returning the tasks that never
-started (an empty list when none were dropped):
+Write `stop(pool, grace, unit)` in `src/main/java/practice/Drain.java`, called by the deploy's
+shutdown hook:
 
-- phase 1: `shutdown()`, then wait up to `timeout` for termination;
-- phase 2, only if phase 1 timed out: `shutdownNow()`, then wait up to `timeout`
-  once more, and return (a task that ignores its interrupt may still be running);
-- if the calling thread is interrupted while it waits: `shutdownNow()`, restore
-  its interrupt flag, and return what `shutdownNow()` returned.
+- work the pool already has, running or waiting, gets the grace period to finish, and `stop`
+  returns only when it has finished or the grace period is over;
+- what is still running after the grace period is asked to stop, and gets one more grace period
+  to do so; the runs that never started are returned, so the hook can put them back on the broker;
+- if the orchestrator interrupts the hook while `stop` waits, stop the pool at once, return what
+  never started, and leave the hook's thread able to see that it was interrupted.
 
-| a single-thread executor holding | `close(executor, t, unit)` returns | and |
-|---|---|---|
-| one finished task | `[]` | the executor is terminated |
-| a running task that ends soon, and two queued tasks | `[]` | all three tasks ran |
-| a running task that never ends, and one queued task | the queued task | the running task was interrupted, and the executor is terminated when `close` returns |
-| a running task that never ends, the caller then interrupted | | the caller's interrupt flag is set, the executor terminates |
+About twelve lines in total. The tests call `stop` on a thread of their own and use a pool with one
+worker.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A Date's calendar day, in a named zone",
+  "title": "Store scan times on the warehouse's clock",
   "blocks": [
     {
       "type": "heading",
@@ -19,64 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A `java.util.Date` is a moment: milliseconds since 1970-01-01T00:00Z, with no calendar day and no wall clock of its own. Turning it into a `LocalDate`, or a `LocalDateTime` into a `Date`, therefore needs a zone."
+      "text": "Each warehouse has a legacy table with a `TIMESTAMP` column (no zone) for the time a parcel was scanned. The warehouse staff read that column directly, so it must show what the clocks in the warehouse showed at the scan. The old DAO takes and returns `java.sql.Timestamp`, and writes the date and time a `Timestamp` gives through `toLocalDateTime()`. The new scanning service, written with `java.time`, runs on servers whose default zone nobody controls, and it serves warehouses in several zones."
     },
     {
       "type": "para",
-      "text": "Write two methods on `LegacyDays`:"
+      "text": "Finish the two `TODO` methods in `src/main/java/practice/ScanTimeColumn.java`. Each `ScanTimeColumn` is built with its warehouse's zone:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`dayOf(Date date, ZoneId zone)`: the calendar day `date` falls on in `zone`.",
-        "`toDate(LocalDateTime local, ZoneId zone)`: the `Date` for the moment that `local` names on `zone`'s clock."
+        "`toColumn(scanned)`: the value to hand the DAO for a scan at that moment;",
+        "`fromColumn(column)`: the moment of the scan that a row read by the DAO records."
       ]
     },
     {
       "type": "para",
-      "text": "Use **the zone passed in**, and only that one: the server's default zone must make no difference, and it is never changed."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`dayOf(2024-03-15T23:30:00Z, UTC)`",
-          "`2024-03-15`"
-        ],
-        [
-          "`dayOf(2024-03-15T23:30:00Z, Asia/Tokyo)`",
-          "`2024-03-16`"
-        ],
-        [
-          "`dayOf(2024-03-15T23:30:00Z, America/New_York)`",
-          "`2024-03-15`"
-        ],
-        [
-          "`dayOf(2024-01-15T04:30:00Z, America/New_York)`",
-          "`2024-01-14`"
-        ],
-        [
-          "`dayOf(2024-07-15T04:30:00Z, America/New_York)`",
-          "`2024-07-15`"
-        ],
-        [
-          "`toDate(2024-03-15T10:00, UTC)`",
-          "the `Date` of `2024-03-15T10:00:00Z`"
-        ],
-        [
-          "`toDate(2024-03-15T10:00, America/New_York)`",
-          "the `Date` of `2024-03-15T14:00:00Z`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "(A `Date` is shown here by the instant it holds.)"
+      "text": "The tests use warehouses in two zones and never change the JVM's default zone. About two lines in total."
     },
     {
       "type": "heading",
@@ -91,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.util.Date;\n\npublic final class LegacyDays {\n\n    private LegacyDays() {\n    }\n\n    /** The calendar day {@code date} falls on in {@code zone}. */\n    public static LocalDate dayOf(Date date, ZoneId zone) {\n        return date.toInstant().atZone(zone).toLocalDate();\n    }\n\n    /** The Date for the moment {@code local} names on {@code zone}'s clock. */\n    public static Date toDate(LocalDateTime local, ZoneId zone) {\n        return Date.from(local.atZone(zone).toInstant());\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.Timestamp;\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\n\n/**\n * The scan-time column of a warehouse's legacy table. The column is a TIMESTAMP without a zone,\n * and holds the time the warehouse's own clocks showed at the scan. The old DAO takes and returns\n * {@code java.sql.Timestamp}, and writes the date and time a Timestamp shows through\n * {@code toLocalDateTime()}.\n */\npublic class ScanTimeColumn {\n\n    private final ZoneId warehouse;\n\n    public ScanTimeColumn(ZoneId warehouse) {\n        this.warehouse = warehouse;\n    }\n\n    /** The value to hand the DAO for a scan made at {@code scanned}. */\n    Timestamp toColumn(Instant scanned) {\n        return Timestamp.valueOf(LocalDateTime.ofInstant(scanned, warehouse));\n    }\n\n    /** The moment of the scan that a value read by the DAO records. */\n    Instant fromColumn(Timestamp column) {\n        return column.toLocalDateTime().atZone(warehouse).toInstant();\n    }\n}\n"
         }
       ]
     },
@@ -103,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.util.Date;\n\npublic final class LegacyDays {\n\n    private LegacyDays() {\n    }\n\n    /** The calendar day {@code date} falls on in {@code zone}. */\n    public static LocalDate dayOf(Date date, ZoneId zone) {\n        throw new UnsupportedOperationException(\"write dayOf\");\n    }\n\n    /** The Date for the moment {@code local} names on {@code zone}'s clock. */\n    public static Date toDate(LocalDateTime local, ZoneId zone) {\n        throw new UnsupportedOperationException(\"write toDate\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.Timestamp;\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\n\n/**\n * The scan-time column of a warehouse's legacy table. The column is a TIMESTAMP without a zone,\n * and holds the time the warehouse's own clocks showed at the scan. The old DAO takes and returns\n * {@code java.sql.Timestamp}, and writes the date and time a Timestamp shows through\n * {@code toLocalDateTime()}.\n */\npublic class ScanTimeColumn {\n\n    private final ZoneId warehouse;\n\n    public ScanTimeColumn(ZoneId warehouse) {\n        this.warehouse = warehouse;\n    }\n\n    /** The value to hand the DAO for a scan made at {@code scanned}. */\n    Timestamp toColumn(Instant scanned) {\n        // TODO: Return the value whose stored date and time are what the warehouse's clocks\n        //       showed at the scan, on a server in any zone.\n        throw new IllegalStateException(\"TODO: toColumn\");\n    }\n\n    /** The moment of the scan that a value read by the DAO records. */\n    Instant fromColumn(Timestamp column) {\n        // TODO: Return the moment of the scan that this row records, on a server in any zone.\n        throw new IllegalStateException(\"TODO: fromColumn\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -111,9 +70,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -122,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "73db630d7310a78f4f2ed2c3c4400c795048d37879aaef57ea18e4467e2a55d5",
-  "starting_code": "package practice;\n\nimport java.time.LocalDate;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.util.Date;\n\npublic final class LegacyDays {\n\n    private LegacyDays() {\n    }\n\n    /** The calendar day {@code date} falls on in {@code zone}. */\n    public static LocalDate dayOf(Date date, ZoneId zone) {\n        throw new UnsupportedOperationException(\"write dayOf\");\n    }\n\n    /** The Date for the moment {@code local} names on {@code zone}'s clock. */\n    public static Date toDate(LocalDateTime local, ZoneId zone) {\n        throw new UnsupportedOperationException(\"write toDate\");\n    }\n}\n",
+  "content_sha256": "c420536de7eb338a3c5867ce06779f9e26304e2d0956b28674b3c726d9ee0a2b",
+  "starting_code": "package practice;\n\nimport java.sql.Timestamp;\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\n\n/**\n * The scan-time column of a warehouse's legacy table. The column is a TIMESTAMP without a zone,\n * and holds the time the warehouse's own clocks showed at the scan. The old DAO takes and returns\n * {@code java.sql.Timestamp}, and writes the date and time a Timestamp shows through\n * {@code toLocalDateTime()}.\n */\npublic class ScanTimeColumn {\n\n    private final ZoneId warehouse;\n\n    public ScanTimeColumn(ZoneId warehouse) {\n        this.warehouse = warehouse;\n    }\n\n    /** The value to hand the DAO for a scan made at {@code scanned}. */\n    Timestamp toColumn(Instant scanned) {\n        // TODO: Return the value whose stored date and time are what the warehouse's clocks\n        //       showed at the scan, on a server in any zone.\n        throw new IllegalStateException(\"TODO: toColumn\");\n    }\n\n    /** The moment of the scan that a value read by the DAO records. */\n    Instant fromColumn(Timestamp column) {\n        // TODO: Return the moment of the scan that this row records, on a server in any zone.\n        throw new IllegalStateException(\"TODO: fromColumn\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-08/practice-2/src/main/java/practice/LegacyDays.java",
-    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-08/practice-2/src/test/java/practice/LegacyDaysTest.java",
+    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-08/practice-2/src/main/java/practice/ScanTimeColumn.java",
+    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-08/practice-2/src/test/java/practice/ScanTimeColumnTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -147,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LegacyDaysTest#convertsInUtc",
+        "id": "practice.ScanTimeColumnTest#scansNinetyMinutesApartAreStoredNinetyMinutesApart",
         "kind": "main",
-        "says": "In UTC, a Date's day is its UTC day and a local date-time is that UTC moment."
+        "says": "two scans ninety minutes apart are stored as values ninety minutes apart"
       },
       {
-        "id": "practice.LegacyDaysTest#theZoneDecidesTheDay",
-        "kind": "edge",
-        "says": "23:30 UTC on March 15 is March 16 in Tokyo and still March 15 in New York."
+        "id": "practice.ScanTimeColumnTest#rowsNinetyMinutesApartReadNinetyMinutesApart",
+        "kind": "main",
+        "says": "two rows ninety minutes apart read as moments ninety minutes apart"
       },
       {
-        "id": "practice.LegacyDaysTest#aLocalTimeIsReadInItsZone",
+        "id": "practice.ScanTimeColumnTest#theColumnShowsTheWarehouseClock",
         "kind": "edge",
-        "says": "10:00 on March 15 in New York is the Date for 14:00 UTC."
+        "says": "the stored date and time are what the warehouse's clocks showed at the scan, for warehouses in two zones"
       },
       {
-        "id": "practice.LegacyDaysTest#theServerZoneIsIgnored",
+        "id": "practice.ScanTimeColumnTest#aRowReadsAsTheMomentOfTheScan",
         "kind": "edge",
-        "says": "On a server whose default zone is UTC+14, both conversions still use the zone passed in, and the default zone is still UTC+14 afterwards."
+        "says": "a row reads as the moment its date and time stand for on the warehouse's clock, for warehouses in two zones"
       }
     ],
     "report": {
@@ -173,12 +132,11 @@
     },
     "origin": {
       "path": "29-date-time-api/README_7.3.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Timestamp and java.sql.Date Turn Local Values into Moments in the JVM's Default Zone"
     },
     "concepts": [
-      "The same Date late in the UTC evening can be a different LocalDate east and west of UTC.",
-      "ZoneId.systemDefault() makes a conversion depend on the server, so the zone is passed explicitly.",
-      "A Date is a UTC-based moment, so turning it into a LocalDate or a LocalDateTime into a Date needs a time zone."
+      "from/toInstant carry a moment and valueOf/toLocalDateTime a wall-clock value; a wall-clock column in a known zone is converted with that zone in java.time before valueOf.",
+      "Timestamp.valueOf, toLocalDateTime, java.sql.Date.valueOf and toLocalDate convert through the JVM's default zone, so the same values give different moments or dates under different default zones."
     ]
   }
 }

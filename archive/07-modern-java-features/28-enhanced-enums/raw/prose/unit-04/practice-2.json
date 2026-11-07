@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "List operations as generic enum methods",
+  "title": "Read any enum column of the warehouse import",
   "blocks": [
     {
       "type": "heading",
@@ -19,60 +19,28 @@
     },
     {
       "type": "para",
-      "text": "The page's `CollectionOp` shows the most common generic enum method shape:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public abstract <T> List<T> execute(List<T> input, Predicate<T> predicate);"
+      "text": "The warehouse imports its inbound shipments from spreadsheets that people fill in by hand. Each enum column (the dock, the handling flags, the stage) is read with one shared helper, whatever enum the column holds, and the cells look like `north-gate`, ` Cold Store ` or `HAZMAT,OVERSIZE,FRAGILE`. The dashboard's \"advance\" button moves a shipment's stage to the next one with the same helper class."
     },
     {
       "type": "para",
-      "text": "`T` is inferred from the caller's list, so `FILTER.execute(List.of(\"a\", \"bb\", \"ccc\"), s -> s.length() > 1)` is a `List<String>` with no cast. The page also warns against returning a raw `List`: the result must be a properly typed **new** list."
-    },
-    {
-      "type": "para",
-      "text": "Fill in each constant's `execute`, and the one-argument convenience overload:"
+      "text": "`parseAll(...)` already splits a cell. Finish the three `TODO`s in `src/main/java/practice/Enums.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`FILTER`: the elements matching `predicate`, in order.",
-        "`SORT`: the elements in natural order (they are `Comparable`); the predicate is ignored.",
-        "`DISTINCT`: each element once, at its first occurrence, in the input's order; the predicate is ignored.",
-        "`REVERSE`: the elements in reverse order; the predicate is ignored.",
-        "`<T> List<T> execute(List<T> input)`: `execute` with a predicate that accepts everything."
+        "`parse(...)`: the constant a cell's text means;",
+        "`newSet(...)`: the set `parseAll` fills;",
+        "`next(...)`: the constant after the current one."
       ]
     },
     {
       "type": "para",
-      "text": "None of them may change `input`: the caller's list is theirs."
+      "text": "When you're done, every column parses the way people type its values, a cell's flags come back in the order the enum declares them, and \"advance\" works on every stage. About eight lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`FILTER.execute(List.of(\"a\", \"bb\", \"ccc\"), s -> s.length() > 1)`",
-          "`[bb, ccc]`"
-        ],
-        [
-          "`SORT.execute(List.of(3, 1, 2))`",
-          "`[1, 2, 3]`"
-        ],
-        [
-          "`DISTINCT.execute(List.of(\"pear\", \"fig\", \"pear\", \"apple\"))`",
-          "`[pear, fig, apple]`"
-        ],
-        [
-          "`REVERSE.execute(List.of(1, 2, 3))`",
-          "`[3, 2, 1]`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests use enums of their own, so the helper can't name any particular enum."
     },
     {
       "type": "heading",
@@ -87,7 +55,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.TreeSet;\nimport java.util.function.Predicate;\n\npublic enum CollectionOp {\n    FILTER {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            return input.stream().filter(predicate).toList();\n        }\n    },\n    SORT {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            List<T> sorted = new ArrayList<>(input);\n            sorted.sort((a, b) -> ((Comparable<T>) a).compareTo(b));\n            return sorted;\n        }\n    },\n    DISTINCT {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            return input.stream().distinct().toList();\n        }\n    },\n    REVERSE {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            List<T> reversed = new ArrayList<>(input);\n            Collections.reverse(reversed);\n            return reversed;\n        }\n    };\n\n    /** Applies this operation to {@code input}; the predicate is used by FILTER only. */\n    public abstract <T> List<T> execute(List<T> input, Predicate<T> predicate);\n\n    /** Applies this operation with a predicate that accepts everything. */\n    public <T> List<T> execute(List<T> input) {\n        return execute(input, t -> true);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.EnumSet;\nimport java.util.Set;\n\n/**\n * Reads enum values out of the warehouse's CSV imports, for whichever enum a column holds, and\n * moves a value on to the next one for the dashboard's \"advance\" button.\n */\npublic final class Enums {\n\n    private Enums() {\n    }\n\n    /**\n     * The constant of {@code type} that {@code text} names, as people type it into a spreadsheet:\n     * any case, spaces around it, and a hyphen or a space where the name has an underscore.\n     *\n     * @throws IllegalArgumentException when no constant matches\n     */\n    public static <E extends Enum<E>> E parse(Class<E> type, String text) {\n        String wanted = text.trim().replace('-', '_').replace(' ', '_');\n        for (E constant : type.getEnumConstants()) {\n            if (constant.name().equalsIgnoreCase(wanted)) return constant;\n        }\n        throw new IllegalArgumentException(type.getSimpleName() + \" has no constant for '\" + text + \"'\");\n    }\n\n    /** Every constant a comma-separated cell names, each once. */\n    public static <E extends Enum<E>> Set<E> parseAll(Class<E> type, String cell) {\n        Set<E> result = newSet(type);\n        for (String part : cell.split(\",\")) {\n            result.add(parse(type, part));\n        }\n        return result;\n    }\n\n    /** The empty set parseAll fills. */\n    static <E extends Enum<E>> Set<E> newSet(Class<E> type) {\n        return EnumSet.noneOf(type);\n    }\n\n    /** The constant declared after {@code current}; after the last one, the first. */\n    public static <E extends Enum<E>> E next(E current) {\n        E[] all = current.getDeclaringClass().getEnumConstants();\n        return all[(current.ordinal() + 1) % all.length];\n    }\n}\n"
         }
       ]
     },
@@ -99,7 +67,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.TreeSet;\nimport java.util.function.Predicate;\n\npublic enum CollectionOp {\n    FILTER {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    },\n    SORT {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    },\n    DISTINCT {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    },\n    REVERSE {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    };\n\n    /** Applies this operation to {@code input}; the predicate is used by FILTER only. */\n    public abstract <T> List<T> execute(List<T> input, Predicate<T> predicate);\n\n    /** Applies this operation with a predicate that accepts everything. */\n    public <T> List<T> execute(List<T> input) {\n        throw new UnsupportedOperationException(\"write execute\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Set;\n\n/**\n * Reads enum values out of the warehouse's CSV imports, for whichever enum a column holds, and\n * moves a value on to the next one for the dashboard's \"advance\" button.\n */\npublic final class Enums {\n\n    private Enums() {\n    }\n\n    /**\n     * The constant of {@code type} that {@code text} names, as people type it into a spreadsheet:\n     * any case, spaces around it, and a hyphen or a space where the name has an underscore.\n     *\n     * @throws IllegalArgumentException when no constant matches\n     */\n    public static <E extends Enum<E>> E parse(Class<E> type, String text) {\n        // TODO: Find the constant of `type` that the cell's text means. Text that names no\n        //       constant is refused with IllegalArgumentException.\n        throw new IllegalStateException(\"TODO: parse\");\n    }\n\n    /** Every constant a comma-separated cell names, each once. */\n    public static <E extends Enum<E>> Set<E> parseAll(Class<E> type, String cell) {\n        Set<E> result = newSet(type);\n        for (String part : cell.split(\",\")) {\n            result.add(parse(type, part));\n        }\n        return result;\n    }\n\n    /** The empty set parseAll fills. */\n    static <E extends Enum<E>> Set<E> newSet(Class<E> type) {\n        // TODO: The import's report lists a cell's flags in this set's order, and the warehouse\n        //       wants them in the order the enum declares them, whatever order the cell has.\n        throw new IllegalStateException(\"TODO: newSet\");\n    }\n\n    /** The constant declared after {@code current}; after the last one, the first. */\n    public static <E extends Enum<E>> E next(E current) {\n        // TODO: Answer the constant declared after `current`, wrapping round to the first,\n        //       for every constant of every enum.\n        throw new IllegalStateException(\"TODO: next\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -108,8 +76,8 @@
   "counts": {
     "headings": 3,
     "paras": 4,
-    "code": 2,
-    "tables": 1,
+    "code": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -118,11 +86,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7a336f334ef0fdbefd2be60a26f92a820a44bbac2cc7d2ca7f6e3bcba1401326",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.TreeSet;\nimport java.util.function.Predicate;\n\npublic enum CollectionOp {\n    FILTER {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    },\n    SORT {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    },\n    DISTINCT {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    },\n    REVERSE {\n        @Override\n        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    };\n\n    /** Applies this operation to {@code input}; the predicate is used by FILTER only. */\n    public abstract <T> List<T> execute(List<T> input, Predicate<T> predicate);\n\n    /** Applies this operation with a predicate that accepts everything. */\n    public <T> List<T> execute(List<T> input) {\n        throw new UnsupportedOperationException(\"write execute\");\n    }\n}\n",
+  "content_sha256": "0446a4dcccbbe6932f81fdd6e6c104770d60c90c33417a4ba32754037e1930de",
+  "starting_code": "package practice;\n\nimport java.util.Set;\n\n/**\n * Reads enum values out of the warehouse's CSV imports, for whichever enum a column holds, and\n * moves a value on to the next one for the dashboard's \"advance\" button.\n */\npublic final class Enums {\n\n    private Enums() {\n    }\n\n    /**\n     * The constant of {@code type} that {@code text} names, as people type it into a spreadsheet:\n     * any case, spaces around it, and a hyphen or a space where the name has an underscore.\n     *\n     * @throws IllegalArgumentException when no constant matches\n     */\n    public static <E extends Enum<E>> E parse(Class<E> type, String text) {\n        // TODO: Find the constant of `type` that the cell's text means. Text that names no\n        //       constant is refused with IllegalArgumentException.\n        throw new IllegalStateException(\"TODO: parse\");\n    }\n\n    /** Every constant a comma-separated cell names, each once. */\n    public static <E extends Enum<E>> Set<E> parseAll(Class<E> type, String cell) {\n        Set<E> result = newSet(type);\n        for (String part : cell.split(\",\")) {\n            result.add(parse(type, part));\n        }\n        return result;\n    }\n\n    /** The empty set parseAll fills. */\n    static <E extends Enum<E>> Set<E> newSet(Class<E> type) {\n        // TODO: The import's report lists a cell's flags in this set's order, and the warehouse\n        //       wants them in the order the enum declares them, whatever order the cell has.\n        throw new IllegalStateException(\"TODO: newSet\");\n    }\n\n    /** The constant declared after {@code current}; after the last one, the first. */\n    public static <E extends Enum<E>> E next(E current) {\n        // TODO: Answer the constant declared after `current`, wrapping round to the first,\n        //       for every constant of every enum.\n        throw new IllegalStateException(\"TODO: next\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-04/practice-2/src/main/java/practice/CollectionOp.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-04/practice-2/src/test/java/practice/CollectionOpTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-04/practice-2/src/main/java/practice/Enums.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-04/practice-2/src/test/java/practice/EnumsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -143,19 +111,39 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CollectionOpTest#eachOperationTransformsAList",
+        "id": "practice.EnumsTest#exactNamesParseForEveryEnum",
         "kind": "main",
-        "says": "FILTER keeps matching elements, SORT orders them, DISTINCT drops repeats and REVERSE reverses, each returning a List of the caller's element type."
+        "says": "a cell holding a constant's exact name parses, for each of several enums"
       },
       {
-        "id": "practice.CollectionOpTest#theInputListIsNeverChanged",
-        "kind": "edge",
-        "says": "Every operation returns a new list, independent of the input: the caller's list is left as it was, and changing it later does not change a result."
+        "id": "practice.EnumsTest#textThatNamesNoConstantIsRefused",
+        "kind": "main",
+        "says": "text that names no constant is refused with IllegalArgumentException"
       },
       {
-        "id": "practice.CollectionOpTest#distinctKeepsFirstOccurrenceOrder",
+        "id": "practice.EnumsTest#aCellReadsEveryFlagItNamesOnce",
+        "kind": "main",
+        "says": "a cell with several flags yields each named flag once"
+      },
+      {
+        "id": "practice.EnumsTest#nextWalksAnEnumAndWrapsRound",
+        "kind": "main",
+        "says": "next gives the constant declared after the current one, and the first after the last"
+      },
+      {
+        "id": "practice.EnumsTest#spellingsPeopleTypeParse",
         "kind": "edge",
-        "says": "DISTINCT keeps each element's first occurrence, in the input's order, not sorted."
+        "says": "a name typed in another case, with spaces around it, or with a hyphen or space for the underscore, parses"
+      },
+      {
+        "id": "practice.EnumsTest#aCellsFlagsComeBackInDeclarationOrder",
+        "kind": "edge",
+        "says": "a cell's flags come back in the order the enum declares them, not the order the cell lists them"
+      },
+      {
+        "id": "practice.EnumsTest#nextWorksFromAConstantWithItsOwnBody",
+        "kind": "edge",
+        "says": "next works from a constant that has a body of its own"
       }
     ],
     "report": {
@@ -164,10 +152,12 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.4.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Generic `parse` Reads Any Enum Through `getEnumConstants()`"
     },
     "concepts": [
-      "A generic collection method returns a properly typed new List<T> rather than a raw list or the input itself."
+      "getClass() of a constant with a body is an anonymous subclass whose getEnumConstants() is null; getDeclaringClass() is the enum for every constant.",
+      "A generic parse over Class<E>.getEnumConstants() reads any enum leniently and returns the caller's type; EnumSet.noneOf(type) keeps declaration order.",
+      "E extends Enum<E> admits any enum type and nothing else, and lets Enum's methods such as getDeclaringClass() return the caller's own type."
     ]
   }
 }

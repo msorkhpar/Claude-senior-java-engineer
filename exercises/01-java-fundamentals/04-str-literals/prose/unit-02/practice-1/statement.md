@@ -1,9 +1,10 @@
-Each `+=` on a String inside a loop builds a whole new String. A `StringBuilder` is appended
-to in place, and turned into one String at the end. The page's own loop leaves a trailing
-`", "` behind; this one must not.
+Every night the warehouse sends its stock to a partner as one CSV file. The partner's importer
+reads the first line as the header and every following line as a record, and it rejects a file
+that has an empty line anywhere, the end included. The catalogue was 2,000 items when the export
+was written; next quarter it will be 300,000, and the export has to finish in the same window.
 
-Write `join(List<String> items)` in `Csv`. It returns the items separated by `", "`:
+`StockExport` already formats one record with `line(item)`. Write `csv(items)` in
+`src/main/java/practice/StockExport.java`: the header, then one line per item in the order given,
+with `"\n"` between lines. A catalogue with no items still gets its header.
 
-- `join(List.of("a", "b", "c"))` is `"a, b, c"`;
-- one item has no separator: `join(List.of("solo"))` is `"solo"`;
-- an empty list gives `""`.
+About five lines in total.

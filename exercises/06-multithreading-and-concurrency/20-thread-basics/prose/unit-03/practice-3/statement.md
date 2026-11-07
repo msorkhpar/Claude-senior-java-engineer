@@ -1,22 +1,17 @@
-The page's first answer to "how do you handle `InterruptedException`?" is
-**propagate it**: library code that can declare `throws InterruptedException`
-should let it reach the caller, who decides what an interrupt means. Never an
-empty `catch`, and never a wrapper that hides what happened.
+Customers upload CSV files of contacts, and the import runs in the background: each chunk of the
+file is parsed, its rows are staged, and the staged rows appear in the customer's account when
+the import commits. A support ticket says: "I pressed Cancel because I picked the wrong file. The
+screen said the import was cancelled. An hour later, all 40,000 contacts were in my account."
 
-Write `Fetcher.fetchAll(List<Fetch> fetches)`, which declares
-`throws InterruptedException`. `Fetch` is given: `String get() throws
-InterruptedException`, a blocking call.
+`run(...)` already imports correctly. Finish the three `TODO`s in
+`src/main/java/practice/CsvImport.java`:
 
-- Run the fetches one after another, in order, and return their results in that
-  order.
-- Before starting each fetch, check whether the current thread has been
-  interrupted; if it has, clear the flag and throw `InterruptedException`, as a
-  blocking call would.
-- If a fetch throws `InterruptedException`, let that same exception reach the
-  caller, and start no further fetch.
+- `cancel(...)`: what the Cancel button does;
+- `parse(...)`: one chunk, which may take a while;
+- `mayCommit()`: the last word before the rows become visible.
 
-| fetches | answer |
-|---|---|
-| `"a"`, `"b"`, `"c"` | `["a", "b", "c"]` |
-| `"a"`, then one that throws `InterruptedException`, then `"c"` | that `InterruptedException`; the third fetch never runs |
-| any, from a thread already interrupted | `InterruptedException`; no fetch runs |
+When you're done, an import the user cancels commits nothing, whether the click arrives while it
+waits on the storage or just before it commits. About six lines in total.
+
+The tests run imports on a real `ExecutorService` and cancel them through the `Future` that
+`start` returns.

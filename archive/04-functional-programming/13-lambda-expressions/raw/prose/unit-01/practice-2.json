@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Build closures that remember the values they were made with",
+  "title": "Make the build bot say which build finished, and how",
   "blocks": [
     {
       "type": "heading",
@@ -19,49 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A lambda that reads a variable from the method that created it **closes over** that variable: it carries the value with it after the method has returned. That makes small factories possible, each returning a function tuned by its arguments."
+      "text": "The CI server posts build news to the team channel. When a build is scheduled, its `BuildJob` hands the build agent two callbacks: one the agent calls for each progress report, and one it runs when the build is over, often many minutes later. In the old version the channel filled with lines like `practice.BuildJob$2@6d06d69c: queued`, which named no build and reported every build as still queued."
     },
     {
       "type": "para",
-      "text": "Write three factories in `Closures`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/BuildJob.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`multiplier(int factor)` returns a `Function<Integer, Integer>` that multiplies its input by `factor`.",
-        "`between(int min, int max)` returns a `Predicate<Integer>` that tests whether a value lies in the range from `min` to `max`, both included. When `min` is greater than `max` the range is empty.",
-        "`prefixFilter(String prefix, int minLength)` returns a `Function<List<String>, List<String>>` that keeps, in order and duplicates included, every word that starts with `prefix` (case-sensitive, as `String.startsWith` decides) and is at least `minLength` long."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`multiplier(3).apply(5)`",
-          "`15`"
-        ],
-        [
-          "`between(10, 20).test(15)`",
-          "`true`"
-        ],
-        [
-          "`between(10, 20).test(25)`",
-          "`false`"
-        ],
-        [
-          "`prefixFilter(\"hel\", 5).apply([\"hello\", \"help\", \"hi\", \"helicopter\"])`",
-          "`[\"hello\", \"helicopter\"]`"
-        ]
+        "`progressCallback()`: posts `<job>: <percent>%`, for example `build #12 on main: 40%`;",
+        "`completionCallback()`: posts `<job>: <status>`, with the status the build has when the callback runs."
       ]
     },
     {
       "type": "para",
-      "text": "Check the ends of the range, and make sure several functions made by the same factory do not interfere with one another."
+      "text": "`<job>` is what the job's own `toString()` returns. About two lines in total."
     },
     {
       "type": "heading",
@@ -76,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\n\npublic final class Closures {\n\n    private Closures() {\n    }\n\n    /** A function that multiplies its input by {@code factor}. */\n    public static Function<Integer, Integer> multiplier(int factor) {\n        return n -> n * factor;\n    }\n\n    /** A predicate true for values from {@code min} to {@code max}, both included. */\n    public static Predicate<Integer> between(int min, int max) {\n        return n -> n >= min && n <= max;\n    }\n\n    /** A function keeping the words that start with {@code prefix} and are at least {@code minLength} long. */\n    public static Function<List<String>, List<String>> prefixFilter(String prefix, int minLength) {\n        return words -> words.stream()\n                .filter(w -> w.startsWith(prefix))\n                .filter(w -> w.length() >= minLength)\n                .toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.function.IntConsumer;\n\n/**\n * One CI build. The build agent is handed callbacks when the job is scheduled and runs them\n * later, from its own threads: one for each progress report, one when the build is over.\n */\npublic class BuildJob {\n\n    /** Posts a line to the team's chat channel. */\n    public interface Notifier {\n        void post(String line);\n    }\n\n    private final int number;\n    private final String branch;\n    private final Notifier notifier;\n    private volatile String status = \"queued\";\n\n    public BuildJob(int number, String branch, Notifier notifier) {\n        this.number = number;\n        this.branch = branch;\n        this.notifier = notifier;\n    }\n\n    public void setStatus(String status) {\n        this.status = status;\n    }\n\n    @Override\n    public String toString() {\n        return \"build #\" + number + \" on \" + branch;\n    }\n\n    /** Run for each progress report: posts this job, then the percentage, e.g. \"<job>: 40%\". */\n    IntConsumer progressCallback() {\n        return percent -> notifier.post(this + \": \" + percent + \"%\");\n    }\n\n    /** Run once, when the build is over: posts this job and its status at that moment, \"<job>: <status>\". */\n    Runnable completionCallback() {\n        return () -> notifier.post(this + \": \" + status);\n    }\n}\n"
         }
       ]
     },
@@ -88,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\n\npublic final class Closures {\n\n    private Closures() {\n    }\n\n    /** A function that multiplies its input by {@code factor}. */\n    public static Function<Integer, Integer> multiplier(int factor) {\n        throw new UnsupportedOperationException(\"write multiplier\");\n    }\n\n    /** A predicate true for values from {@code min} to {@code max}, both included. */\n    public static Predicate<Integer> between(int min, int max) {\n        throw new UnsupportedOperationException(\"write between\");\n    }\n\n    /** A function keeping the words that start with {@code prefix} and are at least {@code minLength} long. */\n    public static Function<List<String>, List<String>> prefixFilter(String prefix, int minLength) {\n        throw new UnsupportedOperationException(\"write prefixFilter\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.function.IntConsumer;\n\n/**\n * One CI build. The build agent is handed callbacks when the job is scheduled and runs them\n * later, from its own threads: one for each progress report, one when the build is over.\n */\npublic class BuildJob {\n\n    /** Posts a line to the team's chat channel. */\n    public interface Notifier {\n        void post(String line);\n    }\n\n    private final int number;\n    private final String branch;\n    private final Notifier notifier;\n    private volatile String status = \"queued\";\n\n    public BuildJob(int number, String branch, Notifier notifier) {\n        this.number = number;\n        this.branch = branch;\n        this.notifier = notifier;\n    }\n\n    public void setStatus(String status) {\n        this.status = status;\n    }\n\n    @Override\n    public String toString() {\n        return \"build #\" + number + \" on \" + branch;\n    }\n\n    /** Run for each progress report: posts this job, then the percentage, e.g. \"<job>: 40%\". */\n    IntConsumer progressCallback() {\n        // TODO: The agent calls this from its own thread with the percentage done. The line it\n        //       posts must name this build, so the team can tell which one is meant.\n        throw new IllegalStateException(\"TODO: progressCallback\");\n    }\n\n    /** Run once, when the build is over: posts this job and its status at that moment, \"<job>: <status>\". */\n    Runnable completionCallback() {\n        // TODO: The agent runs this once, when it is done, possibly minutes after the job was\n        //       scheduled. The line must name this build and say how the build ended.\n        throw new IllegalStateException(\"TODO: completionCallback\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -98,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -107,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7712666a8dbac25752414e29e7301fef19bca28e34e30f3ee412cb6cc227f5ef",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\n\npublic final class Closures {\n\n    private Closures() {\n    }\n\n    /** A function that multiplies its input by {@code factor}. */\n    public static Function<Integer, Integer> multiplier(int factor) {\n        throw new UnsupportedOperationException(\"write multiplier\");\n    }\n\n    /** A predicate true for values from {@code min} to {@code max}, both included. */\n    public static Predicate<Integer> between(int min, int max) {\n        throw new UnsupportedOperationException(\"write between\");\n    }\n\n    /** A function keeping the words that start with {@code prefix} and are at least {@code minLength} long. */\n    public static Function<List<String>, List<String>> prefixFilter(String prefix, int minLength) {\n        throw new UnsupportedOperationException(\"write prefixFilter\");\n    }\n}\n",
+  "content_sha256": "1c1894ec3603d0f11bee99a61eacbb0e69cc7effff48621d358a9e6b3388b284",
+  "starting_code": "package practice;\n\nimport java.util.function.IntConsumer;\n\n/**\n * One CI build. The build agent is handed callbacks when the job is scheduled and runs them\n * later, from its own threads: one for each progress report, one when the build is over.\n */\npublic class BuildJob {\n\n    /** Posts a line to the team's chat channel. */\n    public interface Notifier {\n        void post(String line);\n    }\n\n    private final int number;\n    private final String branch;\n    private final Notifier notifier;\n    private volatile String status = \"queued\";\n\n    public BuildJob(int number, String branch, Notifier notifier) {\n        this.number = number;\n        this.branch = branch;\n        this.notifier = notifier;\n    }\n\n    public void setStatus(String status) {\n        this.status = status;\n    }\n\n    @Override\n    public String toString() {\n        return \"build #\" + number + \" on \" + branch;\n    }\n\n    /** Run for each progress report: posts this job, then the percentage, e.g. \"<job>: 40%\". */\n    IntConsumer progressCallback() {\n        // TODO: The agent calls this from its own thread with the percentage done. The line it\n        //       posts must name this build, so the team can tell which one is meant.\n        throw new IllegalStateException(\"TODO: progressCallback\");\n    }\n\n    /** Run once, when the build is over: posts this job and its status at that moment, \"<job>: <status>\". */\n    Runnable completionCallback() {\n        // TODO: The agent runs this once, when it is done, possibly minutes after the job was\n        //       scheduled. The line must name this build and say how the build ended.\n        throw new IllegalStateException(\"TODO: completionCallback\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-2/src/main/java/practice/Closures.java",
-    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-2/src/test/java/practice/ClosuresTest.java",
+    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-2/src/main/java/practice/BuildJob.java",
+    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-2/src/test/java/practice/BuildJobTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -132,29 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ClosuresTest#multiplierMultiplies",
+        "id": "practice.BuildJobTest#progressReportsNameTheBuildAndThePercentage",
         "kind": "main",
-        "says": "The multiplier multiplies by the factor it was made with."
+        "says": "each progress report posts the build's name and the percentage"
       },
       {
-        "id": "practice.ClosuresTest#betweenChecksTheRange",
+        "id": "practice.BuildJobTest#theCompletionCallbackPostsOneLineWhenItRuns",
         "kind": "main",
-        "says": "The range check accepts values inside the range and rejects values outside it."
+        "says": "the completion callback posts nothing when it is made and exactly one line when it runs"
       },
       {
-        "id": "practice.ClosuresTest#prefixFilterKeepsMatches",
-        "kind": "main",
-        "says": "The filter keeps only words with the prefix and at least the minimum length."
-      },
-      {
-        "id": "practice.ClosuresTest#boundsAreInclusive",
+        "id": "practice.BuildJobTest#theCompletionLineNamesTheBuild",
         "kind": "edge",
-        "says": "Both ends of the range belong to it."
+        "says": "the completion line names the build job itself, not the callback object"
       },
       {
-        "id": "practice.ClosuresTest#eachClosureKeepsItsOwnValue",
+        "id": "practice.BuildJobTest#theCompletionLineSaysHowTheBuildEnded",
         "kind": "edge",
-        "says": "Two multipliers made with different factors each keep their own factor."
+        "says": "the completion line carries the status the build has when the callback runs, not when it was made"
       }
     ],
     "report": {
@@ -163,10 +132,11 @@
     },
     "origin": {
       "path": "13-lambda-expressions/README_4.1.1.md",
-      "section": "Interview Q&A Section"
+      "section": "A Lambda Adds No Scope: `this` and Every Name Mean What They Mean Outside It"
     },
     "concepts": [
-      "A lambda closes over the values it reads, so each function made by a factory keeps its own values."
+      "A lambda that uses a field captures this and reads the field when it runs; a field copied into a local first is frozen at that moment.",
+      "Inside a lambda, this and unqualified methods mean the enclosing instance; inside an anonymous class they mean the anonymous object."
     ]
   }
 }

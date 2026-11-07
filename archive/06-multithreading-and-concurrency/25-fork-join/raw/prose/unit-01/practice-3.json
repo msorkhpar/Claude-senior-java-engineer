@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "The shape of a fork/join step",
+  "title": "Check yourself: fork/join",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,145 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-fork-both",
-        "stem": "Per this page, what is wrong with a task that calls `left.fork()` and `right.fork()` and then returns `left.join() + right.join()`?",
+        "id": "q-map-tiles",
+        "stem": "A map service draws a map by splitting each tile into four quarter tiles; a tile of 256 px or less is drawn directly. Each larger tile submits its four quarters to the same Executors.newFixedThreadPool(32) and calls get() on their Futures. City maps come out; a country map never finishes, and the machine's CPUs sit idle. Which change lets every map finish?",
         "options": [
           {
             "id": "a",
-            "text": "Each split pays for an extra push and pop through the thread's deque",
-            "correct": true,
-            "says": "The page's Q4 says every split pays for an extra push/pop through the deque and the work is no longer done directly."
+            "text": "Grow the fixed pool to 512 threads, since the country map then has a free thread for each tile that waits",
+            "correct": false,
+            "says": "every tile that splits holds a thread while it waits, and a larger map has more such tiles; a bigger pool only moves the map size at which it hangs"
           },
           {
             "id": "b",
-            "text": "Each split makes the pool add a thread to run tasks during the wait",
-            "correct": false,
-            "says": "The page's Q4 says a waiting ForkJoinPool worker usually runs or helps with the queued tasks itself, so no extra thread is needed."
+            "text": "Make each tile a RecursiveTask in a ForkJoinPool that forks and joins its quarters, since a worker waiting in join() runs queued tasks",
+            "correct": true,
+            "says": "a ForkJoinPool worker that joins a task that isn't done looks for queued work and runs it, so the quarters it waits for get run"
           },
           {
             "id": "c",
-            "text": "Each split leaves its forked tasks queued until the current thread returns",
+            "text": "Grow the fixed pool with a second one for the quarters, since tiles that wait then no longer hold the threads that draw",
             "correct": false,
-            "says": "The page says the waiting worker runs or helps with the queued tasks itself, and idle threads steal tasks from busy threads' deques."
+            "says": "the quarters split and wait too, so the second pool fills with waiting quarters the same way"
+          },
+          {
+            "id": "d",
+            "text": "Make each tile a RecursiveTask in a ForkJoinPool that forks and joins its quarters, since the pool adds a thread for each tile that waits",
+            "correct": false,
+            "says": "join() runs the awaited task or helps the worker that took it; the pool starts a spare thread only when a joining worker has nothing to run, not one per waiting task, and the page's ForkJoinPool(8) finished 8 million rows"
           }
         ],
         "origin": {
           "path": "25-fork-join/README_6.6.1.md",
-          "section": "Common Pitfalls and How to Avoid Them"
+          "section": "A Task That Waits for Its Subtasks Deadlocks an Ordinary Pool; ForkJoinPool's join() Keeps Working"
         }
       },
       {
-        "id": "q-virtual-threads",
-        "stem": "Per this page, how do Java 21's virtual threads relate to the Fork/Join framework?",
+        "id": "q-word-count-order",
+        "stem": "A RecursiveTask counts words in a list of documents and stops splitting at 5,000 documents. Its compute() ends with `left.fork(); long a = left.join(); long b = right.compute(); return a + b;`. On a ForkJoinPool of 12 the count is right, but the job takes 9 seconds, the same as a plain loop. What explains it?",
         "options": [
           {
             "id": "a",
-            "text": "They replace Fork/Join for CPU-bound decomposition, which is why ForkJoinPool gained close()",
-            "correct": false,
-            "says": "The page says Fork/Join remains the tool of choice for CPU-bound parallel decomposition; close() is listed as a Java 19 addition for try-with-resources."
+            "text": "Each task waits for its left half before it starts its right half, so the two halves of a split never run side by side",
+            "correct": true,
+            "says": "joining before computing makes each level sequential; the swapped order runs at one thread's speed"
           },
           {
             "id": "b",
-            "text": "They complement it: virtual threads suit I/O-bound tasks and Fork/Join suits CPU-bound work",
-            "correct": true,
-            "says": "The page says virtual threads are better suited for I/O-bound tasks, Fork/Join remains the tool for CPU-bound decomposition, and the two are complementary."
+            "text": "Each task waits for its left half in a parked thread, so the pool soon has no worker left that could run anything",
+            "correct": false,
+            "says": "join() looks for queued work before it parks, and the pool still finishes; the problem is the order, not lost workers"
           },
           {
             "id": "c",
-            "text": "They run inside it: since Java 21 every fork() starts the subtask on a new virtual thread",
+            "text": "The leaves of 5,000 documents are too small, so creating and queueing tasks costs more than counting the words in them",
             "correct": false,
-            "says": "The page describes forked subtasks going to a worker's deque in the ForkJoinPool; it says nothing of fork() starting virtual threads."
+            "says": "5,000 documents is a lot of work per task; a task's cost matters only when a leaf does very little"
+          },
+          {
+            "id": "d",
+            "text": "The call to fork() runs the left half on the current thread, so no other worker is ever handed a task to run",
+            "correct": false,
+            "says": "fork() queues the task and returns at once; other workers can steal it"
           }
         ],
         "origin": {
           "path": "25-fork-join/README_6.6.1.md",
-          "section": "Relevant Java 21 Features"
+          "section": "Fork One Half, Compute the Other, Then Join"
+        }
+      },
+      {
+        "id": "q-threshold-two",
+        "stem": "A batch job totals a risk score over 50 million prices, a few dozen nanoseconds of arithmetic per price, with a RecursiveTask that splits until a range holds two prices or fewer, on a ForkJoinPool of 16. It is slower than a plain loop on one thread. Which change makes it faster than the loop?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Raise the split point to 20,000 prices, since each task then does far more work than it costs to create and queue",
+            "correct": true,
+            "says": "with a task per one or two values the task overhead exceeds the work; a larger threshold leaves a few thousand tasks that still keep every worker busy"
+          },
+          {
+            "id": "b",
+            "text": "Raise the split point to 50 million prices, since one task then skips the cost of creating and queueing the others",
+            "correct": false,
+            "says": "one task runs on one thread, so it is no faster than the plain loop"
+          },
+          {
+            "id": "c",
+            "text": "Grow the pool to 64 workers, since more workers take the many small tasks off the queues sooner",
+            "correct": false,
+            "says": "the cost is in creating and queueing tens of millions of tasks, which more workers don't remove"
+          },
+          {
+            "id": "d",
+            "text": "Move the tasks to a fixed thread pool, since its tasks are cheaper to create and queue than fork/join tasks",
+            "correct": false,
+            "says": "a task that waits for its subtasks deadlocks a fixed pool once the waiting tasks hold every thread"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.md",
+          "section": "The Threshold Decides Whether Splitting Pays"
+        }
+      },
+      {
+        "id": "q-invoice-report",
+        "stem": "An order service prices carts with CompletableFuture.supplyAsync(...) and no executor; pricing takes 5 ms. A new reporting endpoint runs orders.parallelStream().map(o -> invoiceClient.fetch(o.id())), where fetch() is an HTTP call of about 400 ms. While a report runs, pricing a cart takes over a second. What is the cause?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Both use the JVM's common pool, so pricing tasks queue behind workers that are inside fetch() calls",
+            "correct": true,
+            "says": "parallel streams and supplyAsync without an executor share the common pool, and workers asleep in HTTP calls run nothing else"
+          },
+          {
+            "id": "b",
+            "text": "Both use the JVM's common pool, so the report's fetch() calls use up the CPU time that pricing needs",
+            "correct": false,
+            "says": "the workers are asleep waiting for HTTP answers, not computing; the pricing tasks lack threads, not CPU"
+          },
+          {
+            "id": "c",
+            "text": "The parallel stream starts a thread per order, so the operating system has too many threads to schedule pricing in time",
+            "correct": false,
+            "says": "a parallel stream starts no threads of its own; it runs in the common pool and on its caller"
+          },
+          {
+            "id": "d",
+            "text": "The parallel stream starts a thread per order, so the HTTP client's connections run out before pricing gets one",
+            "correct": false,
+            "says": "a parallel stream starts no threads of its own, and pricing doesn't use the HTTP client; it waits for a common-pool worker"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.md",
+          "section": "The Common Pool Is Shared, So Blocking in It Delays Work You Didn't Write"
         }
       }
     ],
     "concepts": [
-      "Fork/Join is the tool for CPU-bound decomposition, and virtual threads are the tool for I/O-bound concurrency.",
-      "Forking both subtasks and joining both costs an extra fork per split and leaves the current thread only waiting in join."
+      "In a ForkJoinPool, fork() queues a task on the current worker's queue, join() runs the awaited task or helps the worker that took it before it parks, and idle workers steal tasks from other workers' queues.",
+      "A task that submits its subtasks to a fixed pool and waits for them holds a thread while it waits, so a deep enough split leaves every thread waiting and the job never finishes; a bigger pool only moves the size at which it hangs."
     ]
   }
 }

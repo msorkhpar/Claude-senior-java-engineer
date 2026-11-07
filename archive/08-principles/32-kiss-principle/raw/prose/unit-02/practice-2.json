@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Producer-consumer with a BlockingQueue, not wait/notify",
+  "title": "Stop two transfers from spending the same credits",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page's second pitfall hand-writes a consumer with `wait` and `notify`:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// VIOLATION: Manual wait/notify\nsynchronized (queue) {\n    while (queue.isEmpty()) {\n        queue.wait();\n    }\n    return queue.remove(0);\n}"
+      "text": "This practice continues the `Wallets` of the previous one: `publish()` and `balances()` are done, and `transfer(...)` is now yours to write."
     },
     {
       "type": "para",
-      "text": "Replace it with a `BlockingQueue`, which does all of that waiting for you. Write the generic `Handoff<T>`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Handoff(int capacity)` holds at most `capacity` items.",
-        "`produce(T item)` adds an item at the back. **When the hand-off is full, it waits** until a consumer makes room: it neither drops the item nor lets the hand-off grow past its capacity.",
-        "`consume()` removes and returns the oldest item. **When the hand-off is empty, it waits** for an item: it never returns `null`.",
-        "`produce` and `consume` declare `InterruptedException`: **a wait that is interrupted throws it** to the caller, rather than returning `null` or quietly dropping the item.",
-        "`next()` works like `consume()` but declares no checked exception. The page's rule for thread interruption applies: when the wait is interrupted, **restore the interrupt flag** with `Thread.currentThread().interrupt()` and throw an `IllegalStateException` whose cause is the `InterruptedException`.",
-        "`size()` is the number of items waiting."
-      ]
+      "text": "Players send each other credits in bursts, and the owner thread is often still busy with one transfer when the next ones are requested. Finance found two wallets below zero last month: each had been the source of two transfers requested within a few milliseconds, either of which it could cover alone."
     },
     {
       "type": "para",
-      "text": "Example: after `produce(\"item1\")`, `produce(\"item2\")`, `produce(\"item3\")`, three calls to `consume()` return `\"item1\"`, `\"item2\"` and `\"item3\"`, in that order."
+      "text": "Write `transfer(from, to, credits)` in `src/main/java/practice/Wallets.java`. It returns at once with a `Future` that says whether the transfer went through. A wallet never goes below zero, and a transfer requested while an earlier one is still being applied sees that earlier one's result: credits it brings in can be spent, credits it takes out can't. About eight lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests pause a transfer half-way through `Seam.midTransfer()`, so call it between taking the credits and adding them."
     },
     {
       "type": "heading",
@@ -59,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\n\npublic class Handoff<T> {\n\n    private final BlockingQueue<T> queue;\n\n    /** Creates a hand-off holding at most capacity items. */\n    public Handoff(int capacity) {\n        this.queue = new LinkedBlockingQueue<>(capacity);\n    }\n\n    /** Adds an item, waiting while the hand-off is full. */\n    public void produce(T item) throws InterruptedException {\n        queue.put(item);\n    }\n\n    /** Removes the oldest item, waiting while the hand-off is empty. */\n    public T consume() throws InterruptedException {\n        return queue.take();\n    }\n\n    /** Like consume, but an interrupt becomes an IllegalStateException and the interrupt flag is restored. */\n    public T next() {\n        try {\n            return queue.take();\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            throw new IllegalStateException(\"interrupted while waiting\", e);\n        }\n    }\n\n    /** Returns how many items wait in the hand-off. */\n    public int size() {\n        return queue.size();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        return owner.submit(() -> {\n            long balance = live.getOrDefault(from, 0L);\n            if (balance < credits) return false;\n            live.put(from, balance - credits);\n            seam.midTransfer();\n            live.merge(to, credits, Long::sum);\n            publish();\n            return true;\n        });\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        return published;\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        published = Map.copyOf(live);\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\n\npublic class Handoff<T> {\n\n    private final BlockingQueue<T> queue;\n\n    /** Creates a hand-off holding at most capacity items. */\n    public Handoff(int capacity) {\n        throw new UnsupportedOperationException(\"write Handoff\");\n    }\n\n    /** Adds an item, waiting while the hand-off is full. */\n    public void produce(T item) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write produce\");\n    }\n\n    /** Removes the oldest item, waiting while the hand-off is empty. */\n    public T consume() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write consume\");\n    }\n\n    /** Like consume, but an interrupt becomes an IllegalStateException and the interrupt flag is restored. */\n    public T next() {\n        throw new UnsupportedOperationException(\"write next\");\n    }\n\n    /** Returns how many items wait in the hand-off. */\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        // TODO: Take the credits from one wallet and add them to the other. A wallet never goes\n        //       below zero: a transfer it can't cover is refused, and the future says false.\n        //       Call seam.midTransfer() between taking and adding, and publish() once the\n        //       balances have changed.\n        throw new IllegalStateException(\"TODO: transfer\");\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        return published;\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        published = Map.copyOf(live);\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -90,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6be100e8fe6d38ab0035dc60a120a497090a2653a1fecec7996c21ea47bb7284",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\n\npublic class Handoff<T> {\n\n    private final BlockingQueue<T> queue;\n\n    /** Creates a hand-off holding at most capacity items. */\n    public Handoff(int capacity) {\n        throw new UnsupportedOperationException(\"write Handoff\");\n    }\n\n    /** Adds an item, waiting while the hand-off is full. */\n    public void produce(T item) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write produce\");\n    }\n\n    /** Removes the oldest item, waiting while the hand-off is empty. */\n    public T consume() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write consume\");\n    }\n\n    /** Like consume, but an interrupt becomes an IllegalStateException and the interrupt flag is restored. */\n    public T next() {\n        throw new UnsupportedOperationException(\"write next\");\n    }\n\n    /** Returns how many items wait in the hand-off. */\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n",
+  "content_sha256": "a94809432a87405bd0ccebe9f6b8931abe7b53fb623ecaf001f34020f0927402",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        // TODO: Take the credits from one wallet and add them to the other. A wallet never goes\n        //       below zero: a transfer it can't cover is refused, and the future says false.\n        //       Call seam.midTransfer() between taking and adding, and publish() once the\n        //       balances have changed.\n        throw new IllegalStateException(\"TODO: transfer\");\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        return published;\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        published = Map.copyOf(live);\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-2/src/main/java/practice/Handoff.java",
-    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-2/src/test/java/practice/HandoffTest.java",
+    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-2/src/main/java/practice/Wallets.java",
+    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-2/src/test/java/practice/WalletsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,29 +102,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HandoffTest#passesItemsInOrder",
+        "id": "practice.WalletsTest#transfersMoveCreditsAndRefuseWhatAWalletCannotCover",
         "kind": "main",
-        "says": "Three items produced come out of consume() in the order they went in."
+        "says": "transfers one after another move credits, and a transfer the wallet can't cover is refused"
       },
       {
-        "id": "practice.HandoffTest#consumeWaitsForAnItem",
+        "id": "practice.WalletsTest#twoTransfersThatFitOnlyOneAtATimeAreNotBothApplied",
         "kind": "edge",
-        "says": "A consumer on an empty hand-off waits, and receives the item produced afterwards."
+        "says": "two transfers requested while another is in progress, each covered by the wallet alone but not together, are not both applied"
       },
       {
-        "id": "practice.HandoffTest#aFullHandoffMakesTheProducerWait",
+        "id": "practice.WalletsTest#aTransferCanSpendCreditsFromTheOneBeforeIt",
         "kind": "edge",
-        "says": "With capacity 1 and one item in, a second produce waits until a consume makes room."
-      },
-      {
-        "id": "practice.HandoffTest#anInterruptedWaitThrows",
-        "kind": "edge",
-        "says": "Interrupting a waiting consume(), or a produce() waiting on a full hand-off, throws InterruptedException."
-      },
-      {
-        "id": "practice.HandoffTest#nextRestoresTheInterruptFlag",
-        "kind": "edge",
-        "says": "An interrupted next() throws IllegalStateException and leaves the interrupt flag set."
+        "says": "a transfer requested while an earlier one is still adding credits to its wallet can spend those credits"
       }
     ],
     "report": {
@@ -146,12 +123,10 @@
     },
     "origin": {
       "path": "32-kiss-principle/README_8.2.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting"
     },
     "concepts": [
-      "A BlockingQueue gives producer-consumer for free: take() waits for an item and put() waits for room.",
-      "An InterruptedException is re-thrown or the thread's interrupt flag is restored, never swallowed.",
-      "Java's built-in concurrency utilities come before custom synchronization such as wait/notify."
+      "A decision about owned state is made inside the owner's task; a check on a snapshot followed by a submitted change is a check-then-act that lets two callers pass."
     ]
   }
 }

@@ -1,583 +1,301 @@
 # 10.3.4. Reflection Performance Considerations
 
-## Concept Explanation
+An event bus finds its `@Subscribe` methods at startup and calls them with `Method.invoke`, a few
+hundred thousand times a second. A pull request replaces each `Method` with a `MethodHandle`,
+"because reflection is slow". The reviewer answers that since JDK 18 `Method.invoke` runs on
+method handles anyway (JEP 416), so the change buys nothing. Which one is right depends on a
+detail neither of them mentions: where the `Method` or the handle is kept.
 
-Reflection is powerful but comes with a measurable performance cost compared to direct (compile-time) access. Understanding where that cost comes from, how large it is, and how to mitigate it is essential for writing production-quality code that uses reflection.
+## A Loop Whose Result Nobody Reads Measures Nothing
 
-**Real-world analogy**: Direct method calls are like speed-dialing a contact -- the phone already knows the number and connects instantly. Reflection is like calling directory assistance every time you want to make a call: you describe who you want to reach, the operator looks up the number, verifies your identity, and finally connects you. Caching is like writing down the number after the first lookup so you can dial directly next time.
-
-The main sources of reflection overhead are:
-
-1. **Member lookup**: `Class.getDeclaredMethod()`, `getDeclaredField()`, etc. scan internal arrays and perform string matching. This is the most expensive part.
-2. **Access checking**: Every `Method.invoke()` or `Field.get()` checks accessibility by default. `setAccessible(true)` bypasses this check.
-3. **Auto-boxing and array creation**: Primitive arguments must be boxed, and an `Object[]` array must be created for `Method.invoke()`.
-4. **JIT optimization barriers**: The JVM's JIT compiler can inline and optimize direct calls aggressively, but reflective calls are harder to optimize. Since JDK 18 (JEP 416), `Method.invoke()`, `Constructor.newInstance()` and `Field` access are implemented with method handles, so the JIT can inline through a `Method`/`Field` held in a `static final` field; a `Method` that is not a constant still goes through an indirect call.
-5. **Type safety overhead**: The JVM must perform runtime type checks that would be unnecessary with direct access.
-
-## Key Points to Remember
-
-- Member lookup (`getDeclaredMethod`, `getDeclaredField`) is the most expensive reflection operation -- always cache the result.
-- `setAccessible(true)` eliminates per-call access checking overhead -- call it once and reuse the `Method`/`Field`/`Constructor` object.
-- `MethodHandle` (from `java.lang.invoke`) is a high-performance alternative to `Method.invoke()` that the JIT can optimize.
-- `VarHandle` (Java 9+) is a high-performance alternative to `Field.get()`/`Field.set()` with atomic operation support.
-- As an illustrative order of magnitude (the real figures depend on the JVM, the hardware and warmup): cached
-  reflection is roughly 2-20x slower than direct access, and uncached reflection (lookup + invoke) roughly 100-1000x.
-- `MethodHandle` performance approaches direct call speed when used correctly (final static field, `invokeExact`).
-- For truly hot paths, consider compile-time alternatives: annotation processing, code generation, or `LambdaMetafactory`.
-- Micro-benchmarking reflection requires JMH (Java Microbenchmark Harness) for reliable results; naive `System.nanoTime()` loops are affected by JIT warmup and GC.
-
-## Relevant Java 21 Features
-
-- **MethodHandles improvements**: Java 21 continues to optimize `MethodHandle` performance, making it closer to direct call speed.
-- **`MethodHandles.privateLookupIn()`**: Allows performant access to private members in a module-safe way.
-- **`LambdaMetafactory`**: Can create functional interface implementations from `MethodHandle`s, enabling near-zero overhead dynamic dispatch.
-- **`VarHandle`**: Provides field access with atomic operation semantics and performance close to `sun.misc.Unsafe`.
-- **AOT/Native compilation (GraalVM)**: Reflection metadata must be explicitly registered for native images, encouraging developers to minimize and declare reflective access.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Looking up methods/fields in a loop**
-
-   ```java
-   // WRONG: O(n * lookup_cost) -- lookup happens every iteration
-   for (Object item : items) {
-       Method m = item.getClass().getDeclaredMethod("process");
-       m.setAccessible(true);
-       m.invoke(item);
-   }
-
-   // CORRECT: Cache the Method object
-   Method m = MyClass.class.getDeclaredMethod("process");
-   m.setAccessible(true);
-   for (Object item : items) {
-       m.invoke(item);
-   }
-   ```
-
-2. **Calling `setAccessible(true)` on every invocation**
-
-   ```java
-   // WRONG: Redundant access check bypass per call
-   for (int i = 0; i < 1000; i++) {
-       method.setAccessible(true); // Unnecessary after first call
-       method.invoke(target);
-   }
-
-   // CORRECT: Set once, reuse
-   method.setAccessible(true);
-   for (int i = 0; i < 1000; i++) {
-       method.invoke(target);
-   }
-   ```
-
-3. **Using reflection where direct access is possible**
-
-   ```java
-   // WRONG: Unnecessary reflection
-   Method getter = obj.getClass().getMethod("getName");
-   String name = (String) getter.invoke(obj);
-
-   // CORRECT: Direct call when type is known
-   String name = obj.getName();
-   ```
-
-4. **Ignoring `MethodHandle` for performance-sensitive code**
-
-   ```java
-   // SLOWER: Method.invoke() -- boxing, an Object[] array, and (unless the Method is a static final
-   // constant) no inlining; since JDK 18 invoke() itself is built on method handles (JEP 416)
-   Method m = Target.class.getMethod("compute", int.class);
-   m.invoke(target, 42);
-
-   // FASTER: MethodHandle -- JIT can inline
-   MethodHandle mh = MethodHandles.lookup()
-       .findVirtual(Target.class, "compute", MethodType.methodType(int.class, int.class));
-   int result = (int) mh.invoke(target, 42);
-   ```
-
-5. **Micro-benchmarking without warmup**
-
-   ```java
-   // WRONG: First iterations include JIT compilation time
-   long start = System.nanoTime();
-   for (int i = 0; i < 1000; i++) { method.invoke(target); }
-   long elapsed = System.nanoTime() - start;
-
-   // BETTER: Add warmup phase (or use JMH)
-   for (int i = 0; i < 10000; i++) { method.invoke(target); } // warmup
-   long start = System.nanoTime();
-   for (int i = 0; i < 100000; i++) { method.invoke(target); } // measure
-   long elapsed = System.nanoTime() - start;
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Cache everything**: Store `Field`, `Method`, `Constructor`, and `MethodHandle` objects in `static final` fields, `Map` caches, or `ConcurrentHashMap`.
-2. **Use `MethodHandle` for hot paths**: `MethodHandle.invokeExact()` can be inlined by the JIT and approaches native call speed.
-3. **Use `VarHandle` for field access**: Replaces `Field.get()`/`Field.set()` with better performance and atomic operation support.
-4. **Use `LambdaMetafactory`** to create functional interface implementations from method handles -- effectively generates a lambda at runtime with near-zero dispatch overhead.
-5. **Call `setAccessible(true)` once** during initialization, not per invocation.
-6. **Prefer interfaces and direct calls** when the type is known at compile time.
-7. **Use annotation processing** for frameworks that need metadata at build time rather than runtime reflection.
-8. **Profile with JMH** for accurate benchmarking: `@Benchmark`, `@Warmup`, `@Measurement` annotations ensure reliable results.
-9. **Consider compile-time code generation** (e.g., MapStruct, Dagger) to eliminate reflection entirely in production code.
-
-## Edge Cases and Their Handling
-
-1. **First-call penalty**: The first reflective invocation is significantly slower due to class loading, security checks, and JIT compilation. Warm up during application startup.
-2. **Reflection on `final` fields**: `Field.set()` on final fields may not be visible through getter methods due to JVM constant folding. Avoid modifying final fields.
-3. **Generic type erasure**: Reflection sees raw types at runtime. `Field.getGenericType()` preserves generic information but adds complexity.
-4. **Security manager** (deprecated): When present, reflection access checks may throw `SecurityException`. In Java 21, the Security Manager is deprecated for removal.
-5. **Class unloading**: If classes are loaded by custom classloaders, cached `Method`/`Field` objects can prevent garbage collection of those classes, causing memory leaks.
-6. **Thread safety**: `Method`, `Field`, and `Constructor` objects are thread-safe for read operations but `setAccessible` mutations should happen before sharing.
-
-## Interview-specific Insights
-
-Interviewers focus on:
-
-- Your awareness that reflection has a cost and your ability to quantify it roughly (illustratively about 2-20x for cached, 100-1000x for uncached, as in the key points above).
-- Whether you know about `MethodHandle` as a performant alternative.
-- Caching strategies: what to cache, where to store it, thread safety.
-- When to avoid reflection entirely (direct calls, annotation processors, code generation).
-- How frameworks like Spring and Hibernate mitigate reflection costs (startup scanning + caching, CGLIB proxies, bytecode enhancement).
-
-Common tricky questions:
-
-- "Why is reflection slower than a direct method call?" (Member lookup, access checking, boxing, JIT optimization barriers.)
-- "What is `MethodHandle` and why is it faster?" (It is a direct, strongly-typed reference to a method that the JIT can inline.)
-- "How would you reduce reflection overhead in a high-throughput system?" (Cache, use MethodHandle, consider code generation.)
-
-## Interview Q&A Section
-
-**Q1: Why is reflection slower than direct method calls?**
-
-```text
-A1: Reflection is slower for several compounding reasons:
-
-1. Member lookup overhead: getDeclaredMethod() searches an internal array
-   of Method objects, performing string comparisons and parameter type matching.
-   This is O(n) in the number of declared methods.
-
-2. Access control checking: Each invoke() checks if the caller has permission
-   to access the method (unless setAccessible(true) was called).
-
-3. Argument boxing: Primitive arguments must be boxed into wrapper objects,
-   and an Object[] array must be created for Method.invoke().
-
-4. JIT optimization barriers: The JVM's JIT compiler can inline, devirtualize,
-   and optimize direct calls. Reflective calls go through invoke(), which is
-   harder to optimize: since JDK 18 (JEP 416) invoke() is built on method
-   handles, and the JIT can inline it only when the Method object is a
-   constant (e.g. a static final field).
-
-5. Runtime type checking: The JVM must verify argument types at runtime,
-   whereas direct calls are verified at compile time.
-
-Rough performance comparison (illustrative orders of magnitude, not measurements;
-they depend on the JVM version, the hardware, and warmup state):
-- Direct call: ~1-2 nanoseconds
-- Cached Method.invoke(): ~5-20 nanoseconds (roughly 2-20x a direct call)
-- Uncached (lookup + invoke): ~200-1000+ nanoseconds (roughly 100-1000x)
-- MethodHandle.invokeExact() from a static final field: ~1-5 nanoseconds (close to direct)
-
-Measure your own case with JMH before relying on any of these figures.
-```
+Every number on this page comes from one harness, `Bench`, run with JDK 21 on one machine (a
+20-thread laptop CPU that was running other work). JMH wasn't available, so `Bench` does by hand what
+JMH does, as described below. It calls `Price.at(int)`, which returns `base + qty * 3`, one way per
+JVM. Two of those ways:
 
 ```java
-public class ReflectionOverheadDemo {
-    static class Target {
-        int value;
-        int getValue() { return value; }
-    }
+static long direct(Price p, int n) {
+    long sum = 0;
+    for (int i = 0; i < n; i++) sum += p.at(i);
+    return sum;
+}
 
-    public static void main(String[] args) throws Exception {
-        Target target = new Target();
-        target.value = 42;
-        int iterations = 1_000_000;
-
-        // Warmup omitted for brevity -- use JMH for real benchmarks
-
-        // Direct call
-        long start = System.nanoTime();
-        for (int i = 0; i < iterations; i++) {
-            int v = target.getValue();
-        }
-        System.out.println("Direct: " + (System.nanoTime() - start) / iterations + " ns/op");
-
-        // Cached reflection
-        Method method = Target.class.getDeclaredMethod("getValue");
-        method.setAccessible(true);
-        start = System.nanoTime();
-        for (int i = 0; i < iterations; i++) {
-            int v = (int) method.invoke(target);
-        }
-        System.out.println("Cached reflection: " + (System.nanoTime() - start) / iterations + " ns/op");
-
-        // MethodHandle
-        MethodHandle mh = MethodHandles.lookup()
-                .findVirtual(Target.class, "getValue", MethodType.methodType(int.class));
-        start = System.nanoTime();
-        for (int i = 0; i < iterations; i++) {
-            int v = (int) mh.invoke(target);
-        }
-        System.out.println("MethodHandle: " + (System.nanoTime() - start) / iterations + " ns/op");
-    }
+static long directDiscarded(Price p, int n) {
+    for (int i = 0; i < n; i++) p.at(i);           // result thrown away
+    return 0;
 }
 ```
 
-**Q2: What is a MethodHandle and how does it improve upon Method.invoke()?**
+Each JVM runs 10 rounds of 20 million calls (1 million for the lookup row below), treats the first five as warm-up, and reports the
+median of the other five in nanoseconds per call, with the bytes the thread allocated per call
+(`getThreadAllocatedBytes`, as in unit 4.1.3). The returned sums are added up and printed. A
+driver, `Forks`, starts three JVMs per way. Before reading on: what does the second loop cost per
+call?
 
 ```text
-A2: MethodHandle (java.lang.invoke.MethodHandle) is a typed, directly
-executable reference to an underlying method, constructor, or field.
-
-Key advantages over Method.invoke():
-
-1. Strong typing: MethodHandle.invokeExact() enforces exact type matching
-   at the call site, enabling the JIT to inline the call.
-
-2. JIT optimization: Because MethodHandles are strongly typed and immutable,
-   the JIT compiler can optimize them like regular method calls -- inlining,
-   escape analysis, and constant folding all apply.
-
-3. No boxing: invokeExact() works with primitive types directly (no Object[]
-   array, no auto-boxing).
-
-4. No access checking per call: Access is checked once during MethodHandle
-   creation (lookup), not on every invocation.
-
-5. Composability: MethodHandles can be combined, adapted, and transformed
-   using MethodHandles.filterArguments(), guardWithTest(), etc.
-
-Best practice: Store MethodHandles in static final fields for maximum
-JIT optimization:
-  private static final MethodHandle GET_VALUE;
-  static {
-      GET_VALUE = MethodHandles.lookup().findVirtual(...);
-  }
+way                 flags                                     ns/call in 3 JVMs  bytes/call
+direct                                                          0.22   0.21   0.24      0.0
+directDiscarded                                                 0.00   0.00   0.00      0.0
 ```
 
+Zero: the JIT saw that no one used the result and deleted the loop. The first loop shows a direct
+call the JIT can compile into its caller: about 0.2 ns, a few instructions. A reflective variant that discarded its result could be deleted the same way and would look as fast,
+so every variant below adds its result to the sum.
+
+We ran the whole table three times and paste one of the two quieter runs. The ratios between rows
+held in all three; in the run made while the machine was busiest, the reflective rows were up to
+about twice as slow, and the direct and constant-handle rows hardly moved. Read the numbers as ratios on one machine, not as costs to quote.
+
+## Looking a Method Up Costs More Than Calling It, So Look Up Once
+
+A mapper that calls `getClass().getMethod("get" + name)` for every field of every object pays for
+the lookup on every call:
+
 ```java
-public class MethodHandleDemo {
-    static class Calculator {
-        int multiply(int a, int b) { return a * b; }
-        static int add(int a, int b) { return a + b; }
-    }
-
-    public static void main(String[] args) throws Throwable {
-        MethodHandles.Lookup lookup = MethodHandles.lookup();
-
-        // Virtual method handle
-        MethodHandle multiply = lookup.findVirtual(
-                Calculator.class, "multiply",
-                MethodType.methodType(int.class, int.class, int.class));
-
-        Calculator calc = new Calculator();
-        int result = (int) multiply.invoke(calc, 6, 7);
-        System.out.println("6 * 7 = " + result); // 42
-
-        // Static method handle
-        MethodHandle add = lookup.findStatic(
-                Calculator.class, "add",
-                MethodType.methodType(int.class, int.class, int.class));
-
-        int sum = (int) add.invoke(3, 4);
-        System.out.println("3 + 4 = " + sum); // 7
-
-        // Field access via MethodHandle
-        MethodHandles.Lookup privateLookup = MethodHandles.privateLookupIn(
-                Calculator.class, lookup);
-        // Can access private fields with privateLookupIn
-    }
+static long lookupEachCall(Price p, int n) throws Exception {
+    long sum = 0;
+    for (int i = 0; i < n; i++) sum += (int) Price.class.getMethod("at", int.class).invoke(p, i);
+    return sum;
 }
 ```
 
-**Q3: What caching strategies should you use for reflection-heavy code?**
+`invokeField` looks the `Method` up once and keeps it in a static field. `accessibleEachCall`
+keeps it too, and calls `setAccessible(true)` before every call:
 
 ```text
-A3: Effective caching strategies for reflection:
-
-1. Static final fields: Best for known, fixed members.
-   private static final Method PROCESS_METHOD;
-   static { PROCESS_METHOD = MyClass.class.getDeclaredMethod("process"); }
-
-2. ConcurrentHashMap cache: For dynamic lookups with varying types.
-   Map<String, Method> cache = new ConcurrentHashMap<>();
-   Key format: "className#methodName(paramTypes)"
-
-3. ClassValue (Java 7+): A JVM-optimized per-class cache.
-   ClassValue<Map<String, Method>> methodCache = new ClassValue<>() {
-       @Override protected Map<String, Method> computeValue(Class<?> type) {
-           // Build method map for this class
-       }
-   };
-
-4. WeakHashMap with Class keys: Meant to allow class unloading with custom
-   classloaders, but it does NOT work for Method/Field values: each Method or
-   Field strongly references its declaring Class, so the value keeps its own
-   key reachable and the entry is never removed (the WeakHashMap javadoc warns
-   about this). Prefer ClassValue, whose values do not keep the class alive.
-
-5. ThreadLocal caches: For thread-confined reflection operations.
-
-What to cache:
-- Method, Field, Constructor objects (expensive to look up)
-- MethodHandle objects (even more important -- JIT optimizes static final MH)
-- NOT Class objects (they are already singletons per classloader)
-
-When to invalidate:
-- When using hot-swapping or classloader-based reloading (rare in production)
-- Consider WeakReference-based caches for frameworks with class reloading
+invokeField                                                     5.72   5.45   4.89     32.0
+accessibleEachCall                                              6.83   5.09   4.60     32.0
+lookupEachCall                                                 26.89  27.12  26.64    200.2
 ```
+
+The lookup costs about 22 ns and 168 bytes, four times the call it precedes. `getMethod` searches
+the class's public methods and hands back a new `Method` every time:
 
 ```java
-public class ReflectionCacheDemo {
-    // Strategy 1: Static final for known types
-    private static final Method TO_STRING;
-    static {
-        try {
-            TO_STRING = Object.class.getMethod("toString");
-        } catch (NoSuchMethodException e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
-
-    // Strategy 2: ConcurrentHashMap for dynamic lookups
-    private static final Map<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();
-
-    public static Method getCachedMethod(Class<?> clazz, String name, Class<?>... paramTypes)
-            throws NoSuchMethodException {
-        String key = clazz.getName() + "#" + name + Arrays.toString(paramTypes);
-        Method method = METHOD_CACHE.get(key);
-        if (method == null) {
-            method = clazz.getDeclaredMethod(name, paramTypes);
-            method.setAccessible(true);
-            METHOD_CACHE.put(key, method);
-        }
-        return method;
-    }
-
-    // Strategy 3: ClassValue -- JVM-optimized per-class cache
-    private static final ClassValue<Map<String, Field>> FIELD_CACHE = new ClassValue<>() {
-        @Override
-        protected Map<String, Field> computeValue(Class<?> type) {
-            Map<String, Field> map = new HashMap<>();
-            for (Field f : type.getDeclaredFields()) {
-                f.setAccessible(true);
-                map.put(f.getName(), f);
-            }
-            return Collections.unmodifiableMap(map);
-        }
-    };
-}
+Method first = Price.class.getMethod("at", int.class);
+Method second = Price.class.getMethod("at", int.class);
+System.out.println("same object: " + (first == second) + ", equals: " + first.equals(second));
+first.setAccessible(true);
+System.out.println("first accessible: " + first.isAccessible() + ", second accessible: " + second.isAccessible());
 ```
-
-**Q4: When should you avoid reflection entirely?**
 
 ```text
-A4: Avoid reflection when:
-
-1. The type is known at compile time: Use direct calls, generics, or pattern
-   matching instead. Reflection adds unnecessary overhead and removes type safety.
-
-2. Performance is critical: In hot loops processing millions of operations per
-   second, even cached reflection overhead adds up. Use MethodHandle or direct calls.
-
-3. Compile-time alternatives exist:
-   - Annotation processing (e.g., Dagger for DI, MapStruct for mapping)
-   - Code generation (e.g., Lombok, AutoValue)
-   - Record patterns and sealed class exhaustive switches
-
-4. GraalVM native image is a target: Reflection requires explicit configuration
-   in native images and prevents ahead-of-time optimization.
-
-5. Security is a concern: Reflection bypasses access controls, which can be
-   exploited if untrusted code has access.
-
-6. Readability matters: Reflective code is harder to understand, debug, and
-   refactor. IDE features like "Find Usages" don't work for reflective calls.
-
-When reflection IS appropriate:
-- Framework infrastructure (DI containers, ORM, serialization)
-- Plugin architectures where types are unknown at compile time
-- Testing utilities (accessing internals for verification)
-- Developer tools (debuggers, profilers, code generators)
+same object: false, equals: true
+first accessible: true, second accessible: false
 ```
 
-```java
-public class AvoidReflectionDemo {
-    // AVOID: Reflection where compile-time type is known
-    public String badGetName(Object obj) throws Exception {
-        Method m = obj.getClass().getMethod("getName");
-        return (String) m.invoke(obj); // Loses type safety
-    }
-
-    // PREFER: Direct call with proper typing
-    interface Named { String getName(); }
-    public String goodGetName(Named obj) {
-        return obj.getName(); // Type-safe, fast, IDE-friendly
-    }
-
-    // AVOID: Reflection for exhaustive type matching
-    public String badDescribe(Object shape) throws Exception {
-        String type = shape.getClass().getSimpleName();
-        return switch (type) {
-            case "Circle" -> "A circle";
-            case "Square" -> "A square";
-            default -> "Unknown";
-        };
-    }
-
-    // PREFER: Sealed class with pattern matching (Java 21)
-    sealed interface Shape permits Circle, Square {}
-    record Circle(double r) implements Shape {}
-    record Square(double s) implements Shape {}
-
-    public String goodDescribe(Shape shape) {
-        return switch (shape) {
-            case Circle c -> "Circle r=" + c.r();
-            case Square s -> "Square s=" + s.s();
-        };
-    }
-}
-```
-
-**Q5: How do frameworks like Spring and Hibernate mitigate reflection overhead?**
+The accessible flag belongs to the copy, so a cache should store the `Method` after
+`setAccessible(true)`. Setting it skips the access check inside `invoke`, which saved about
+0.3 ns with a `Method` in a static final field (the next section explains why that one is faster)
+and 0.5 to 0.9 ns with one in a plain field. Repeating `setAccessible(true)` before every call
+(`accessibleEachCall` above) cost at most half a nanosecond more, within the spread between JVMs:
 
 ```text
-A5: Production frameworks use several strategies to minimize reflection costs:
-
-1. Startup-time scanning: Perform all reflective analysis (method lookup, field
-   scanning, annotation processing) once during application startup. Cache
-   everything for runtime use.
-
-2. Bytecode generation: Instead of calling Method.invoke() at runtime:
-   - Spring uses CGLIB to generate subclass proxies at startup.
-   - Hibernate uses Byte Buddy for bytecode enhancement.
-   - Generated bytecode is compiled by the JIT like regular code.
-
-3. MethodHandle caching: Store MethodHandles in static fields for frequently
-   accessed methods and fields.
-
-4. Lazy initialization: Only reflect on classes when first needed, amortizing
-   the cost across application lifetime.
-
-5. Classpath scanning optimization: Use ASM or similar bytecode readers to scan
-   annotations without fully loading classes.
-
-6. Compile-time processing:
-   - Spring AOT (Ahead-of-Time) generates reflection-free code for GraalVM.
-   - Micronaut and Quarkus use annotation processing to eliminate runtime reflection.
-
-7. Connection pooling for reflection: Reuse reflected metadata across multiple
-   instances of the same type.
-
-The trend in modern frameworks is moving AWAY from runtime reflection toward
-compile-time code generation (Spring 6 AOT, Quarkus, Micronaut).
+invokeConstant                                                  1.13   1.18   1.36     16.0
+invokeConstant      setAccessible(true)                         0.90   0.92   0.84     16.0
+invokeField                                                     5.72   5.45   4.89     32.0
+invokeField         setAccessible(true)                         4.49   4.60   5.36     32.0
 ```
+
+The saving is under a nanosecond: use `setAccessible` to reach non-public members (unit 10.3.2),
+not as an optimisation. Look members up
+once, at startup or on first use, and key the cache by class, name and parameter types:
+`at(int)` and `at(long)` are two methods, and two classes can share a simple name.
+
+<!-- practice 1 -->
+
+## Since JDK 18, Method.invoke Is Fast Only When the JIT Sees a Constant
+
+`Bench` keeps a `Method` for `at` in four places:
 
 ```java
-// Simplified example of how a framework caches reflection metadata
-public class FrameworkMetadataCache {
-    record BeanMetadata(
-        Constructor<?> constructor,
-        List<Field> injectableFields,
-        List<Method> postConstructMethods
-    ) {}
-
-    private static final Map<Class<?>, BeanMetadata> CACHE = new ConcurrentHashMap<>();
-
-    public static BeanMetadata getMetadata(Class<?> beanClass) {
-        return CACHE.computeIfAbsent(beanClass, clazz -> {
-            try {
-                // One-time expensive reflection
-                Constructor<?> ctor = clazz.getDeclaredConstructors()[0];
-                ctor.setAccessible(true);
-
-                List<Field> fields = new ArrayList<>();
-                for (Field f : clazz.getDeclaredFields()) {
-                    if (f.isAnnotationPresent(Inject.class)) {
-                        f.setAccessible(true);
-                        fields.add(f);
-                    }
-                }
-
-                List<Method> postConstruct = new ArrayList<>();
-                for (Method m : clazz.getDeclaredMethods()) {
-                    if (m.isAnnotationPresent(PostConstruct.class)) {
-                        m.setAccessible(true);
-                        postConstruct.add(m);
-                    }
-                }
-
-                return new BeanMetadata(ctor, fields, postConstruct);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to analyze: " + clazz, e);
-            }
-        });
-    }
-}
+static final Method AT;                 // a constant to the JIT
+static Method at;                       // the same Method, in a field the JIT can't trust
+static final Holder IN_CLASS;           // Holder: a class with a field  final Method m
+static final HolderRecord IN_RECORD;    // record HolderRecord(Method m)
 ```
 
-**Q6: What is `LambdaMetafactory` and how does it achieve near-zero overhead dynamic dispatch?**
+and calls `(int) AT.invoke(p, i)`, `at.invoke(...)`, `IN_CLASS.m.invoke(...)` and
+`IN_RECORD.m().invoke(...)`:
 
 ```text
-A6: LambdaMetafactory (java.lang.invoke.LambdaMetafactory) generates
-implementations of functional interfaces at runtime, backed by a MethodHandle.
-
-How it works:
-1. You provide a MethodHandle pointing to a target method.
-2. LambdaMetafactory generates a class that implements a functional interface
-   (e.g., Function, Supplier, Runnable).
-3. The generated class calls the target method directly (no reflection).
-4. The JIT can inline the call as if it were a regular lambda expression.
-
-Performance:
-- Setup cost: illustratively ~100 microseconds (one-time, during metafactory call; depends on the JVM and hardware).
-- Per-call cost: same as a regular method call or lambda -- the JIT inlines it.
-
-This is actually how the Java compiler implements lambda expressions:
-  list.forEach(x -> x.process())
-compiles to an invokedynamic instruction that calls LambdaMetafactory at first
-execution, then reuses the generated implementation.
-
-Use case: When you need the flexibility of reflection (runtime-determined
-target method) with the performance of direct calls.
+invokeConstant                                                  1.13   1.18   1.36     16.0
+invokeField                                                     5.72   5.45   4.89     32.0
+invokeClassFinal                                                4.64   4.95   4.92     32.0
+invokeRecordFinal                                               1.15   1.16   1.73     16.0
 ```
+
+A `Method` calls its target through a method handle kept in its accessor. A stack
+walk inside `at`, called through `invoke`, shows the accessor:
+
+```text
+call 20:
+  jdk.internal.reflect.DirectMethodHandleAccessor.invoke
+  java.lang.reflect.Method.invoke
+  Which.main
+```
+
+When the `Method` is a constant to the JIT, the JIT can follow it to the accessor and the handle
+and compile the call to `at` into the loop; the timings suggest that is what happened, though one
+`Integer` survives. A static final field is a constant, and so is a record component read
+through one: HotSpot trusts the final fields of records. It doesn't trust an ordinary `final`
+instance field, which reflection can write (unit 10.3.2), so `IN_CLASS.m` costs as much as a
+non-final field. The call then goes through a handle the JIT can't see into, four to five times
+slower, and allocates an extra `Integer`. A framework that keeps its `Method`s in maps, or in
+objects it built at startup, is in the slow rows, the event bus included.
+
+## A Method Handle Obeys the Same Rule, and invokeExact Never Boxes
+
+The same two places with a `MethodHandle` and `(int) handle.invokeExact(p, i)`:
+
+```text
+handleConstant                                                  0.33   0.23   0.27      0.0
+handleField                                                     1.84   1.72   1.88      0.0
+```
+
+In a static final field the handle costs what a direct call costs. In a plain field it is seven
+times slower than that, still three times faster than a `Method` in a field, and it allocates
+nothing. So the pull request should help the event bus, whose handlers sit in a map, by about 3 ns a
+call, an estimate: we measured one target, without the map lookup (Challenge 3). A static final
+`Method` would be faster still, but handlers registered at run time can't each have a static
+field.
+
+The bytes column is boxing. `invoke(Object obj, Object... args)` receives the `int` as an
+`Integer` inside a new `Object[]`, and returns the result as an `Integer`. `Boxes` calls three
+methods through a `Method` in a non-final static field: `echo` returns `x`, `big` returns
+`x + 1000`, `small` returns `x & 63`. The first column names the method, the second says whether
+the argument is inside the `Integer` cache (-128 to 127). The last line calls `big` through a handle:
+
+```text
+$ java Boxes
+echo   argument small ->  0.0 bytes/call (sum 945000000)
+big    argument small -> 16.0 bytes/call (sum 30945000000)
+small  argument big   -> 16.0 bytes/call (sum 945000000)
+big    argument big   -> 32.0 bytes/call (sum 75059985000000)
+big    argument big, bound handle, invokeExact ->  0.0 bytes/call (sum 75059985000000)
+$ java -XX:-DoEscapeAnalysis Boxes
+echo   argument small -> 24.0 bytes/call (sum 945000000)
+big    argument small -> 40.0 bytes/call (sum 30945000000)
+small  argument big   -> 40.0 bytes/call (sum 945000000)
+big    argument big   -> 56.0 bytes/call (sum 75059985000000)
+big    argument big, bound handle, invokeExact ->  0.0 bytes/call (sum 75059985000000)
+```
+
+Each value outside the cache costs a 16-byte `Integer`. Escape analysis removes the 24-byte array,
+which never leaves `invoke`; `-XX:-DoEscapeAnalysis` brings it back. A benchmark that passes small loop
+counters shows none of the allocation that real ids and amounts cause. The handle was made once from a
+`Method`, bound to its receiver, and called with the `int` types it has:
 
 ```java
-public class LambdaMetafactoryDemo {
-    static class Processor {
-        String process(String input) {
-            return input.toUpperCase();
-        }
-    }
-
-    public static void main(String[] args) throws Throwable {
-        MethodHandles.Lookup lookup = MethodHandles.lookup();
-        MethodHandle target = lookup.findVirtual(
-                Processor.class, "process",
-                MethodType.methodType(String.class, String.class));
-
-        // Create a Function<Processor, Function<String, String>> via LambdaMetafactory
-        CallSite site = LambdaMetafactory.metafactory(
-                lookup,
-                "apply",                                           // SAM method name
-                MethodType.methodType(Function.class, Processor.class), // factory type
-                MethodType.methodType(Object.class, Object.class), // generic SAM signature
-                target,                                            // implementation
-                MethodType.methodType(String.class, String.class)  // specific SAM signature
-        );
-
-        Processor processor = new Processor();
-        @SuppressWarnings("unchecked")
-        Function<String, String> fn = (Function<String, String>) site.getTarget().invoke(processor);
-
-        // Now fn.apply() is as fast as a direct call -- no reflection overhead
-        System.out.println(fn.apply("hello")); // "HELLO"
-    }
-}
+h = MethodHandles.lookup().unreflect(Calc.class.getMethod("big", int.class)).bindTo(c);
+// in the loop:
+sum += (int) h.invokeExact(i + 1_000);
 ```
+
+<!-- practice 2 -->
+
+## The Pre-JDK 18 Reflection Won Only While One Method Used the Call Site
+
+JDK 21 still has the old implementation, behind `-Djdk.reflect.useDirectMethodHandle=false`. It
+calls through native code for the first calls, then through a class it generates for each
+`Method`:
+
+```text
+$ java -Djdk.reflect.useDirectMethodHandle=false Which
+call 1:
+  jdk.internal.reflect.NativeMethodAccessorImpl.invoke0
+  jdk.internal.reflect.NativeMethodAccessorImpl.invoke
+  jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke
+call 20:
+  jdk.internal.reflect.GeneratedMethodAccessor1.invoke
+  jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke
+  java.lang.reflect.Method.invoke
+tax, call 20:
+  jdk.internal.reflect.GeneratedMethodAccessor2.invoke
+```
+
+With the flag, a `Method` in a field looks two and a half times faster:
+
+```text
+invokeField                                                     5.72   5.45   4.89     32.0
+invokeField         useDirectMethodHandle=false                 1.97   1.94   2.92     16.0
+invokeField         others first                                5.42   5.19   5.43     32.0
+invokeField         others first useDirectMethodHandle=false    4.86   4.86   4.86     56.0
+```
+
+In the second row one `Method` passes through `invoke`, so the call from
+`DelegatingMethodAccessorImpl` always reaches `GeneratedMethodAccessor1`, which the JIT can inline.
+"Others first" sends three other classes' `at` methods through the same loop before measuring, as a
+framework does with many handlers. That call then sees four generated classes, and the timing and the
+56 bytes show the JIT no longer optimising through it: the old implementation is about as fast as
+the new one, and allocates the array as well. The new one costs the same either way. Only a
+benchmark with one `Method` shows the old implementation ahead. The flag is gone anyway: JDK 25
+ignores it (we ran `Which` with it and got `DirectMethodHandleAccessor`).
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A loop whose result nobody reads measures nothing.** The JIT deletes it; use every result,
+  warm up, and compare in fresh JVMs.
+- **A lookup costs more than the call.** `getMethod` searches and copies on every call; cache the
+  `Method` with its accessible flag set, keyed by class, name and parameter types. `setAccessible`
+  saves under a nanosecond.
+- **`Method.invoke` is fast only on a constant `Method`.** A static final field or a record
+  component reached through one; a plain or `final` instance field is four to five times slower.
+- **A method handle follows the same rule, and with `invokeExact` it never boxes.** In a field it is still about three
+  times faster than a `Method` in a field; `invoke` boxes every primitive outside the `Integer`
+  cache.
+- **The old implementation only wins a one-method benchmark.** With several `Method`s through one
+  call site it is no faster, and JDK 25 has dropped the switch.
+
+## Reference
+
+**Ways to call `Price.at(int)`, JDK 21, one machine, median ns per call in three JVMs:**
+
+| Way | Kept in | ns/call | Bytes/call |
+|---|---|---|---|
+| direct call | | 0.21–0.24 | 0 |
+| `MethodHandle.invokeExact` | static final field | 0.23–0.33 | 0 |
+| `Method.invoke` | static final field, or record component through one | 1.1–1.7 | 16 |
+| `MethodHandle.invokeExact` | non-final field | 1.7–1.9 | 0 |
+| `Method.invoke` | non-final field, or final field of a class | 4.6–5.7 | 32 |
+| `getMethod` + `invoke` | looked up each call | 26.6–27.1 | 200 |
+
+**What `Method.invoke(obj, args...)` allocates for an `int`-to-`int` method, `Method` in a non-final field (`Boxes`; a constant `Method` allocated one `Integer` fewer in `Bench`):**
+
+| Object | Bytes | Removed when |
+|---|---|---|
+| the `Object[]` for the arguments | 24 | escape analysis is on (the default) |
+| an `Integer` per argument and for the result | 16 each | the value is in -128..127 (the `Integer` cache) |
+
+**Switches (JDK 21):**
+
+| Option | Effect |
+|---|---|
+| `-Djdk.reflect.useDirectMethodHandle=false` | the pre-JDK 18 implementation: native accessor for the first calls, then a generated `GeneratedMethodAccessorN` per `Method`; ignored by JDK 25 |
+| `-XX:-DoEscapeAnalysis` | turns escape analysis off; shows allocations the JIT normally removes |
+
+## Challenges
+
+1. Rerun `Bench` with `at` taking and returning `long`, and with five arguments instead of one.
+   Which rows change, and why does the bytes column grow?
+2. Your JSON mapper calls getters through `Method.invoke` from a `Map<Class<?>, List<Method>>`.
+   Is it worth converting to method handles, to `LambdaMetafactory`-made functions, or to
+   generated code? Decide what you would measure first.
+3. `Bench` measures one call site in a quiet loop. Design a measurement closer to the event bus:
+   50 handler classes, events of random types. Which rows do you expect to move?
+
+## Design Note: Why JDK 18 Rebuilt Reflection on Method Handles
+
+Before JDK 18, core reflection had call machinery of its own, separate from method handles: native
+code for the first calls of each `Method`, then a generated class per hot `Method`. Since JDK 18
+it uses method handles, the machinery that `invokedynamic` and lambdas already used, so the JDK
+keeps one mechanism instead of two. On our runs the change cost a constant `Method` nothing (1.1 to
+1.6 ns with either implementation) and removed the class per `Method`; what it lost is the speed of
+a single `Method` held in a field. The design also makes the place you keep a `Method` part of its
+cost, which no signature shows: moving a `Method` from a static final field into a map is a
+refactoring that makes each call four times slower.
 
 ## Code Examples
 

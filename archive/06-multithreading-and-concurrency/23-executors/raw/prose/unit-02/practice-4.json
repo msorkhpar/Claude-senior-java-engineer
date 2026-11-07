@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "The first reply, and replies as they arrive",
+  "title": "Give the freight board one deadline for every carrier",
   "blocks": [
     {
       "type": "heading",
@@ -19,56 +19,26 @@
     },
     {
       "type": "para",
-      "text": "Two ways the page reads results without waiting for the slowest task:"
+      "text": "A freight marketplace shows shippers a board of quotes from every carrier it works with. The product team promised the board within two seconds, whatever the carriers do: a carrier that has not answered by then is shown as too late, and one whose API fails is shown without a quote. The first version waited for every carrier, so one carrier with a stuck API kept the board from ever appearing."
+    },
+    {
+      "type": "para",
+      "text": "Write the `TODO` in `src/main/java/practice/QuoteBoard.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`invokeAny(tasks)` returns the result of the **first task to succeed**, cancels the rest, ignores failures while one task can still succeed, and throws `ExecutionException` if all fail. The page uses it to query several replicas and keep the fastest answer.",
-        "A `CompletionService` (`ExecutorCompletionService`) hands back each `Future` **as it completes**, so a slow first task does not block the fast ones behind it."
+        "`collect(...)`: ask every carrier on the pool and build the board's lines."
       ]
     },
     {
       "type": "para",
-      "text": "Write `Replicas`:"
+      "text": "When you're done, the board comes by its deadline with one line per carrier, in the carriers' order, and a carrier that missed the deadline is shown as `too late` and stops using a pool thread. About twelve lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`first(executor, replicas)`: the first successful reply; the replicas still running are cancelled; `ExecutionException` if every replica fails.",
-        "`inArrivalOrder(executor, tasks)`: every task's result, in the order the tasks **finished**. Every task is waited for, however slow. A failed task's exception comes out as the `ExecutionException` from its `get()`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`first(executor, [() -> \"r1\"])`",
-          "`\"r1\"`"
-        ],
-        [
-          "`first(executor, [one that throws, () -> \"ok\"])`",
-          "`\"ok\"`"
-        ],
-        [
-          "`first(executor, [one that never answers, () -> \"fast\"])`",
-          "`\"fast\"`, and the slow replica's thread is free again"
-        ],
-        [
-          "`first(executor, [two that throw])`",
-          "throws `ExecutionException`"
-        ],
-        [
-          "`inArrivalOrder(executor, [a, b, c])` where `c` finishes first and `a` last",
-          "`[c, b, a]`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests ask carriers on a real `ExecutorService`; some of them never answer until the test ends."
     },
     {
       "type": "heading",
@@ -83,7 +53,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.CompletionService;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorCompletionService;\nimport java.util.concurrent.ExecutorService;\n\npublic final class Replicas {\n\n    private Replicas() {\n    }\n\n    /** The first successful reply; the replicas still running are cancelled. */\n    public static <T> T first(ExecutorService executor, List<Callable<T>> replicas)\n            throws InterruptedException, ExecutionException {\n        return executor.invokeAny(replicas);\n    }\n\n    /** Every task's result, in the order the tasks finished. */\n    public static <T> List<T> inArrivalOrder(ExecutorService executor, List<Callable<T>> tasks)\n            throws InterruptedException, ExecutionException {\n        CompletionService<T> done = new ExecutorCompletionService<>(executor);\n        for (Callable<T> task : tasks) {\n            done.submit(task);\n        }\n        List<T> results = new ArrayList<>();\n        for (int i = 0; i < tasks.size(); i++) {\n            results.add(done.take().get());\n        }\n        return results;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.CancellationException;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * The freight comparison board. Every carrier is asked for a quote at once, and the board shows\n * what it has when its deadline comes: the quotes that arrived, and a note for each carrier that\n * failed or was too slow.\n */\npublic class QuoteBoard {\n\n    private final ExecutorService pool;\n    private final long deadlineMillis;\n\n    public QuoteBoard(ExecutorService pool, long deadlineMillis) {\n        this.pool = pool;\n        this.deadlineMillis = deadlineMillis;\n    }\n\n    /**\n     * One line per carrier, in the map's order: \"swiftline: 18400\" for a quote,\n     * \"bluecargo: no quote\" for a carrier whose call failed, and \"redroute: too late\" for a carrier that\n     * had not answered when the deadline of deadlineMillis, counted from this call, came.\n     */\n    public List<String> collect(Map<String, Callable<Long>> carriers) throws InterruptedException {\n        List<String> names = new ArrayList<>(carriers.keySet());\n        List<Future<Long>> quotes = pool.invokeAll(new ArrayList<>(carriers.values()), deadlineMillis, TimeUnit.MILLISECONDS);\n        List<String> lines = new ArrayList<>();\n        for (int i = 0; i < names.size(); i++) {\n            lines.add(names.get(i) + \": \" + describe(quotes.get(i)));\n        }\n        return lines;\n    }\n\n    private static String describe(Future<Long> quote) throws InterruptedException {\n        try {\n            return String.valueOf(quote.get());\n        } catch (ExecutionException e) {\n            return \"no quote\";\n        } catch (CancellationException e) {\n            return \"too late\";\n        }\n    }\n}\n"
         }
       ]
     },
@@ -95,7 +65,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\n\npublic final class Replicas {\n\n    private Replicas() {\n    }\n\n    /** The first successful reply; the replicas still running are cancelled. */\n    public static <T> T first(ExecutorService executor, List<Callable<T>> replicas)\n            throws InterruptedException, ExecutionException {\n        throw new UnsupportedOperationException(\"write first\");\n    }\n\n    /** Every task's result, in the order the tasks finished. */\n    public static <T> List<T> inArrivalOrder(ExecutorService executor, List<Callable<T>> tasks)\n            throws InterruptedException, ExecutionException {\n        throw new UnsupportedOperationException(\"write inArrivalOrder\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\n\n/**\n * The freight comparison board. Every carrier is asked for a quote at once, and the board shows\n * what it has when its deadline comes: the quotes that arrived, and a note for each carrier that\n * failed or was too slow.\n */\npublic class QuoteBoard {\n\n    private final ExecutorService pool;\n    private final long deadlineMillis;\n\n    public QuoteBoard(ExecutorService pool, long deadlineMillis) {\n        this.pool = pool;\n        this.deadlineMillis = deadlineMillis;\n    }\n\n    /**\n     * One line per carrier, in the map's order: \"swiftline: 18400\" for a quote,\n     * \"bluecargo: no quote\" for a carrier whose call failed, and \"redroute: too late\" for a carrier that\n     * had not answered when the deadline of deadlineMillis, counted from this call, came.\n     */\n    public List<String> collect(Map<String, Callable<Long>> carriers) throws InterruptedException {\n        // TODO: Ask every carrier on the pool and build the board's lines as described above,\n        //       by the deadline even when a carrier never answers.\n        throw new IllegalStateException(\"TODO: collect\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -103,10 +73,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 2,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -114,11 +84,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b4f7ce4dc847508f097e25f5352d2592496956978dae2c433fa9406e400f784c",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\n\npublic final class Replicas {\n\n    private Replicas() {\n    }\n\n    /** The first successful reply; the replicas still running are cancelled. */\n    public static <T> T first(ExecutorService executor, List<Callable<T>> replicas)\n            throws InterruptedException, ExecutionException {\n        throw new UnsupportedOperationException(\"write first\");\n    }\n\n    /** Every task's result, in the order the tasks finished. */\n    public static <T> List<T> inArrivalOrder(ExecutorService executor, List<Callable<T>> tasks)\n            throws InterruptedException, ExecutionException {\n        throw new UnsupportedOperationException(\"write inArrivalOrder\");\n    }\n}\n",
+  "content_sha256": "fa6447f885ebd260d554c9354e6b684984beb5a3c12b1c220d3257f1526076d3",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\n\n/**\n * The freight comparison board. Every carrier is asked for a quote at once, and the board shows\n * what it has when its deadline comes: the quotes that arrived, and a note for each carrier that\n * failed or was too slow.\n */\npublic class QuoteBoard {\n\n    private final ExecutorService pool;\n    private final long deadlineMillis;\n\n    public QuoteBoard(ExecutorService pool, long deadlineMillis) {\n        this.pool = pool;\n        this.deadlineMillis = deadlineMillis;\n    }\n\n    /**\n     * One line per carrier, in the map's order: \"swiftline: 18400\" for a quote,\n     * \"bluecargo: no quote\" for a carrier whose call failed, and \"redroute: too late\" for a carrier that\n     * had not answered when the deadline of deadlineMillis, counted from this call, came.\n     */\n    public List<String> collect(Map<String, Callable<Long>> carriers) throws InterruptedException {\n        // TODO: Ask every carrier on the pool and build the board's lines as described above,\n        //       by the deadline even when a carrier never answers.\n        throw new IllegalStateException(\"TODO: collect\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-4/src/main/java/practice/Replicas.java",
-    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-4/src/test/java/practice/ReplicasTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-4/src/main/java/practice/QuoteBoard.java",
+    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-4/src/test/java/practice/QuoteBoardTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -139,39 +109,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ReplicasTest#takesTheOnlyReplyAndKeepsArrivals",
+        "id": "practice.QuoteBoardTest#showsEveryQuoteAndEveryFailedCarrierInOrder",
         "kind": "main",
-        "says": "first gives a replica's reply, and inArrivalOrder gives every result."
+        "says": "every carrier's quote, or the note that its call failed, appears in the carriers' order"
       },
       {
-        "id": "practice.ReplicasTest#firstSkipsAFailedReplica",
+        "id": "practice.QuoteBoardTest#aCarrierThatNeverAnswersDoesNotHoldUpTheBoard",
         "kind": "edge",
-        "says": "first ignores a replica that failed as long as another one succeeds."
+        "says": "the board is built by its deadline even when a carrier never answers, and shows that carrier as too late"
       },
       {
-        "id": "practice.ReplicasTest#firstCancelsTheSlowReplicas",
+        "id": "practice.QuoteBoardTest#aLateCarrierIsShownAsLateAndTheCarriersAfterItStillShow",
         "kind": "edge",
-        "says": "Once first has a reply, the replicas still running are cancelled and free their threads."
+        "says": "a late carrier keeps its place on the board as too late, and the carriers after it are still shown"
       },
       {
-        "id": "practice.ReplicasTest#firstFailsWhenEveryReplicaFails",
+        "id": "practice.QuoteBoardTest#aLateCarrierIsStoppedWhenTheDeadlineComes",
         "kind": "edge",
-        "says": "first throws ExecutionException when no replica succeeds."
-      },
-      {
-        "id": "practice.ReplicasTest#arrivalsFollowCompletionOrder",
-        "kind": "edge",
-        "says": "inArrivalOrder gives results in the order the tasks finished, not the order they were submitted."
-      },
-      {
-        "id": "practice.ReplicasTest#aFailedArrivalIsReported",
-        "kind": "edge",
-        "says": "In inArrivalOrder a failed task is not skipped: its ExecutionException, with the task's exception as its cause, reaches the caller."
-      },
-      {
-        "id": "practice.ReplicasTest#aSlowArrivalIsWaitedFor",
-        "kind": "edge",
-        "says": "inArrivalOrder waits for every task however slow: a task that takes 1.5 s still arrives, last."
+        "says": "a carrier still being asked when the deadline comes is interrupted, so its thread goes back to the pool"
       }
     ],
     "report": {
@@ -180,11 +135,11 @@
     },
     "origin": {
       "path": "23-executors/README_6.4.2.md",
-      "section": "CompletionService"
+      "section": "invokeAll's Deadline Cancels the Stragglers, and Their get() Throws an Unchecked CancellationException"
     },
     "concepts": [
-      "A CompletionService hands back Futures in completion order, so a slow early task does not block the results behind it.",
-      "invokeAny() returns the first successful result, ignores failures while one task can succeed, cancels the rest, and fails only if all fail."
+      "get() on a cancelled future throws CancellationException, which is unchecked, so a loop that handles only ExecutionException ends at the first late task.",
+      "A timed invokeAll returns by its deadline with a future for every task in order, and cancels with an interrupt the tasks still running."
     ]
   }
 }

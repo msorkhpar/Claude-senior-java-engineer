@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "ordinal": 5,
+  "title": "Check yourself: transactions and concurrency control",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-stock-after-snapshot",
+        "stem": "A stock service on H2 runs its transactions at REPEATABLE READ. Transaction T reads the stock of item 9: 40. Another transaction sets it to 35 and commits. T then runs `UPDATE item SET stock = stock - 2 WHERE id = 9`. What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The UPDATE fails with SQLState 40001, since the row changed after T's snapshot began",
+            "correct": true,
+            "says": "at REPEATABLE READ, H2 refuses the second writer of a row changed and committed after its snapshot, with 40001, even for balance = balance + ? statements"
+          },
+          {
+            "id": "b",
+            "text": "The UPDATE fails with SQLState 40001, since T and the other transaction were waiting for each other's locks",
+            "correct": false,
+            "says": "the other transaction had committed, so nothing waited; H2 uses the deadlock message for this write conflict too"
+          },
+          {
+            "id": "c",
+            "text": "The UPDATE succeeds and leaves 33, since the statement subtracts from the row as it is now",
+            "correct": false,
+            "says": "that is what READ COMMITTED did; at REPEATABLE READ H2 refused the write"
+          },
+          {
+            "id": "d",
+            "text": "The UPDATE succeeds and leaves 38, since the statement subtracts from the row in T's snapshot",
+            "correct": false,
+            "says": "H2 did not let the write through at REPEATABLE READ; it failed with 40001"
+          }
+        ],
+        "origin": {
+          "path": "45-java-persistence/README_10.7.3.md",
+          "section": "An Isolation Level Is What Your Database Does, and on H2 None Stops Write Skew"
+        }
+      },
+      {
+        "id": "q-doctors-on-call",
+        "stem": "A clinic's rule says at least one of two doctors is on call. On H2, at SERIALIZABLE, transactions D1 and D2 each count the doctors on call (2), each then sets its own doctor off call, and both commit. What does the table show afterwards?",
+        "options": [
+          {
+            "id": "a",
+            "text": "No doctor on call, since the two transactions changed different rows and H2 found no conflict between them",
+            "correct": true,
+            "says": "on H2 SERIALIZABLE let write skew through: each transaction wrote a row the other did not, so there was no write conflict to refuse"
+          },
+          {
+            "id": "b",
+            "text": "No doctor on call, since at SERIALIZABLE each count also sees the other's uncommitted change",
+            "correct": false,
+            "says": "the runs show no dirty read at SERIALIZABLE on H2; each count saw 2, the committed state"
+          },
+          {
+            "id": "c",
+            "text": "One doctor on call, since the second commit fails with 40001 once both have read the same rows",
+            "correct": false,
+            "says": "both commits succeeded in the run; H2 refused only a second write to the same row, and these writes were to different rows"
+          },
+          {
+            "id": "d",
+            "text": "One doctor on call, since the second count waits for the first commit and then sees one doctor",
+            "correct": false,
+            "says": "a plain read took no lock on H2; only a read with FOR UPDATE made the other transaction wait"
+          }
+        ],
+        "origin": {
+          "path": "45-java-persistence/README_10.7.3.md",
+          "section": "An Isolation Level Is What Your Database Does, and on H2 None Stops Write Skew"
+        }
+      },
+      {
+        "id": "q-audit-after-timeout",
+        "stem": "A nightly job on H2, with auto-commit off and LOCK_TIMEOUT set to 1000, inserts an audit row and then, in the same transaction, updates account 12, which another session has held with FOR UPDATE for minutes. The job catches the SQLException, logs it and calls commit(). What does the commit write?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The audit row, since the timeout failed only the UPDATE and the transaction stayed open",
+            "correct": true,
+            "says": "a lock timeout (HYT00) fails one statement; the earlier statements stay in the open transaction and the commit writes them"
+          },
+          {
+            "id": "b",
+            "text": "The audit row, since H2 committed the insert on its own before raising the timeout",
+            "correct": false,
+            "says": "nothing was committed before the job's commit(); the insert was still part of the open transaction"
+          },
+          {
+            "id": "c",
+            "text": "Nothing, since the timeout rolled back the whole transaction, the insert included",
+            "correct": false,
+            "says": "that is what a deadlock (40001) does; a lock timeout leaves the transaction open"
+          },
+          {
+            "id": "d",
+            "text": "Nothing, since a transaction with a failed statement refuses to commit afterwards",
+            "correct": false,
+            "says": "on H2 a failed statement undoes only itself, and a later commit succeeds"
+          }
+        ],
+        "origin": {
+          "path": "45-java-persistence/README_10.7.3.md",
+          "section": "On H2, a Lock Timeout Fails One Statement; a Deadlock Rolls Back the Whole Transaction"
+        }
+      },
+      {
+        "id": "q-second-admin-save",
+        "stem": "Two admins save product 3 at the same moment, on H2 at READ COMMITTED; both read version 4. Admin A's `UPDATE product SET price = ?, version = version + 1 WHERE id = 3 AND version = 4` has run, and A has not committed yet, when admin B's update of the same shape arrives on another connection. What does B's executeUpdate() do?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It waits until A commits and then returns 0, since by then the version is 5",
+            "correct": true,
+            "says": "the row lock makes B's UPDATE wait for A; after A's commit the version no longer matches, and the count is 0"
+          },
+          {
+            "id": "b",
+            "text": "It waits until A commits and then returns 1, since B checks the version it read earlier",
+            "correct": false,
+            "says": "the WHERE clause is checked against the row as it is when the UPDATE runs, after A's commit"
+          },
+          {
+            "id": "c",
+            "text": "It returns 0 at once, since a version check works without taking any lock",
+            "correct": false,
+            "says": "an UPDATE with a version check still locks the row and waits on another writer's lock"
+          },
+          {
+            "id": "d",
+            "text": "It returns 1 at once, since A's change is not committed and B cannot see it",
+            "correct": false,
+            "says": "B's UPDATE was blocked by A's uncommitted change, and then matched no row"
+          }
+        ],
+        "origin": {
+          "path": "45-java-persistence/README_10.7.3.md",
+          "section": "A Version Column Turns a Lost Update into an Update Count of 0"
+        }
+      }
+    ]
+  }
+}

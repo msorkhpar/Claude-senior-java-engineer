@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Count and remove a value with Predicate.isEqual",
+  "title": "Make the issue search honour the fields left blank",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,24 @@
     },
     {
       "type": "para",
-      "text": "`Predicate.isEqual(target)` tests `Objects.equals(target, t)`: it is null-safe on **both** sides, so `Predicate.isEqual(null)` matches exactly the `null` inputs. Wrapped in `Predicate.not(…)` it matches everything else."
+      "text": "The issue tracker's search form has an assignee field, a minimum priority and a row of label boxes. An issue is found when it meets every field the user filled in; for the labels, carrying any one of the ticked labels is enough. The service builds one `Predicate<Issue>` per filled-in field and combines them in `matching(...)`."
     },
     {
       "type": "para",
-      "text": "Write two methods in `Matches`; `Predicate.isEqual` is the page's tool for both:"
+      "text": "Finish `src/main/java/practice/IssueSearch.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`countEqual(List<T> items, T target)` returns how many items equal `target`.",
-        "`without(List<T> items, T target)` returns a new list of the items that do not equal `target`, in order; it is a new list even when `target` does not occur."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "items",
-        "target",
-        "`countEqual`",
-        "`without`"
-      ],
-      "rows": [
-        [
-          "`[\"Alice\", \"Bob\", \"Alice\", \"Charlie\"]`",
-          "`\"Alice\"`",
-          "`2`",
-          "`[\"Bob\", \"Charlie\"]`"
-        ],
-        [
-          "`[\"Alice\", \"Bob\"]`",
-          "`\"Zoe\"`",
-          "`0`",
-          "`[\"Alice\", \"Bob\"]`"
-        ]
+        "`allOf(...)`: one predicate that holds when every criterion in the list holds;",
+        "`anyLabel(...)`: one predicate that holds when an issue carries at least one of the labels;",
+        "the label criterion in `matching(...)`."
       ]
     },
     {
       "type": "para",
-      "text": "Lists may hold `null`, and `target` itself may be `null`."
+      "text": "Users search with every combination of blank and filled-in fields, the completely blank form included, which they use to see the whole board. About six lines in total."
     },
     {
       "type": "heading",
@@ -73,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Predicate;\n\npublic final class Matches {\n\n    private Matches() {\n    }\n\n    /** Returns how many items equal {@code target}; null is a valid item and a valid target. */\n    public static <T> long countEqual(List<T> items, T target) {\n        return items.stream().filter(Predicate.isEqual(target)).count();\n    }\n\n    /** Returns the items not equal to {@code target}, in order; null is a valid item and a valid target. */\n    public static <T> List<T> without(List<T> items, T target) {\n        return items.stream().filter(Predicate.not(Predicate.isEqual(target))).toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.function.Predicate;\n\n/** The issue tracker's search form. */\npublic class IssueSearch {\n\n    public enum Priority { LOW, MEDIUM, HIGH, URGENT }\n\n    public record Issue(int id, String assignee, Priority priority, Set<String> labels) {}\n\n    /**\n     * What the user filled in. An empty Optional is a field left blank; an empty label set means\n     * no label box was ticked.\n     */\n    public record Form(Optional<String> assignee, Optional<Priority> atLeast, Set<String> anyOfLabels) {}\n\n    public static List<Issue> search(List<Issue> issues, Form form) {\n        return issues.stream().filter(matching(form)).toList();\n    }\n\n    /** One predicate for the whole form: an issue must meet every field the user filled in. */\n    static Predicate<Issue> matching(Form form) {\n        List<Predicate<Issue>> criteria = new ArrayList<>();\n        form.assignee().ifPresent(name -> criteria.add(issue -> name.equals(issue.assignee())));\n        form.atLeast().ifPresent(level -> criteria.add(issue -> issue.priority().compareTo(level) >= 0));\n        if (!form.anyOfLabels().isEmpty()) {\n            criteria.add(anyLabel(form.anyOfLabels()));\n        }\n        return allOf(criteria);\n    }\n\n    /** An issue that carries at least one of these labels. */\n    static Predicate<Issue> anyLabel(Set<String> labels) {\n        return labels.stream()\n                .map(label -> (Predicate<Issue>) issue -> issue.labels().contains(label))\n                .reduce(issue -> false, Predicate::or);\n    }\n\n    /** An issue that meets every one of these criteria. */\n    static Predicate<Issue> allOf(List<Predicate<Issue>> criteria) {\n        return criteria.stream().reduce(issue -> true, Predicate::and);\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Matches {\n\n    private Matches() {\n    }\n\n    /** Returns how many items equal {@code target}; null is a valid item and a valid target. */\n    public static <T> long countEqual(List<T> items, T target) {\n        throw new UnsupportedOperationException(\"write countEqual\");\n    }\n\n    /** Returns the items not equal to {@code target}, in order; null is a valid item and a valid target. */\n    public static <T> List<T> without(List<T> items, T target) {\n        throw new UnsupportedOperationException(\"write without\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.function.Predicate;\n\n/** The issue tracker's search form. */\npublic class IssueSearch {\n\n    public enum Priority { LOW, MEDIUM, HIGH, URGENT }\n\n    public record Issue(int id, String assignee, Priority priority, Set<String> labels) {}\n\n    /**\n     * What the user filled in. An empty Optional is a field left blank; an empty label set means\n     * no label box was ticked.\n     */\n    public record Form(Optional<String> assignee, Optional<Priority> atLeast, Set<String> anyOfLabels) {}\n\n    public static List<Issue> search(List<Issue> issues, Form form) {\n        return issues.stream().filter(matching(form)).toList();\n    }\n\n    /** One predicate for the whole form: an issue must meet every field the user filled in. */\n    static Predicate<Issue> matching(Form form) {\n        List<Predicate<Issue>> criteria = new ArrayList<>();\n        form.assignee().ifPresent(name -> criteria.add(issue -> name.equals(issue.assignee())));\n        form.atLeast().ifPresent(level -> criteria.add(issue -> issue.priority().compareTo(level) >= 0));\n        // TODO: Add the label criterion: the issue carries any one of the ticked labels.\n        return allOf(criteria);\n    }\n\n    /** An issue that carries at least one of these labels. */\n    static Predicate<Issue> anyLabel(Set<String> labels) {\n        // TODO: Build one predicate that holds when an issue carries at least one of the labels.\n        throw new IllegalStateException(\"TODO: anyLabel\");\n    }\n\n    /** An issue that meets every one of these criteria. */\n    static Predicate<Issue> allOf(List<Predicate<Issue>> criteria) {\n        // TODO: Combine the criteria into one predicate that holds when every one of them holds.\n        throw new IllegalStateException(\"TODO: allOf\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,7 +73,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -104,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "511b9f0c0c62d24d8e85093e6d32da13dd0e7060367d2b1d80951393f125e47c",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Matches {\n\n    private Matches() {\n    }\n\n    /** Returns how many items equal {@code target}; null is a valid item and a valid target. */\n    public static <T> long countEqual(List<T> items, T target) {\n        throw new UnsupportedOperationException(\"write countEqual\");\n    }\n\n    /** Returns the items not equal to {@code target}, in order; null is a valid item and a valid target. */\n    public static <T> List<T> without(List<T> items, T target) {\n        throw new UnsupportedOperationException(\"write without\");\n    }\n}\n",
+  "content_sha256": "84ef8d08e93117046c9725a7b598d0e8b643e16c3ce86a171c4ae514d5cd6a7d",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.function.Predicate;\n\n/** The issue tracker's search form. */\npublic class IssueSearch {\n\n    public enum Priority { LOW, MEDIUM, HIGH, URGENT }\n\n    public record Issue(int id, String assignee, Priority priority, Set<String> labels) {}\n\n    /**\n     * What the user filled in. An empty Optional is a field left blank; an empty label set means\n     * no label box was ticked.\n     */\n    public record Form(Optional<String> assignee, Optional<Priority> atLeast, Set<String> anyOfLabels) {}\n\n    public static List<Issue> search(List<Issue> issues, Form form) {\n        return issues.stream().filter(matching(form)).toList();\n    }\n\n    /** One predicate for the whole form: an issue must meet every field the user filled in. */\n    static Predicate<Issue> matching(Form form) {\n        List<Predicate<Issue>> criteria = new ArrayList<>();\n        form.assignee().ifPresent(name -> criteria.add(issue -> name.equals(issue.assignee())));\n        form.atLeast().ifPresent(level -> criteria.add(issue -> issue.priority().compareTo(level) >= 0));\n        // TODO: Add the label criterion: the issue carries any one of the ticked labels.\n        return allOf(criteria);\n    }\n\n    /** An issue that carries at least one of these labels. */\n    static Predicate<Issue> anyLabel(Set<String> labels) {\n        // TODO: Build one predicate that holds when an issue carries at least one of the labels.\n        throw new IllegalStateException(\"TODO: anyLabel\");\n    }\n\n    /** An issue that meets every one of these criteria. */\n    static Predicate<Issue> allOf(List<Predicate<Issue>> criteria) {\n        // TODO: Combine the criteria into one predicate that holds when every one of them holds.\n        throw new IllegalStateException(\"TODO: allOf\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-04/practice-4/src/main/java/practice/Matches.java",
-    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-04/practice-4/src/test/java/practice/MatchesTest.java",
+    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-04/practice-4/src/main/java/practice/IssueSearch.java",
+    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-04/practice-4/src/test/java/practice/IssueSearchTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,29 +107,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.MatchesTest#countsAndRemovesATarget",
+        "id": "practice.IssueSearchTest#findsTheIssuesThatMeetEveryFilledInField",
         "kind": "main",
-        "says": "Occurrences of the target are counted, and without keeps every other item in order."
+        "says": "with assignee, minimum priority and one label filled in, only issues meeting all three are found"
       },
       {
-        "id": "practice.MatchesTest#aNullTargetMatchesNulls",
-        "kind": "edge",
-        "says": "A null target matches exactly the null items, with no NullPointerException."
+        "id": "practice.IssueSearchTest#findsIssuesByOneLabelAndAPriority",
+        "kind": "main",
+        "says": "with a minimum priority and one label, only issues meeting both are found"
       },
       {
-        "id": "practice.MatchesTest#nullItemsDoNotBreakTheSearch",
+        "id": "practice.IssueSearchTest#aBlankFormListsEveryIssue",
         "kind": "edge",
-        "says": "Null items are compared safely against a non-null target and never match it."
+        "says": "a form with nothing filled in lists every issue"
       },
       {
-        "id": "practice.MatchesTest#equalButSeparateObjectsMatch",
+        "id": "practice.IssueSearchTest#noLabelTickedMeansNoLabelFilter",
         "kind": "edge",
-        "says": "Items are matched by equals, so an equal value built separately from the target still matches."
+        "says": "a form with no label ticked does not filter on labels"
       },
       {
-        "id": "practice.MatchesTest#withoutAlwaysReturnsANewList",
+        "id": "practice.IssueSearchTest#anIssueWithAnyOfTheTickedLabelsIsFound",
         "kind": "edge",
-        "says": "Even when the target does not occur, without returns a new list rather than the input itself."
+        "says": "with several labels ticked, an issue carrying any one of them is found"
       }
     ],
     "report": {
@@ -160,10 +138,11 @@
     },
     "origin": {
       "path": "14-functional-interfaces/README_4.2.4.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "Optional Criteria Reduce from the Operator's Identity: x -> true for and, x -> false for or"
     },
     "concepts": [
-      "Predicate.isEqual compares with Objects.equals, so it is null-safe on both sides and isEqual(null) matches only null."
+      "An optional criterion whose field is empty is left out rather than reduced, because the or-reduction of nothing is x -> false and empties the result.",
+      "Reducing a list of predicates starts from x -> true for and and from x -> false for or; the other identity, or orElse(x -> false) on an empty list, rejects or accepts everything."
     ]
   }
 }

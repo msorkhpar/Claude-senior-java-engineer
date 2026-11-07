@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A bank account whose failures carry the numbers and change nothing",
+  "title": "Answer every refusal from the shipping module",
   "blocks": [
     {
       "type": "heading",
@@ -19,58 +19,25 @@
     },
     {
       "type": "para",
-      "text": "The page's `BankAccount` follows the best practices: exception names that say what went wrong, context carried in fields, and checks that run before any state changes. Write it."
+      "text": "An online shop's checkout books a shipment as its last step. The shipping module refuses some orders on purpose, and its team adds new kinds of refusal every few releases without telling the checkout team. Last month one of those new refusals reached the customer as \"500 Internal Server Error\". The month before, a `NullPointerException` inside the shipping code was shown to customers as \"We can't ship this order right now\", and nobody was paged for a week."
+    },
+    {
+      "type": "para",
+      "text": "Finish `placeOrder` in `src/main/java/practice/Checkout.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "Complete the checked `InsufficientFundsException(String message, double requestedAmount, double accountBalance)` with `getRequestedAmount()` and `getAccountBalance()`.",
-        [
-          "Write `BankAccount(String accountNumber, double initialBalance)`, `getBalance()`, and:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "`deposit(double amount)`: an amount that is not positive (zero, negative, or `NaN`) throws `InvalidAmountException(\"Deposit amount must be positive\")`;",
-              "`withdraw(double amount)`: an amount that is not positive throws `InvalidAmountException(\"Withdrawal amount must be positive\")`; more than the balance throws `InsufficientFundsException(\"Insufficient funds for withdrawal\", amount, balance)`."
-            ]
-          }
-        ]
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "on an account opened with `1000.0`",
-        "result"
-      ],
-      "rows": [
-        [
-          "`deposit(500.0)`",
-          "balance `1500.0`"
-        ],
-        [
-          "`withdraw(500.0)`",
-          "balance `500.0`"
-        ],
-        [
-          "`withdraw(1500.0)`",
-          "throws `InsufficientFundsException`, requested `1500.0`, balance `1000.0`"
-        ],
-        [
-          "`deposit(-100.0)`",
-          "throws `InvalidAmountException(\"Deposit amount must be positive\")`"
-        ]
+        "a booked shipment answers with its tracking number;",
+        "a postcode the carrier doesn't serve gets `ADDRESS_ANSWER`;",
+        "every other refusal from the shipping module, today's and the ones added later, gets `LATER_ANSWER`;",
+        "anything else that goes wrong reaches the shop's error handler unchanged."
       ]
     },
     {
       "type": "para",
-      "text": "Opening balances are never negative, so the two checks of `withdraw` never both apply; their order is up to you. How the exception stores its numbers is up to you as long as the getters return them."
-    },
-    {
-      "type": "para",
-      "text": "A caller should be able to build a precise reply from the exception without parsing its message, and an account that refused an operation must be exactly as it was. Mind both ends of every range."
+      "text": "About six lines in total. The tests bring a refusal of their own that the checkout has never seen."
     },
     {
       "type": "heading",
@@ -85,7 +52,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\n/** Checked: an amount that is not positive. */\nclass InvalidAmountException extends Exception {\n    InvalidAmountException(String message) {\n        super(message);\n    }\n}\n\n/** Checked: a withdrawal larger than the balance. Carries both numbers. */\nclass InsufficientFundsException extends Exception {\n\n    private final double requestedAmount;\n    private final double accountBalance;\n\n    InsufficientFundsException(String message, double requestedAmount, double accountBalance) {\n        super(message);\n        this.requestedAmount = requestedAmount;\n        this.accountBalance = accountBalance;\n    }\n\n    double getRequestedAmount() {\n        return requestedAmount;\n    }\n\n    double getAccountBalance() {\n        return accountBalance;\n    }\n}\n\npublic class BankAccount {\n\n    private final String accountNumber;\n    private double balance;\n\n    public BankAccount(String accountNumber, double initialBalance) {\n        this.accountNumber = accountNumber;\n        this.balance = initialBalance;\n    }\n\n    public void deposit(double amount) throws InvalidAmountException {\n        if (!(amount > 0)) {\n            throw new InvalidAmountException(\"Deposit amount must be positive\");\n        }\n        balance += amount;\n    }\n\n    public void withdraw(double amount) throws InvalidAmountException, InsufficientFundsException {\n        if (!(amount > 0)) {\n            throw new InvalidAmountException(\"Withdrawal amount must be positive\");\n        }\n        if (amount > balance) {\n            throw new InsufficientFundsException(\"Insufficient funds for withdrawal\", amount, balance);\n        }\n        balance -= amount;\n    }\n\n    public double getBalance() {\n        return balance;\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * The last step of checkout: books a shipment with the shipping module and tells the customer\n * what happened.\n */\npublic class Checkout {\n\n    /** Every failure the shipping module reports on purpose extends this one. */\n    public static class ShippingException extends RuntimeException {\n        public ShippingException(String message) {\n            super(message);\n        }\n    }\n\n    /** The carrier does not deliver to this postcode. */\n    public static class AddressRejectedException extends ShippingException {\n        public AddressRejectedException(String postcode) {\n            super(\"no delivery to postcode \" + postcode);\n        }\n    }\n\n    /** No carrier has capacity today. */\n    public static class NoCarrierException extends ShippingException {\n        public NoCarrierException(String message) {\n            super(message);\n        }\n    }\n\n    /** The shipping module. Its team adds new failure types in later releases. */\n    public interface Shipping {\n        /** Books a shipment and returns its tracking number. */\n        String book(String orderId, String postcode);\n    }\n\n    static final String ADDRESS_ANSWER = \"We can't deliver to that postcode. Please check it.\";\n    static final String LATER_ANSWER = \"We can't ship this order right now. We'll email you.\";\n\n    private final Shipping shipping;\n\n    public Checkout(Shipping shipping) {\n        this.shipping = shipping;\n    }\n\n    /** Books the order's shipment and returns what the customer sees. */\n    public String placeOrder(String orderId, String postcode) {\n        try {\n            return \"Shipped, tracking number \" + shipping.book(orderId, postcode);\n        } catch (AddressRejectedException e) {\n            return ADDRESS_ANSWER;\n        } catch (ShippingException e) {\n            return LATER_ANSWER;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -97,7 +64,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\n/** Checked: an amount that is not positive. */\nclass InvalidAmountException extends Exception {\n    InvalidAmountException(String message) {\n        super(message);\n    }\n}\n\n/** Checked: a withdrawal larger than the balance. Carries both numbers. */\nclass InsufficientFundsException extends Exception {\n\n    InsufficientFundsException(String message, double requestedAmount, double accountBalance) {\n        throw new UnsupportedOperationException(\"write InsufficientFundsException(String, double, double)\");\n    }\n\n    double getRequestedAmount() {\n        throw new UnsupportedOperationException(\"write getRequestedAmount\");\n    }\n\n    double getAccountBalance() {\n        throw new UnsupportedOperationException(\"write getAccountBalance\");\n    }\n}\n\npublic class BankAccount {\n\n    public BankAccount(String accountNumber, double initialBalance) {\n    }\n\n    public void deposit(double amount) throws InvalidAmountException {\n        throw new UnsupportedOperationException(\"write deposit\");\n    }\n\n    public void withdraw(double amount) throws InvalidAmountException, InsufficientFundsException {\n        throw new UnsupportedOperationException(\"write withdraw\");\n    }\n\n    public double getBalance() {\n        throw new UnsupportedOperationException(\"write getBalance\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * The last step of checkout: books a shipment with the shipping module and tells the customer\n * what happened.\n */\npublic class Checkout {\n\n    /** Every failure the shipping module reports on purpose extends this one. */\n    public static class ShippingException extends RuntimeException {\n        public ShippingException(String message) {\n            super(message);\n        }\n    }\n\n    /** The carrier does not deliver to this postcode. */\n    public static class AddressRejectedException extends ShippingException {\n        public AddressRejectedException(String postcode) {\n            super(\"no delivery to postcode \" + postcode);\n        }\n    }\n\n    /** No carrier has capacity today. */\n    public static class NoCarrierException extends ShippingException {\n        public NoCarrierException(String message) {\n            super(message);\n        }\n    }\n\n    /** The shipping module. Its team adds new failure types in later releases. */\n    public interface Shipping {\n        /** Books a shipment and returns its tracking number. */\n        String book(String orderId, String postcode);\n    }\n\n    static final String ADDRESS_ANSWER = \"We can't deliver to that postcode. Please check it.\";\n    static final String LATER_ANSWER = \"We can't ship this order right now. We'll email you.\";\n\n    private final Shipping shipping;\n\n    public Checkout(Shipping shipping) {\n        this.shipping = shipping;\n    }\n\n    /** Books the order's shipment and returns what the customer sees. */\n    public String placeOrder(String orderId, String postcode) {\n        // TODO: Book the shipment with shipping.book(...) and return \"Shipped, tracking number \"\n        //       followed by the tracking number. When shipping refuses the order, answer the\n        //       customer: ADDRESS_ANSWER when the postcode was the problem, LATER_ANSWER for any\n        //       other refusal, including the kinds of refusal the shipping team adds later.\n        //       A bug in the shipping code is not a refusal: let it reach the error handler.\n        throw new IllegalStateException(\"TODO: placeOrder\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -107,7 +74,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -116,11 +83,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a6d34be33c0b826dff34e3e82ce28cbdbc7caf2ddf002367b0d005c4c34f7da2",
-  "starting_code": "package practice;\n\n/** Checked: an amount that is not positive. */\nclass InvalidAmountException extends Exception {\n    InvalidAmountException(String message) {\n        super(message);\n    }\n}\n\n/** Checked: a withdrawal larger than the balance. Carries both numbers. */\nclass InsufficientFundsException extends Exception {\n\n    InsufficientFundsException(String message, double requestedAmount, double accountBalance) {\n        throw new UnsupportedOperationException(\"write InsufficientFundsException(String, double, double)\");\n    }\n\n    double getRequestedAmount() {\n        throw new UnsupportedOperationException(\"write getRequestedAmount\");\n    }\n\n    double getAccountBalance() {\n        throw new UnsupportedOperationException(\"write getAccountBalance\");\n    }\n}\n\npublic class BankAccount {\n\n    public BankAccount(String accountNumber, double initialBalance) {\n    }\n\n    public void deposit(double amount) throws InvalidAmountException {\n        throw new UnsupportedOperationException(\"write deposit\");\n    }\n\n    public void withdraw(double amount) throws InvalidAmountException, InsufficientFundsException {\n        throw new UnsupportedOperationException(\"write withdraw\");\n    }\n\n    public double getBalance() {\n        throw new UnsupportedOperationException(\"write getBalance\");\n    }\n}\n",
+  "content_sha256": "0343178d7033ee1d89938d757038343fff94b378839ab56ae20b1e529b0b6be8",
+  "starting_code": "package practice;\n\n/**\n * The last step of checkout: books a shipment with the shipping module and tells the customer\n * what happened.\n */\npublic class Checkout {\n\n    /** Every failure the shipping module reports on purpose extends this one. */\n    public static class ShippingException extends RuntimeException {\n        public ShippingException(String message) {\n            super(message);\n        }\n    }\n\n    /** The carrier does not deliver to this postcode. */\n    public static class AddressRejectedException extends ShippingException {\n        public AddressRejectedException(String postcode) {\n            super(\"no delivery to postcode \" + postcode);\n        }\n    }\n\n    /** No carrier has capacity today. */\n    public static class NoCarrierException extends ShippingException {\n        public NoCarrierException(String message) {\n            super(message);\n        }\n    }\n\n    /** The shipping module. Its team adds new failure types in later releases. */\n    public interface Shipping {\n        /** Books a shipment and returns its tracking number. */\n        String book(String orderId, String postcode);\n    }\n\n    static final String ADDRESS_ANSWER = \"We can't deliver to that postcode. Please check it.\";\n    static final String LATER_ANSWER = \"We can't ship this order right now. We'll email you.\";\n\n    private final Shipping shipping;\n\n    public Checkout(Shipping shipping) {\n        this.shipping = shipping;\n    }\n\n    /** Books the order's shipment and returns what the customer sees. */\n    public String placeOrder(String orderId, String postcode) {\n        // TODO: Book the shipment with shipping.book(...) and return \"Shipped, tracking number \"\n        //       followed by the tracking number. When shipping refuses the order, answer the\n        //       customer: ADDRESS_ANSWER when the postcode was the problem, LATER_ANSWER for any\n        //       other refusal, including the kinds of refusal the shipping team adds later.\n        //       A bug in the shipping code is not a refusal: let it reach the error handler.\n        throw new IllegalStateException(\"TODO: placeOrder\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-1/src/main/java/practice/BankAccount.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-1/src/test/java/practice/BankAccountTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-1/src/main/java/practice/Checkout.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-1/src/test/java/practice/CheckoutTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -141,39 +108,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BankAccountTest#depositsAndWithdraws",
+        "id": "practice.CheckoutTest#aBookedShipmentShowsItsTrackingNumber",
         "kind": "main",
-        "says": "Valid deposits and withdrawals change the balance."
+        "says": "a booked shipment returns its tracking number to the customer"
       },
       {
-        "id": "practice.BankAccountTest#rejectsANegativeAmount",
+        "id": "practice.CheckoutTest#noCarrierTodayAsksTheCustomerToWait",
         "kind": "main",
-        "says": "A negative amount is an InvalidAmountException naming the operation."
+        "says": "a known refusal other than a bad postcode gets the 'we'll email you' answer"
       },
       {
-        "id": "practice.BankAccountTest#insufficientFundsCarriesTheAmounts",
+        "id": "practice.CheckoutTest#aRefusalAddedInALaterReleaseAlsoGetsAnAnswer",
         "kind": "edge",
-        "says": "InsufficientFundsException carries the requested amount and the balance, each in its own getter."
+        "says": "a refusal type the shipping module adds later is answered without changing the checkout"
       },
       {
-        "id": "practice.BankAccountTest#failedOperationsLeaveTheBalanceUnchanged",
+        "id": "practice.CheckoutTest#aBugInShippingIsNotAnsweredAsARefusal",
         "kind": "edge",
-        "says": "Every check runs before the balance changes, so a failed withdrawal leaves it as it was."
+        "says": "a NullPointerException from a bug in shipping is not turned into a customer answer"
       },
       {
-        "id": "practice.BankAccountTest#zeroIsNotAValidAmount",
+        "id": "practice.CheckoutTest#aRejectedPostcodeAsksTheCustomerToCheckIt",
         "kind": "edge",
-        "says": "Zero is not a positive amount, for a deposit or a withdrawal."
-      },
-      {
-        "id": "practice.BankAccountTest#theWholeBalanceMayBeWithdrawn",
-        "kind": "edge",
-        "says": "Withdrawing exactly the balance is allowed and leaves 0."
-      },
-      {
-        "id": "practice.BankAccountTest#notANumberIsNotAValidAmount",
-        "kind": "edge",
-        "says": "NaN is not a positive amount: it is rejected instead of turning the balance into NaN."
+        "says": "the one refusal the checkout treats differently still gets its own answer"
       }
     ],
     "report": {
@@ -182,11 +139,11 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.3.md",
-      "section": "Concept Explanation"
+      "section": "Give a Module One Base Exception, So Each Caller Chooses How Finely It Catches"
     },
     "concepts": [
-      "A custom exception carries the data a handler needs in typed fields, not only in its message.",
-      "Validating before changing state leaves the object as it was when a method throws."
+      "With one base exception per module, a caller that catches a leaf it treats specially and the base for the rest handles a leaf added later without any change.",
+      "Catching Exception or RuntimeException instead of the module's base also turns a bug's NullPointerException into a business answer."
     ]
   }
 }

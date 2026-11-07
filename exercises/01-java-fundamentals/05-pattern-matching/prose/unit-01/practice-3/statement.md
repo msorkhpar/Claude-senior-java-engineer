@@ -1,10 +1,12 @@
-A class can implement several interfaces, so one object can be an instance of several
-interface types at once. Each one is tested on its own.
+The payments ledger keeps its entries in hash sets and looks them up with `contains`. A refund
+of 2.50 CHF and a 2.50 CHF card surcharge are different entries, but reconciliation keeps losing
+one of them, and only on some days: it depends on which of the two was recorded first.
 
-Write `of(Object obj)` in `Abilities`. It returns, in this order, the names of the
-interfaces among `Runnable`, `Comparable` and `CharSequence` that `obj` is an instance of:
+`Fee` extends `Amount` and adds a reason. Write both `equals` methods in
+`src/main/java/practice/Ledger.java`, so that:
 
-- `of(new Thread())` is `["Runnable"]`, and `of(42)` is `["Comparable"]`;
-- a `String` is both comparable and a character sequence: `of("hi")` is
-  `["Comparable", "CharSequence"]`;
-- `of(new Object())` and `of(null)` are `[]`.
+- two amounts are equal when their cents and currency are;
+- two fees are equal when their cents, currency and reason are;
+- an amount and a fee are never equal, whichever of the two is asked.
+
+`hashCode` is already written. About six lines in total.

@@ -1,24 +1,15 @@
-A `TreeSet` keeps its elements sorted, which makes **range queries** and
-**neighbour queries** cheap: `subSet(from, fromInclusive, to, toInclusive)`,
-`ceiling(x)` (the smallest element `>= x`) and `floor(x)` (the largest
-`<= x`). The page uses them on a set of scores.
+The API gateway keeps each request's headers in a `HashMap<HeaderName, String>`. Last night a
+client sent requests with a few thousand made-up header names, all with the same `hashCode()`,
+and every gateway node spent its CPU in `HeaderName.equals`. The debug log, which lists a
+request's header names from a `TreeSet<HeaderName>`, has never worked either: it fails with a
+`ClassCastException`.
 
-Write `Scoreboard`:
+`HeaderName` must keep its `equals` and `hashCode`: names are the same header only when they are
+spelled exactly alike, and other services rely on the hash. Finish the `TODO` in
+`src/main/java/practice/HeaderName.java` (the method and whatever the class needs for it to be
+used).
 
-- `new Scoreboard(scores)` keeps each score **once**, as a set does.
-- `between(low, high)` lists the scores from `low` to `high`, **both ends
-  included**, ascending, as a new list (`low > high` is refused with
-  `IllegalArgumentException`).
-- `atLeast(x)` is the smallest score `>= x` and `atMost(x)` the largest
-  `<= x`; **an exact match counts**, and when there is none the result is
-  `OptionalInt.empty()`.
-
-Scores: 50, 70, 85, 90, 95, 100.
-
-| call | result |
-|---|---|
-| `between(60, 92)` | `[70, 85, 90]` |
-| `between(70, 95)` | `[70, 85, 90, 95]` |
-| `atLeast(80)` / `atMost(80)` | `85` / `70` |
-| `atLeast(85)` | `85` |
-| `atLeast(101)` | empty |
+When you're done, the debug log's set works, a lookup among thousands of names that share
+one hash code costs a few dozen `equals` calls rather than thousands, and names that differ only
+in case stay two headers in the sorted log. About two lines in total. The tests count calls
+through `HeaderName.EQUALS_CALLS`.

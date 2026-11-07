@@ -18,293 +18,217 @@
       "text": "6.6.1.4. Splitting and Joining Tasks for Optimal Performance"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "The nightly revaluation prices 4 million positions on a `ForkJoinPool(8)`. Its task is the `SumTask` of unit 6.6.1 with a pricing call in the loop, and its threshold gives each worker one leaf. Then the desk added options: 5% of the positions, sorted to the end of the file, each 200 times the work of a bond. The job now takes as long as it does on one thread, the totals are right, and the CPU graph shows one busy core for most of the run."
     },
     {
       "type": "para",
-      "text": "The performance of a fork/join computation depends heavily on how tasks are **split** (decomposed into subtasks) and **joined** (results combined). Poor splitting leads to load imbalance or excessive overhead; poor joining patterns waste threads or cause unnecessary blocking."
-    },
-    {
-      "type": "para",
-      "text": "This section covers the key strategies and trade-offs:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Threshold selection**: When to stop splitting and compute sequentially.",
-        "**Balanced vs. unbalanced splits**: How the split point affects parallelism.",
-        "**Multi-way splits**: Splitting into more than two subtasks.",
-        "**Fork-compute-join ordering**: The correct pattern for maximum thread utilization.",
-        "**Work-stealing**: How ForkJoinPool automatically rebalances work."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Consider dividing a pizza. You could cut it exactly in half (balanced split), cut a tiny sliver and a huge piece (unbalanced), or cut it into 8 equal slices (multi-way). The balanced approach gives each person roughly equal work, while unbalanced splits leave one person with most of the pizza. The threshold is like deciding when a piece is small enough to eat in one bite rather than cutting further."
+      "text": "Unit 6.6.1 measured the threshold on work where every row costs the same. This unit is about work where they don't."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Uneven Work Needs Many More Leaves Than Workers"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "The **threshold** determines when to stop recursing and compute sequentially.",
-        "A threshold that is too small creates too many tasks (scheduling overhead dominates).",
-        "A threshold that is too large limits parallelism (some cores sit idle).",
-        "**Balanced splits** (50/50) generally provide the best load distribution.",
-        "**Unbalanced splits** (e.g., 10/90) create deeper recursion trees and worse load balance.",
-        "Work-stealing mitigates some imbalance, but extreme imbalance still hurts.",
-        "**Multi-way splits** (e.g., 4-way, 8-way) can improve parallelism for very large inputs.",
-        "**Join last** -- joining a forked task before computing the other half forces sequential execution.",
-        "The **fork-compute-join** pattern: fork left, compute right inline, join left.",
-        "**invokeAll()** handles symmetric fork/join for you (best for RecursiveAction)."
-      ]
+      "type": "para",
+      "text": "The cost model, and the threshold for a given number of leaves per worker (`ex/Uneven.java`):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static final int N = 4_000_000;\nstatic final int OPTIONS_FROM = N - N / 20;           // the last 5%\n\n/** Steps to price one position: 20 for a bond or share, 4,000 for an option. */\nstatic int steps(int i) { return i >= OPTIONS_FROM ? 4_000 : 20; }\n\nint threshold = N / (8 * perWorker);                  // 8 workers"
+    },
+    {
+      "type": "para",
+      "text": "Before reading on: with one leaf per worker, which worker gets the options, and what do the other seven do once their leaf is done?"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "plain loop, one thread: 937 ms (sum 509830424), total steps 876,000,000\nby count,   1 per worker     15 tasks,  912 ms  (sum 509830424)\nby count,   4 per worker     63 tasks,  567 ms  (sum 509830424)\nby count,  16 per worker    255 tasks,  224 ms  (sum 509830424)\nby count,  64 per worker  1,535 tasks,  163 ms  (sum 509830424)\nby count, 256 per worker  4,607 tasks,  160 ms  (sum 509830424)"
+    },
+    {
+      "type": "para",
+      "text": "The last leaf holds all 200,000 options: 800 million of the job's 876 million steps. Since each task forks its left half and computes its right half itself, that leaf runs on the worker that took the root. The other seven finish their bonds and go idle, and the job lasts as long as that leaf."
+    },
+    {
+      "type": "para",
+      "text": "Stealing can't fix this. A thief takes only a queued task, and a leaf that has started is a plain loop on one thread that nothing can take half of. An uneven job needs leaves small enough to spread the expensive rows over many of them. Four leaves per worker, the target the JDK's parallel streams use, put the options in two leaves: 567 ms. Sixteen spread them over seven: 224 ms. The time stops falling at 64 per worker, 163 ms; 256 per worker gave 160."
+    },
+    {
+      "type": "para",
+      "text": "Size from the pool you run in, `pool.getParallelism()`. A threshold computed from `Runtime.availableProcessors()` on a 4-core build server, then run in production's pool of 16, gives a quarter of the leaves it was meant to. How many leaves are enough depends on how narrow the expensive region is, so measure with production-shaped data; a uniform test file shows no difference at all."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "When You Know What Each Item Costs, Split by Cost"
+    },
+    {
+      "type": "para",
+      "text": "Sixty-four leaves per worker fixed the time, but every leaf is sized for the options: the 3.8 million bonds are cut into the same small pieces. When the cost of each item is known, or can be estimated, the threshold can count steps instead of rows, and the split point can halve the steps:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "@Override\nprotected Long compute() {\n    long work = prefix[to] - prefix[from];        // prefix[i] = steps of positions 0..i-1\n    if (work <= budget || to - from == 1) {\n        long s = 0;\n        for (int i = from; i < to; i++) s += price(i);\n        return s;\n    }\n    int mid = splitPoint(from, to);\n    ByWork left = new ByWork(from, mid, budget);\n    left.fork();\n    long r = new ByWork(mid, to, budget).compute();\n    return left.join() + r;\n}\n\n/** The first index after which half of the range's steps are done, kept inside (from, to). */\nstatic int splitPoint(int from, int to) {\n    long half = prefix[from] + (prefix[to] - prefix[from]) / 2;\n    int lo = from + 1, hi = to - 1;\n    while (lo < hi) {\n        int m = (lo + hi) >>> 1;\n        if (prefix[m] < half) lo = m + 1; else hi = m;\n    }\n    return lo;\n}"
+    },
+    {
+      "type": "para",
+      "text": "With `budget` set to the total steps divided by the leaves wanted:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "by work,    1 per worker     15 tasks,  175 ms  (sum 509830424)\nby work,    4 per worker    107 tasks,  142 ms  (sum 509830424)"
+    },
+    {
+      "type": "para",
+      "text": "Eight leaves of equal work (175 ms) match 1,535 tasks split by count (163 ms). The bonds end up in a few large leaves and the options in many small ones, which a threshold in rows can't do with one number."
+    },
+    {
+      "type": "para",
+      "text": "Two details guard the general case, though no position here comes near the budget. A single item can cost more than the whole budget, and a range of one item can't split, so `to - from == 1` is a leaf too. And when the last item holds more than half the range's steps, the first index that reaches half is `to` itself; `hi = to - 1` keeps the right half non-empty. Without it, the left half is the whole range again, and the task forks itself until the stack overflows."
+    },
+    {
+      "type": "para",
+      "text": "The estimate only decides where to cut, so a poor one costs balance, not correctness, and a few leaves per worker on top of it absorb the error: four per worker by work ran in 142 ms."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Split Point Sets the Depth: Halve, or Fork the Chunks From a Loop"
+    },
+    {
+      "type": "para",
+      "text": "An audit job walks a list in chunks of 1,000 items: 500,000 items in the test file, 8 million at year end. Its task forks the first chunk and handles the rest of the range the same way (`ex/Peel.java`):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "PeelChunk first = new PeelChunk(from, from + chunk, chunk, depth + 1);\nfirst.fork();\nlong rest = new PeelChunk(from + chunk, to, chunk, depth + 1).compute();\nreturn first.join() + rest;"
+    },
+    {
+      "type": "para",
+      "text": "The same items, halved instead, on a `ForkJoinPool(8)`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "halve       500,000 items, chunk  1,000: depth      9, steals     15,    6 ms\npeel        500,000 items, chunk  1,000: depth    499, steals    405,    5 ms\nhalve     8,000,000 items, chunk  1,000: depth     13, steals     46,   73 ms\npeel      8,000,000 items, chunk  1,000: java.lang.StackOverflowError"
+    },
+    {
+      "type": "para",
+      "text": "On the test file both are fast, because the other workers steal the chunks as they are forked. But `compute()` on the rest is a call on the same thread, so peeling adds a stack frame per chunk: 499 on the test file, and 7,999 needed on the year-end file, more than a worker's stack holds. Halving adds a level each time the range halves, 13 levels for 8 million items. Each steal of a half also carries half of what is left, so the thieves split it further on their own threads, and 46 steals were enough instead of one per chunk."
+    },
+    {
+      "type": "para",
+      "text": "An uneven ratio deepens the tree far less than peeling. The module's `SplittingAndJoining` also has a 10/90 split, cut at `start + length / 10`. Over 8 million items at a threshold of 1,000 it went 86 levels deep and made 48,531 tasks, against 13 and 16,383 for 50/50, and ran in 47 ms against 53 (`ex/Ratio.java`). On even work it costs tasks, and the time doesn't show it."
+    },
+    {
+      "type": "para",
+      "text": "When the chunks are known in advance, as in a list of files, fork them from a loop instead of recursing. `ForkJoinTask.invokeAll(chunks)` forks every chunk but the first, runs that one on the calling thread, then joins the rest, newest first. The stack stays one level deep whatever the count. Every chunk then sits on one worker's queue and costs a steal of its own, which is cheap while the chunks are few:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "long s = 0;\nfor (Chunk c : ForkJoinTask.invokeAll(chunks)) s += c.join();\nreturn s;"
+    },
+    {
+      "type": "para",
+      "text": "Over 8 million items, `invokeAll` with 8 to 80,000 chunks ran in 55 to 77 ms (`ex/JoinOrder.java`)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Structured Concurrency (preview)**: `StructuredTaskScope.ShutdownOnFailure` provides automatic cancellation of sibling tasks when one fails -- something Fork/Join does not do natively.",
-        "**Virtual threads**: For mixed CPU/IO workloads, consider decomposing the CPU part with Fork/Join and the IO part with virtual threads.",
-        "**Stream Spliterators**: `Spliterator.trySplit()` in parallel streams uses similar threshold and splitting logic. Understanding Fork/Join splitting helps you write better custom Spliterators."
+        "**Uneven work needs many more leaves than workers.** A started leaf can't be stolen, so the leaf that holds the expensive rows sets the job's time; four per worker wasn't enough when 5% of the rows held 91% of the work.",
+        "**When you know what each item costs, split by cost.** A threshold in steps and a split point at half the steps balance with few tasks; a single item is always a leaf, and the split point stays inside the range.",
+        "**The split point sets the depth.** Peeling a chunk at a time costs a stack frame per chunk and overflows on large inputs; halve, or fork known chunks from a loop."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "Reference"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Fact",
+        "Source"
+      ],
+      "rows": [
+        [
+          "A thief takes only a queued task; a running leaf finishes on its thread",
+          "`ex/Uneven.java`: one leaf per worker took as long as one thread"
+        ],
+        [
+          "Parallel streams aim at 4 leaves per worker of the common pool",
+          "JDK 21 source, `java.util.stream.AbstractTask.LEAF_TARGET`"
+        ],
+        [
+          "A task should do \"more than 100 and less than 10000 basic computational steps\" (basic operations, smaller than this page's pricing steps)",
+          "`ForkJoinTask` javadoc"
+        ],
+        [
+          "Joins \"should be performed innermost-first\": `a.fork(); b.fork(); b.join(); a.join();`",
+          "`ForkJoinTask` javadoc; `ex/JoinOrder.java` measured no consistent difference"
+        ],
+        [
+          "`invokeAll(list)` forks all but the first, runs the first, then joins the rest",
+          "JDK 21 source of `ForkJoinTask`"
+        ],
+        [
+          "`getSurplusQueuedTaskCount()` estimates how many more tasks this worker has queued than other workers might steal; the javadoc suggests keeping a surplus of about 3 and computing locally above it",
+          "`ForkJoinTask` javadoc"
+        ],
+        [
+          "`pool.getStealCount()` is an estimate that undercounts while the pool is busy, and it varies from run to run",
+          "`ForkJoinPool` javadoc; three runs of `ex/Peel.java` gave 46, 53 and 53 steals for the same halving"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        [
-          "**Threshold = 1 (splitting down to individual elements)**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: each element becomes a separate task\nif (end - start <= 1) {\n    return array[start];\n}"
-          },
-          "With N = 1,000,000 this creates ~2 million tasks. The overhead of creating, scheduling, and joining each task vastly exceeds the cost of a single addition. **Fix**: Use a threshold of at least several hundred:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "private static final int THRESHOLD = 1000;\nif (end - start <= THRESHOLD) {\n    long sum = 0;\n    for (int i = start; i < end; i++) sum += array[i];\n    return sum;\n}"
-          }
-        ],
-        [
-          "**Joining too early**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: sequential execution disguised as fork/join\nleft.fork();\nlong leftResult = left.join(); // blocks immediately!\nlong rightResult = right.compute();"
-          },
-          "**Fix**: Fork first, compute the other subtask, then join:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "left.fork();\nlong rightResult = right.compute(); // do useful work while left runs\nlong leftResult = left.join();"
-          }
-        ],
-        [
-          "**Unbalanced splits without justification**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: 10/90 split creates deep, unbalanced recursion\nint splitPoint = start + length / 10;"
-          },
-          "**Fix**: Split at the midpoint unless you have data-specific reasons not to:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "int mid = start + length / 2;"
-          }
-        ],
-        [
-          "**Creating too many subtasks in multi-way split**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: creating 1000 subtasks for a 1000-element array\nfor (int i = 0; i < array.length; i++) {\n    tasks.add(new Task(array, i, i + 1));\n}"
-          },
-          "**Fix**: Limit the number of ways to the parallelism level or a small multiple of it."
-        ],
-        "**Not considering the cost of the combine step**: For merge sort, the merge step is O(n) per level. If splits create too many levels, the total merge overhead can dominate."
+        "Your positions are not sorted by type, and the options are spread through the file. Run `Uneven` with the options scattered: how many leaves per worker do you need now, and why?",
+        "The pricing cost of an option depends on its maturity, and you only have an estimate. How wrong can the estimate be before split-by-cost is worse than sixteen leaves per worker by count?",
+        "Replace the fixed threshold with `getSurplusQueuedTaskCount() > 3` as the leaf test, and compare its task counts and times with yours on the uneven data."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Threshold heuristic**: `N / (parallelism * 4)` with a minimum of 100-1000. This creates enough tasks for good load balancing without excessive overhead.",
-        [
-          "**Profile to find the optimal threshold**: The ideal threshold depends on:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "The cost of processing each element",
-              "The cost of task creation and scheduling",
-              "The number of available cores"
-            ]
-          }
-        ],
-        "**Use balanced (50/50) splits** for homogeneous workloads where each element takes roughly the same time.",
-        "**Consider unbalanced splits** only for heterogeneous workloads where certain ranges are known to be cheaper.",
-        [
-          "**Multi-way splits** can be useful when:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "The input is very large and binary splits create too many recursion levels",
-              "You want to match the number of subtasks to the available parallelism"
-            ]
-          }
-        ],
-        "**Avoid excessive forking**: Fork only when there is enough work to justify the overhead. A simple `if` check on the problem size suffices.",
-        "**Measure work-stealing**: `pool.getStealCount()` indicates how much rebalancing occurred. High steal counts suggest good utilization; zero steals suggest the work was already balanced or too small."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Array size < threshold**: The entire computation runs sequentially (no forking). This is correct and efficient.",
-        "**Array size = 0**: Return immediately without creating any tasks.",
-        "**Threshold > array size**: Same as above -- no splitting occurs.",
-        "**Threshold = array size**: One task does all the work sequentially.",
-        "**Odd-sized arrays**: The midpoint calculation `start + length / 2` handles this naturally (one half gets the extra element).",
-        "**Multi-way split with more ways than elements**: Reduce the number of ways to the number of elements.",
-        "**Single-core machine**: Fork/Join still works but offers no parallelism benefit. The framework gracefully degrades to sequential execution."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Interviewers love asking about threshold selection -- know the heuristics and trade-offs.",
-        "Be able to draw the recursion tree for a given array size and threshold on a whiteboard.",
-        "Explain work-stealing with per-thread deques and LIFO/FIFO semantics.",
-        "Know why fork-compute-join is better than fork-fork-join-join.",
-        "Be ready to discuss how unbalanced splits affect performance and when they might be acceptable.",
-        "Understand the relationship between Fork/Join splits and Spliterator.trySplit() in streams."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
+      "text": "Design Note: Why the Pool Can't Split a Leaf for You"
     },
     {
       "type": "para",
-      "text": "**Q1: How do you choose the right threshold for a fork/join task?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The threshold determines when to stop splitting and compute sequentially.\nChoosing it involves balancing two costs:\n\n1. Too small a threshold: excessive task creation overhead. Each fork()\n   creates a ForkJoinTask object, pushes it to a deque, and may trigger\n   work-stealing. For millions of tiny tasks, this overhead dominates.\n\n2. Too large a threshold: insufficient parallelism. If the threshold is\n   close to N, few tasks are created and most cores sit idle.\n\nHeuristics:\n- Start with N / (parallelism * 4), where parallelism is the pool size\n- Minimum 100-1000 elements (depends on the cost per element)\n- For cheap operations (addition): higher threshold (~10,000)\n- For expensive operations (complex math, string processing): lower (~100)\n\nBest practice: Profile with different thresholds using JMH or similar\nbenchmarking tools. The optimal value depends on the specific hardware,\nJVM, and operation cost.\n\nRule of thumb for interviews: \"between 1,000 and 10,000 for typical\narray operations, adjusted based on profiling.\""
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Threshold that adapts to available parallelism\nint parallelism = ForkJoinPool.commonPool().getParallelism();\nint threshold = Math.max(1000, array.length / (parallelism * 4));\n\n// Using the threshold in a task\nif (end - start <= threshold) {\n    // sequential computation\n    long sum = 0;\n    for (int i = start; i < end; i++) sum += array[i];\n    return sum;\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What is work-stealing and how does it help with load balancing?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Work-stealing is the algorithm ForkJoinPool uses to balance work\nacross threads without explicit coordination.\n\nHow it works:\n1. Each worker thread has its own deque (double-ended queue)\n2. When a thread forks a subtask, it pushes it onto ITS OWN deque (LIFO)\n3. When a thread needs work, it pops from its own deque (LIFO - top)\n4. When a thread's deque is empty, it steals from ANOTHER thread's deque (FIFO - bottom)\n\nWhy LIFO for own work and FIFO for stealing:\n- The owning thread pops recently forked tasks (smaller, at the top) -- good for\n  cache locality and working on the most recently created subtask\n- The stealing thread takes tasks from the bottom (older, larger) -- these are\n  closer to the root of the recursion tree and represent more work, reducing\n  the number of steals needed\n\nLoad balancing benefits:\n- No explicit load distribution needed\n- Naturally handles uneven workloads\n- Idle threads automatically find work\n- Minimal contention (each thread usually works on its own deque)\n\nLimitations:\n- Work-stealing has overhead (lock-free deque operations)\n- Very small tasks may be stolen before the owning thread processes them\n- Blocking in tasks reduces the effectiveness of stealing"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Observing work-stealing in action\nForkJoinPool pool = new ForkJoinPool(4);\ntry {\n    pool.invoke(new LargeTask(array));\n    System.out.println(\"Steal count: \" + pool.getStealCount());\n    System.out.println(\"Pool size: \" + pool.getPoolSize());\n} finally {\n    pool.shutdown();\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: Why is balanced splitting generally better than unbalanced splitting?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Balanced splitting (50/50) distributes work evenly across the recursion\ntree, while unbalanced splitting (e.g., 10/90) creates asymmetry.\n\nBalanced (50/50) advantages:\n- Each subtask at the same level has approximately equal work\n- The recursion tree has depth log2(N/T), creating O(N/T) leaf tasks\n- All threads finish at roughly the same time\n- Work-stealing has less to compensate for\n\nUnbalanced (10/90) problems:\n- The recursion tree is deeper on one side (log10(N/T) vs log1.11(N/T))\n- More total tasks are created (deeper tree = more internal nodes)\n- One thread may process a chain of large tasks while others are idle\n- Work-stealing must work harder to rebalance\n\nWhen unbalanced splits ARE appropriate:\n- When certain data ranges are known to be cheaper to process\n- When the split point corresponds to a natural boundary (e.g., sorted data)\n- When the cost per element varies and you can estimate it\n\nIn general, default to balanced splitting unless you have specific knowledge\nabout the workload distribution."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Balanced split\nint mid = start + (end - start) / 2;\n\n// Unbalanced split (only when justified by data characteristics)\nint splitPoint = start + (end - start) / 10;\n\n// Both produce the same result, but balanced is generally more efficient\n// for homogeneous workloads"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: What is the correct fork/join pattern and why?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: The correct pattern for RecursiveTask is: fork-compute-join.\n\n  left.fork();                        // 1. Fork left to another thread\n  long rightResult = right.compute(); // 2. Compute right in THIS thread\n  long leftResult = left.join();      // 3. Join left (wait for it)\n  return leftResult + rightResult;    // 4. Combine results\n\nWhy this is optimal:\n- Step 2 keeps the current thread busy doing useful work\n- While the current thread computes right, a stolen thread processes left\n- join() in step 3 may return immediately if left is already done\n\nAnti-pattern 1: fork-fork-join-join\n  left.fork();\n  right.fork();\n  return left.join() + right.join();  // current thread just waits in join()\n\n  The current thread no longer does the work directly: it forks two tasks and\n  then gets work back only through join() (a pool worker usually runs a queued\n  task itself while joining, so no extra thread is needed, but every split pays\n  for an extra push/pop through the deque).\n\nAnti-pattern 2: join-before-fork-completes\n  left.fork();\n  long leftResult = left.join();  // blocks immediately!\n  long rightResult = right.compute();\n\n  This forces sequential execution. The current thread waits for left\n  to complete before starting right.\n\nFor RecursiveAction, invokeAll() is preferred because there is no result\nto compute inline."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// CORRECT pattern for RecursiveTask\n@Override\nprotected Long compute() {\n    if (length <= THRESHOLD) return sequentialSum();\n\n    SumTask left = new SumTask(array, start, mid);\n    SumTask right = new SumTask(array, mid, end);\n\n    left.fork();                          // fork left\n    long rightResult = right.compute();   // compute right HERE\n    long leftResult = left.join();        // join left\n    return leftResult + rightResult;      // combine\n}\n\n// CORRECT pattern for RecursiveAction\n@Override\nprotected void compute() {\n    if (length <= THRESHOLD) { doWork(); return; }\n    invokeAll(                            // fork and join both\n        new MyAction(array, start, mid),\n        new MyAction(array, mid, end)\n    );\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: When should you use multi-way splitting (more than 2 subtasks)?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Multi-way splitting creates N subtasks at once instead of the standard 2.\n\nWhen to use multi-way splitting:\n1. Very large inputs where binary splits create too many recursion levels\n   (e.g., array of 1 billion elements with threshold 1000 = 20 levels deep)\n2. When you want to match the number of leaf tasks to the available cores\n3. When the split cost is high and you want to minimize the number of splits\n\nImplementation considerations:\n- Fork all tasks except the last one\n- Compute the last task in the current thread\n- Join all forked tasks in reverse order\n- The number of ways should be 2-4x the parallelism level\n\nExample: For a 4-core machine, splitting into 4-8 chunks at the top level\ncreates enough parallelism immediately without deep recursion.\n\nMulti-way splitting is rarely needed in practice because:\n- Binary splitting with work-stealing handles most cases well\n- The overhead of creating more tasks at each level can offset benefits\n- The recursion depth for binary splitting is only log2(N/T), which is\n  manageable even for very large inputs"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Multi-way split into N subtasks\n@Override\nprotected Long compute() {\n    int length = end - start;\n    if (length <= THRESHOLD || ways <= 1) {\n        return sequentialSum();\n    }\n\n    int chunkSize = length / ways;\n    List<SumTask> tasks = new ArrayList<>();\n    for (int i = 0; i < ways; i++) {\n        int chunkEnd = (i == ways - 1) ? end : start + (i + 1) * chunkSize;\n        tasks.add(new SumTask(array, start + i * chunkSize, chunkEnd));\n    }\n\n    // Fork all but the last\n    for (int i = 0; i < tasks.size() - 1; i++) {\n        tasks.get(i).fork();\n    }\n    // Compute the last in current thread\n    long total = tasks.get(tasks.size() - 1).compute();\n    // Join all forked tasks\n    for (int i = tasks.size() - 2; i >= 0; i--) {\n        total += tasks.get(i).join();\n    }\n    return total;\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How do you verify that your fork/join implementation benefits from parallelism?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Verification requires both correctness testing and performance measurement:\n\nCorrectness:\n1. Compare parallel results with sequential results for the same input\n2. Test with various array sizes (below, at, and above threshold)\n3. Test with edge cases (null, empty, single element, all identical)\n4. Run multiple times to detect race conditions\n\nPerformance:\n1. Use JMH (Java Microbenchmark Harness) for reliable measurements\n2. Compare sequential vs. parallel execution times\n3. Vary the array size to find the crossover point (where parallel wins)\n4. Test with different parallelism levels\n5. Monitor pool statistics (steal count, active threads)\n\nKey metrics:\n- Speedup = sequential time / parallel time\n- Ideal speedup = number of cores\n- Actual speedup is always less due to overhead (Amdahl's law)\n- If speedup < 1, the overhead exceeds the benefit -- increase threshold\n\nCommon gotchas:\n- JIT warmup affects measurements (use JMH with warmup iterations)\n- Small arrays may show parallel being SLOWER than sequential\n- GC pauses can skew results"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Simple performance comparison (use JMH for production benchmarks)\nlong[] array = LongStream.rangeClosed(1, 10_000_000).toArray();\n\n// Sequential\nlong startTime = System.nanoTime();\nlong seqSum = Arrays.stream(array).sum();\nlong seqTime = System.nanoTime() - startTime;\n\n// Parallel with Fork/Join\nstartTime = System.nanoTime();\nlong parSum = ForkJoinPool.commonPool().invoke(\n    new ArraySumTask(array, 0, array.length));\nlong parTime = System.nanoTime() - startTime;\n\nSystem.out.printf(\"Sequential: %d ns, Parallel: %d ns%n\", seqTime, parTime);\nSystem.out.printf(\"Speedup: %.2fx%n\", (double) seqTime / parTime);\nassert seqSum == parSum; // correctness check"
+      "text": "A `ForkJoinPool` balances by moving tasks, and a task is opaque: once `compute()` is running, the pool sees a thread and a stack, not a loop with a range it could cut. Splitting a running leaf would need every task to report its progress and accept a new end while it runs. Fork/join keeps the contract small, a `compute()` that returns, and leaves the decision of how small a piece must be to the code that knows what its items cost. That code has to decide before the work starts, from an estimate, and no test fails when it decides wrong."
     },
     {
       "type": "heading",
@@ -324,17 +248,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 10,
-    "paras": 9,
-    "code": 12,
-    "tables": 0,
-    "lists": 8,
+    "headings": 9,
+    "paras": 19,
+    "code": 7,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "026c5225d3ea987ee1dfaf3affeb44ae40e055e8bfaf8df17b8a9090cec20c41"
+  "content_sha256": "eb317c2e85ce770454a8db598858683a3f7a5e62d1ceb2f6df3129c2e7017d3d"
 }

@@ -1,15 +1,21 @@
-Java 21 made virtual threads stable. The page's advice is to put **I/O-bound**
-work (network calls, database queries, file I/O) on cheap virtual threads, which
-the JVM multiplexes onto a few carrier threads, and to keep **CPU-bound** work
-on platform threads, which map one-to-one to OS threads. The `Thread.Builder`
-API (`Thread.ofVirtual()`, `Thread.ofPlatform()`) creates either kind. Virtual
-threads are unnamed by default, so name them yourself.
+Purchasing compares prices before every order: `QuoteBoard.cheapest(...)` asks each supplier's
+API for a quote and picks the lowest. Each API can take a few seconds, so the suppliers are asked
+at the same time, each on a thread of its own. A supplier that doesn't stock the item answers
+`null` and is left out.
 
-Write `Launcher.start(Work work, String name, Runnable task)`. It starts a
-thread named `name` that runs `task`, and returns it: a virtual thread for
-`Work.IO_BOUND`, a platform thread for `Work.CPU_BOUND`.
+Last quarter a buyer ordered 600 brackets at the "cheapest" price, and it turned out that the
+supplier with the lowest price had been failing for a week: its answers never reached the
+comparison, and nothing in the logs said why.
 
-| call | returned thread |
-|---|---|
-| `start(Work.IO_BOUND, "handler-1", task)` | virtual, named `handler-1`, runs `task` |
-| `start(Work.CPU_BOUND, "cruncher-1", task)` | platform, named `cruncher-1`, runs `task` |
+`cheapest(...)` already compares the offers. Finish the two `TODO`s in
+`src/main/java/practice/QuoteBoard.java`:
+
+- `ask(...)`: start asking one supplier and return at once with something to collect the
+  answer from later;
+- `answer(...)`: collect it.
+
+When you're done, the check still asks every supplier at the same time, each on a thread named
+`quote-<supplier>`, and a supplier that fails makes the whole check fail with `QuoteFailed`,
+whose cause is exactly what that supplier threw. About eight lines in total.
+
+The tests use suppliers that answer at once, fail, or wait for one another.

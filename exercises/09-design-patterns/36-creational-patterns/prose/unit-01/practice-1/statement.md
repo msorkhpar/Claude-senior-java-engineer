@@ -1,20 +1,17 @@
-A lazy Singleton creates its object on first use. The page's warning is that
-two threads calling `getInstance()` for the first time at once can each see
-"not created yet" and each build one. **Double-checked locking** fixes it:
-check without the lock, then take the lock and **check again** before
-creating, with **the field holding the value declared `volatile`** (a field
-of type `T`), so no thread sees a half-built object.
+The product is sold for 25 concurrent seats, and `SeatLicense` counts them: one instance per
+process, reached through `getInstance()`. A seat audit found customers using more seats than they
+paid for, and two `SeatLicense` objects in one process on two occasions. The first appeared at
+start-up, when the plugin framework instantiated every class of the package through its private
+constructor before anything had called `getInstance()`. The second appeared after the session
+store wrote a user's session out and read it back.
 
-Write `Lazy<T>`, the same idea for any value:
+Finish the two `TODO`s in `src/main/java/practice/SeatLicense.java`:
 
-- `Lazy.of(supplier)` returns a holder and **creates nothing yet**.
-- `get()` calls the supplier on the first call and returns that object from
-  every call after it.
-- Even when threads race on the first `get()`, **the supplier runs once** and
-  every thread gets the same object.
+- `checkConstruction()`, which the constructor runs every time, whoever calls it;
+- `readResolve()`, for a license that is read back from a session.
 
-| calls | supplier runs | result |
-|---|---|---|
-| `Lazy.of(s)` | 0 | a holder |
-| `get()`, `get()` | 1 | the same object twice |
-| thread A and thread B call `get()` together | 1 | the same object in both |
+When you're done, neither the framework nor the session store can produce a second license, and a
+session read back counts against the live license, with the seats that are claimed now. About four lines in total.
+
+The tests load the class afresh for each test, so each one starts in a process where nothing has
+used the license yet.

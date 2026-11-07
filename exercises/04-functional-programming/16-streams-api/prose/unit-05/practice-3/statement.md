@@ -1,17 +1,14 @@
-A parallel stream processes its chunks on several threads at once, so any step that hands elements to the outside
-world, or picks one of them, must say whether encounter order matters. `forEach` and `findAny` do not keep it;
-`forEachOrdered` and `findFirst` do, at the cost of some coordination between the threads.
+The bank's monthly statements are built from the ledger, which hands its lines over as a stream in
+posting order. For the large business accounts the month has millions of lines, so the stream is
+parallel. A customer reads a statement from top to bottom and checks it against their own books,
+and the statement starts with the account's opening line: its first posting of the month.
 
-Write two static methods in `OrderedOutput`. Each receives a stream that may be sequential or parallel:
+Finish the two methods in `src/main/java/practice/Ledger.java`:
 
-1. `void emitInOrder(Stream<String> lines, Consumer<String> sink)`: hands every line to `sink`, in encounter order.
-2. `Optional<Integer> firstAbove(Stream<Integer> numbers, int threshold)`: the first number, in encounter order,
-   that is greater than `threshold`.
+- `statements(...)`: each account's lines, in the order they were posted;
+- `openingLines(...)`: each account's first posted line.
 
-| call | answer |
-|---|---|
-| `emitInOrder(Stream.of("a", "b", "c"), sink)` | `sink` receives `"a"`, `"b"`, `"c"` |
-| `firstAbove(Stream.of(5, 3, 8, 1, 9, 2, 7, 4, 6), 5)` | `Optional[8]` |
-| `firstAbove(Stream.of(1, 2), 5)` | `Optional.empty` |
+Both must give the same answer for a sequential and for a parallel stream. About two lines in
+total.
 
-The tests also hand both methods large parallel streams, where many numbers are above the threshold.
+The tests hand the methods parallel streams in which some threads get to later lines first.

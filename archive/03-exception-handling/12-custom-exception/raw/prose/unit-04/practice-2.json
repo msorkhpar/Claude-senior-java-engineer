@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Choose checked for the recoverable failure and unchecked for the bug",
+  "title": "Count errors in logs that aren't all UTF-8",
   "blocks": [
     {
       "type": "heading",
@@ -19,49 +19,19 @@
     },
     {
       "type": "para",
-      "text": "Whether an exception is checked should follow from whether the client can reasonably be expected to recover from it. `Gateway` has two failures; give each exception the right superclass (`Exception` or `RuntimeException`) and write the method."
+      "text": "Every night the operations team counts the error lines in each host's log. Most hosts write UTF-8; the old warehouse hosts write ISO-8859-1, and `countAnyCharset` already reads a log again in that charset when it isn't valid UTF-8. Logs live on a network mount, so now and then a read fails, and `scan` already skips such a log and reports why. Last night the whole batch stopped at the first warehouse log, and the logs after it were never counted."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`RateLimitedException(String message, int retryAfterSeconds)` with `getRetryAfterSeconds()`: the caller sent too much and may simply try again later.",
-        "`BadRequestIdException(String message)`: the caller passed no request id, which is a programming error.",
-        [
-          "`String send(String requestId, int callsThisMinute)`:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "a `null` or blank id (blank as `String.isBlank()` means it: empty or only Unicode whitespace) throws `BadRequestIdException(\"Request id is required\")`;",
-              "more than `10` calls this minute throws `RateLimitedException(\"Rate limit exceeded\", 60)`;",
-              "otherwise returns `\"sent \" + requestId`."
-            ]
-          },
-          "When both failures apply, which one is reported is up to you."
-        ]
-      ]
+      "type": "para",
+      "text": "Finish `count(log, charset)` in `src/main/java/practice/ErrorCounter.java`. It reads the log with `BufferedReader.lines()` and counts the lines the team's `Rule` calls errors."
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`send(\"r1\", 1)`",
-          "`\"sent r1\"`"
-        ],
-        [
-          "`send(\"r1\", 11)`",
-          "throws `RateLimitedException`, retry after `60`"
-        ],
-        [
-          "`send(\"\", 1)`",
-          "throws `BadRequestIdException(\"Request id is required\")`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a warehouse log is counted in its own charset, a log that can't be read is reported as skipped while the rest of the batch is counted, and a broken `Rule`, which is a bug for its team to fix, still stops the batch. About six lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests hand the counter logs that live in memory; they decode, and fail, the way `Files.newBufferedReader` does."
     },
     {
       "type": "heading",
@@ -76,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\n/** The caller exceeded the rate limit; it may retry after the given delay. */\nclass RateLimitedException extends Exception {\n\n    private final int retryAfterSeconds;\n\n    RateLimitedException(String message, int retryAfterSeconds) {\n        super(message);\n        this.retryAfterSeconds = retryAfterSeconds;\n    }\n\n    int getRetryAfterSeconds() {\n        return retryAfterSeconds;\n    }\n}\n\n/** The caller passed no request id. */\nclass BadRequestIdException extends RuntimeException {\n\n    BadRequestIdException(String message) {\n        super(message);\n    }\n}\n\npublic class Gateway {\n\n    /** \"sent \" + requestId, or one of the two failures described in the statement. */\n    public String send(String requestId, int callsThisMinute) throws RateLimitedException {\n        if (requestId == null || requestId.isBlank()) {\n            throw new BadRequestIdException(\"Request id is required\");\n        }\n        if (callsThisMinute > 10) {\n            throw new RateLimitedException(\"Rate limit exceeded\", 60);\n        }\n        return \"sent \" + requestId;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.BufferedReader;\nimport java.io.IOException;\nimport java.io.UncheckedIOException;\nimport java.nio.charset.CharacterCodingException;\nimport java.nio.charset.Charset;\nimport java.nio.charset.StandardCharsets;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/**\n * Counts the error lines in each log of a nightly batch. Most hosts write UTF-8; the old\n * warehouse hosts write ISO-8859-1, so a log that isn't valid UTF-8 is read again in that\n * charset. A log that can't be read at all is skipped and reported, and the batch goes on.\n */\npublic final class ErrorCounter {\n\n    /** Opens one log. In production: {@code cs -> Files.newBufferedReader(path, cs)}. */\n    public interface Log {\n        BufferedReader open(Charset charset) throws IOException;\n    }\n\n    /** Decides whether a line is an error. Rules are written by the teams that own the hosts. */\n    public interface Rule {\n        boolean isError(String line);\n    }\n\n    /** Error counts per log, and the reason each skipped log could not be read. */\n    public record Report(Map<String, Long> errors, Map<String, IOException> skipped) {\n    }\n\n    private final Rule rule;\n\n    public ErrorCounter(Rule rule) {\n        this.rule = rule;\n    }\n\n    /** Scans the logs in the map's order. */\n    public Report scan(Map<String, Log> logs) {\n        Map<String, Long> errors = new LinkedHashMap<>();\n        Map<String, IOException> skipped = new LinkedHashMap<>();\n        for (Map.Entry<String, Log> log : logs.entrySet()) {\n            try {\n                errors.put(log.getKey(), countAnyCharset(log.getValue()));\n            } catch (IOException e) {\n                skipped.put(log.getKey(), e);\n            }\n        }\n        return new Report(errors, skipped);\n    }\n\n    long countAnyCharset(Log log) throws IOException {\n        try {\n            return count(log, StandardCharsets.UTF_8);\n        } catch (CharacterCodingException notUtf8) {\n            return count(log, StandardCharsets.ISO_8859_1);\n        }\n    }\n\n    /** The number of lines in the log that the rule calls errors, reading it in the given charset. */\n    long count(Log log, Charset charset) throws IOException {\n        try (BufferedReader reader = log.open(charset)) {\n            return reader.lines().filter(rule::isError).count();\n        } catch (UncheckedIOException e) {\n            throw e.getCause();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -88,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\n/** The caller exceeded the rate limit; it may retry after the given delay. Choose its superclass. */\nclass RateLimitedException extends Exception {\n\n    RateLimitedException(String message, int retryAfterSeconds) {\n        throw new UnsupportedOperationException(\"write RateLimitedException(String, int)\");\n    }\n\n    int getRetryAfterSeconds() {\n        throw new UnsupportedOperationException(\"write getRetryAfterSeconds\");\n    }\n}\n\n/** The caller passed no request id. Choose its superclass. */\nclass BadRequestIdException extends Exception {\n\n    BadRequestIdException(String message) {\n        throw new UnsupportedOperationException(\"write BadRequestIdException(String)\");\n    }\n}\n\npublic class Gateway {\n\n    /** \"sent \" + requestId, or one of the two failures described in the statement. */\n    public String send(String requestId, int callsThisMinute) {\n        throw new UnsupportedOperationException(\"write send\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.BufferedReader;\nimport java.io.IOException;\nimport java.nio.charset.CharacterCodingException;\nimport java.nio.charset.Charset;\nimport java.nio.charset.StandardCharsets;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/**\n * Counts the error lines in each log of a nightly batch. Most hosts write UTF-8; the old\n * warehouse hosts write ISO-8859-1, so a log that isn't valid UTF-8 is read again in that\n * charset. A log that can't be read at all is skipped and reported, and the batch goes on.\n */\npublic final class ErrorCounter {\n\n    /** Opens one log. In production: {@code cs -> Files.newBufferedReader(path, cs)}. */\n    public interface Log {\n        BufferedReader open(Charset charset) throws IOException;\n    }\n\n    /** Decides whether a line is an error. Rules are written by the teams that own the hosts. */\n    public interface Rule {\n        boolean isError(String line);\n    }\n\n    /** Error counts per log, and the reason each skipped log could not be read. */\n    public record Report(Map<String, Long> errors, Map<String, IOException> skipped) {\n    }\n\n    private final Rule rule;\n\n    public ErrorCounter(Rule rule) {\n        this.rule = rule;\n    }\n\n    /** Scans the logs in the map's order. */\n    public Report scan(Map<String, Log> logs) {\n        Map<String, Long> errors = new LinkedHashMap<>();\n        Map<String, IOException> skipped = new LinkedHashMap<>();\n        for (Map.Entry<String, Log> log : logs.entrySet()) {\n            try {\n                errors.put(log.getKey(), countAnyCharset(log.getValue()));\n            } catch (IOException e) {\n                skipped.put(log.getKey(), e);\n            }\n        }\n        return new Report(errors, skipped);\n    }\n\n    long countAnyCharset(Log log) throws IOException {\n        try {\n            return count(log, StandardCharsets.UTF_8);\n        } catch (CharacterCodingException notUtf8) {\n            return count(log, StandardCharsets.ISO_8859_1);\n        }\n    }\n\n    /** The number of lines in the log that the rule calls errors, reading it in the given charset. */\n    long count(Log log, Charset charset) throws IOException {\n        // TODO: Open the log in the given charset and count the lines the rule calls errors,\n        //       using reader.lines(). A log this method can't read must reach the caller as the\n        //       IOException the reader ran into, so that countAnyCharset and scan can act on it.\n        throw new IllegalStateException(\"TODO: count\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -96,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 1,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -107,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c36c8a77ff4b72e02c81b6c52dbd5f299ec813565c31c3bbf8fdb22a88834169",
-  "starting_code": "package practice;\n\n/** The caller exceeded the rate limit; it may retry after the given delay. Choose its superclass. */\nclass RateLimitedException extends Exception {\n\n    RateLimitedException(String message, int retryAfterSeconds) {\n        throw new UnsupportedOperationException(\"write RateLimitedException(String, int)\");\n    }\n\n    int getRetryAfterSeconds() {\n        throw new UnsupportedOperationException(\"write getRetryAfterSeconds\");\n    }\n}\n\n/** The caller passed no request id. Choose its superclass. */\nclass BadRequestIdException extends Exception {\n\n    BadRequestIdException(String message) {\n        throw new UnsupportedOperationException(\"write BadRequestIdException(String)\");\n    }\n}\n\npublic class Gateway {\n\n    /** \"sent \" + requestId, or one of the two failures described in the statement. */\n    public String send(String requestId, int callsThisMinute) {\n        throw new UnsupportedOperationException(\"write send\");\n    }\n}\n",
+  "content_sha256": "87c8a83ab1de0b75386b3e6dd61b99739e5d563eadc0f5c0c0087ad2acd56bbd",
+  "starting_code": "package practice;\n\nimport java.io.BufferedReader;\nimport java.io.IOException;\nimport java.nio.charset.CharacterCodingException;\nimport java.nio.charset.Charset;\nimport java.nio.charset.StandardCharsets;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/**\n * Counts the error lines in each log of a nightly batch. Most hosts write UTF-8; the old\n * warehouse hosts write ISO-8859-1, so a log that isn't valid UTF-8 is read again in that\n * charset. A log that can't be read at all is skipped and reported, and the batch goes on.\n */\npublic final class ErrorCounter {\n\n    /** Opens one log. In production: {@code cs -> Files.newBufferedReader(path, cs)}. */\n    public interface Log {\n        BufferedReader open(Charset charset) throws IOException;\n    }\n\n    /** Decides whether a line is an error. Rules are written by the teams that own the hosts. */\n    public interface Rule {\n        boolean isError(String line);\n    }\n\n    /** Error counts per log, and the reason each skipped log could not be read. */\n    public record Report(Map<String, Long> errors, Map<String, IOException> skipped) {\n    }\n\n    private final Rule rule;\n\n    public ErrorCounter(Rule rule) {\n        this.rule = rule;\n    }\n\n    /** Scans the logs in the map's order. */\n    public Report scan(Map<String, Log> logs) {\n        Map<String, Long> errors = new LinkedHashMap<>();\n        Map<String, IOException> skipped = new LinkedHashMap<>();\n        for (Map.Entry<String, Log> log : logs.entrySet()) {\n            try {\n                errors.put(log.getKey(), countAnyCharset(log.getValue()));\n            } catch (IOException e) {\n                skipped.put(log.getKey(), e);\n            }\n        }\n        return new Report(errors, skipped);\n    }\n\n    long countAnyCharset(Log log) throws IOException {\n        try {\n            return count(log, StandardCharsets.UTF_8);\n        } catch (CharacterCodingException notUtf8) {\n            return count(log, StandardCharsets.ISO_8859_1);\n        }\n    }\n\n    /** The number of lines in the log that the rule calls errors, reading it in the given charset. */\n    long count(Log log, Charset charset) throws IOException {\n        // TODO: Open the log in the given charset and count the lines the rule calls errors,\n        //       using reader.lines(). A log this method can't read must reach the caller as the\n        //       IOException the reader ran into, so that countAnyCharset and scan can act on it.\n        throw new IllegalStateException(\"TODO: count\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-04/practice-2/src/main/java/practice/Gateway.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-04/practice-2/src/test/java/practice/GatewayTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-04/practice-2/src/main/java/practice/ErrorCounter.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-04/practice-2/src/test/java/practice/ErrorCounterTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -132,29 +102,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.GatewayTest#sendsAndRejects",
+        "id": "practice.ErrorCounterTest#countsTheErrorLinesOfEachLog",
         "kind": "main",
-        "says": "A good request is sent; too many calls throw RateLimitedException and an empty id throws BadRequestIdException."
+        "says": "each UTF-8 log gets the number of lines the rule calls errors, and nothing is skipped"
       },
       {
-        "id": "practice.GatewayTest#rateLimitingIsCheckedAndSaysWhenToRetry",
-        "kind": "edge",
-        "says": "RateLimitedException is checked, because a caller can recover by retrying, and it carries how long to wait."
+        "id": "practice.ErrorCounterTest#aLogThatCannotBeOpenedIsSkipped",
+        "kind": "main",
+        "says": "a log that can't be opened is skipped with the exception that opening it threw, and the next log is counted"
       },
       {
-        "id": "practice.GatewayTest#aBadIdIsUnchecked",
+        "id": "practice.ErrorCounterTest#aLogFromAnOldWarehouseHostIsCounted",
         "kind": "edge",
-        "says": "BadRequestIdException is unchecked, because a missing id is a bug in the caller that no retry fixes."
+        "says": "a log written in ISO-8859-1 is counted, not skipped"
       },
       {
-        "id": "practice.GatewayTest#aBlankOrNullIdIsBad",
+        "id": "practice.ErrorCounterTest#aLogWhoseReadFailsHalfWayIsSkippedAndTheBatchGoesOn",
         "kind": "edge",
-        "says": "A blank or null id is as bad as an empty one."
+        "says": "a log whose read fails part-way is skipped with that read failure, and the next log is counted"
       },
       {
-        "id": "practice.GatewayTest#unicodeWhitespaceIsBlankToo",
+        "id": "practice.ErrorCounterTest#aRuleThatThrowsStopsTheBatch",
         "kind": "edge",
-        "says": "Blank means what String.isBlank() means, so an id of only em spaces (U+2003) is bad too."
+        "says": "an exception thrown by the rule itself stops the batch instead of marking the log skipped"
       }
     ],
     "report": {
@@ -163,10 +133,10 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.4.md",
-      "section": "Key Points to Remember"
+      "section": "Streams Can't Throw IOException, So Files.lines Throws UncheckedIOException from the Terminal Operation"
     },
     "concepts": [
-      "Whether a caller can reasonably recover decides between a checked and an unchecked exception."
+      "Files.lines and BufferedReader.lines throw read errors as UncheckedIOException from the terminal operation, past a catch for IOException; unwrapping getCause() restores the IOException."
     ]
   }
 }

@@ -1,26 +1,16 @@
-The page lists which classes may extend which:
+The event bus writes a type id into every message it sends and reads it back to pick the class
+to decode into. A message whose class has no id fails, and it fails in production, at the first
+message of that class. So at startup `TypeRegistry.of(Event.class)` registers every class a
+message can have at run time, by walking the sealed hierarchy under `Event`.
 
-- a `sealed` class permits exactly the subclasses it names in `permits`, or,
-  with no `permits` clause, exactly the subclasses declared in its own file;
-  any other class trying to extend it fails with
-  `class is not allowed to extend sealed class: <Name>`;
-- a `final` class may not be extended at all (`cannot inherit from final <Name>`);
-- a `non-sealed` class, like any plain class, may be extended by anyone.
+Last month a team added a class to the hierarchy that the registry never saw, and the first
+message of that class was lost. The registry should never start in a state where that can
+happen.
 
-Write `static String verdict(Class<?> parent, Class<?> candidate)` that
-answers, from `parent`'s declaration read by reflection, whether the compiler
-would accept `candidate` as a **direct** subclass of `parent`:
+Finish `collect(Class<?> type)` in `src/main/java/practice/TypeRegistry.java`. When you're done,
+`of(root)` registers exactly the classes a value of `root` can have, and it throws
+`IllegalArgumentException`, naming the class, when the hierarchy lets in classes that no list
+names. About eight lines in total.
 
-- return `null` when it would be accepted;
-- return `"cannot inherit from final " + parent's simple name` when `parent` is final;
-- return `"class is not allowed to extend sealed class: " + parent's simple name`
-  when `parent` is sealed and does not permit `candidate`.
-
-Only `parent`'s own declaration decides. `Class.isSealed()` and
-`Class.getPermittedSubclasses()` see both explicit and implicit permits.
-
-**Examples** (with `sealed class Shape permits Circle`, `final class Circle extends Shape`)
-
-- `verdict(Shape.class, Circle.class)` -> `null`
-- `verdict(Shape.class, Square.class)` -> `"class is not allowed to extend sealed class: Shape"`
-- `verdict(Circle.class, Square.class)` -> `"cannot inherit from final Circle"`
+The tests build their own hierarchies, with records, classes and interfaces at more than one
+level.

@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "19-concurrency-pitfalls"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 3,
+  "title": "Check yourself: data races and race conditions",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-rates-before-start",
+        "stem": "At startup, one thread fills a plain HashMap with 160 currency rates and then calls start() on a new pricing thread. The pricing thread only reads the map, and nothing writes to it again. Is there a data race on the map's contents?",
+        "options": [
+          {
+            "id": "a",
+            "text": "No, since start() orders every write made before it ahead of every read in the new thread",
+            "correct": true,
+            "says": "Thread.start() is a happens-before edge: everything the starting thread did before start() is ordered before everything the new thread does"
+          },
+          {
+            "id": "b",
+            "text": "No, since start() comes after the last write, so no write and read happen at the same moment",
+            "correct": false,
+            "says": "the definition is about happens-before order, not timing; writes that never overlap a read in time but have no edge to it would still race"
+          },
+          {
+            "id": "c",
+            "text": "Yes, since start() orders the thread's start but not writes into a class that isn't thread-safe",
+            "correct": false,
+            "says": "the page's table: a field written before t.start() and read by t is no data race; the start edge orders the writes before the reads"
+          },
+          {
+            "id": "d",
+            "text": "Yes, since start() doesn't keep a write and a read from happening at the same moment without a lock",
+            "correct": false,
+            "says": "every write finished before start(), and start() orders them before the reads; no lock is needed for that edge"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.1.md",
+          "section": "A Data Race Is Two Accesses to One Variable, One a Write, With No Happens-Before Between Them"
+        }
+      },
+      {
+        "id": "q-atomic-quota",
+        "stem": "A quota keeps an AtomicInteger used. tryAcquire() runs `if (used.get() < 100) { used.incrementAndGet(); return true; } return false;`. Under load, 104 calls in one window return true. Which statement about the code is right?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It has a data race on used, since two threads read and write the counter without holding any lock",
+            "correct": false,
+            "says": "every access to used is an atomic volatile access, which the JMM orders; no lock is needed for that"
+          },
+          {
+            "id": "b",
+            "text": "It has a data race on used, since two threads' get() calls may return a value still cached in their CPUs",
+            "correct": false,
+            "says": "a volatile read returns the latest write in the synchronization order; the count it reads is not stale"
+          },
+          {
+            "id": "c",
+            "text": "It has no data race, since each access is atomic, yet two threads can pass the check before either adds",
+            "correct": true,
+            "says": "every access to used goes through the AtomicInteger, whose accesses are volatile synchronization actions, so there is no data race; the check and the act are still two steps, and another thread can run both of its own between them"
+          },
+          {
+            "id": "d",
+            "text": "It has no data race, since each access is atomic, yet two threads' increments can both add one to the same 99",
+            "correct": false,
+            "says": "each incrementAndGet() is one atomic step and never adds to a value another increment already replaced; the extra calls come from the gap between the check and the increment"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.1.md",
+          "section": "Code With No Data Race Can Still Race: a Check and an Act Are Two Steps"
+        }
+      },
+      {
+        "id": "q-port-read-twice",
+        "stem": "A class parses its port from an immutable config string on first use and caches it in a plain int field, 0 meaning not parsed yet. Version A: `int p = port; if (p == 0) { p = parse(text); port = p; } return p;`. Version B: `if (port == 0) port = parse(text); return port;`. Several threads call it with no lock. Which statement about version B is right?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It can return 0, since another thread's write of port can be lost again before the second read",
+            "correct": false,
+            "says": "a write to the field is not undone; the 0 comes from the second racy read seeing the initial value"
+          },
+          {
+            "id": "b",
+            "text": "It can return 0, since the second read can see the initial value even when the first one saw the port",
+            "correct": true,
+            "says": "the two reads are separate racy reads; each may see the initial 0, the last write ordered before it, or the other thread's write, which isn't ordered against it"
+          },
+          {
+            "id": "c",
+            "text": "It returns the port every time, since the second read can't see an older value than the first one saw",
+            "correct": false,
+            "says": "without a happens-before edge, nothing stops the second racy read from seeing the initial 0"
+          },
+          {
+            "id": "d",
+            "text": "It returns the port every time, since once any thread has written port, the second read sees that write",
+            "correct": false,
+            "says": "nothing orders another thread's write before this thread's second read, so that read may still see the initial 0"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.1.md",
+          "section": "A Data Race Is Harmless Only When Every Value the Read Can See Gives the Right Answer"
+        }
+      },
+      {
+        "id": "q-green-month",
+        "stem": "A team suspects a check-then-act bug in reserveRoom(). Their test starts two threads that each call it once for the same room and checks that only one succeeds. It runs once per build, and all 40 builds this month were green. What does that history tell them?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Little about the method, since a race condition usually shows up only in tests that also have a data race",
+            "correct": false,
+            "says": "a race condition needs no data race to show up; the page's naive test caught the AtomicInteger race condition when the threads met"
+          },
+          {
+            "id": "b",
+            "text": "Little about the method, since two threads started together seldom overlap inside one call",
+            "correct": true,
+            "says": "the two threads leave the latch at slightly different moments and one call is short, so they seldom overlap; the page's version of this test failed about one attempt in a hundred, so 40 green runs prove little"
+          },
+          {
+            "id": "c",
+            "text": "That the method is very likely safe, since two threads in 40 runs probably meet in every possible order",
+            "correct": false,
+            "says": "a test sees only the interleavings that its runs happened to produce, and two threads started together rarely overlap"
+          },
+          {
+            "id": "d",
+            "text": "That the method is very likely safe, since a race condition would probably show up in some of the 40 runs",
+            "correct": false,
+            "says": "the page's version of this test failed only about one attempt in a hundred, so a few dozen green runs say little"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.1.md",
+          "section": "A Passing Stress Test Shows Only the Interleavings That Run Produced"
+        }
+      }
+    ]
+  }
+}

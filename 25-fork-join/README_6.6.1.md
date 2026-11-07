@@ -1,282 +1,264 @@
 # 6.6.1. ForkJoinPool and RecursiveTask/RecursiveAction
 
-## Concept Explanation
+The nightly risk report sums exposures over 8 million positions, and one thread takes too long.
+A colleague parallelised it: each range of rows submits its two halves to an
+`Executors.newFixedThreadPool(8)` and waits on their `Future`s. On the 50,000-row test file it
+worked. The first full night it never finished, and a thread dump showed all eight pool threads
+in `FutureTask.get`.
 
-The Fork/Join Framework, introduced in Java 7 (`java.util.concurrent`), is a specialized framework for parallelizing
-divide-and-conquer algorithms. It is built around two core ideas:
+Splitting a job into halves, then halves of halves, is divide and conquer, and Java has a pool
+built for it: `ForkJoinPool`, with the task types `RecursiveTask<V>` and `RecursiveAction`.
 
-1. **Fork**: Split a large task into smaller, independent subtasks that can be processed in parallel.
-2. **Join**: Wait for the subtasks to complete and combine their results.
+## A Task That Waits for Its Subtasks Deadlocks an Ordinary Pool; ForkJoinPool's join() Keeps Working
 
-The framework centers on three key abstractions:
-
-- **`ForkJoinPool`** -- a specialized `ExecutorService` that manages a pool of worker threads, each with its own
-  work-stealing deque. Idle threads steal tasks from busy threads' deques, providing excellent load balancing.
-- **`RecursiveTask<V>`** -- a `ForkJoinTask` subclass for tasks that return a result.
-- **`RecursiveAction`** -- a `ForkJoinTask` subclass for tasks that perform side effects without returning a result.
-
-**Real-world analogy**: Imagine a manager who breaks a massive spreadsheet into sections and distributes them to team
-members. Each member may further split their section if it is still too large. When everyone finishes, results are
-collected back up the chain. If one person finishes early, they "steal" work from a colleague's pile -- that is
-work-stealing.
-
-The Fork/Join Framework underpins Java's parallel streams (`parallelStream()`) and is the default executor for
-`CompletableFuture.supplyAsync()` when no explicit executor is provided.
-
-## Key Points to Remember
-
-1. `ForkJoinPool` uses **work-stealing** -- idle threads take tasks from busy threads' queues.
-2. The **common pool** (`ForkJoinPool.commonPool()`) is shared JVM-wide and used by parallel streams.
-3. `RecursiveTask<V>` returns a value; `RecursiveAction` does not.
-4. Both extend `ForkJoinTask<V>`, which implements `Future<V>`.
-5. The canonical pattern is: **fork one subtask, compute the other, then join**.
-6. A **threshold** determines when to stop splitting and compute sequentially.
-7. Choosing the right threshold is critical -- too small creates excessive overhead, too large limits parallelism.
-8. `invokeAll()` forks and joins multiple tasks at once and is preferred for `RecursiveAction`.
-9. Never block inside fork/join tasks on external I/O or locks -- this defeats work-stealing.
-10. The framework is optimized for **CPU-bound** divide-and-conquer problems.
-
-## Relevant Java 21 Features
-
-- **Virtual threads (JEP 444)**: Virtual threads are better suited for I/O-bound tasks, while Fork/Join remains the
-  tool of choice for CPU-bound parallel decomposition. They are complementary.
-- **Structured Concurrency (JEP 453, preview in Java 21)**: Provides a higher-level API for forking concurrent tasks and joining
-  them, but targets a different use case (task lifecycle management vs. data parallelism).
-- **`ForkJoinPool` additions**: Java 19 added `setParallelism()`, `lazySubmit()` and `close()` (so a pool works in
-  try-with-resources); Java 20 added `externalSubmit()`. The common pool's parallelism defaults to
-  `Runtime.getRuntime().availableProcessors() - 1`.
-- **Parallel streams**: Internally use the common `ForkJoinPool`, making the framework relevant even if you never use it
-  directly.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Forking both subtasks instead of computing one inline**
-
-   ```java
-   // Anti-pattern: an extra fork, and the current thread only gets work back through join()
-   left.fork();
-   right.fork();
-   return left.join() + right.join();
-   ```
-
-   **Fix**: Fork one, compute the other in the current thread:
-
-   ```java
-   left.fork();
-   long rightResult = right.compute();
-   long leftResult = left.join();
-   return leftResult + rightResult;
-   ```
-
-2. **Threshold too small**: Creating millions of tiny tasks causes scheduling overhead to dominate.
-   **Fix**: Use a threshold around `N / (parallelism * 4)` or at least a few hundred elements.
-
-3. **Blocking I/O inside tasks**: ForkJoinPool threads that block on I/O reduce parallelism.
-   **Fix**: Use `ManagedBlocker` or move I/O-bound work to a separate thread pool.
-
-4. **Shared mutable state**: Concurrent modification of shared structures causes data races.
-   **Fix**: Use thread-local accumulators, atomic variables, or merge results at join time.
-
-5. **Joining too early**: Calling `left.join()` right after `left.fork()`, before computing the other half, forces
-   sequential execution. (And calling `join()` on a task that was never forked or invoked blocks forever: nothing
-   will ever run it.)
-   **Fix**: Fork, compute the other subtask, then join.
-
-## Best Practices and Optimization Techniques
-
-1. Follow the **fork-compute-join** pattern: fork the left subtask, compute the right in the current thread, join left.
-2. Choose a threshold that balances task-creation overhead against parallelism -- profile to find the sweet spot.
-3. Use the **common pool** for most cases; create a custom pool only when you need isolation or different parallelism.
-4. Prefer `invokeAll()` for `RecursiveAction` tasks with symmetric subtask structure.
-5. Make tasks **stateless** or use **thread-safe accumulators** (e.g., `AtomicLong`).
-6. Use `ForkJoinPool` for CPU-bound decomposition; use virtual threads for I/O-bound concurrency.
-7. Profile with JMH or the course's `PerformanceTestUtil` (module `00-base`) to verify that parallelism actually
-   improves throughput.
-
-## Edge Cases and Their Handling
-
-1. **Null arrays**: Return a sensible default (0 for sum, empty list for collections) instead of throwing.
-2. **Empty arrays**: Handle as a base case before submitting to the pool.
-3. **Single-element arrays**: The threshold check naturally handles this -- compute sequentially.
-4. **Array size smaller than threshold**: Entire computation runs sequentially, which is correct.
-5. **Very large arrays**: Work-stealing ensures balanced processing even with imbalanced splits.
-6. **Negative parallelism**: Validate and throw `IllegalArgumentException`.
-
-## Interview-specific Insights
-
-Interviewers frequently ask about:
-
-- The difference between `RecursiveTask` and `RecursiveAction`
-- How work-stealing improves load balancing
-- Why you should compute one subtask inline instead of forking both
-- The relationship between Fork/Join and parallel streams
-- Choosing an appropriate threshold
-- When to use Fork/Join vs. `ExecutorService` vs. virtual threads
-- Potential pitfalls (blocking, shared state, threshold selection)
-
-## Interview Q&A Section
-
-**Q1: What is the Fork/Join Framework and when should you use it?**
-
-```text
-A1: The Fork/Join Framework is a parallel computing framework in java.util.concurrent
-designed for divide-and-conquer algorithms. It consists of ForkJoinPool (the executor),
-RecursiveTask (for tasks that return a result), and RecursiveAction (for void tasks).
-
-Use it when:
-- The problem can be recursively decomposed into independent subproblems
-- The work is CPU-bound (not I/O-bound)
-- The dataset is large enough to benefit from parallel processing
-
-Do NOT use it for:
-- I/O-bound tasks (use virtual threads or a cached thread pool)
-- Tasks that require heavy synchronization between subtasks
-- Small datasets where overhead exceeds parallelism benefits
-```
+Here is the colleague's version. A range of 10,000 rows or fewer is summed in a loop; a larger one
+is split:
 
 ```java
-// Basic Fork/Join usage
-ForkJoinPool pool = ForkJoinPool.commonPool();
-long result = pool.invoke(new SumTask(array, 0, array.length));
+static long sum(ExecutorService pool, long[] a, int from, int to) throws Exception {
+    if (to - from <= THRESHOLD) {
+        long s = 0;
+        for (int i = from; i < to; i++) s += a[i];
+        return s;
+    }
+    int mid = (from + to) >>> 1;
+    Future<Long> left = pool.submit(() -> sum(pool, a, from, mid));
+    Future<Long> right = pool.submit(() -> sum(pool, a, mid, to));
+    return left.get() + right.get();             // this pool thread now waits
+}
 ```
 
-**Q2: How does work-stealing work in ForkJoinPool?**
+Before reading on: why does 50,000 rows work and 8,000,000 not?
 
-```text
-A2: Each worker thread in a ForkJoinPool has its own double-ended queue (deque).
-When a task forks subtasks, they are pushed onto the current thread's deque.
+Each range that splits holds a thread while it waits for its halves. 50,000 rows split
+three levels deep: 7 ranges wait, and the eighth thread runs the 8 small ranges one after
+another. 8,000,000 rows make 1,023 waiting ranges. The first eight take all eight threads, and
+the halves they wait for sit in the queue with no thread to run them. A bigger pool only moves the
+size at which it hangs: 64 threads sum 500,000 rows and still hang on 8,000,000. Any other job
+sharing the pool queues behind it for good.
 
-Work-stealing happens when a worker thread's deque is empty:
-1. The idle thread looks at other workers' deques
-2. It steals tasks from the TAIL of another thread's deque (LIFO for owner, FIFO for stealer)
-3. Stolen tasks tend to be larger (closer to the root of the recursion tree),
-   giving the stealer more work to do
-
-This LIFO/FIFO design is optimal because:
-- The owning thread processes smaller, recently forked tasks (good for cache locality)
-- The stealing thread gets larger tasks (more work, fewer steals needed)
-
-This automatically load-balances uneven workloads without explicit coordination.
-```
+The same split as a fork/join task:
 
 ```java
-// The common pool uses work-stealing internally
-ForkJoinPool pool = ForkJoinPool.commonPool();
-System.out.println("Parallelism: " + pool.getParallelism());
-System.out.println("Steal count: " + pool.getStealCount());
-```
+import java.util.concurrent.RecursiveTask;
 
-**Q3: What is the difference between RecursiveTask and RecursiveAction?**
-
-```text
-A3: Both extend ForkJoinTask and are used with ForkJoinPool:
-
-RecursiveTask<V>:
-- Returns a result of type V
-- Override compute() which returns V
-- Use for operations like sum, max, merge sort, search
-- Results are combined at join points
-
-RecursiveAction:
-- Returns no result (void)
-- Override compute() which returns void
-- Use for in-place mutations (array fill, increment, transform)
-- Side effects happen directly (e.g., modifying array elements)
-
-Key guideline: If you need the computation's result, use RecursiveTask.
-If you are performing an in-place transformation, use RecursiveAction.
-```
-
-```java
-// RecursiveTask example -- returns a result
 class SumTask extends RecursiveTask<Long> {
+    static final int THRESHOLD = 10_000;
+    private final long[] a;
+    private final int from, to;
+
+    SumTask(long[] a, int from, int to) { this.a = a; this.from = from; this.to = to; }
+
+    @Override
     protected Long compute() {
-        if (size <= THRESHOLD) return sequentialSum();
-        SumTask left = new SumTask(array, start, mid);
-        SumTask right = new SumTask(array, mid, end);
-        left.fork();
-        long rightResult = right.compute();
-        return left.join() + rightResult;
-    }
-}
-
-// RecursiveAction example -- modifies in-place
-class IncrementAction extends RecursiveAction {
-    protected void compute() {
-        if (size <= THRESHOLD) { incrementSequentially(); return; }
-        IncrementAction left = new IncrementAction(array, start, mid);
-        IncrementAction right = new IncrementAction(array, mid, end);
-        invokeAll(left, right);
+        if (to - from <= THRESHOLD) {                // small enough: a plain loop
+            long s = 0;
+            for (int i = from; i < to; i++) s += a[i];
+            return s;
+        }
+        int mid = (from + to) >>> 1;
+        SumTask left = new SumTask(a, from, mid);
+        SumTask right = new SumTask(a, mid, to);
+        left.fork();                                 // queue the left half
+        long r = right.compute();                    // do the right half on this thread
+        return left.join() + r;                      // then collect the left
     }
 }
 ```
 
-**Q4: Why should you compute one subtask inline instead of forking both?**
-
-```text
-A4: Forking both subtasks wastes the current thread:
-
-Anti-pattern:
-  left.fork();   // push left to deque
-  right.fork();  // push right to deque
-  return left.join() + right.join();  // current thread just waits in join()
-
-The current thread forks two tasks and then waits in join(). While waiting, a ForkJoinPool
-worker usually runs or helps with the queued tasks itself, so no extra thread is needed, but
-every split pays for an extra push/pop through the deque and the work is no longer done directly.
-
-Correct pattern:
-  left.fork();                        // push left to deque
-  long rightResult = right.compute(); // compute right in THIS thread
-  long leftResult = left.join();      // join left
-  return leftResult + rightResult;
-
-The current thread computes the right subtask directly, staying productive while another
-worker may steal and process the left subtask. This maximizes CPU utilization.
-
-Additionally, always join the LAST-forked task first (or call compute on the right
-after forking the left) to minimize task queue depth.
-```
+Both versions run on 8 threads, with a 5-second limit on the fixed pool
+(`ex/Deadlock.java`, Java 21, 20 cores):
 
 ```java
-// Correct pattern
+ExecutorService fixed = Executors.newFixedThreadPool(8);
+Future<Long> total = fixed.submit(() -> sum(fixed, exposures, 0, n));
+// total.get(5, TimeUnit.SECONDS), then fixed.shutdownNow()
+
+try (ForkJoinPool fj = new ForkJoinPool(8)) {
+    long t = fj.invoke(new SumTask(exposures, 0, n));
+}
+```
+
+```text
+fixed pool, 50,000 rows: 2,475,000
+ForkJoinPool(8), 50,000 rows: 2,475,000
+fixed pool, 8,000,000 rows: no result after 5 s
+ForkJoinPool(8), 8,000,000 rows: 396,000,000
+```
+
+In a `ForkJoinPool` a waiting thread keeps working. Each worker keeps its own queue of tasks, and
+`fork()` puts a task on the current worker's queue and returns at once. `join()` on a task that
+isn't done runs that task itself if it is still queued, or helps run the work of the worker that
+took it. Only when neither is possible does the worker park, and the pool may then start a spare
+thread to keep its parallelism. A worker with an empty queue takes a task from the other
+end of another worker's queue. That is **work-stealing**, and it is how the left halves reach the
+other seven workers. Unit 6.6.1.1 covers the pool itself.
+
+> **Blocking still hurts.** The javadoc says the pool keeps enough threads active while tasks wait
+> to join others, and doesn't promise it when they block on I/O or locks. A blocked worker runs
+> nothing else, as the last section shows.
+
+<!-- practice 3 -->
+
+## Fork One Half, Compute the Other, Then Join
+
+`SumTask` forks the left half, computes the right half, then joins the left. That order lets two
+workers run at once: while this thread works on the right half,
+the left half waits on its queue for another worker to steal.
+
+Swap two lines, so the task joins the left half before it starts the right one:
+
+```java
 left.fork();
-long rightResult = right.compute();  // current thread stays busy
-long leftResult = left.join();
-return leftResult + rightResult;
+long l = left.join();                    // waits for the left half first
+return l + right.compute();
 ```
 
-**Q5: How does ForkJoinPool relate to parallel streams?**
+Over 8 million rows with about 27 ns of arithmetic each, on `ForkJoinPool(8)`
+(`ex/Shape.java`, best of five runs):
 
 ```text
-A5: Java's parallel streams (stream.parallel() or collection.parallelStream())
-use the common ForkJoinPool internally. When you write:
-
-  list.parallelStream().mapToInt(x -> x * x).sum();
-
-The stream framework submits Spliterator-based tasks to ForkJoinPool.commonPool().
-
-Key implications:
-1. All parallel streams in the JVM share the same common pool by default
-2. A long-running parallel stream operation can starve other parallel operations
-3. You can run parallel streams in a custom ForkJoinPool by submitting
-   the stream operation as a task to that pool
-
-Caution: The common pool's parallelism defaults to availableProcessors() - 1.
-Saturating it with blocking operations affects all parallel streams in the JVM.
+plain loop, one thread: 216 ms
+FORK_COMPUTE_JOIN threshold    10,000:      2,047 tasks,  37 ms
+FORK_JOIN_COMPUTE threshold    10,000:      2,047 tasks, 210 ms
 ```
+
+Same tasks, same result, and the swapped order runs at the speed of one thread. Each task waits
+for its left half to finish before its right half starts, so at every level only one half is in
+progress. Because the answer is right, no test catches it; only a timing does.
+
+`compute()` decides the task's type. A `RecursiveTask<V>` returns a value, and `join()` hands it
+back (unit 6.6.1.2). A `RecursiveAction` returns nothing and works in place, such as scaling every
+element of an array; it often runs both halves with `invokeAll(left, right)`, which returns when
+both are done or one throws (unit 6.6.1.3). Both extend `ForkJoinTask`, which implements `Future`.
+
+## The Threshold Decides Whether Splitting Pays
+
+Each task costs an object, a push on a queue, and often a steal. The threshold, the size at which
+a task stops splitting and runs a plain loop, decides how many tasks there are. The same run with
+other thresholds:
+
+```text
+FORK_COMPUTE_JOIN threshold         1: 15,999,999 tasks, 408 ms
+FORK_COMPUTE_JOIN threshold       100:    262,143 tasks,  43 ms
+FORK_COMPUTE_JOIN threshold    10,000:      2,047 tasks,  37 ms
+FORK_COMPUTE_JOIN threshold 1,000,000:         15 tasks,  42 ms
+FORK_COMPUTE_JOIN threshold 8,000,000:          1 tasks, 212 ms
+```
+
+With a task per row the parallel version takes twice as long as the plain loop: 16 million tasks
+cost more than the arithmetic they wrap. With one task there is nothing to share. Between those
+the times are flat over four orders of magnitude. The threshold has to be large enough that a
+leaf's work outweighs the cost of a task, and small enough to give every worker several pieces.
+The `ForkJoinTask` javadoc puts a leaf at roughly 100 to 10,000 basic steps.
+
+The middle is flat only because every row costs the same. When some rows cost a hundred times
+more than others, 8 leaves for 8 workers leave seven idle while one finishes. Unit 6.6.1.4 covers
+choosing the threshold for uneven work.
+
+<!-- practice 1 -->
+
+## The Common Pool Is Shared, So Blocking in It Delays Work You Didn't Write
+
+`ForkJoinPool.commonPool()` is one pool per JVM, with `availableProcessors() - 1` workers by
+default (19 on the 20-core machine here). Parallel streams run in it, and so do
+`CompletableFuture.supplyAsync` and the other `...Async` methods called without an executor, and
+any `ForkJoinTask` forked outside a pool.
+
+A nightly price export runs a parallel stream over 200 SKUs, and each element calls a rate service
+that answers in 300 ms. While it runs, another part of the service calls
+`CompletableFuture.supplyAsync(() -> "quote")` (`ex/CommonPool.java`):
 
 ```java
-// Running a parallel stream in a custom ForkJoinPool
-ForkJoinPool customPool = new ForkJoinPool(4);
-long sum = customPool.submit(() ->
-    IntStream.range(0, 10_000)
-        .parallel()
-        .mapToLong(i -> array[i])
-        .sum()
-).join();
-customPool.shutdown();
+static void export() {
+    IntStream.range(0, 200).parallel().map(CommonPool::slowLookup).sum();
+}
 ```
+
+```text
+cores: 20, common pool parallelism: 19
+idle common pool:          supplyAsync(() -> "quote") took 2 ms
+export in common pool:     supplyAsync(() -> "quote") took 803 ms
+  lookups ran on [ForkJoinPool.commonPool-worker-N, Thread-0]
+```
+
+The quote waited 800 ms behind someone else's network calls. The workers were asleep in the
+lookups, and the pool can't tell. The stream also ran lookups on `Thread-0`, the
+thread that started it.
+
+A stream started from inside a task of another `ForkJoinPool` splits into that pool instead,
+because `fork()` queues to the pool the current task runs in. That is how the JDK's streams behave
+today, though the stream javadoc doesn't promise it:
+
+```java
+try (ForkJoinPool exportPool = new ForkJoinPool(20)) {
+    ForkJoinTask<?> job = exportPool.submit(CommonPool::export);
+    // supplyAsync measured here, then job.join()
+}
+```
+
+```text
+export in its own pool:    supplyAsync(() -> "quote") took 0 ms
+  lookups ran on [ForkJoinPool-1-worker-N]
+```
+
+Work that mostly waits fits better on
+virtual threads (unit 6.7.1), and `ForkJoinPool.ManagedBlocker` lets a fork/join task block
+without losing a worker (unit 6.6.1.1). Since Java 19 a `ForkJoinPool` is `AutoCloseable`:
+`close()` shuts it down and waits for its tasks, and does nothing on the common pool.
+
+> **Small machines differ.** When the common pool's parallelism is below 2, `CompletableFuture`'s
+> async methods start a new thread per task instead (its javadoc). A container limited to two
+> CPUs or fewer gets that behaviour.
+
+<!-- practice 2 -->
+
+## Summary
+
+- **A task that waits for its subtasks deadlocks an ordinary pool.** A `ForkJoinPool` worker runs
+  queued tasks while it waits in `join()`, and idle workers steal from busy ones.
+- **Fork one half, compute the other, then join.** Joining before computing runs at one thread's
+  speed and still gives the right answer.
+- **The threshold decides whether splitting pays.** A task per element costs more than the work;
+  one task gives no parallelism.
+- **The common pool is shared** by parallel streams, async `CompletableFuture`s and tasks forked
+  outside a pool. Blocking calls there delay all of them; give such work its own pool or executor.
+
+## Reference
+
+| Call | What it does |
+|---|---|
+| `new ForkJoinPool(n)` | a pool with target parallelism `n`; `new ForkJoinPool()` uses the number of available processors |
+| `ForkJoinPool.commonPool()` | the JVM-wide pool; parallelism `availableProcessors() - 1` by default, or the system property `java.util.concurrent.ForkJoinPool.common.parallelism` |
+| `pool.invoke(task)` | runs the task in the pool and returns its result |
+| `pool.submit(task)` | runs it in the pool and returns it as a `Future` |
+| `task.fork()` | queues the task in the pool the current task runs in, or in the common pool outside one |
+| `task.join()` | returns the result; a failure comes back as an unchecked exception, not `ExecutionException` |
+| `task.invoke()` | starts `compute()` on the calling thread and returns the result |
+| `ForkJoinTask.invokeAll(t1, t2)` | runs both, returns when both are done or one throws |
+| `pool.close()` (Java 19) | shuts the pool down and waits for its tasks; no effect on the common pool |
+| `pool.getStealCount()` | an estimate of the tasks run by a thread other than the one that queued them |
+
+## Challenges
+
+1. Run `SumTask` over an array where every tenth row costs 100 times the others. Which thresholds
+   stay fast now, and how does `getStealCount()` change?
+2. A request handler sorts a 50,000-element list with `parallelStream()` on every call. At 200
+   requests per second, is that faster than a sequential sort? What would you measure?
+3. Your service's `supplyAsync` callbacks slowed down after a library upgrade. How do you find
+   out, from a thread dump, which code is blocking the common pool?
+
+## Design Note: Why the Waiting Thread Does the Work
+
+An ordinary pool runs each task from start to end on one thread, so a task that waits for another
+holds a thread until the other finishes. Fork/join tasks are written to wait for each other, so
+`join()` turns the waiting thread back into a worker. The price is in what a task may do. A worker
+runs whatever task it finds, and the pool counts only the waits it sees: joins and
+`ManagedBlocker` calls. A task that blocks on I/O or holds a lock takes its worker out of the pool
+unnoticed, which is why the `ForkJoinTask` javadoc says tasks should ideally avoid `synchronized`
+blocks and blocking I/O.
+The framework gives up generality for throughput on one kind of problem: CPU work that splits into
+independent pieces.
 
 ## Code Examples
 

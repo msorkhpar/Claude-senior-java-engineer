@@ -7,66 +7,146 @@
   "variant": "prose",
   "unit": 1,
   "ordinal": 3,
-  "title": "Which runtime areas are per thread, and why Metaspace replaced PermGen",
+  "title": "Check yourself: loading and initialising classes",
   "exercise": {
     "provenance": "generated",
     "trust": "advisory",
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-per-thread-areas",
-        "stem": "Which of the JVM's runtime data areas does every thread get its own copy of?",
+        "id": "q-legacy-exporter-banner",
+        "stem": "A service runs `Exporter e; if (config.legacy()) { e = new LegacyExporter(); } else { e = new JsonExporter(); }`, where `Exporter` is an abstract class and `LegacyExporter`'s static block logs \"legacy exporter ready\". It starts with legacy off and `-Xlog:class+load`, and the log has a load line for `LegacyExporter`. Does \"legacy exporter ready\" appear in the log?",
         "options": [
           {
             "id": "a",
-            "text": "The heap, the Java stack and the PC register.",
+            "text": "Yes, since the JVM runs a class's static block as part of loading the class",
             "correct": false,
-            "says": "The heap is shared by all threads and managed by the garbage collector; only the stack and the PC register are per thread in this list."
+            "says": "loading creates the Class object; the static block runs at initialisation, on the first new, static call or non-constant static field read"
           },
           {
             "id": "b",
-            "text": "The method area, the PC register and the native method stack.",
-            "correct": false,
-            "says": "The method area is shared by all threads; only the Java stack, PC register and native method stack are per thread."
+            "text": "No, since the static block runs only when code first creates or otherwise uses the class",
+            "correct": true,
+            "says": "the verifier can load a class to check the assignment, but initialisation waits for a first use such as new, which never happens"
           },
           {
             "id": "c",
-            "text": "The Java stack, the PC register and the native method stack.",
-            "correct": true,
-            "says": "These three hold one thread's frames, its current instruction and its native calls, while the heap and the method area are shared."
+            "text": "Yes, since a load line shows that the branch naming the class has run",
+            "correct": false,
+            "says": "the verifier loads classes before main runs, so a load line doesn't mean the branch ran"
+          },
+          {
+            "id": "d",
+            "text": "No, since the load lines list the class path at start-up, before any class is used",
+            "correct": false,
+            "says": "classes are loaded when code or the verifier first needs them, not by scanning the class path at start-up"
           }
         ],
         "origin": {
           "path": "43-jvm-internals/README_10.5.1.md",
-          "section": "2. Runtime Data Areas"
+          "section": "A Class Is Loaded When Code First Needs It, and Initialised Only When Code First Uses It"
         }
       },
       {
-        "id": "q-metaspace",
-        "stem": "Why did Java 8 replace PermGen with Metaspace for class metadata?",
+        "id": "q-fixture-loader",
+        "stem": "A test runner creates `URLClassLoader child = new URLClassLoader(new URL[] {fixturesDir}, ClassLoader.getSystemClassLoader())`. The `fixturesDir` directory is also on the application's class path. What does `child.loadClass(\"OrderFixture\").getClassLoader()` return?",
         "options": [
           {
             "id": "a",
-            "text": "Metadata moved to native memory that grows on demand, out of a fixed-size heap area.",
+            "text": "The application loader, since the child asks its parent first and the parent finds OrderFixture on its class path",
             "correct": true,
-            "says": "PermGen's fixed maximum caused OutOfMemoryError: PermGen space in class-heavy applications; Metaspace grows dynamically and is bounded only if MaxMetaspaceSize is set."
+            "says": "loadClass asks the parent first; the application loader finds OrderFixture on the class path and defines it"
           },
           {
             "id": "b",
-            "text": "Metadata moved to the old generation of the heap, which full collections can shrink.",
+            "text": "The child loader, since the loader that is asked for a class is the one that defines it and returns it",
             "correct": false,
-            "says": "Metaspace is not in the heap at all: the page puts class metadata in native memory."
+            "says": "the loader asked can pass the request to its parent; getClassLoader() reports the loader that defined the class"
           },
           {
             "id": "c",
-            "text": "Metadata moved to a fixed-size native area whose size is set once at start.",
+            "text": "The application loader, since the application loader defines every class on the class path, whichever loader is asked",
             "correct": false,
-            "says": "Metaspace grows on demand; a fixed size was PermGen's problem, not its replacement."
+            "says": "a loader that defines before asking its parent (child-first) would define its own copy; here the class comes from the application loader because the child asks it first"
+          },
+          {
+            "id": "d",
+            "text": "The child loader, since a loader passes a request to its parent only for classes in java.* packages",
+            "correct": false,
+            "says": "parent-first applies to every name: the parent is asked first whatever the package"
           }
         ],
         "origin": {
           "path": "43-jvm-internals/README_10.5.1.md",
-          "section": "Interview Q&A Section"
+          "section": "Each Loader Asks Its Parent First, So the JDK's Classes Always Come from the JDK's Loaders"
+        }
+      },
+      {
+        "id": "q-free-plan-limits",
+        "stem": "`class Limits { static final Plan FREE = Plan.FREE_PLAN; static final int MAX_SEATS = 5; static final int MAX_PROJECTS = Integer.getInteger(\"projects\", 3); }` and `class Plan { static final Plan FREE_PLAN = new Plan(Limits.MAX_SEATS, Limits.MAX_PROJECTS); ... }`. No system property is set, and the first code to run reads `Limits.FREE`. What does that plan hold?",
+        "options": [
+          {
+            "id": "a",
+            "text": "5 seats and 3 projects, since the seat count is part of Plan's compiled code and the project count is computed when Plan first reads it",
+            "correct": false,
+            "says": "a field read during the same thread's initialisation of Limits returns its current value; MAX_PROJECTS is computed later, in textual order"
+          },
+          {
+            "id": "b",
+            "text": "5 seats and 0 projects, since the seat count is part of Plan's compiled code and the project count is still unset when Plan reads it",
+            "correct": true,
+            "says": "MAX_SEATS is a compile-time constant that javac copies into Plan; MAX_PROJECTS is computed after FREE, so Plan reads its default"
+          },
+          {
+            "id": "c",
+            "text": "0 seats and 0 projects, since the seat count and the project count are both still unset when Plan reads them",
+            "correct": false,
+            "says": "MAX_SEATS is a compile-time constant that javac copies into Plan, so it is 5 whatever state Limits is in"
+          },
+          {
+            "id": "d",
+            "text": "An ExceptionInInitializerError, since the seat count and the project count belong to a class whose initialisation has not finished",
+            "correct": false,
+            "says": "the same thread may read a class it is initialising; the read returns the current value without an error"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.1.md",
+          "section": "Static Initialisers Run in Textual Order, and a Cycle Lets Code Read a Field Before It Is Set"
+        }
+      },
+      {
+        "id": "q-startup-hang-agent",
+        "stem": "A service sometimes never finishes starting. Its monitoring agent calls `ThreadMXBean.findDeadlockedThreads()` every minute and reports nothing. The CPU is idle, and a stack trace of each thread shows `main` in `Inventory.<clinit>` and `scheduler` in `Catalog.<clinit>`, both in state RUNNABLE. What is going on?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Each thread waits for the other to finish initialising a class, and the agent misses it since the lock held during class initialisation is not one that check examines",
+            "correct": true,
+            "says": "a class initialisation cycle reached from both ends is a deadlock that findDeadlockedThreads doesn't report; a thread dump shows the class initialization monitor"
+          },
+          {
+            "id": "b",
+            "text": "Both threads are still working through their static initialisers, since a thread that waits for another thread shows as BLOCKED or WAITING",
+            "correct": false,
+            "says": "on Java 21 a thread waiting for another thread's class initialisation reports RUNNABLE"
+          },
+          {
+            "id": "c",
+            "text": "Each thread waits for the other to finish initialising a class, and the agent misses it since the check runs once a minute and the threads were not waiting when it ran",
+            "correct": false,
+            "says": "the hang lasts until the process is killed, so the threads are waiting every time the check runs; the check doesn't examine class initialisation at all"
+          },
+          {
+            "id": "d",
+            "text": "Both threads are still working through their static initialisers, since findDeadlockedThreads reports two threads that wait for each other",
+            "correct": false,
+            "says": "it covers monitors and ownable synchronizers only, not class initialisation"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.1.md",
+          "section": "Two Threads That Initialise a Cycle from Both Ends Wait for Each Other Forever"
         }
       }
     ]

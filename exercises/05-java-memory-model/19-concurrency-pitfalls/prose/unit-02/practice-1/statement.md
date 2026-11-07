@@ -1,19 +1,13 @@
-`counter++` is not atomic: it is a read, an add and a write, and two threads can both
-read the same old value, so one update is lost. The same is true of a count kept in a
-map: `map.put(w, map.getOrDefault(w, 0) + 1)` is a read-modify-write even on a
-`ConcurrentHashMap`, whose single calls are each thread-safe. The page's fix is to make
-the whole compound step one atomic operation.
+The app's launch gives a voucher to the first sign-ups, as many as the campaign's `Quota` allows.
+Vouchers are numbered in the order they are granted, and each one is emailed to its customer.
+After launch morning, support had three kinds of tickets: customers with two voucher emails,
+two customers holding the same voucher number, and more vouchers redeemed than the campaign
+allowed. On a quiet staging server none of it happens.
 
-Write `WordCounter`. Its constructor takes the `ConcurrentHashMap<String, Integer>` to
-keep counts in. `add(word)` adds one to the word's count, as **one atomic step** on
-that map; `count(word)` returns the count, `0` for a word never added.
+Finish `claim(...)` in `src/main/java/practice/LaunchVouchers.java`. Sign-ups arrive on many request
+threads at once. The quota check sometimes calls the campaign service and takes a while, and one
+slow check must not hold up other sign-ups. When you're done, every granted voucher has its own
+number and exactly one email, and no more are granted than the quota allows. About seven lines in
+total.
 
-| calls | answer |
-|---|---|
-| `add("to")`, `add("be")`, `add("to")` | |
-| `count("to")`, `count("be")`, `count("or")` | `2`, `1`, `0` |
-| `add("word")` 300 times | `count("word")` is `300` |
-| two threads call `add("x")` at the same moment | `count("x")` is `2` |
-
-The tests hand you a map that can hold a read open, to make two adds meet in the
-middle.
+The tests make one customer's quota check slow and let another customer sign up while it waits.

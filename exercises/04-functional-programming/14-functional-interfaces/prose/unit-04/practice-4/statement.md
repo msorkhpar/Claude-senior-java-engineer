@@ -1,16 +1,13 @@
-`Predicate.isEqual(target)` tests `Objects.equals(target, t)`: it is null-safe on **both** sides, so
-`Predicate.isEqual(null)` matches exactly the `null` inputs. Wrapped in `Predicate.not(…)` it matches everything
-else.
+The issue tracker's search form has an assignee field, a minimum priority and a row of label
+boxes. An issue is found when it meets every field the user filled in; for the labels, carrying
+any one of the ticked labels is enough. The service builds one `Predicate<Issue>` per filled-in
+field and combines them in `matching(...)`.
 
-Write two methods in `Matches`; `Predicate.isEqual` is the page's tool for both:
+Finish `src/main/java/practice/IssueSearch.java`:
 
-1. `countEqual(List<T> items, T target)` returns how many items equal `target`.
-2. `without(List<T> items, T target)` returns a new list of the items that do not equal `target`, in order; it is a
-   new list even when `target` does not occur.
+- `allOf(...)`: one predicate that holds when every criterion in the list holds;
+- `anyLabel(...)`: one predicate that holds when an issue carries at least one of the labels;
+- the label criterion in `matching(...)`.
 
-| items | target | `countEqual` | `without` |
-|---|---|---|---|
-| `["Alice", "Bob", "Alice", "Charlie"]` | `"Alice"` | `2` | `["Bob", "Charlie"]` |
-| `["Alice", "Bob"]` | `"Zoe"` | `0` | `["Alice", "Bob"]` |
-
-Lists may hold `null`, and `target` itself may be `null`.
+Users search with every combination of blank and filled-in fields, the completely blank form
+included, which they use to see the whole board. About six lines in total.

@@ -1,15 +1,12 @@
-The page warns that a `HashSet` does **not** keep insertion order: it rejects
-duplicates, but it iterates in whatever order its buckets give. A set compares
-elements with `equals` and `hashCode`, never with `==`.
+The audit service collects events from several collectors. A collector that times out sends its
+whole batch again, so one event can reach the importer two or three times, each copy stamped with
+the time it was received. Auditors read the log top to bottom and expect each event once, in the
+order the events reached us.
 
-Write `Dedupe.distinct(List<String> words)`. It returns a **new** list holding
-each distinct word once, in the order the words were **first seen**. Two words
-are the same word when their text is equal, even if they are different
-`String` objects. The input list is not changed.
+`AuditImport` already writes a batch to the log. Finish `firstOfEach(...)` in
+`src/main/java/practice/AuditImport.java`: it returns each event of the batch once, as the first
+copy that arrived, in the order of first arrival, and leaves the batch it was given unchanged.
+About three lines.
 
-| words | answer |
-|---|---|
-| `["a", "b", "c", "c"]` | `["a", "b", "c"]` |
-| `["d", "c", "b", "a"]` | `["d", "c", "b", "a"]` |
-| `["b", "a", "b"]` | `["b", "a"]` |
-| `[new String("a"), new String("a")]` | `["a"]` |
+Copies of an event are the same event when their ids are equal; nothing else about them has to
+match.

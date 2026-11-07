@@ -1,24 +1,11 @@
-The page orders the access levels from most to least restrictive:
-**private > default (package-private) > protected > public**.
+The support team's diagnostics page shows the state of an order, a session or a cart: every
+field next to its value. `FieldReader.read(object)` builds that table and already works out the
+names; it needs two helpers in `src/main/java/practice/FieldReader.java`:
 
-Write three methods of the enum `AccessLevel`:
+- `instanceFields(type)`: the fields an object of that type carries. Support wants the whole
+  state, not only the parts a class chose to expose, and static fields are not state;
+- `value(field, object)`: the field's value in that object.
 
-- `static AccessLevel of(int modifiers)` reads the level out of the bit set that
-  `java.lang.reflect.Member.getModifiers()` or `Class.getModifiers()` returns. Use
-  the helpers in `java.lang.reflect.Modifier`.
-- `boolean isMoreRestrictiveThan(AccessLevel other)` answers whether this level
-  allows access to fewer places than `other`.
-- `static AccessLevel mostRestrictive(AccessLevel first, AccessLevel... rest)`
-  returns the most restrictive of the levels given.
-
-The constants are declared in alphabetical order, which is **not** the order of
-restrictiveness.
-
-Examples:
-
-```
-of(Modifier.PUBLIC)                                 -> PUBLIC
-of(Modifier.STATIC | Modifier.FINAL)                -> PACKAGE
-PACKAGE.isMoreRestrictiveThan(PUBLIC)               -> true
-mostRestrictive(PUBLIC, PROTECTED)                  -> PROTECTED
-```
+Support also opens objects whose class comes from the JDK, such as the plain `ArrayList` behind a
+cart. For those the page must still render, with `FieldReader.HIDDEN` in place of each value the
+JVM won't let the reader see. About ten lines in total.

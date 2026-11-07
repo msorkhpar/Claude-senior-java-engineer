@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Transfers that cannot deadlock",
+  "title": "Sell each seat once without stalling the box office",
   "blocks": [
     {
       "type": "heading",
@@ -19,56 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's classic deadlock: thread A runs `synchronized(account1) { synchronized(account2) { ... } }` while thread B runs the same with the accounts swapped. Each holds one lock and waits forever for the other. Its fix is **lock ordering**: every transfer takes the two locks in one global order, such as by account id."
+      "text": "The theatre's box office sells seats from many request threads at once, and each sale charges the buyer's card through a payment gateway that takes a second or two. The first version charged two buyers for the same seat on the night of a premiere. Its replacement never double-charged, but during a sell-out every buyer in the queue waited for every charge ahead of them. And once, after the gateway timed out, a seat stayed unsellable until the service was restarted."
     },
     {
       "type": "para",
-      "text": "Write `Bank.transfer(Account from, Account to, int amount, Runnable holdingFirst)`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "It locks **both** accounts (synchronize on the `Account` objects), and moves `amount` from `from` to `to`, returning `true`.",
-        "Call `holdingFirst.run()` exactly once, right after you hold the **first** of the two locks and before you take the second. The tests use it to line two transfers up.",
-        "A transfer larger than `from`'s balance is refused: return `false` and change nothing.",
-        "A transfer from an account to itself is refused: return `false`.",
-        "Two transfers in opposite directions, run at the same time, must both finish."
-      ]
+      "text": "Write `book(...)` in `src/main/java/practice/SeatMap.java`. It sells a free seat to the holder of the card and returns `true`; it returns `false` when the seat isn't free or the card is declined, and lets an exception from the gateway reach the caller. With many buyers at once, no seat is charged to two buyers, a booking never waits for the charge of a different seat, and a seat whose charge failed in any way can be sold again. `state(...)` reports `FREE`, `HELD` or `SOLD`. About twelve lines in total."
     },
     {
       "type": "para",
-      "text": "`Account(long id, int balance)` is given: `id()` and `balance()` read it."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "accounts",
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`a = (1, 100)`, `b = (2, 50)`",
-          "`transfer(a, b, 30, hook)`",
-          "`true`; `a` has 70, `b` has 80"
-        ],
-        [
-          "`a = (1, 10)`, `b = (2, 50)`",
-          "`transfer(a, b, 30, hook)`",
-          "`false`; nothing changes"
-        ],
-        [
-          "`a = (1, 100)`",
-          "`transfer(a, a, 10, hook)`",
-          "`false`"
-        ],
-        [
-          "`a = (1, 100)`, `b = (2, 50)`",
-          "`transfer(a, b, 30, hook)` and `transfer(b, a, 20, hook)` at once",
-          "both `true`; `a` has 90, `b` has 60"
-        ]
-      ]
+      "text": "The tests use a gateway that can hold a charge open, decline a card, or throw."
     },
     {
       "type": "heading",
@@ -83,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Bank {\n\n    private Bank() {\n    }\n\n    /** An account; its balance is guarded by the account object itself. */\n    public static final class Account {\n        private final long id;\n        int balance;\n\n        public Account(long id, int balance) {\n            this.id = id;\n            this.balance = balance;\n        }\n\n        public long id() {\n            return id;\n        }\n\n        public int balance() {\n            synchronized (this) {\n                return balance;\n            }\n        }\n    }\n\n    /**\n     * Moves {@code amount} from {@code from} to {@code to} under both accounts' locks.\n     * Calls {@code holdingFirst} once, while holding the first lock and before taking the second.\n     */\n    public static boolean transfer(Account from, Account to, int amount, Runnable holdingFirst) {\n        if (from == to) {\n            return false;\n        }\n        Account first = from.id() < to.id() ? from : to;\n        Account second = first == from ? to : from;\n        synchronized (first) {\n            holdingFirst.run();\n            synchronized (second) {\n                if (from.balance < amount) {\n                    return false;\n                }\n                from.balance -= amount;\n                to.balance += amount;\n                return true;\n            }\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The seats of one performance. Many request threads book seats at once; a booking charges the\n * buyer's card through the payment gateway, which takes a second or two.\n */\npublic class SeatMap {\n\n    public enum State { FREE, HELD, SOLD }\n\n    /** Charges a card. True when the charge went through, false when the card was declined. */\n    public interface Gateway {\n        boolean charge(String card, long cents);\n    }\n\n    private final Object lock = new Object();\n    private final Map<String, State> seats = new HashMap<>();\n    private final long priceCents;\n    private final Gateway gateway;\n\n    public SeatMap(List<String> seatIds, long priceCents, Gateway gateway) {\n        for (String id : seatIds) seats.put(id, State.FREE);\n        this.priceCents = priceCents;\n        this.gateway = gateway;\n    }\n\n    public State state(String seat) {\n        synchronized (lock) {\n            return seats.get(seat);\n        }\n    }\n\n    /**\n     * Sells a seat to the holder of the card. True when the seat is now theirs; false when it\n     * wasn't free or the card was declined. An exception from the gateway reaches the caller.\n     */\n    public boolean book(String seat, String card) {\n        synchronized (lock) {\n            if (seats.get(seat) != State.FREE) return false;\n            seats.put(seat, State.HELD);\n        }\n        boolean paid = false;\n        try {\n            paid = gateway.charge(card, priceCents);\n        } finally {\n            synchronized (lock) {\n                seats.put(seat, paid ? State.SOLD : State.FREE);\n            }\n        }\n        return paid;\n    }\n}\n"
         }
       ]
     },
@@ -95,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Bank {\n\n    private Bank() {\n    }\n\n    /** An account; its balance is guarded by the account object itself. */\n    public static final class Account {\n        private final long id;\n        int balance;\n\n        public Account(long id, int balance) {\n            this.id = id;\n            this.balance = balance;\n        }\n\n        public long id() {\n            return id;\n        }\n\n        public int balance() {\n            synchronized (this) {\n                return balance;\n            }\n        }\n    }\n\n    /**\n     * Moves {@code amount} from {@code from} to {@code to} under both accounts' locks.\n     * Calls {@code holdingFirst} once, while holding the first lock and before taking the second.\n     */\n    public static boolean transfer(Account from, Account to, int amount, Runnable holdingFirst) {\n        throw new UnsupportedOperationException(\"write transfer\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The seats of one performance. Many request threads book seats at once; a booking charges the\n * buyer's card through the payment gateway, which takes a second or two.\n */\npublic class SeatMap {\n\n    public enum State { FREE, HELD, SOLD }\n\n    /** Charges a card. True when the charge went through, false when the card was declined. */\n    public interface Gateway {\n        boolean charge(String card, long cents);\n    }\n\n    private final Object lock = new Object();\n    private final Map<String, State> seats = new HashMap<>();\n    private final long priceCents;\n    private final Gateway gateway;\n\n    public SeatMap(List<String> seatIds, long priceCents, Gateway gateway) {\n        for (String id : seatIds) seats.put(id, State.FREE);\n        this.priceCents = priceCents;\n        this.gateway = gateway;\n    }\n\n    public State state(String seat) {\n        synchronized (lock) {\n            return seats.get(seat);\n        }\n    }\n\n    /**\n     * Sells a seat to the holder of the card. True when the seat is now theirs; false when it\n     * wasn't free or the card was declined. An exception from the gateway reaches the caller.\n     */\n    public boolean book(String seat, String card) {\n        // TODO: Sell the seat if it is free, charging the card the price of the seat. Many threads\n        //       book at once: a seat is never charged to two buyers, booking one seat never waits\n        //       for another seat's charge, and a seat whose charge failed or threw can be sold again.\n        throw new IllegalStateException(\"TODO: book\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -105,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -114,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "affebc609bf5c9adb4710d7989ae79fe1795af47b5cae5389c17f62accbf3e65",
-  "starting_code": "package practice;\n\npublic final class Bank {\n\n    private Bank() {\n    }\n\n    /** An account; its balance is guarded by the account object itself. */\n    public static final class Account {\n        private final long id;\n        int balance;\n\n        public Account(long id, int balance) {\n            this.id = id;\n            this.balance = balance;\n        }\n\n        public long id() {\n            return id;\n        }\n\n        public int balance() {\n            synchronized (this) {\n                return balance;\n            }\n        }\n    }\n\n    /**\n     * Moves {@code amount} from {@code from} to {@code to} under both accounts' locks.\n     * Calls {@code holdingFirst} once, while holding the first lock and before taking the second.\n     */\n    public static boolean transfer(Account from, Account to, int amount, Runnable holdingFirst) {\n        throw new UnsupportedOperationException(\"write transfer\");\n    }\n}\n",
+  "content_sha256": "4c237abc6c64e16eeb34cfac46e58f8ed97774f8379026f2780abf5809f4e726",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The seats of one performance. Many request threads book seats at once; a booking charges the\n * buyer's card through the payment gateway, which takes a second or two.\n */\npublic class SeatMap {\n\n    public enum State { FREE, HELD, SOLD }\n\n    /** Charges a card. True when the charge went through, false when the card was declined. */\n    public interface Gateway {\n        boolean charge(String card, long cents);\n    }\n\n    private final Object lock = new Object();\n    private final Map<String, State> seats = new HashMap<>();\n    private final long priceCents;\n    private final Gateway gateway;\n\n    public SeatMap(List<String> seatIds, long priceCents, Gateway gateway) {\n        for (String id : seatIds) seats.put(id, State.FREE);\n        this.priceCents = priceCents;\n        this.gateway = gateway;\n    }\n\n    public State state(String seat) {\n        synchronized (lock) {\n            return seats.get(seat);\n        }\n    }\n\n    /**\n     * Sells a seat to the holder of the card. True when the seat is now theirs; false when it\n     * wasn't free or the card was declined. An exception from the gateway reaches the caller.\n     */\n    public boolean book(String seat, String card) {\n        // TODO: Sell the seat if it is free, charging the card the price of the seat. Many threads\n        //       book at once: a seat is never charged to two buyers, booking one seat never waits\n        //       for another seat's charge, and a seat whose charge failed or threw can be sold again.\n        throw new IllegalStateException(\"TODO: book\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-2/src/main/java/practice/Bank.java",
-    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-2/src/test/java/practice/BankTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-2/src/main/java/practice/SeatMap.java",
+    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-2/src/test/java/practice/SeatMapTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -139,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BankTest#movesMoney",
+        "id": "practice.SeatMapTest#sellsAFreeSeatOnceAndChargesForIt",
         "kind": "main",
-        "says": "A transfer with enough funds moves the amount from one account to the other."
+        "says": "a free seat is sold and charged once; booking it again is refused without a charge"
       },
       {
-        "id": "practice.BankTest#oppositeTransfersBothFinish",
-        "kind": "edge",
-        "says": "Two transfers in opposite directions between the same two accounts both finish, even when each holds its first lock before the other takes its second."
+        "id": "practice.SeatMapTest#aDeclinedCardLeavesTheSeatForTheNextBuyer",
+        "kind": "main",
+        "says": "a declined card leaves the seat free, and the next buyer gets it"
       },
       {
-        "id": "practice.BankTest#refusesAnOverdraft",
+        "id": "practice.SeatMapTest#aSeatBeingPaidForIsNotChargedToASecondBuyer",
         "kind": "edge",
-        "says": "A transfer larger than the source balance is refused and changes nothing."
+        "says": "while one buyer's card is being charged for a seat, a second buyer of that seat is not charged"
       },
       {
-        "id": "practice.BankTest#refusesATransferToItself",
+        "id": "practice.SeatMapTest#anotherSeatSellsWhileACardIsBeingCharged",
         "kind": "edge",
-        "says": "A transfer from an account to itself is refused."
+        "says": "a booking of another seat completes while a slow charge is in progress"
+      },
+      {
+        "id": "practice.SeatMapTest#aGatewayTimeoutLeavesTheSeatSellable",
+        "kind": "edge",
+        "says": "when the gateway throws, the exception reaches the caller and the seat can be sold again"
       }
     ],
     "report": {
@@ -165,11 +129,12 @@
     },
     "origin": {
       "path": "21-synchronization/README_6.2.1.md",
-      "section": "Avoiding Deadlocks"
+      "section": "Hold the Lock for the State, Not for the Slow Call"
     },
     "concepts": [
-      "Two threads that take the same two locks in opposite orders can each hold one and wait forever for the other.",
-      "Taking locks in one global order, such as by account id, removes the circular wait and so the deadlock."
+      "A check in one synchronized call and an act in another is not atomic; the decision and the act must happen in one hold of the lock.",
+      "The monitor is released however the block exits, and the next thread sees whatever the block wrote before it threw.",
+      "Slow calls run with no lock held: reserve under the lock, call, then settle under the lock, giving the reservation back if the call fails or throws."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A limiter that rejects instead of queueing",
+  "title": "Decide which render requests wait for a renderer",
   "blocks": [
     {
       "type": "heading",
@@ -19,58 +19,19 @@
     },
     {
       "type": "para",
-      "text": "For rate limiting the page advises `tryAcquire()` **without blocking**: reject the excess work instead of queueing it. Two of its pitfalls apply at once: release the permit in `finally`, or one exception leaks it for ever; and only release what you acquired, or the count inflates beyond its limit."
+      "text": "The PDF render farm has a fixed number of renderers, shared by two kinds of work. Interactive previews come from users looking at a spinner. Batch documents come from the nightly scheduler, which retries anything refused a few minutes later and runs on a small thread pool of its own."
     },
     {
       "type": "para",
-      "text": "Write `Bulkhead`, which lets at most `limit` tasks run at the same time:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`<T> Optional<T> tryCall(Supplier<T> task)` runs `task` if a slot is free **right now** and returns its result; if every slot is busy it returns `Optional.empty()` at once, without waiting at all (not even a short timed wait) and without running the task. Whatever the task throws, an exception or an `Error`, reaches the caller, and the slot is given back either way.",
-        "`int available()` is the number of free slots."
-      ]
+      "text": "Last night a slow font server made every render take a minute. The scheduler's threads all ended up parked inside `batch(...)`, so it stopped scheduling anything, including the jobs that don't render at all. Users complained too: some previews spun until the browser gave up, and others were turned away while documents nobody was looking at were being rendered."
     },
     {
       "type": "para",
-      "text": "A caller whose interrupt flag is set is not refused for that: with a slot free, its task runs. The tests never race two callers for the last slot, so doing the check and the take as one atomic step, which is why the page uses `tryAcquire()`, is good practice they do not grade."
+      "text": "Finish `admitPreview()` and `admitBatch()` in `src/main/java/practice/RenderAdmission.java`. `preview(...)` and `batch(...)` already render and give the renderer back. When you're done, a preview waits for a renderer, but no longer than `previewWaitMillis`; a batch document never waits, and never takes a renderer that another caller is already queued for. About two lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "limit",
-        "situation",
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "2",
-          "idle",
-          "`tryCall(() -> \"done\")`, `available()`",
-          "`Optional[done]`, `2`"
-        ],
-        [
-          "1",
-          "another task is running",
-          "`tryCall(() -> \"x\")`",
-          "`Optional.empty` at once; the task did not run"
-        ],
-        [
-          "1",
-          "idle",
-          "`tryCall(() -> { throw new IllegalStateException(); })`, then `available()`",
-          "throws; then `1`"
-        ],
-        [
-          "1",
-          "a call was rejected while another ran; that one finished",
-          "`available()`",
-          "`1`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests hand the class its semaphore, so they can hold renderers, queue callers, and play a second scheduler that takes a renderer at an awkward moment."
     },
     {
       "type": "heading",
@@ -85,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.concurrent.Semaphore;\nimport java.util.function.Supplier;\n\n/** Lets at most {@code limit} tasks run at once and rejects the rest without waiting. */\npublic final class Bulkhead {\n\n    private final Semaphore slots;\n\n    public Bulkhead(int limit) {\n        this.slots = new Semaphore(limit);\n    }\n\n    /** Runs {@code task} if a slot is free right now; otherwise returns empty without running it. */\n    public <T> Optional<T> tryCall(Supplier<T> task) {\n        if (!slots.tryAcquire()) {\n            return Optional.empty();\n        }\n        try {\n            return Optional.of(task.get());\n        } finally {\n            slots.release();\n        }\n    }\n\n    /** The number of free slots. */\n    public int available() {\n        return slots.availablePermits();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Admits work to the PDF render farm, which has a fixed number of renderers. Interactive previews\n * come from users looking at a screen; batch documents come from the nightly scheduler, which\n * retries anything refused a few minutes later.\n */\npublic class RenderAdmission {\n\n    private final Semaphore renderers;\n    private final long previewWaitMillis;\n\n    /** The renderers' semaphore must be fair: previews are served in the order they arrive. */\n    RenderAdmission(Semaphore renderers, long previewWaitMillis) {\n        this.renderers = renderers;\n        this.previewWaitMillis = previewWaitMillis;\n    }\n\n    public RenderAdmission(int renderers, long previewWaitMillis) {\n        this(new Semaphore(renderers, true), previewWaitMillis);\n    }\n\n    /** Renders a preview; false when no renderer could be had for it. */\n    public boolean preview(Runnable render) throws InterruptedException {\n        if (!admitPreview()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Renders a batch document; false when it was refused and the scheduler should retry. */\n    public boolean batch(Runnable render) throws InterruptedException {\n        if (!admitBatch()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Takes a renderer for a preview. True when one was taken. */\n    boolean admitPreview() throws InterruptedException {\n        return renderers.tryAcquire(previewWaitMillis, TimeUnit.MILLISECONDS);\n    }\n\n    /** Takes a renderer for a batch document. True when one was taken. */\n    boolean admitBatch() throws InterruptedException {\n        return renderers.tryAcquire(0, TimeUnit.SECONDS);\n    }\n}\n"
         }
       ]
     },
@@ -97,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.function.Supplier;\n\n/** Lets at most {@code limit} tasks run at once and rejects the rest without waiting. */\npublic final class Bulkhead {\n\n    public Bulkhead(int limit) {\n    }\n\n    /** Runs {@code task} if a slot is free right now; otherwise returns empty without running it. */\n    public <T> Optional<T> tryCall(Supplier<T> task) {\n        throw new UnsupportedOperationException(\"write tryCall\");\n    }\n\n    /** The number of free slots. */\n    public int available() {\n        throw new UnsupportedOperationException(\"write available\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Admits work to the PDF render farm, which has a fixed number of renderers. Interactive previews\n * come from users looking at a screen; batch documents come from the nightly scheduler, which\n * retries anything refused a few minutes later.\n */\npublic class RenderAdmission {\n\n    private final Semaphore renderers;\n    private final long previewWaitMillis;\n\n    /** The renderers' semaphore must be fair: previews are served in the order they arrive. */\n    RenderAdmission(Semaphore renderers, long previewWaitMillis) {\n        this.renderers = renderers;\n        this.previewWaitMillis = previewWaitMillis;\n    }\n\n    public RenderAdmission(int renderers, long previewWaitMillis) {\n        this(new Semaphore(renderers, true), previewWaitMillis);\n    }\n\n    /** Renders a preview; false when no renderer could be had for it. */\n    public boolean preview(Runnable render) throws InterruptedException {\n        if (!admitPreview()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Renders a batch document; false when it was refused and the scheduler should retry. */\n    public boolean batch(Runnable render) throws InterruptedException {\n        if (!admitBatch()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Takes a renderer for a preview. True when one was taken. */\n    boolean admitPreview() throws InterruptedException {\n        // TODO: A user is waiting for this preview. Give it a renderer if one is free, or comes\n        //       free within previewWaitMillis; after that, the user is better served by \"try again\".\n        throw new IllegalStateException(\"TODO: admitPreview\");\n    }\n\n    /** Takes a renderer for a batch document. True when one was taken. */\n    boolean admitBatch() throws InterruptedException {\n        // TODO: The scheduler will retry this document later, so it must never hold a thread here\n        //       waiting for a renderer, and it must never take a renderer a preview is queued for.\n        throw new IllegalStateException(\"TODO: admitBatch\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -105,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -116,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0a086d6c3db2bd9ec19cd664ab7b0dd3bf3a1864852673b9d15775aa86b75da9",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\nimport java.util.function.Supplier;\n\n/** Lets at most {@code limit} tasks run at once and rejects the rest without waiting. */\npublic final class Bulkhead {\n\n    public Bulkhead(int limit) {\n    }\n\n    /** Runs {@code task} if a slot is free right now; otherwise returns empty without running it. */\n    public <T> Optional<T> tryCall(Supplier<T> task) {\n        throw new UnsupportedOperationException(\"write tryCall\");\n    }\n\n    /** The number of free slots. */\n    public int available() {\n        throw new UnsupportedOperationException(\"write available\");\n    }\n}\n",
+  "content_sha256": "efd5986c55fe10bc3caee248c9dcead86784c29a5ad3e432e7376cbbb4595c9d",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Admits work to the PDF render farm, which has a fixed number of renderers. Interactive previews\n * come from users looking at a screen; batch documents come from the nightly scheduler, which\n * retries anything refused a few minutes later.\n */\npublic class RenderAdmission {\n\n    private final Semaphore renderers;\n    private final long previewWaitMillis;\n\n    /** The renderers' semaphore must be fair: previews are served in the order they arrive. */\n    RenderAdmission(Semaphore renderers, long previewWaitMillis) {\n        this.renderers = renderers;\n        this.previewWaitMillis = previewWaitMillis;\n    }\n\n    public RenderAdmission(int renderers, long previewWaitMillis) {\n        this(new Semaphore(renderers, true), previewWaitMillis);\n    }\n\n    /** Renders a preview; false when no renderer could be had for it. */\n    public boolean preview(Runnable render) throws InterruptedException {\n        if (!admitPreview()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Renders a batch document; false when it was refused and the scheduler should retry. */\n    public boolean batch(Runnable render) throws InterruptedException {\n        if (!admitBatch()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Takes a renderer for a preview. True when one was taken. */\n    boolean admitPreview() throws InterruptedException {\n        // TODO: A user is waiting for this preview. Give it a renderer if one is free, or comes\n        //       free within previewWaitMillis; after that, the user is better served by \"try again\".\n        throw new IllegalStateException(\"TODO: admitPreview\");\n    }\n\n    /** Takes a renderer for a batch document. True when one was taken. */\n    boolean admitBatch() throws InterruptedException {\n        // TODO: The scheduler will retry this document later, so it must never hold a thread here\n        //       waiting for a renderer, and it must never take a renderer a preview is queued for.\n        throw new IllegalStateException(\"TODO: admitBatch\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-2/src/main/java/practice/Bulkhead.java",
-    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-2/src/test/java/practice/BulkheadTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-2/src/main/java/practice/RenderAdmission.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-2/src/test/java/practice/RenderAdmissionTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -141,29 +102,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BulkheadTest#runsWhenASlotIsFree",
+        "id": "practice.RenderAdmissionTest#previewsAndBatchDocumentsRenderWhenRenderersAreFree",
         "kind": "main",
-        "says": "With a slot free, the task runs, its result comes back, and the slot is free again."
+        "says": "with renderers free, previews and batch documents are rendered and every renderer is free again afterwards"
       },
       {
-        "id": "practice.BulkheadTest#rejectsWhenFull",
+        "id": "practice.RenderAdmissionTest#aBatchDocumentNeverWaitsEvenWhenARendererIsTakenUnderIt",
         "kind": "edge",
-        "says": "With every slot busy, a call is rejected at once, without waiting even briefly, with an empty result, and its task does not run."
+        "says": "a batch document returns at once even when another caller takes the last renderer between a look at the count and the take"
       },
       {
-        "id": "practice.BulkheadTest#slotReturnedWhenTaskThrows",
+        "id": "practice.RenderAdmissionTest#aBatchDocumentIsRefusedAtOnceWhenEveryRendererIsBusy",
         "kind": "edge",
-        "says": "A task that throws, an exception or an Error, passes it on and still gives its slot back."
+        "says": "a batch document is refused at once when every renderer is busy, without waiting as a preview would"
       },
       {
-        "id": "practice.BulkheadTest#rejectionReturnsNoPermit",
+        "id": "practice.RenderAdmissionTest#aBatchDocumentDoesNotTakeARendererSomeoneIsQueuedFor",
         "kind": "edge",
-        "says": "A rejected call gives back no permit, so the limit is not inflated."
+        "says": "a batch document does not take a free renderer while another caller is queued for renderers"
       },
       {
-        "id": "practice.BulkheadTest#aFreeSlotIsTakenWithoutWaiting",
+        "id": "practice.RenderAdmissionTest#aPreviewGetsARendererThatFreesUpWhileItWaits",
         "kind": "edge",
-        "says": "The slot is taken with a check that never waits: a caller whose interrupt flag is set still gets a free slot, where any wait, even a timed one, would throw InterruptedException first."
+        "says": "a preview waits for a renderer that frees up within its wait, and renders"
+      },
+      {
+        "id": "practice.RenderAdmissionTest#aPreviewGivesUpWhenNoRendererFreesUpInTime",
+        "kind": "edge",
+        "says": "a preview gives up and returns false once its wait has passed"
       }
     ],
     "report": {
@@ -172,12 +138,11 @@
     },
     "origin": {
       "path": "22-locks-semaphores/README_6.3.2.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "When the Permits Run Out, Choose: Wait, Wait a Bounded Time, or Refuse"
     },
     "concepts": [
-      "For rate limiting, tryAcquire() without a timeout rejects excess work at once instead of queueing it.",
-      "A permit is released in a finally block, so an exception in the guarded work cannot leak it.",
-      "A call that failed to get a permit must not release one, or the limit grows with every rejection."
+      "acquire() waits without bound, tryAcquire(timeout) waits a bounded time, tryAcquire() decides at once; checking availablePermits() before acquire() is a race.",
+      "The untimed tryAcquire() takes a free permit even when threads are queued on a fair semaphore; tryAcquire(0, SECONDS) respects the queue."
     ]
   }
 }

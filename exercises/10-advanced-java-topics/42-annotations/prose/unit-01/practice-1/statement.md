@@ -1,24 +1,16 @@
-The page's `LegacyApi` keeps two old methods working while it steers callers
-to their replacements. `@Deprecated` says how urgent the move is: `since`
-names the version, and `forRemoval = true` warns that the method **will be
-removed**, while plain `@Deprecated` only discourages it. `@Deprecated` has
-RUNTIME retention, so the tests read it back through reflection.
+The API gateway reads its rate limits from a YAML file: for each route, a list of requests allowed
+per minute, one per customer tier. Last week someone wrote a limit as `"20"`, in quotes. The
+gateway started without a complaint, and the first request to that route killed the request
+scheduler with a `ClassCastException` in code that has no cast. On another night, a hot-reload
+job edited the parsed tree after it was loaded, and the running limits changed under the
+scheduler.
 
-Write `LegacyApi`:
+`RateLimits` already loads the file. Finish the `TODO` in
+`src/main/java/practice/RateLimits.java`:
 
-- `oldMethod()` returns `"old result"`. It is deprecated since `"2.0"` and
-  **for removal**.
-- `newMethod()` returns `"new result"`. It is its replacement.
-- `legacyCalculation(a, b)` returns `a + b` and wraps on overflow, as it always
-  has. It is deprecated since `"1.5"` but **not for removal**.
-- `modernCalculation(a, b)` returns `a + b` but **refuses overflow** with
-  `ArithmeticException`.
+- `integers(route, node)`: turn one route's parsed node into the list of limits the rest of the
+  gateway reads.
 
-| call | result |
-|---|---|
-| `oldMethod()` | `"old result"` |
-| `legacyCalculation(Integer.MAX_VALUE, 1)` | `-2147483648` |
-| `modernCalculation(2, 3)` | `5` |
-| `modernCalculation(Integer.MAX_VALUE, 1)` | `ArithmeticException` |
-| `@Deprecated` on `oldMethod` | `since = "2.0"`, `forRemoval = true` |
-| `@Deprecated` on `legacyCalculation` | `since = "1.5"`, `forRemoval = false` |
+When you're done, bad configuration stops the load itself, with an `IllegalArgumentException`
+whose message names the route, and the limits a `RateLimits` holds can't change after `load`
+returns. The method needs no `@SuppressWarnings`. About ten lines in total.

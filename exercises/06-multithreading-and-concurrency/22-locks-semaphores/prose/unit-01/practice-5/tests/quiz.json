@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "06-multithreading-and-concurrency",
+    "22-locks-semaphores"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 5,
+  "title": "Check yourself: reentrant locks",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-locks-in-a-loop",
+        "stem": "A pricing method runs `for (Item i : basket) { lock.lock(); total += price(i); }` and then a single `lock.unlock()` after the loop. A worker thread calls it for a basket of three items. Afterwards, a second thread calls `lock.lock()`. What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The worker finishes; the second thread then waits indefinitely, since the worker's one unlock() gave back one of its three holds",
+            "correct": true,
+            "says": "the lock counts holds per thread: three lock() calls and one unlock() leave two holds, and the lock is free only at zero"
+          },
+          {
+            "id": "b",
+            "text": "The worker finishes; the second thread then gets the lock, since the worker's one unlock() gave back all three of its holds",
+            "correct": false,
+            "says": "unlock() takes away one hold; the lock is free only when the hold count is back to zero"
+          },
+          {
+            "id": "c",
+            "text": "The worker stops at its second lock(), since that call waits for the hold the worker already has",
+            "correct": false,
+            "says": "the lock is reentrant: the thread that holds it gets it again at once and the count goes up"
+          },
+          {
+            "id": "d",
+            "text": "The worker stops at its unlock(), since unlocking once after locking three times throws IllegalMonitorStateException",
+            "correct": false,
+            "says": "the owner may unlock while it still holds the lock; IllegalMonitorStateException comes from a thread that doesn't hold it"
+          }
+        ],
+        "origin": {
+          "path": "22-locks-semaphores/README_6.3.1.md",
+          "section": "The Lock Counts Holds: One unlock() per lock(), by the Thread That Holds It"
+        }
+      },
+      {
+        "id": "q-unlock-in-callback",
+        "stem": "An upload handler calls `lock.lock()` on the request thread, starts an asynchronous upload and returns. The upload's completion callback runs on a thread of the I/O pool and calls `lock.unlock()`. What happens when the first upload completes?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The callback's unlock() throws, and the lock stays held, since only the thread that took the lock may release it",
+            "correct": true,
+            "says": "the holds belong to the request thread; unlock() from any other thread throws IllegalMonitorStateException, and the lock stays held"
+          },
+          {
+            "id": "b",
+            "text": "The callback's unlock() returns normally, and the lock is free, since any thread may release it once the work is done",
+            "correct": false,
+            "says": "a ReentrantLock has an owner; releasing a permit from another thread is what a semaphore allows"
+          },
+          {
+            "id": "c",
+            "text": "The callback's unlock() throws, and the lock is already free, since the handler's return released it earlier",
+            "correct": false,
+            "says": "nothing releases a ReentrantLock but unlock(); returning from the handler doesn't, so the lock is still held"
+          },
+          {
+            "id": "d",
+            "text": "The callback's unlock() returns normally, and the lock is free, since the request thread's hold passed to the pool",
+            "correct": false,
+            "says": "the holds stay with the thread that took them, also when it goes back to its pool; they never move to another thread"
+          }
+        ],
+        "origin": {
+          "path": "22-locks-semaphores/README_6.3.1.md",
+          "section": "The Lock Counts Holds: One unlock() per lock(), by the Thread That Holds It"
+        }
+      },
+      {
+        "id": "q-await-from-nested-call",
+        "stem": "A dispatcher holds `lock` and calls a helper that locks the same lock again and then calls `ready.await()` on a condition created from that lock. While the dispatcher waits, a producer thread calls `lock.lock()`. What does the producer get?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It gets the lock at once, since await() lets go of both holds while the dispatcher waits",
+            "correct": true,
+            "says": "await() releases all of the thread's holds while it waits and gives them back before it returns"
+          },
+          {
+            "id": "b",
+            "text": "It gets the lock at once, since await() ends the dispatcher's ownership until it calls lock() again",
+            "correct": false,
+            "says": "await() takes the lock again by itself before it returns, with the same hold count as before"
+          },
+          {
+            "id": "c",
+            "text": "It waits until the dispatcher is signalled, since await() lets go of one hold and the other stays",
+            "correct": false,
+            "says": "await() releases all of the thread's holds, not just one"
+          },
+          {
+            "id": "d",
+            "text": "It waits until the dispatcher is signalled, since a thread waiting on a condition keeps the lock it holds",
+            "correct": false,
+            "says": "await() releases the lock while the thread waits; that is what lets another thread change the state"
+          }
+        ],
+        "origin": {
+          "path": "22-locks-semaphores/README_6.3.1.md",
+          "section": "A Condition Gives Up the Lock While It Waits, So Check Again After await()"
+        }
+      },
+      {
+        "id": "q-trylock-on-fair-lock",
+        "stem": "A fair `ReentrantLock` guards a ledger, and five posting threads wait for it in `lock()`. A health check calls `lock.tryLock()` at the moment the lock is released. What happens to the health check's call?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It returns at once, and it can take the lock ahead of the five, since tryLock() ignores the queue",
+            "correct": true,
+            "says": "the javadoc and the run agree: tryLock() barges even on a fair lock; tryLock(0, SECONDS) respects the queue"
+          },
+          {
+            "id": "b",
+            "text": "It returns at once, and it can't take the lock ahead of the five, since a fair lock serves the longest waiter",
+            "correct": false,
+            "says": "that is what lock() and tryLock(0, SECONDS) see on a fair lock; the untimed tryLock() ignores the queue"
+          },
+          {
+            "id": "c",
+            "text": "It waits behind the five, since a fair lock serves requests in the order they arrived",
+            "correct": false,
+            "says": "tryLock() never waits; and on a fair lock it doesn't respect the queue either"
+          },
+          {
+            "id": "d",
+            "text": "It waits behind the five, since tryLock() on a fair lock queues the way lock() does",
+            "correct": false,
+            "says": "the untimed tryLock() returns at once, with or without the lock"
+          }
+        ],
+        "origin": {
+          "path": "22-locks-semaphores/README_6.3.1.md",
+          "section": "A Non-Fair Lock Lets a Newcomer Go First; a Fair Lock Queues, and Costs Throughput"
+        }
+      }
+    ]
+  }
+}

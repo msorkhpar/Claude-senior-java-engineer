@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Newest first from any sequenced collection",
+  "title": "Keep page sizes and usage gauges in range",
   "blocks": [
     {
       "type": "heading",
@@ -19,53 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Java 21's sequenced collections (JEP 431) give every collection with a defined order the same methods: `getFirst()`, `getLast()` and `reversed()`, a reversed **view** of the collection. `List`, `Deque`, `LinkedHashSet` and `TreeSet` are all a `SequencedCollection`, where before each had its own way (or none) to reach the last element. The page's edge case: `getFirst()` and `getLast()` throw `NoSuchElementException` on an **empty** collection."
+      "text": "The reporting API has two range bugs. A scraper that asks for `?size=4294967346` gets pages of 50 rows and pages through the whole table, where anyone asking for more than the maximum should get the largest page. And the usage page of a new account, which has no quota yet and has used nothing, draws its gauge as `NaN` and breaks the chart."
     },
     {
       "type": "para",
-      "text": "Write the class `Recent`, for any `SequencedCollection` of non-null elements in oldest-to-newest order:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`newestFirst(SequencedCollection<T> items, int n)` returns the last `n` elements, newest first, as a **new list** that later changes to `items` do not affect. When `n` is larger than the size, return all of them. `n` is never negative.",
-        "`oldest(SequencedCollection<T> items)` returns the first element, or an empty `Optional` when `items` is empty."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "It must work for **any** sequenced collection, not only lists."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "items",
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`List [\"a\", \"b\", \"c\", \"d\"]`",
-          "`newestFirst(items, 2)`",
-          "`[\"d\", \"c\"]`"
-        ],
-        [
-          "same",
-          "`newestFirst(items, 10)`, `oldest(items)`",
-          "`[\"d\", \"c\", \"b\", \"a\"]`, `Optional[a]`"
-        ],
-        [
-          "`LinkedHashSet [\"x\", \"y\", \"z\"]`",
-          "`newestFirst(items, 2)`",
-          "`[\"z\", \"y\"]`"
-        ],
-        [
-          "an empty list",
-          "`newestFirst(items, 3)`, `oldest(items)`",
-          "`[]`, `Optional.empty`"
-        ]
-      ]
+      "text": "Finish `pageSize(requested)` and `gauge(used, quota)` in `src/main/java/practice/Limits.java`. The web layer has already parsed `?size=` into a `long`. Each method's comment says what it must return. About three lines in total."
     },
     {
       "type": "heading",
@@ -80,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.SequencedCollection;\n\npublic final class Recent {\n\n    private Recent() {\n    }\n\n    /** The last {@code n} elements, newest first, as a new list. */\n    public static <T> List<T> newestFirst(SequencedCollection<T> items, int n) {\n        List<T> out = new ArrayList<>();\n        for (T item : items.reversed()) {\n            if (out.size() == n) {\n                break;\n            }\n            out.add(item);\n        }\n        return out;\n    }\n\n    /** The first element, or empty for an empty collection. */\n    public static <T> Optional<T> oldest(SequencedCollection<T> items) {\n        return items.isEmpty() ? Optional.empty() : Optional.of(items.getFirst());\n    }\n}\n"
+          "text": "package practice;\n\n/** Turns raw request values into the numbers the reporting API works with. */\npublic final class Limits {\n\n    /** The largest page the API serves. */\n    public static final int MAX_PAGE = 200;\n\n    private Limits() {\n    }\n\n    /**\n     * The page size for a request's {@code ?size=} parameter, which the web layer has already\n     * parsed with {@code Long.parseLong}: never below 1, never above {@link #MAX_PAGE}.\n     */\n    public static int pageSize(long requested) {\n        return Math.clamp(requested, 1, MAX_PAGE);\n    }\n\n    /**\n     * How full a usage gauge is drawn, from 0.0 (empty) to 1.0 (full), for {@code used} out of a\n     * quota of {@code quota}. Over the quota the gauge is full; a refund can make {@code used}\n     * negative, which draws it empty; an account with no quota and no usage draws it empty too.\n     */\n    public static double gauge(double used, double quota) {\n        double share = used / quota;\n        return Double.isNaN(share) ? 0.0 : Math.clamp(share, 0.0, 1.0);\n    }\n}\n"
         }
       ]
     },
@@ -92,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.SequencedCollection;\n\npublic final class Recent {\n\n    private Recent() {\n    }\n\n    /** The last {@code n} elements, newest first, as a new list. */\n    public static <T> List<T> newestFirst(SequencedCollection<T> items, int n) {\n        throw new UnsupportedOperationException(\"write newestFirst\");\n    }\n\n    /** The first element, or empty for an empty collection. */\n    public static <T> Optional<T> oldest(SequencedCollection<T> items) {\n        throw new UnsupportedOperationException(\"write oldest\");\n    }\n}\n"
+      "text": "package practice;\n\n/** Turns raw request values into the numbers the reporting API works with. */\npublic final class Limits {\n\n    /** The largest page the API serves. */\n    public static final int MAX_PAGE = 200;\n\n    private Limits() {\n    }\n\n    /**\n     * The page size for a request's {@code ?size=} parameter, which the web layer has already\n     * parsed with {@code Long.parseLong}: never below 1, never above {@link #MAX_PAGE}.\n     */\n    public static int pageSize(long requested) {\n        // TODO: Between 1 and MAX_PAGE, whatever the request asked for.\n        throw new IllegalStateException(\"TODO: the page size\");\n    }\n\n    /**\n     * How full a usage gauge is drawn, from 0.0 (empty) to 1.0 (full), for {@code used} out of a\n     * quota of {@code quota}. Over the quota the gauge is full; a refund can make {@code used}\n     * negative, which draws it empty; an account with no quota and no usage draws it empty too.\n     */\n    public static double gauge(double used, double quota) {\n        // TODO: From 0.0 to 1.0, for every account.\n        throw new IllegalStateException(\"TODO: the gauge\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -100,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -111,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "653e28e7c1c0464169c467365a1285113f4d494212221a6151c8dacb7cb6c185",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.SequencedCollection;\n\npublic final class Recent {\n\n    private Recent() {\n    }\n\n    /** The last {@code n} elements, newest first, as a new list. */\n    public static <T> List<T> newestFirst(SequencedCollection<T> items, int n) {\n        throw new UnsupportedOperationException(\"write newestFirst\");\n    }\n\n    /** The first element, or empty for an empty collection. */\n    public static <T> Optional<T> oldest(SequencedCollection<T> items) {\n        throw new UnsupportedOperationException(\"write oldest\");\n    }\n}\n",
+  "content_sha256": "f311a0eb9ab6eb375d1123e35175ce55027767ce1cbf0845fd11e8951a99fd00",
+  "starting_code": "package practice;\n\n/** Turns raw request values into the numbers the reporting API works with. */\npublic final class Limits {\n\n    /** The largest page the API serves. */\n    public static final int MAX_PAGE = 200;\n\n    private Limits() {\n    }\n\n    /**\n     * The page size for a request's {@code ?size=} parameter, which the web layer has already\n     * parsed with {@code Long.parseLong}: never below 1, never above {@link #MAX_PAGE}.\n     */\n    public static int pageSize(long requested) {\n        // TODO: Between 1 and MAX_PAGE, whatever the request asked for.\n        throw new IllegalStateException(\"TODO: the page size\");\n    }\n\n    /**\n     * How full a usage gauge is drawn, from 0.0 (empty) to 1.0 (full), for {@code used} out of a\n     * quota of {@code quota}. Over the quota the gauge is full; a refund can make {@code used}\n     * negative, which draws it empty; an account with no quota and no usage draws it empty too.\n     */\n    public static double gauge(double used, double quota) {\n        // TODO: From 0.0 to 1.0, for every account.\n        throw new IllegalStateException(\"TODO: the gauge\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-05/practice-3/src/main/java/practice/Recent.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-05/practice-3/src/test/java/practice/RecentTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-05/practice-3/src/main/java/practice/Limits.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-05/practice-3/src/test/java/practice/LimitsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -136,24 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.RecentTest#newestFirstFromAList",
+        "id": "practice.LimitsTest#ordinaryRequestsStayWithinTheLimits",
         "kind": "main",
-        "says": "From a list, the last n elements come back newest first, and the oldest element is the first one."
+        "says": "ordinary sizes stay between 1 and the maximum page, and the gauge stays between empty and full"
       },
       {
-        "id": "practice.RecentTest#emptyHasNoOldest",
+        "id": "practice.LimitsTest#aSizeBeyondTheIntRangeGetsTheLargestPage",
         "kind": "edge",
-        "says": "An empty collection has no oldest element and no recent ones, and nothing throws."
+        "says": "a requested size too large for an int still gets the largest page, not a small one"
       },
       {
-        "id": "practice.RecentTest#resultIsASnapshot",
+        "id": "practice.LimitsTest#anAccountWithNoQuotaAndNoUsageShowsAnEmptyGauge",
         "kind": "edge",
-        "says": "Changing the collection afterwards does not change a list already returned."
-      },
-      {
-        "id": "practice.RecentTest#worksOnSetsAndDeques",
-        "kind": "edge",
-        "says": "A LinkedHashSet, a TreeSet and an ArrayDeque work as well as a list."
+        "says": "zero used out of a zero quota draws an empty gauge, not an undefined one"
       }
     ],
     "report": {
@@ -162,12 +115,10 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.5.md",
-      "section": "Q5: What are sequenced collections and why were they added?"
+      "section": "Math.clamp Narrows a long Without Wrapping and Refuses a Reversed Range"
     },
     "concepts": [
-      "getFirst() and getLast() throw NoSuchElementException on an empty collection.",
-      "reversed() returns a view of the collection, not a copy.",
-      "SequencedCollection gives lists, deques, LinkedHashSet and TreeSet the same getFirst, getLast and reversed methods."
+      "Math.clamp(long, int, int) narrows a long without wrapping, where casting first wraps; clamp throws when min > max and returns NaN for a NaN value."
     ]
   }
 }

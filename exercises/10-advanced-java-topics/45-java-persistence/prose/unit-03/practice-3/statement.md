@@ -1,19 +1,14 @@
-The page's Q4 imports a list in one transaction and sets a savepoint per
-record, so a bad record is rolled back alone with `rollback(savepoint)` and
-the rest are committed together at the end.
+Every night a partner shop's orders are imported in one transaction. Now and then the partner
+sends a line the database refuses: a missing SKU, or one longer than twelve characters. The
+warehouse has started finding orders in its pick lists that have some of their lines but not all,
+and the partner is asking why a few orders never arrive at all.
 
-Write `Importer.importAll(connection, people)`. Each `Person(id, name, email)`
-takes two inserts: `people(id, name)` and then `emails(person_id, email)`,
-where `email` is UNIQUE. It returns the ids imported, in input order.
+`importAll(...)` in `src/main/java/practice/OrderImport.java` already runs the night in one
+transaction and commits once. Finish `importOne(...)`, which writes one order with `insertOrder` and
+`insertLine` and says whether the order made it into the import.
 
-- Turn autoCommit off, and commit once at the end.
-- **A failure rolls back to that person's own savepoint, keeping the people
-  before it**; that person is skipped.
-- **The savepoint is set before the person's first insert**, so none of a
-  failed person remains.
-- **`autoCommit` is restored** when the import ends.
+When you're done, an order the database refuses any part of is left out entirely, and every other
+order of the night is imported with all its lines. About eight lines.
 
-| people (id, name, email) | returned | rows in people |
-|---|---|---|
-| (1, Ada, ada@example.org), (2, Linus, linus@example.org), (3, Grace, grace@example.org) | `[1, 2, 3]` | 1, 2, 3 |
-| (1, Ada, ada@example.org), (2, Linus, ada@example.org), (3, Grace, grace@example.org) | `[1, 3]` | 1, 3 |
+The tests import into an in-memory H2 database and check what a second connection sees after the
+commit.

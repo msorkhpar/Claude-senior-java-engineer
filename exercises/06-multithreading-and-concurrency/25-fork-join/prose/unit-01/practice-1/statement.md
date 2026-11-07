@@ -1,24 +1,14 @@
-The page's Q3 gives the rule for choosing between the two task types: if you
-need the computation's result, use `RecursiveTask<V>`; if you are performing an
-in-place transformation, use `RecursiveAction`. Rescaling an array needs both:
-first a result (the largest value), then an in-place change.
+The card team scores every payment of the day for fraud risk and adds up the points. Scoring one
+amount is pure arithmetic, but a busy day has forty million of them, and on one thread the nightly
+job no longer finishes before the morning settlement run. The job has been given a
+`ForkJoinPool`, and `RiskPoints` already wraps the day in one task and hands it to that pool.
 
-Write `Percent.ofMax(pool, values, threshold)`. It runs two fork/join
-computations in `pool`, each splitting at the midpoint while a range is longer
-than `threshold`:
+Finish `compute()` of the `Total` task in `src/main/java/practice/RiskPoints.java`. When you're
+done:
 
-1. a `RecursiveTask<Integer>` that finds the **largest** value (the page's pairing: a task for the result, an action for the change);
-2. a `RecursiveAction` that replaces every `values[i]` with
-   `values[i] * 100 / max` (integer division), **in place**.
+- the total is right for any day, including an empty one;
+- the pool's workers score the day together, rather than one after another;
+- the operations dashboard, which shows `tasksCreated()`, sees a few tasks per `threshold`
+  amounts, not one per payment. A range of exactly `threshold` amounts is one task.
 
-Values are never negative. If the largest value is `0`, leave the array alone. Both computations run in
-`pool`, not the common pool. The tests see the results and the pool's workers, not which kind of task found the
-maximum, so the task/action pairing is the page's lesson rather than a graded step.
-
-| values | threshold | values afterwards |
-|---|---|---|
-| `5, 10, 20, 15, 0, 2` | 2 | `25, 50, 100, 75, 0, 10` |
-| `0, 0, 0, 0` | 2 | `0, 0, 0, 0` |
-| `50000000, 100000000, 25000000` | 1 | `50, 100, 25` |
-| `2, 3` | 1 | `66, 100` |
-| `[]` | 2 | `[]` |
+About ten lines in total. The tests run `RiskPoints` on real pools of two and three workers.

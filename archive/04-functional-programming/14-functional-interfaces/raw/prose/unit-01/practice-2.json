@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Chain side effects left to right with andThen",
+  "title": "Archive every event and announce each one once",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`Consumer.andThen(after)` builds a consumer that runs `this` first and `after` second, handing **both the same input**. Chaining is how a pipeline of side effects (log, then store, then notify) is put together from small steps."
+      "text": "Devices upload event ids in batches, and `EventIngest` takes each batch. The raw archive must hold every id the devices sent, repeats included: it is what support reads when a device misbehaves. Subscribers, on the other hand, must hear about each event once, the first time its id arrives, whether the repeat comes in the same batch or a later one."
     },
     {
       "type": "para",
-      "text": "Write `ConsumerChain.chain(List<Consumer<T>> steps)`. It returns one `Consumer<T>` that, on `accept(t)`, runs every step in list order on `t`."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "steps",
-        "`accept(\"Alice\")` records"
-      ],
-      "rows": [
-        [
-          "log, store",
-          "`[\"log:Alice\", \"store:Alice\"]`"
-        ],
-        [
-          "store, log",
-          "`[\"store:Alice\", \"log:Alice\"]`"
-        ],
-        [
-          "log",
-          "`[\"log:Alice\"]`"
-        ]
-      ]
+      "text": "The previous version did both jobs in a stream and returned the batch size from it. The count was always right; the archive had holes, and subscribers were paged twice for the same door opening."
     },
     {
       "type": "para",
-      "text": "The list may contain `null` entries and may be empty; the returned consumer must be usable either way. The chain is fixed when `chain` returns: changing the list afterwards does not change it. When a step throws, that same exception reaches the caller, unwrapped, and the later steps do not run."
+      "text": "Write `ingest(batch)` in `src/main/java/practice/EventIngest.java`. It archives every id, announces the new ones, remembers what it has seen, and returns how many ids the batch held. About four lines in total."
     },
     {
       "type": "heading",
@@ -63,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Consumer;\n\npublic final class ConsumerChain {\n\n    private ConsumerChain() {\n    }\n\n    /** Returns one consumer that runs every non-null step, in list order, on the same input. */\n    public static <T> Consumer<T> chain(List<Consumer<T>> steps) {\n        Consumer<T> result = t -> {\n        };\n        for (Consumer<T> step : steps) {\n            if (step != null) {\n                result = result.andThen(step);\n            }\n        }\n        return result;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.function.Consumer;\n\n/**\n * Takes the batches of event ids that devices upload. Every id received goes to the raw archive,\n * repeats included, because the archive is the record of what the devices sent. Subscribers are\n * told about an event once: the first time its id arrives, in this batch or any earlier one.\n */\npublic class EventIngest {\n\n    private final Set<String> seen = new HashSet<>();\n    private final Consumer<String> archive;\n    private final Consumer<String> subscribers;\n\n    /**\n     * @param archive     appends one id to the raw archive\n     * @param subscribers tells the subscribers about one new event\n     */\n    public EventIngest(Consumer<String> archive, Consumer<String> subscribers) {\n        this.archive = archive;\n        this.subscribers = subscribers;\n    }\n\n    /** Takes one uploaded batch and returns how many ids it held. */\n    public long ingest(List<String> batch) {\n        for (String id : batch) {\n            archive.accept(id);\n            if (seen.add(id)) subscribers.accept(id);\n        }\n        return batch.size();\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Consumer;\n\npublic final class ConsumerChain {\n\n    private ConsumerChain() {\n    }\n\n    /** Returns one consumer that runs every non-null step, in list order, on the same input. */\n    public static <T> Consumer<T> chain(List<Consumer<T>> steps) {\n        throw new UnsupportedOperationException(\"write chain\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.function.Consumer;\n\n/**\n * Takes the batches of event ids that devices upload. Every id received goes to the raw archive,\n * repeats included, because the archive is the record of what the devices sent. Subscribers are\n * told about an event once: the first time its id arrives, in this batch or any earlier one.\n */\npublic class EventIngest {\n\n    private final Set<String> seen = new HashSet<>();\n    private final Consumer<String> archive;\n    private final Consumer<String> subscribers;\n\n    /**\n     * @param archive     appends one id to the raw archive\n     * @param subscribers tells the subscribers about one new event\n     */\n    public EventIngest(Consumer<String> archive, Consumer<String> subscribers) {\n        this.archive = archive;\n        this.subscribers = subscribers;\n    }\n\n    /** Takes one uploaded batch and returns how many ids it held. */\n    public long ingest(List<String> batch) {\n        // TODO: Archive every id of the batch, tell the subscribers about the ids they haven't\n        //       heard of yet, and return the number of ids in the batch. Remember the ids in\n        //       'seen' so a later batch can tell what is new.\n        throw new IllegalStateException(\"TODO: ingest\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -85,7 +64,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -94,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "92b920af60ea3ebd4224c294bbee5ccd0fec4da3258006f47586000b16c5fa0f",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.Consumer;\n\npublic final class ConsumerChain {\n\n    private ConsumerChain() {\n    }\n\n    /** Returns one consumer that runs every non-null step, in list order, on the same input. */\n    public static <T> Consumer<T> chain(List<Consumer<T>> steps) {\n        throw new UnsupportedOperationException(\"write chain\");\n    }\n}\n",
+  "content_sha256": "c7fefd1f35f0a0b58f37b76820840637a27b384fc540b396fc7fe866f8eb66a0",
+  "starting_code": "package practice;\n\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.function.Consumer;\n\n/**\n * Takes the batches of event ids that devices upload. Every id received goes to the raw archive,\n * repeats included, because the archive is the record of what the devices sent. Subscribers are\n * told about an event once: the first time its id arrives, in this batch or any earlier one.\n */\npublic class EventIngest {\n\n    private final Set<String> seen = new HashSet<>();\n    private final Consumer<String> archive;\n    private final Consumer<String> subscribers;\n\n    /**\n     * @param archive     appends one id to the raw archive\n     * @param subscribers tells the subscribers about one new event\n     */\n    public EventIngest(Consumer<String> archive, Consumer<String> subscribers) {\n        this.archive = archive;\n        this.subscribers = subscribers;\n    }\n\n    /** Takes one uploaded batch and returns how many ids it held. */\n    public long ingest(List<String> batch) {\n        // TODO: Archive every id of the batch, tell the subscribers about the ids they haven't\n        //       heard of yet, and return the number of ids in the batch. Remember the ids in\n        //       'seen' so a later batch can tell what is new.\n        throw new IllegalStateException(\"TODO: ingest\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-01/practice-2/src/main/java/practice/ConsumerChain.java",
-    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-01/practice-2/src/test/java/practice/ConsumerChainTest.java",
+    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-01/practice-2/src/main/java/practice/EventIngest.java",
+    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-01/practice-2/src/test/java/practice/EventIngestTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,29 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ConsumerChainTest#runsStepsLeftToRightOnTheSameInput",
+        "id": "practice.EventIngestTest#announcesEachNewEventAndCountsTheBatch",
         "kind": "main",
-        "says": "Every step runs, first to last, and each one receives the same input."
+        "says": "a batch of new ids is counted and every id in it is announced"
       },
       {
-        "id": "practice.ConsumerChainTest#nullStepsAreSkipped",
+        "id": "practice.EventIngestTest#theArchiveGetsEveryIdTheDevicesSent",
         "kind": "edge",
-        "says": "A null step is left out of the chain; andThen(null) would throw."
+        "says": "every id received reaches the archive, repeats included, in the order received"
       },
       {
-        "id": "practice.ConsumerChainTest#anEmptyChainDoesNothing",
+        "id": "practice.EventIngestTest#anEventIsAnnouncedOnlyTheFirstTimeItArrives",
         "kind": "edge",
-        "says": "With no steps the chain is still a consumer, one that does nothing."
-      },
-      {
-        "id": "practice.ConsumerChainTest#aThrowingStepStopsTheRest",
-        "kind": "edge",
-        "says": "When a step throws, the exception reaches the caller and the later steps do not run."
-      },
-      {
-        "id": "practice.ConsumerChainTest#laterListChangesDoNotChangeTheChain",
-        "kind": "edge",
-        "says": "The chain is fixed when it is built: adding to or replacing entries in the list afterwards changes nothing."
+        "says": "an id that was already seen, in the same batch or an earlier one, is not announced again"
       }
     ],
     "report": {
@@ -150,11 +119,11 @@
     },
     "origin": {
       "path": "14-functional-interfaces/README_4.2.1.md",
-      "section": "Interview Q&A Section"
+      "section": "A Stream Calls Your Consumer Only for the Elements It Needs, and peek May Not Run at All"
     },
     "concepts": [
-      "andThen runs the first consumer and then the second, handing both the same input.",
-      "When a consumer in an andThen chain throws, the steps after it do not run."
+      "A stream calls peek's Consumer only for the elements its terminal operation pulls: all, one for findFirst, none for count() on a sized source or with no terminal operation, so a required side effect goes in a terminal forEach or a loop.",
+      "A lambda or method reference whose expression returns a value, such as seen::add, still compiles as a Consumer and the value is dropped, so a step whose result the caller needs is not a Consumer."
     ]
   }
 }

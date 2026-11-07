@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Write the lock-try-finally once",
+  "title": "Charge API quota in one place",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's most duplicated concurrency code is the lock-try-finally pattern, pasted into `deposit()`, `withdraw()` and `getBalance()`:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "lock.lock();\ntry { balance += amount; return balance; }\nfinally { lock.unlock(); }"
+      "text": "Tenants of a search API pay for requests in quota units: a search costs 1, an export 5, and a bulk request whatever the pricing service quotes for its rows. Until now each endpoint charged the tenant itself, by reading `remaining(tenant)` and writing the new count back with `reset(...)`, inside `synchronized (quota)`. The bulk endpoint, written last, did the same without the `synchronized` block. Last month a tenant with 10,000 units made requests worth about 13,000."
     },
     {
       "type": "para",
-      "text": "Its fix is a `LockExecutor`: the pattern is written **once**, and each caller passes only its business logic as a lambda. Complete it:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`withLock(Supplier<T> action)` acquires the lock, runs the action and returns its result, and releases the lock in a `finally` block, so **the lock is released even when the action throws**;",
-        "`withLockRun(Runnable action)` does the same for an action with no result;",
-        "both refuse a `null` action with `NullPointerException` **before** acquiring the lock;",
-        "`Account` keeps a balance, and every one of its operations (`deposit`, `withdraw` and `getBalance`) goes through its `LockExecutor`. A read is guarded like a write: an operation that skips the shared mechanism is exactly the copy that diverges. `deposit` and `withdraw` return the balance they made, computed while the lock is held."
-      ]
+      "text": "Finish the `TODO`s in `src/main/java/practice/Quota.java`: `tryConsume(...)` and the three endpoints of `Quota.Api`. When you're done, no charge is lost, whatever a concurrent search, export, bulk request or refund does to the same tenant at the same moment, and a request the tenant can't afford is refused without charging anything. About ten lines in total."
     },
     {
       "type": "para",
-      "text": "Examples:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`withLock(() -> 1234)` returns `1234`, and the action runs while the lock is held;",
-        "after an action throws `IllegalStateException`, the exception reaches the caller and the lock is free;",
-        "`withLock(null)` throws `NullPointerException` and never takes the lock;",
-        "an account opened with `1000` gives `1500` after `deposit(500)`, `1200` after `withdraw(300)`, and `getBalance()` is then `1200`, with the lock taken once per operation."
-      ]
+      "text": "The tests stop one request partway, at a point of their choosing, and run another against the same tenant before letting the first go on."
     },
     {
       "type": "heading",
@@ -67,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.concurrent.locks.Lock;\nimport java.util.function.Supplier;\n\n/** The lock-try-finally pattern, written once. */\npublic final class LockExecutor {\n\n    private final Lock lock;\n\n    /** An executor that guards every action with this lock. */\n    public LockExecutor(Lock lock) {\n        this.lock = Objects.requireNonNull(lock, \"lock must not be null\");\n    }\n\n    /** Runs the action while holding the lock, and returns its result. */\n    public <T> T withLock(Supplier<T> action) {\n        Objects.requireNonNull(action, \"action must not be null\");\n        lock.lock();\n        try {\n            return action.get();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Runs the action while holding the lock. */\n    public void withLockRun(Runnable action) {\n        Objects.requireNonNull(action, \"action must not be null\");\n        lock.lock();\n        try {\n            action.run();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** A bank account whose every operation goes through one LockExecutor. */\n    public static final class Account {\n\n        private final LockExecutor locker;\n        private int balance;\n\n        /** An account guarded by this executor, with this opening balance. */\n        public Account(LockExecutor locker, int initialBalance) {\n            this.locker = Objects.requireNonNull(locker, \"locker must not be null\");\n            this.balance = initialBalance;\n        }\n\n        /** Adds the amount and returns the new balance. */\n        public int deposit(int amount) {\n            return locker.withLock(() -> {\n                balance += amount;\n                return balance;\n            });\n        }\n\n        /** Takes the amount away and returns the new balance. */\n        public int withdraw(int amount) {\n            return locker.withLock(() -> {\n                balance -= amount;\n                return balance;\n            });\n        }\n\n        /** The current balance. */\n        public int getBalance() {\n            return locker.withLock(() -> balance);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\n\n/** Units of API quota each tenant has left this month. Thread-safe: every access to remaining holds this object's monitor. */\npublic class Quota {\n\n    /** The pricing service: what a bulk request of this many rows costs. A remote call in production. */\n    public interface Pricing {\n        int unitsFor(int rows) throws InterruptedException;\n    }\n\n    private final Map<String, Integer> remaining;\n\n    /** Keeps its counts in the given map; production passes a plain HashMap. */\n    public Quota(Map<String, Integer> remaining) {\n        this.remaining = remaining;\n    }\n\n    public synchronized int remaining(String tenant) {\n        return remaining.getOrDefault(tenant, 0);\n    }\n\n    /** The monthly reset. */\n    public synchronized void reset(String tenant, int units) {\n        remaining.put(tenant, units);\n    }\n\n    /** Gives units back after a request failed on our side. */\n    public synchronized void refund(String tenant, int units) {\n        remaining.merge(tenant, units, Integer::sum);\n    }\n\n    /**\n     * Charges the tenant the given units if it has that many left, and says whether it did.\n     * A tenant with too few units is charged nothing.\n     */\n    synchronized boolean tryConsume(String tenant, int units) {\n        int left = remaining.getOrDefault(tenant, 0);\n        if (left < units) return false;\n        remaining.put(tenant, left - units);\n        return true;\n    }\n\n    /** The endpoints that charge a tenant. Each returns false, charging nothing, when the tenant has too few units. */\n    public static final class Api {\n        private final Quota quota;\n        private final Pricing pricing;\n\n        public Api(Quota quota, Pricing pricing) {\n            this.quota = quota;\n            this.pricing = pricing;\n        }\n\n        /** A search costs 1 unit. */\n        public boolean search(String tenant) {\n            return quota.tryConsume(tenant, 1);\n        }\n\n        /** An export costs 5 units. */\n        public boolean export(String tenant) {\n            return quota.tryConsume(tenant, 5);\n        }\n\n        /** A bulk request costs what the pricing service says for its rows. */\n        public boolean bulk(String tenant, int rows) throws InterruptedException {\n            int cost = pricing.unitsFor(rows);\n            return quota.tryConsume(tenant, cost);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.concurrent.locks.Lock;\nimport java.util.function.Supplier;\n\n/** The lock-try-finally pattern, written once. */\npublic final class LockExecutor {\n\n    private final Lock lock;\n\n    /** An executor that guards every action with this lock. */\n    public LockExecutor(Lock lock) {\n        this.lock = Objects.requireNonNull(lock, \"lock must not be null\");\n    }\n\n    /** Runs the action while holding the lock, and returns its result. */\n    public <T> T withLock(Supplier<T> action) {\n        throw new UnsupportedOperationException(\"write withLock\");\n    }\n\n    /** Runs the action while holding the lock. */\n    public void withLockRun(Runnable action) {\n        throw new UnsupportedOperationException(\"write withLockRun\");\n    }\n\n    /** A bank account whose every operation goes through one LockExecutor. */\n    public static final class Account {\n\n        private final LockExecutor locker;\n        private int balance;\n\n        /** An account guarded by this executor, with this opening balance. */\n        public Account(LockExecutor locker, int initialBalance) {\n            this.locker = Objects.requireNonNull(locker, \"locker must not be null\");\n            this.balance = initialBalance;\n        }\n\n        /** Adds the amount and returns the new balance. */\n        public int deposit(int amount) {\n            throw new UnsupportedOperationException(\"write deposit\");\n        }\n\n        /** Takes the amount away and returns the new balance. */\n        public int withdraw(int amount) {\n            throw new UnsupportedOperationException(\"write withdraw\");\n        }\n\n        /** The current balance. */\n        public int getBalance() {\n            throw new UnsupportedOperationException(\"write getBalance\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\n\n/** Units of API quota each tenant has left this month. Thread-safe: every access to remaining holds this object's monitor. */\npublic class Quota {\n\n    /** The pricing service: what a bulk request of this many rows costs. A remote call in production. */\n    public interface Pricing {\n        int unitsFor(int rows) throws InterruptedException;\n    }\n\n    private final Map<String, Integer> remaining;\n\n    /** Keeps its counts in the given map; production passes a plain HashMap. */\n    public Quota(Map<String, Integer> remaining) {\n        this.remaining = remaining;\n    }\n\n    public synchronized int remaining(String tenant) {\n        return remaining.getOrDefault(tenant, 0);\n    }\n\n    /** The monthly reset. */\n    public synchronized void reset(String tenant, int units) {\n        remaining.put(tenant, units);\n    }\n\n    /** Gives units back after a request failed on our side. */\n    public synchronized void refund(String tenant, int units) {\n        remaining.merge(tenant, units, Integer::sum);\n    }\n\n    /**\n     * Charges the tenant the given units if it has that many left, and says whether it did.\n     * A tenant with too few units is charged nothing.\n     */\n    boolean tryConsume(String tenant, int units) {\n        // TODO: every endpoint charges through this method\n        throw new IllegalStateException(\"TODO: tryConsume\");\n    }\n\n    /** The endpoints that charge a tenant. Each returns false, charging nothing, when the tenant has too few units. */\n    public static final class Api {\n        private final Quota quota;\n        private final Pricing pricing;\n\n        public Api(Quota quota, Pricing pricing) {\n            this.quota = quota;\n            this.pricing = pricing;\n        }\n\n        /** A search costs 1 unit. */\n        public boolean search(String tenant) {\n            // TODO\n            throw new IllegalStateException(\"TODO: search\");\n        }\n\n        /** An export costs 5 units. */\n        public boolean export(String tenant) {\n            // TODO\n            throw new IllegalStateException(\"TODO: export\");\n        }\n\n        /** A bulk request costs what the pricing service says for its rows. */\n        public boolean bulk(String tenant, int rows) throws InterruptedException {\n            // TODO\n            throw new IllegalStateException(\"TODO: bulk\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -88,9 +63,9 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 2,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4f822719b0f68f509b4dce75c4653c8a40e19ddcdb6d29319993e94b8fecc7f5",
-  "starting_code": "package practice;\n\nimport java.util.Objects;\nimport java.util.concurrent.locks.Lock;\nimport java.util.function.Supplier;\n\n/** The lock-try-finally pattern, written once. */\npublic final class LockExecutor {\n\n    private final Lock lock;\n\n    /** An executor that guards every action with this lock. */\n    public LockExecutor(Lock lock) {\n        this.lock = Objects.requireNonNull(lock, \"lock must not be null\");\n    }\n\n    /** Runs the action while holding the lock, and returns its result. */\n    public <T> T withLock(Supplier<T> action) {\n        throw new UnsupportedOperationException(\"write withLock\");\n    }\n\n    /** Runs the action while holding the lock. */\n    public void withLockRun(Runnable action) {\n        throw new UnsupportedOperationException(\"write withLockRun\");\n    }\n\n    /** A bank account whose every operation goes through one LockExecutor. */\n    public static final class Account {\n\n        private final LockExecutor locker;\n        private int balance;\n\n        /** An account guarded by this executor, with this opening balance. */\n        public Account(LockExecutor locker, int initialBalance) {\n            this.locker = Objects.requireNonNull(locker, \"locker must not be null\");\n            this.balance = initialBalance;\n        }\n\n        /** Adds the amount and returns the new balance. */\n        public int deposit(int amount) {\n            throw new UnsupportedOperationException(\"write deposit\");\n        }\n\n        /** Takes the amount away and returns the new balance. */\n        public int withdraw(int amount) {\n            throw new UnsupportedOperationException(\"write withdraw\");\n        }\n\n        /** The current balance. */\n        public int getBalance() {\n            throw new UnsupportedOperationException(\"write getBalance\");\n        }\n    }\n}\n",
+  "content_sha256": "53f90f48dea1d04135c4a4bb7c9ff5829349a410b329c021de6feac6f16ad36d",
+  "starting_code": "package practice;\n\nimport java.util.Map;\n\n/** Units of API quota each tenant has left this month. Thread-safe: every access to remaining holds this object's monitor. */\npublic class Quota {\n\n    /** The pricing service: what a bulk request of this many rows costs. A remote call in production. */\n    public interface Pricing {\n        int unitsFor(int rows) throws InterruptedException;\n    }\n\n    private final Map<String, Integer> remaining;\n\n    /** Keeps its counts in the given map; production passes a plain HashMap. */\n    public Quota(Map<String, Integer> remaining) {\n        this.remaining = remaining;\n    }\n\n    public synchronized int remaining(String tenant) {\n        return remaining.getOrDefault(tenant, 0);\n    }\n\n    /** The monthly reset. */\n    public synchronized void reset(String tenant, int units) {\n        remaining.put(tenant, units);\n    }\n\n    /** Gives units back after a request failed on our side. */\n    public synchronized void refund(String tenant, int units) {\n        remaining.merge(tenant, units, Integer::sum);\n    }\n\n    /**\n     * Charges the tenant the given units if it has that many left, and says whether it did.\n     * A tenant with too few units is charged nothing.\n     */\n    boolean tryConsume(String tenant, int units) {\n        // TODO: every endpoint charges through this method\n        throw new IllegalStateException(\"TODO: tryConsume\");\n    }\n\n    /** The endpoints that charge a tenant. Each returns false, charging nothing, when the tenant has too few units. */\n    public static final class Api {\n        private final Quota quota;\n        private final Pricing pricing;\n\n        public Api(Quota quota, Pricing pricing) {\n            this.quota = quota;\n            this.pricing = pricing;\n        }\n\n        /** A search costs 1 unit. */\n        public boolean search(String tenant) {\n            // TODO\n            throw new IllegalStateException(\"TODO: search\");\n        }\n\n        /** An export costs 5 units. */\n        public boolean export(String tenant) {\n            // TODO\n            throw new IllegalStateException(\"TODO: export\");\n        }\n\n        /** A bulk request costs what the pricing service says for its rows. */\n        public boolean bulk(String tenant, int rows) throws InterruptedException {\n            // TODO\n            throw new IllegalStateException(\"TODO: bulk\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-1/src/main/java/practice/LockExecutor.java",
-    "test_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-1/src/test/java/practice/LockExecutorTest.java",
+    "main_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-1/src/main/java/practice/Quota.java",
+    "test_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-1/src/test/java/practice/QuotaTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,34 +98,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LockExecutorTest#runsEachActionWhileHoldingTheLock",
+        "id": "practice.QuotaTest#searchAndExportChargeOneAndFiveUnits",
         "kind": "main",
-        "says": "withLock returns the action's result, run under the lock, and the account's operations add up."
+        "says": "a search charges one unit and an export five"
       },
       {
-        "id": "practice.LockExecutorTest#theLockIsReleasedWhenTheActionThrows",
-        "kind": "edge",
-        "says": "When the action throws, the lock is still released."
+        "id": "practice.QuotaTest#bulkChargesWhatPricingAsks",
+        "kind": "main",
+        "says": "a bulk request charges the units the pricing service asks for"
       },
       {
-        "id": "practice.LockExecutorTest#aNullActionIsRefusedBeforeLocking",
-        "kind": "edge",
-        "says": "A null action throws NullPointerException without the lock ever being taken."
+        "id": "practice.QuotaTest#aRequestCostingMoreThanIsLeftChargesNothing",
+        "kind": "main",
+        "says": "a request that costs more than the tenant has left is refused and charges nothing"
       },
       {
-        "id": "practice.LockExecutorTest#everyAccountOperationTakesTheLock",
+        "id": "practice.QuotaTest#anExportArrivingMidSearchIsStillCharged",
         "kind": "edge",
-        "says": "getBalance goes through the lock executor like deposit and withdraw."
+        "says": "an export that arrives while a search is charging the same tenant is not overwritten by the search"
       },
       {
-        "id": "practice.LockExecutorTest#theUpdateHappensUnderTheLock",
+        "id": "practice.QuotaTest#aSearchWhileBulkWaitsForPricingIsStillCharged",
         "kind": "edge",
-        "says": "deposit changes the balance while the lock is held: when the lock is released, the new balance is already stored."
+        "says": "a search charged while a bulk request waits for its price is not overwritten by the bulk charge"
       },
       {
-        "id": "practice.LockExecutorTest#depositReturnsTheBalanceItMade",
+        "id": "practice.QuotaTest#aRefundArrivingMidSearchIsKept",
         "kind": "edge",
-        "says": "deposit returns the balance it made under the lock, even if another thread withdraws the moment the lock is released."
+        "says": "a refund that arrives while a search is charging the same tenant is kept"
       }
     ],
     "report": {
@@ -159,13 +134,12 @@
     },
     "origin": {
       "path": "33-dry-principle/README_8.3.2.md",
-      "section": "Interview Q&A Section"
+      "section": "The Compound Action Belongs in the Class That Owns the Lock"
     },
     "concepts": [
-      "The lock-try-finally pattern is written once, in a LockExecutor that takes the varying work as a Supplier or a Runnable.",
-      "A null action is refused with NullPointerException before the lock is acquired.",
-      "Every code path of a class goes through the same synchronization mechanism, since a copy that diverges breeds subtle concurrency bugs.",
-      "The shared utility's finally block releases the lock even when the action throws."
+      "Moving the compound action into the class that owns the lock, as one synchronized method, leaves no lock for a caller to forget.",
+      "When each caller locks around a compound action on a shared object, one caller that forgets the lock can overwrite the others' updates, locked callers included.",
+      "Every method of the class that touches the guarded state takes the same lock; a second lock inside the class lets updates under the other one be lost."
     ]
   }
 }

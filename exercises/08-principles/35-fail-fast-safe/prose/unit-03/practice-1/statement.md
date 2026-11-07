@@ -1,23 +1,13 @@
-Immutable collections sidestep the fail-fast and fail-safe choice: nothing can change them, so
-there is nothing to detect. The page warns that the two ways to hand one out are not alike:
+The trading screen lets each user set price alerts: "tell me when NOVA goes above 182.50". The
+market feed publishes every tick on its own thread, a few thousand a second, to the alerts held in
+`AlertRegistry`; users add and remove alerts from the UI threads whenever they like, a few times
+an hour each. A screen has a few dozen alerts at most.
 
-```java
-// Unmodifiable VIEW vs. immutable COPY
-List<String> mutable = new ArrayList<>(List.of("a", "b"));
-List<String> view = Collections.unmodifiableList(mutable);
-List<String> copy = List.copyOf(mutable);
+The first version failed in production twice: once a tick was lost for half the alerts with an
+exception in the feed thread, just as someone added an alert, and once adding an alert froze a
+user's screen for four seconds while one alert was slow to send its e-mail.
 
-mutable.add("c");
-System.out.println(view); // [a, b, c] -- reflects change!
-System.out.println(copy); // [a, b] -- independent copy
-```
-
-`Roster` keeps its names in a private `ArrayList`, and `add` is written. Write:
-
-- `snapshot()`: the names as they are now. **A snapshot keeps its contents**: names added later
-  do not appear in it;
-- `liveView()`: a read-only window on the names. **A live view follows the roster**: names added
-  later appear in it;
-- **neither can be changed by its holder**: every change on either, `add`, `remove` by index
-  or by value, `set` or `clear`, throws `UnsupportedOperationException`, and the roster itself
-  is unchanged.
+Finish `src/main/java/practice/AlertRegistry.java`: decide how the alerts are held, and write
+`subscribe`, `unsubscribe` and `publish`. When you're done, a tick reaches every alert that was
+subscribed when the publish began, a publish never fails because of what the UI threads do, and
+adding or removing an alert never waits for a publish. About eight lines in total.

@@ -1,22 +1,12 @@
-`distinct()` removes duplicates using `equals()` and `hashCode()`, and on an ordered
-stream it keeps the **first** occurrence of each value, in encounter order. A class
-that does not override those two methods compares by identity, so `distinct()` keeps
-every instance of it.
+The fraud team reviews large payments as they come in. `PaymentWatch` reads the live payment feed
+and puts the next few payments of at least a set amount on the reviewers' sheet, each scored by
+the risk service, highest score first. Two problems reach you at once: the risk service's quota is
+used up by mid-morning, and since the service switched from hourly batch files to the live feed,
+the review sheet never loads.
 
-The file you are given declares a small `Point` class next to `Dedupe`. Write two
-methods in `Dedupe`, and change `Point` however you need (keep its constructor
-`Point(int x, int y)`):
+`PaymentWatch.reviewSheet(...)` already formats the sheet. Finish the `TODO` in
+`src/main/java/practice/PaymentWatch.java`: `nextForReview(...)` returns the next `slots` payments
+at or above `reviewFromCents`, in the order they arrive, each assessed once, sorted by score from
+highest to lowest. Only payments that go on the sheet are sent to the risk service.
 
-1. `distinctPoints(List<Point> points)` returns the points without duplicates; two
-   points are the same when their coordinates are.
-2. `firstSeen(List<String> names)` returns the names without duplicates, in the order
-   each name first appears.
-
-| call | answer |
-|---|---|
-| `distinctPoints([Point(1,2), Point(3,4), Point(1,2)])` | `[Point(1,2), Point(3,4)]` |
-| `firstSeen(["a", "b", "a", "c", "b"])` | `["a", "b", "c"]` |
-| `firstSeen(["pear", "apple", "pear", "fig"])` | `["pear", "apple", "fig"]` |
-
-A duplicate is a matter of value, not of identity; and the order asked for is the
-order of first appearance, not any sorted order.
+The feed is a `Stream` that doesn't end while the service runs. About five lines.

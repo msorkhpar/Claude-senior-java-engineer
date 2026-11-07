@@ -1,23 +1,18 @@
-An **inner class** (a nested class that is not `static`) is an instance member:
-each of its objects belongs to one object of the outer class and can read that
-object's instance fields directly. Since Java 16 an inner class may also declare
-**static** members, which belong to the inner class as a whole.
+The pricing service converts every price with a rate card that it loads from the rate service.
+Two incidents last quarter:
 
-Write `Bank` and its inner class `Bank.Account`:
+- The rate service was down for ten minutes. The pricing service's health check, which calls
+  `RateCard.version()`, failed too, so the orchestrator restarted the pricing pods over and over.
+- At one startup the rate service timed out once. It answered again a second later, but every
+  price request failed until the pods were restarted by hand.
 
-- `Bank(double ratePercent)`, `setRate(double ratePercent)`;
-- `Account open(double balance)` opens an account **at this bank**;
-- `Account.balance()` returns the balance;
-- `Account.yearlyInterest()` returns `balance * rate / 100`, using its own bank's
-  rate **as it is now**;
-- `static int Account.opened()` counts every account opened so far, at any bank.
+At startup a few hundred requests arrive together, and the rate service allows one load per
+pod.
 
-**Examples**
+Finish the `TODO` in `rates()` in `src/main/java/practice/RateCard.java`. When you're done, the
+health check answers whatever the rate service is doing, a request whose load fails gets the
+rate service's own error and the next request tries again, and requests that arrive together
+while the rates are loading wait for that one load. About six lines in total.
 
-```
-b = new Bank(2.0); a = b.open(1000)
-a.yearlyInterest()       -> 20.0
-b.setRate(3.0)
-a.yearlyInterest()       -> 30.0
-Bank.Account.opened()    -> grows by 1 for each open
-```
+Each test loads a fresh copy of `RateCard` through a class loader of its own, so every test
+starts as if the pod had just started.

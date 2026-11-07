@@ -1,573 +1,359 @@
 # 10.6.2. Common Vulnerabilities
 
-## Concept Explanation
+A security review of an order service files four findings, each a request that worked against the
+test environment. A `sort` parameter ordered the product list by the digits of a staff PIN, one digit
+per request. A download of `../config/db.properties` returned the database settings. An uploaded XML
+order came back with the contents of a server file in its `note` field. A session cookie decoded into
+a class that sessions never hold, and that class's code ran.
 
-Understanding common vulnerabilities is essential for any senior Java engineer. The OWASP Top 10 provides the industry
-standard catalog of the most critical web application security risks. This section covers the three most relevant
-categories for Java developers: injection flaws, authentication and access control flaws, and sensitive data exposure,
-plus insecure deserialization, which OWASP 2021 files under software and data integrity failures.
+Every run below attacks code written for it, in one JVM: an H2 in-memory database, files in a
+directory beside the program, and the JDK's own XML parser and `ObjectInputStream`. Input validation, `SecureRandom` and secrets are unit 10.6.1; encryption and
+password hashing are unit 10.6.3.
 
-**Real-world analogy**: Imagine a fortress with multiple entry points. Each gate (input point) has its own set of
-vulnerabilities: the front gate might be susceptible to battering rams (SQL injection), the side entrance might have a
-weak lock (broken authentication), and the treasury room might have windows left open (sensitive data exposure). A
-security-conscious architect addresses every entry point, not just the main gate.
+## A Bind Parameter Holds a Value, So a Sort Column Comes from an Allow-List
 
-### Injection Flaws
-
-Injection occurs when untrusted data is sent to an interpreter as part of a command or query. The attacker's hostile data
-tricks the interpreter into executing unintended commands or accessing unauthorized data.
-
-- **SQL Injection**: Malicious SQL statements inserted through user input
-- **XSS (Cross-Site Scripting)**: Malicious scripts injected into web pages viewed by other users
-- **Command Injection**: OS commands injected through application input
-- **LDAP Injection**: Manipulating LDAP queries through user input
-
-### Authentication and Access Control Flaws
-
-Broken authentication allows attackers to assume other users' identities. Broken access control allows unauthorized users
-to access restricted resources.
-
-- **Brute force attacks**: Automated password guessing
-- **Session fixation**: Forcing a known session ID on a victim
-- **Privilege escalation**: Accessing resources beyond authorized level
-- **Insecure direct object references (IDOR)**: Accessing objects by manipulating identifiers
-
-### Sensitive Data Exposure
-
-Applications frequently fail to adequately protect sensitive data such as credentials, credit card numbers, and personal
-information. Data can be exposed through:
-
-- Insufficient encryption (or no encryption at all)
-- Information leakage in error messages
-- Logging sensitive data
-- Timing attacks that reveal information through response times
-
-### Software and Data Integrity Failures (OWASP 2021 A08)
-
-Code and data are trusted without verifying their integrity. For Java the classic case is **insecure
-deserialization**: `ObjectInputStream` rebuilds whatever object graph the bytes describe, so untrusted bytes can
-trigger "gadget chains" in classes on the classpath (see Q5 below).
-
-## Key Points to Remember
-
-- SQL injection is one of the most damaging vulnerabilities (Injection is A03 in the OWASP Top 10 2021, after Broken
-  Access Control and Cryptographic Failures); always use parameterized queries (`PreparedStatement`)
-- XSS prevention requires **output encoding** -- encode data for the context it is rendered in (HTML, JavaScript, URL)
-- Never reveal whether a username or password was incorrect -- always use a generic message
-- Implement account lockout or rate limiting to prevent brute force attacks
-- Use **constant-time comparison** for security tokens to prevent timing attacks
-- Java serialization is inherently insecure; prefer JSON/records for data transfer
-- Role-based access control (RBAC) should be enforced at the service layer, not just the UI
-- Error messages to clients should be generic; log detailed errors server-side only
-- Store passwords as salted hashes (bcrypt, scrypt, Argon2) -- never in plain text
-
-## Relevant Java 21 Features
-
-- **Records** (JEP 395): Use records as secure DTOs with built-in validation via compact constructors, replacing
-  insecure Java serialization
-- **Pattern matching for switch** (JEP 441): Write cleaner access control logic with exhaustive matching on sealed
-  permission hierarchies
-- **Sealed classes** (JEP 409): Restrict role/permission hierarchies to prevent unauthorized extension
-- **Virtual threads** (JEP 444): Handle many concurrent login/authentication requests efficiently without complex thread
-  pool tuning
-- **Text blocks** (JEP 378): Write SQL queries as text blocks to reduce escape-character bugs (still use
-  PreparedStatement for parameterization)
-
-### Evolution of Java security vulnerabilities
-
-| Era           | Common Issue                        | Modern Mitigation                      |
-|---------------|-------------------------------------|----------------------------------------|
-| Java 1.x      | Applet sandbox escapes             | Applets removed (Java 11)              |
-| Java 5-6      | Serialization gadget chains        | Records, JSON libraries                |
-| Java 7-8      | XML External Entity (XXE)          | Disable DTDs/external entities explicitly (JDK parsers still allow them by default in Java 21) |
-| Java 9+       | Illegal reflective access          | Module system (JPMS)                   |
-| Java 17+      | Security Manager bypass            | Deprecated; use JPMS instead           |
-
-## Common Pitfalls and How to Avoid Them
-
-### 1. Using string concatenation for SQL queries
+Unit 7.4.5 shows a `WHERE` value pasted into SQL and the fix, a `?` bound with `setString`. A
+product list that the user can sort has a part a `?` can't hold: the column after `ORDER BY`. The
+list endpoint pastes it:
 
 ```java
-// VULNERABLE: SQL injection
-String sql = "SELECT * FROM users WHERE name = '" + name + "'";
-Statement stmt = conn.createStatement();
-ResultSet rs = stmt.executeQuery(sql);
-
-// SECURE: Parameterized query
-String sql = "SELECT * FROM users WHERE name = ?";
-PreparedStatement stmt = conn.prepareStatement(sql);
-stmt.setString(1, name);
-ResultSet rs = stmt.executeQuery();
-```
-
-### 2. Rendering user input directly in HTML
-
-```java
-// VULNERABLE: XSS
-String html = "<div>" + userInput + "</div>";
-
-// SECURE: Encode output
-String html = "<div>" + encodeHtml(userInput) + "</div>";
-// Where encodeHtml replaces <, >, &, ", ' with HTML entities
-```
-
-### 3. Revealing authentication details in error messages
-
-```java
-// INSECURE: tells attacker the username exists
-if (!userExists) return "User not found";
-if (!passwordMatch) return "Incorrect password";
-
-// SECURE: generic message
-return "Invalid username or password";
-```
-
-### 4. Not implementing account lockout
-
-```java
-// INSECURE: unlimited login attempts
-public boolean login(String user, String pass) {
-    return checkCredentials(user, pass);
-}
-
-// SECURE: rate limiting
-public boolean login(String user, String pass) {
-    if (loginTracker.isLockedOut(user)) {
-        throw new SecurityException("Account temporarily locked");
+static List<String> listProducts(String sort) throws SQLException {
+    String sql = "SELECT name FROM product ORDER BY " + sort;
+    List<String> names = new ArrayList<>();
+    try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+        while (rs.next()) names.add(rs.getString(1));
     }
-    boolean success = checkCredentials(user, pass);
-    if (!success) {
-        loginTracker.recordFailedAttempt(user);
-    } else {
-        loginTracker.resetAttempts(user);
-    }
-    return success;
+    return names;
 }
 ```
 
-### 5. Using Java serialization for untrusted data
+The table is `product(name, price, cost, added_on)`; lamp costs 30, chair 45, desk 120. The
+database also holds `staff(login, pin)` with one row, PIN `7351`. The reviewer sent `price`,
+then a `CASE` expression with a different guess for the PIN's first digit each time:
 
 ```java
-// INSECURE: deserialization of untrusted data
-ObjectInputStream ois = new ObjectInputStream(untrustedStream);
-Object obj = ois.readObject(); // Can execute arbitrary code!
-
-// SECURE: use JSON/records instead
-record UserDTO(String name, String email) {}
-UserDTO user = objectMapper.readValue(jsonString, UserDTO.class);
+String probe = "CASE WHEN (SELECT SUBSTRING(pin, 1, 1) FROM staff) = '" + d + "' THEN price ELSE -price END";
 ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use parameterized queries everywhere**: Parameters carry values (in WHERE, VALUES, LIMIT, ...), but they cannot
-   carry identifiers or keywords: a dynamic ORDER BY column, sort direction, table or column name must be chosen from
-   an allowlist of known names
-2. **Implement Content Security Policy (CSP)**: HTTP header that restricts which scripts can execute in the browser
-3. **Use HttpOnly and Secure flags on cookies**: Prevents JavaScript access and ensures transmission only over HTTPS
-4. **Implement CSRF tokens**: Prevent cross-site request forgery by validating tokens on state-changing operations
-5. **Log security events**: Failed logins, permission denials, and input validation failures should be logged for
-   monitoring and incident response
-6. **Use a Web Application Firewall (WAF)**: Additional layer of defense that can catch common attack patterns
-7. **Keep dependencies updated**: Vulnerable libraries (e.g., Log4Shell in log4j) are a major attack vector. Use tools
-   like OWASP Dependency-Check or Snyk
-8. **Principle of fail-secure**: When access control fails, deny access rather than allowing it
-
-## Edge Cases and Their Handling
-
-1. **Empty vs. null credentials**: Both should be rejected immediately; avoid passing them to authentication backends
-2. **Concurrent login attempts**: Use thread-safe data structures (`ConcurrentHashMap`, `AtomicInteger`) for rate
-   limiting
-3. **Case sensitivity in usernames**: Normalize usernames (e.g., lowercase) before comparison to prevent bypass via
-   capitalization
-4. **Unicode normalization**: Attackers may use different Unicode representations of the same character; normalize before
-   validation
-5. **Very long input strings**: Set maximum lengths to prevent ReDoS (Regular Expression Denial of Service) and buffer
-   overflow-like issues
-6. **Null bytes in strings**: Some systems treat null bytes as string terminators; strip them from input
-
-## Interview-specific Insights
-
-Interviewers test for:
-
-- Understanding of the OWASP Top 10 and how to mitigate each vulnerability in Java
-- Ability to identify SQL injection, XSS, and other vulnerabilities in code snippets
-- Knowledge of proper password storage (hashing with salt, bcrypt/Argon2)
-- Understanding of why generic error messages are important for security
-- Knowledge of timing attacks and constant-time comparison
-- Awareness of Java deserialization vulnerabilities and modern alternatives
-
-Tricky areas:
-
-- "Show me a piece of code with a SQL injection vulnerability and fix it" -- be ready to do this on a whiteboard
-- "What is a timing attack and how do you prevent it?"
-- "Why is Java serialization considered insecure?"
-- "How would you implement role-based access control?"
-
-## Interview Q&A Section
-
-**Q1: What is SQL injection and how do you prevent it in Java?**
 
 ```text
-A1: SQL injection is an attack where malicious SQL code is inserted into application queries through user input.
-When the application concatenates user input directly into SQL strings, the attacker can modify the query's logic
-to bypass authentication, extract data, modify data, or even execute administrative operations.
-
-Example attack: If a login query is built as:
-  "SELECT * FROM users WHERE username = '" + input + "' AND password = '" + pass + "'"
-An attacker can input: admin' --
-This comments out the password check, granting access without a valid password.
-
-Prevention in Java:
-1. PreparedStatement (parameterized queries): The primary defense. Parameters are sent separately from the SQL
-   command, so they can never be interpreted as SQL code.
-2. Stored procedures: When appropriate, encapsulate SQL logic server-side.
-3. Input validation: Whitelist acceptable characters (e.g., alphanumeric only for usernames).
-4. ORM frameworks (JPA/Hibernate): Use JPQL/HQL with named parameters, which are parameterized by default.
-5. Least privilege: Database account used by the application should not have DROP, CREATE, or ALTER permissions.
-
-The key insight: SQL injection is NOT an input validation problem -- it is a query construction problem.
-Parameterized queries solve it at the root cause level.
+price      [lamp, chair, desk]
+probe '6'  [desk, chair, lamp]
+probe '7'  [lamp, chair, desk]
+probe '8'  [desk, chair, lamp]
 ```
 
-```java
-// VULNERABLE
-public boolean loginInsecure(Connection conn, String user, String pass) throws SQLException {
-    String sql = "SELECT * FROM users WHERE username = '" + user + "' AND password = '" + pass + "'";
-    Statement stmt = conn.createStatement();
-    ResultSet rs = stmt.executeQuery(sql); // Attacker can inject SQL
-    return rs.next();
-}
+A wrong guess sorts by `-price`, the right one by `price`, so the order of a list that shows no PIN
+tells the caller whether the guess was right. Nine requests per digit at most read the PIN. H2 also
+runs two statements in one `executeQuery`: `price; DROP TABLE staff` returned the sorted list, and
+the next query on `staff` failed with `Table "STAFF" not found`.
 
-// SECURE against SQL injection (password handling simplified -- see the comment below)
-public boolean loginSecure(Connection conn, String user, String pass) throws SQLException {
-    String sql = "SELECT * FROM users WHERE username = ? AND password = ?";
-    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-        stmt.setString(1, user);
-        stmt.setString(2, pass); // Safe from SQL injection, but never store or compare plain-text passwords:
-                            // load the stored salted hash (bcrypt/scrypt/Argon2) and verify it in code
-        try (ResultSet rs = stmt.executeQuery()) {
-            return rs.next();
-        }
-    }
-}
-```
-
-**Q2: What is Cross-Site Scripting (XSS) and how do you prevent it?**
+Binding the column doesn't work, because a parameter is a value, never a name. `ORDER BY ?` on H2,
+with `setString(1, "price")` and then `setString(1, "2")`:
 
 ```text
-A2: XSS occurs when an attacker injects malicious scripts into web pages viewed by other users. There are three
-types:
-
-1. Stored XSS: The malicious script is permanently stored on the target server (e.g., in a database). When
-   other users view the affected page, the script executes in their browser.
-
-2. Reflected XSS: The script is reflected off the web server, typically via a URL parameter or form submission,
-   and immediately returned in the response.
-
-3. DOM-based XSS: The vulnerability exists in client-side code that processes data from untrusted sources (e.g.,
-   document.location) and writes it to the DOM.
-
-Prevention in Java:
-1. Output encoding: Encode all user-supplied data before rendering it in HTML. Replace <, >, &, ", ' with their
-   HTML entity equivalents (&lt;, &gt;, &amp;, &quot;, &#x27;).
-2. Content Security Policy (CSP): HTTP header that restricts script sources.
-3. HttpOnly cookies: Prevents JavaScript from accessing session cookies.
-4. Use templating engines that escape by default: Thymeleaf (th:text), FreeMarker with the HTML output format
-   (e.g., .ftlh templates), JSP via <c:out> or fn:escapeXml. A plain ${...} expression in a JSP page is NOT
-   escaped.
-5. Validate input: Reject input that contains unexpected HTML/script content.
-
-The key principle: "Encode output, not input." Store the original data and encode it at the point of rendering,
-because different contexts (HTML body, HTML attribute, JavaScript, URL) require different encoding.
+price  Data conversion error converting "price"; SQL statement:
+2  Order by expression "2" must be in the result list in this case; SQL statement:
 ```
+
+H2 reads a parameter in `ORDER BY` as a column number, and the query selects one column, so `2`
+is out of range. Another database may accept the statement and sort every row by the same
+constant, so the list comes back unsorted with no error.
+
+The column has to be in the SQL text, so the code decides what that text is. Two checks, by shape
+and by lookup:
 
 ```java
-public class XssPrevention {
-    // HTML entity encoding for safe rendering
-    public String encodeForHtml(String input) {
-        if (input == null) return "";
-        return input.replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .replace("\"", "&quot;")
-                    .replace("'", "&#x27;");
-    }
+static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
-    // VULNERABLE: directly embedding user input
-    public String renderCommentInsecure(String userComment) {
-        return "<div class='comment'>" + userComment + "</div>";
-    }
+static String byShape(String sort) {
+    if (!IDENTIFIER.matcher(sort).matches()) throw new IllegalArgumentException("bad sort");
+    return sort;
+}
 
-    // SECURE: encoding before rendering
-    public String renderCommentSecure(String userComment) {
-        return "<div class='comment'>" + encodeForHtml(userComment) + "</div>";
-    }
+static final Map<String, String> SORT_COLUMNS = Map.of(
+        "name", "name",
+        "price", "price",
+        "newest", "added_on DESC");
+
+static String byAllowList(String sort) {
+    String column = SORT_COLUMNS.get(sort);
+    if (column == null) throw new IllegalArgumentException("bad sort");
+    return column;
 }
 ```
-
-**Q3: How do you prevent brute force attacks on login endpoints?**
 
 ```text
-A3: Brute force prevention requires multiple layers of defense:
-
-1. Account lockout: After N failed attempts (typically 5-10), temporarily lock the account for a period (e.g.,
-   15-30 minutes). Use an increasing lockout duration for repeated lockouts.
-
-2. Rate limiting: Limit the number of login attempts per IP address per time window. Use a sliding window
-   algorithm for accuracy.
-
-3. CAPTCHA: After a threshold of failed attempts, require CAPTCHA completion. This prevents automated attacks
-   while allowing legitimate users to continue.
-
-4. Progressive delays: Introduce increasing delays between login attempts (e.g., 1s after 3rd failure, 2s after
-   4th, 4s after 5th). This is called "tarpitting."
-
-5. Multi-factor authentication (MFA): Even if the password is compromised, the attacker needs the second factor.
-
-6. Password requirements: Enforce a minimum length and check against known breached passwords (e.g., using the
-   HaveIBeenPwned API). NIST SP 800-63B advises against composition rules ("must contain a digit and a symbol").
-
-7. Monitoring and alerting: Log all failed login attempts and alert security teams on anomalous patterns.
-
-Implementation considerations:
-- Use ConcurrentHashMap for thread-safe tracking of attempts
-- Store attempt counts with timestamps to implement sliding windows
-- Be careful not to create a denial-of-service vector (attacker locks out legitimate users). Mitigate by also
-  tracking by IP and using CAPTCHA as an alternative to hard lockout.
+sort                       by shape               allow-list
+price                      [lamp, chair, desk]    [lamp, chair, desk]
+newest                     SQLException           [desk, lamp, chair]
+cost                       [chair, lamp, desk]    refused
+CASE WHEN (...)            refused                refused
+price; DROP TABLE staff    refused                refused
 ```
 
+The shape check stops the expressions, but `cost`, what the shop pays its supplier, is a real column
+of the table, and the API now sorts by it. The allow-list maps a public key to SQL text the code
+wrote itself, so no character the user typed reaches the SQL, a key can differ from its column
+(`newest`), and a column the API doesn't expose can't be reached. A sort direction gets
+the same treatment: map `asc` and `desc` to `ASC` and `DESC`, and never append the input.
+
+<!-- practice 1 -->
+
+## A `..` Escapes the Base Unless the Check Normalizes the Path and Compares Elements
+
+The download endpoint serves files from `files/uploads`. Beside it are `files/config` and
+`files/uploads-private`, and `uploads/team` is a symbolic link to `../config` that someone made for
+sharing. Four checks, each given the name from the request:
+
 ```java
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+static Path notNormalized(String name) {
+    Path p = base.resolve(name);
+    if (!p.startsWith(base)) throw new SecurityException();
+    return p;
+}
 
-public class BruteForceProtection {
-    private static final int MAX_ATTEMPTS = 5;
-    private static final long LOCKOUT_MS = 15 * 60 * 1000L; // 15 minutes
+static Path stringPrefix(String name) {
+    Path p = base.resolve(name).normalize();
+    if (!p.toString().startsWith(base.toString())) throw new SecurityException();
+    return p;
+}
 
-    record AttemptRecord(AtomicInteger count, long lockoutUntil) {}
+static Path normalized(String name) {
+    Path p = base.resolve(name).normalize();
+    if (!p.startsWith(base)) throw new SecurityException();
+    return p;
+}
 
-    private final ConcurrentHashMap<String, AttemptRecord> attempts = new ConcurrentHashMap<>();
-
-    public boolean isAllowed(String username) {
-        AttemptRecord record = attempts.get(username);
-        if (record == null || record.lockoutUntil() == 0) return true;
-        if (System.currentTimeMillis() < record.lockoutUntil()) {
-            return false; // Still locked out
-        }
-        attempts.remove(username, record); // Lockout expired: start counting again
-        return true;
-    }
-
-    public void recordFailure(String username) {
-        attempts.compute(username, (key, existing) -> {
-            if (existing == null) {
-                return new AttemptRecord(new AtomicInteger(1), 0);
-            }
-            int newCount = existing.count.incrementAndGet();
-            if (newCount >= MAX_ATTEMPTS) {
-                return new AttemptRecord(existing.count, System.currentTimeMillis() + LOCKOUT_MS);
-            }
-            return existing;
-        });
-    }
-
-    public void recordSuccess(String username) {
-        attempts.remove(username);
-    }
+static Path real(String name) throws IOException {
+    Path realBase = base.toRealPath();
+    Path p = base.resolve(name).toRealPath();
+    if (!p.startsWith(realBase)) throw new SecurityException();
+    return p;
 }
 ```
 
-**Q4: What is a timing attack and how do you prevent it?**
+`base` is the absolute path of `files/uploads`. What each check let `Files.readString` read:
 
 ```text
-A4: A timing attack is a side-channel attack where an attacker measures the time taken to perform operations
-to infer information about secret values. In the context of authentication:
-
-How it works:
-- Standard string comparison (String.equals()) returns false as soon as it finds a mismatching character
-- If the first character is wrong, the comparison is faster than if only the last character is wrong
-- By measuring response times across many requests, an attacker can guess the correct value one character
-  at a time
-
-Where it applies:
-- API key/token comparison
-- Password hash comparison (though hashing already provides some protection)
-- HMAC verification
-- CSRF token validation
-- Session ID comparison
-
-Prevention: Use constant-time comparison that always checks all characters regardless of where the mismatch
-occurs.
-
-Java provides:
-- MessageDigest.isEqual(byte[], byte[]): Constant-time byte array comparison
-- Custom implementation: XOR all characters and check the result at the end
-
-Important: What must never leak is WHERE the first mismatch is, so never return at the first differing character.
-An early return on different lengths (as in the manual version below) reveals only the secret's length, which is
-acceptable when the length is public anyway (fixed-length tokens, hashes, HMACs). MessageDigest.isEqual's running
-time depends only on the length of its first argument.
+name                            no normalize          string prefix         normalize             toRealPath
+invoice-17.txt                  invoice 17            invoice 17            invoice 17            invoice 17
+../config/db.properties         password=placeholder  refused               refused               refused
+../uploads-private/payroll.txt  payroll               payroll               refused               refused
+team/db.properties              password=placeholder  password=placeholder  password=placeholder  refused
 ```
+
+`resolve` only appends the name, so `uploads/../config/db.properties` still begins with the
+elements of `uploads`, and `Path.startsWith`, which compares elements, says yes. The file system
+then follows the `..`.
+
+The string prefix check normalizes, but compares characters: `files/uploads-private/payroll.txt`
+begins with the characters `files/uploads`. `Path.startsWith` compares whole elements, and
+`uploads-private` is not `uploads`.
+
+Refusing names that contain `..` is a deny-list, with the problem unit 10.6.1 shows: one decoding
+layer later, `%2e%2e%2f` is `../`. Checking the resolved path, not the name, catches every spelling
+of `..`.
+
+### A Symlink Inside the Base Points Anywhere; Check the Real Path
+
+`normalize()` works on the text of the path and never reads the disk: `uploads/team/db.properties` has no `..`, so as text it stays inside `uploads`, while
+the file system follows `team` to `config`. `toRealPath()` asks the file system: it follows every
+link and returns the path the file really has, which starts with `files/config`.
+
+Text and disk can also disagree about `..` itself. With `files/secret.txt` present, the name
+`team/../secret.txt` normalizes to `uploads/secret.txt`, which passes the check and doesn't exist,
+while the file system follows `team` to `config` and then `..` to `files`, and `Files.readString`
+returned the contents of `files/secret.txt`. The `Path.normalize()` javadoc warns about exactly
+this. Only the real path says where a name leads.
+
+`toRealPath()` throws `NoSuchFileException` for a file that doesn't exist, so code that creates a
+file checks the real path of its parent directory. Compare with `base.toRealPath()`, not `base`:
+with the base reached through a link, `files/uploads-link`, the real path of `invoice-17.txt` failed
+`startsWith(base)` and passed `startsWith(base.toRealPath())`.
+
+<!-- practice 2 -->
+
+## The JDK's XML Parsers Read External Entities Until You Turn Them Off
+
+The import endpoint parses partner orders with `DocumentBuilderFactory.newInstance()` and reads
+the `note` element. The reviewer's order declares an entity whose value is a file:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE order [
+  <!ENTITY note SYSTEM "secret.txt">
+]>
+<order><item>lamp</item><note>&note;</note></order>
+```
+
+`order-param.xml` does the same through a parameter entity: `<!ENTITY % ext SYSTEM "entities.dtd">`
+then `%ext;`, and the file `entities.dtd` declares `<!ENTITY note "the dtd was read">`. Each document
+was parsed by a factory with one setting changed, and the run printed the `note` it produced:
 
 ```java
-import java.security.MessageDigest;
-import java.nio.charset.StandardCharsets;
-
-public class TimingAttackPrevention {
-    // VULNERABLE: early-return string comparison
-    public boolean insecureCompare(String a, String b) {
-        return a.equals(b); // Returns as soon as mismatch found
-    }
-
-    // SECURE: constant-time comparison
-    public boolean constantTimeCompare(String a, String b) {
-        if (a == null || b == null) return a == b;
-        byte[] aBytes = a.getBytes(StandardCharsets.UTF_8);
-        byte[] bBytes = b.getBytes(StandardCharsets.UTF_8);
-        return MessageDigest.isEqual(aBytes, bBytes);
-    }
-
-    // Alternative manual implementation
-    public boolean constantTimeCompareManual(String a, String b) {
-        if (a == null || b == null) return a == b;
-        if (a.length() != b.length()) return false;
-        int result = 0;
-        for (int i = 0; i < a.length(); i++) {
-            result |= a.charAt(i) ^ b.charAt(i);
-        }
-        return result == 0;
-    }
-}
+setups.put("default", f -> {});
+setups.put("setExpandEntityReferences(false)", f -> f.setExpandEntityReferences(false));
+setups.put("external-general-entities false",
+        f -> f.setFeature("http://xml.org/sax/features/external-general-entities", false));
+setups.put("disallow-doctype-decl true",
+        f -> f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true));
+setups.put("ACCESS_EXTERNAL_DTD \"\"", f -> f.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, ""));
 ```
-
-**Q5: Why is Java serialization considered a security risk?**
 
 ```text
-A5: Java serialization (ObjectInputStream/ObjectOutputStream) has been called "a gift that keeps on giving" to
-attackers. Here is why:
-
-1. Arbitrary code execution: When an object is deserialized, its readObject() method is called automatically.
-   If the classpath contains classes with dangerous readObject() implementations (called "gadget classes"),
-   an attacker can craft a serialized payload that triggers arbitrary code execution.
-
-2. Gadget chains: Libraries like Apache Commons Collections, Spring, and others contain classes that, when
-   combined in specific ways during deserialization, allow Remote Code Execution (RCE). The attacker does not
-   need to upload code -- they just need to craft the right byte sequence.
-
-3. Widely exploited: Real-world attacks include the 2015 Apache Commons Collections gadget chain. (Log4Shell in 2021
-   was a different bug, a JNDI lookup triggered by logged text, but some of its exploits delivered serialized gadget
-   payloads, so the same classpath gadgets mattered again.)
-
-4. Hard to fix: Simply validating the class being deserialized is difficult because the gadget chain may involve
-   many intermediate classes.
-
-Mitigations:
-- Do NOT deserialize untrusted data using ObjectInputStream
-- Use serialization filters (JEP 290, Java 9+) if you must use Java serialization
-- Prefer JSON (Jackson, Gson) or Protocol Buffers for data exchange
-- Use Java records as DTOs -- they are not Serializable by default and have built-in validation
-- The Java team has proposed eventually removing serialization or making it opt-in
-
-Senior engineer insight: If you see ObjectInputStream in a codebase, treat it as a red flag and investigate
-whether it processes untrusted data.
+factory                            order.xml                  order-param.xml
+default                            "contents of secret.txt"   "the dtd was read"
+setExpandEntityReferences(false)   ""                         ""
+external-general-entities false    ""                         "the dtd was read"
+disallow-doctype-decl true         refused: DOCTYPE           refused: DOCTYPE
+ACCESS_EXTERNAL_DTD ""             refused: file access       refused: file access
 ```
 
-```java
-import java.io.*;
-import java.util.Map;
+On Java 21 the default factory reads a file named by the document and puts its text into the
+result. `SAXParserFactory`, `XMLInputFactory` and an identity `Transformer` read `secret.txt` from the
+same document too. A `SYSTEM` identifier is a URI, so it can also name an `http:` address that only
+the server can reach.
 
-public class DeserializationSecurity {
-    // INSECURE: deserializing untrusted data
-    public Object deserializeInsecure(byte[] data) throws Exception {
-        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data))) {
-            return ois.readObject(); // DANGER: can execute arbitrary code
-        }
-    }
+An empty note doesn't mean nothing was read. `external-general-entities` turns off one kind of
+entity, and the parameter entity still read its file. With `setExpandEntityReferences(false)`, a copy
+of `order-param.xml` whose parameter entity names a missing `.dtd` failed with
+`FileNotFoundException`: the parser still opened the file.
 
-    // SECURE: use records and JSON instead
-    public record UserDTO(String username, String email, String role) {
-        public UserDTO {
-            if (username == null || username.isBlank()) {
-                throw new IllegalArgumentException("Username required");
-            }
-        }
-    }
-
-    // MITIGATION: serialization filter (Java 9+)
-    public Object deserializeWithFilter(byte[] data) throws Exception {
-        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data))) {
-            ois.setObjectInputFilter(info -> {
-                if (info.serialClass() != null) {
-                    String className = info.serialClass().getName();
-                    // Only allow specific classes
-                    if (className.startsWith("com.myapp.dto.")) {
-                        return ObjectInputFilter.Status.ALLOWED;
-                    }
-                    return ObjectInputFilter.Status.REJECTED;
-                }
-                return ObjectInputFilter.Status.UNDECIDED;
-            });
-            return ois.readObject();
-        }
-    }
-}
-```
-
-**Q6: How do you implement role-based access control (RBAC) in Java?**
+Two settings refused both documents, with these messages:
 
 ```text
-A6: Role-based access control maps users to roles and roles to permissions. This provides a scalable and
-maintainable authorization model.
-
-Core components:
-1. Roles: Named groups of permissions (e.g., GUEST, USER, ADMIN, SUPER_ADMIN)
-2. Permissions: Specific actions that can be performed (e.g., READ, WRITE, DELETE, MANAGE_USERS)
-3. Role-Permission mapping: A static or configurable mapping from roles to their granted permissions
-4. Enforcement point: Code that checks permissions before allowing operations
-
-Implementation approaches:
-1. Annotation-based: Use custom annotations (@RequiresPermission(WRITE)) on methods
-2. Programmatic: Check permissions explicitly in service methods
-3. Framework-based: Spring Security, Apache Shiro provide mature RBAC implementations
-
-Best practices:
-- Define permissions granularly (not just "admin" or "user")
-- Enforce at the service layer, not just the controller/UI layer
-- Use sealed interfaces/enums for roles and permissions to prevent unauthorized extension
-- Cache permission lookups for performance
-- Log all permission denials for audit purposes
-- Default to deny: if no explicit permission is granted, deny access
+SAXParseException: DOCTYPE is disallowed when the feature "http://apache.org/xml/features/disallow-doctype-decl" set to true.
+SAXParseException: External Entity: Failed to read external document 'secret.txt', because 'file' access is not allowed due to restriction set by the accessExternalDTD property.
 ```
 
+`disallow-doctype-decl` refuses any document with a `DOCTYPE`, which suits a format that never
+needs one. `ACCESS_EXTERNAL_DTD` set to `""` allows no protocol for external DTDs and entities, and
+a document whose `DOCTYPE` declares only internal entities still parsed. Each factory class is
+configured on its own, and the names differ: `XMLInputFactory` rejects `disallow-doctype-decl` with
+`IllegalArgumentException`, and takes `SUPPORT_DTD` set to `false` and `ACCESS_EXTERNAL_DTD`
+instead. Setting `FEATURE_SECURE_PROCESSING` to `true` on the DOM factory refused both documents
+too.
+
+<!-- practice 3 -->
+
+## Check Classes With a Filter Before readObject Builds Them, Not the Result After
+
+Sessions are stored as serialized `Preferences`. `CacheWarmer` stands in for any other
+`Serializable` class on the class path; its `readObject` prints a line, where a real class might
+open a connection or write a file:
+
 ```java
-import java.util.*;
+record Preferences(String theme, int pageSize) implements Serializable {}
 
-public class RbacExample {
-    enum Role { GUEST, USER, ADMIN, SUPER_ADMIN }
-    enum Permission { READ, WRITE, DELETE, MANAGE_USERS }
-
-    private static final Map<Role, Set<Permission>> ROLE_PERMISSIONS = Map.of(
-        Role.GUEST,       Set.of(Permission.READ),
-        Role.USER,        Set.of(Permission.READ, Permission.WRITE),
-        Role.ADMIN,       Set.of(Permission.READ, Permission.WRITE, Permission.DELETE),
-        Role.SUPER_ADMIN, Set.of(Permission.values())
-    );
-
-    public void enforcePermission(Role role, Permission required) {
-        Set<Permission> granted = ROLE_PERMISSIONS.getOrDefault(role, Set.of());
-        if (!granted.contains(required)) {
-            throw new SecurityException(
-                "Role %s lacks permission %s".formatted(role, required));
-        }
+/** Harmless, but not a class a session should ever contain. */
+final class CacheWarmer implements Serializable {
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        System.out.println("  CacheWarmer.readObject ran");
     }
+}
 
-    // Usage in a service method
-    public void deleteDocument(Role callerRole, String documentId) {
-        enforcePermission(callerRole, Permission.DELETE);
-        // proceed with deletion
+record Envelope(String kind, Object payload) implements Serializable {}
+```
+
+`Envelope` is a session wrapper whose payload can be any object. The session code casts the result,
+`(Preferences) read(data, filter)`:
+
+```java
+static final ObjectInputFilter ONLY_PREFERENCES =
+        ObjectInputFilter.Config.createFilter("Preferences;Envelope;!*");
+
+static Object read(byte[] data, ObjectInputFilter filter) throws IOException, ClassNotFoundException {
+    try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(data))) {
+        if (filter != null) in.setObjectInputFilter(filter);
+        return in.readObject();
     }
 }
 ```
+
+```text
+CacheWarmer, no filter:
+  CacheWarmer.readObject ran
+  java.lang.ClassCastException: class CacheWarmer cannot be cast to class Preferences (CacheWarmer and Preferences are in unnamed module of loader 'app')
+CacheWarmer, filter:
+  java.io.InvalidClassException: filter status: REJECTED
+Envelope holding a CacheWarmer, filter:
+  java.io.InvalidClassException: filter status: REJECTED
+```
+
+Without a filter the cast failed, but only after `CacheWarmer`'s code had run: `readObject` builds
+the whole graph, calling each class's own `readObject`, before it returns anything to cast. The
+filter is asked about each class as the stream meets it, nested ones too (`Envelope` passed and its
+payload was refused), and the refused class's `readObject` never ran.
+
+The pattern ends in `!*` because the stream allows any class its filter answers `UNDECIDED` for: a
+filter answering `UNDECIDED` for everything let `CacheWarmer.readObject` run. The JVM-wide filter is the system property
+`jdk.serialFilter`: started with `-Djdk.serialFilter='Preferences;!*'`, the same unfiltered read
+threw `InvalidClassException`.
+
+The filter checks classes, not the values inside them, and this pattern sets none of its size
+limits (`maxdepth`, `maxrefs`, `maxbytes`, `maxarray`). Data that crosses a trust boundary is safer
+in a format that builds only the types you name, such as JSON mapped onto records.
+
+<!-- practice 4 -->
+
+<!-- practice 5 -->
+
+## Summary
+
+- **A bind parameter holds a value, so a sort column comes from an allow-list.** A pasted `ORDER BY`
+  leaked a PIN through the order of the rows and ran a second statement; an identifier-shaped check
+  still sorted by a private column. Map public keys to SQL text the code wrote.
+- **A `..` escapes the base unless the check normalizes the path and compares elements.** Without
+  normalizing, `startsWith` passed `../`; a string prefix passed a sibling directory. A symlink inside
+  the base passes both, and makes `normalize()` itself point at the wrong file; compare
+  `toRealPath()` with the base's real path.
+- **The JDK's XML parsers read external entities until you turn them off.** Set
+  `disallow-doctype-decl`, or `ACCESS_EXTERNAL_DTD` to `""`; turning off external general entities
+  left a parameter entity reading its file.
+- **Check classes with a filter before `readObject` builds them.** A cast afterwards runs the
+  unexpected class's code first; an allow-list filter ending in `!*` refused it at any depth.
+
+## Reference
+
+| Call or setting (Java 21) | Behaviour | Source |
+|---|---|---|
+| `PreparedStatement` parameter | a value; `ORDER BY ?` on H2 is read as a column number | run |
+| H2 `Statement.executeQuery("...; DROP TABLE t")` | runs both statements | run |
+| `Path.resolve(other)` | appends `other`; returns `other` when it is absolute | javadoc |
+| `Path.normalize()` | removes `.` and `name/..` from the text; no file system access, so `link/..` resolves differently on disk | javadoc, run |
+| `Path.startsWith(Path)` | compares name elements, not characters | javadoc, run |
+| `Path.toRealPath()` | follows symlinks; `NoSuchFileException` if the file is missing | javadoc, run |
+| `DocumentBuilderFactory`, `SAXParserFactory`, `XMLInputFactory`, `TransformerFactory` defaults | read a file named by an external entity | run |
+| `http://apache.org/xml/features/disallow-doctype-decl` | any `DOCTYPE` is a fatal error | run |
+| `XMLConstants.ACCESS_EXTERNAL_DTD` = `""` | no protocol allowed for external DTDs and entities; internal entities still work | run, javadoc |
+| `XMLConstants.FEATURE_SECURE_PROCESSING` set to `true` on the factory | refused both documents | run |
+| `XMLInputFactory` | rejects `disallow-doctype-decl`; accepts `SUPPORT_DTD` and `ACCESS_EXTERNAL_DTD` | run |
+| `ObjectInputFilter.Config.createFilter("a.B;!*")` | allows `a.B`, rejects the rest | javadoc, run |
+| a filter returning `UNDECIDED` | the class is read | run |
+| `-Djdk.serialFilter=...` | the JVM-wide filter for streams without their own | javadoc, run |
+
+## Challenges
+
+1. Your report endpoint lets users choose the sort column and the columns shown. Design the
+   allow-list for both. What changes when an admin can add custom columns at run time?
+2. A batch job writes files into a directory that users choose by name. Which check works when the
+   file doesn't exist yet, and what can another process do between your check and the write?
+3. Find every place in a service that turns bytes into objects: `ObjectInputStream`, XML, JSON with
+   polymorphic types, a cache client. Which of them would accept a class you never meant to
+   receive?
+
+## Design Note: Why the Safe Setting Isn't the Default
+
+The two unsafe defaults on this page are older than the attacks on them. External entities are part
+of XML 1.0, and documents that use them still exist. Java serialization was designed to rebuild any graph of
+`Serializable` objects, which is what made it convenient. A JDK that changed either default would
+break programs that work, so the JDK added switches and left them off.
+
+The sort map and the serial filter are allow-lists, and refusing every `DOCTYPE` is a stricter form
+of one. They cost the same: when the format gains a class, a sort key or a construct, someone edits
+the list, and a forgotten entry shows up as a refused request. A deny-list fails without a sign
+when someone adds a class, a link or an encoding it never named.
 
 ## Code Examples
 

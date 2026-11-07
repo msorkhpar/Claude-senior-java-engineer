@@ -7,66 +7,146 @@
   "variant": "prose",
   "unit": 4,
   "ordinal": 3,
-  "title": "How far to split an interface",
+  "title": "Check yourself: interface segregation",
   "exercise": {
     "provenance": "generated",
     "trust": "advisory",
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-group",
-        "stem": "Per this page, how should the methods of a fat interface be grouped when it is split up?",
+        "id": "q-split-report-store",
+        "stem": "A ReportStore interface has load, list, save and purge. The dashboard calls load and list, the importer calls save, and the retention job calls list and purge. A read-only ArchiveStore implements ReportStore today and throws from save and purge. Which design removes those throwing methods without making any client take two parameters or an intersection type?",
         "options": [
           {
             "id": "a",
-            "text": "By the clients that call them, one interface per client role",
+            "text": "Three interfaces, ReportReader (load, list), ReportWriter (save, purge) and ReportStore extending both, since the archive implements only ReportReader",
             "correct": true,
-            "says": "The page says to group methods by client usage and create one interface per client cluster."
+            "says": "roles follow what clients use together; the dashboard takes the reader, the importer the writer, the retention job the store, and the archive can't be handed to the job"
           },
           {
             "id": "b",
-            "text": "By the fields they touch, one interface per implementation part",
+            "text": "Three interfaces, ReportReader (load, list), ReportWriter (save) and ReportPurger (purge), since the archive implements only ReportReader",
             "correct": false,
-            "says": "The page says to group methods by client usage, not by implementation similarity."
+            "says": "the retention job calls list and purge, so it would need ReportReader and ReportPurger together: two parameters or an intersection type"
           },
           {
             "id": "c",
-            "text": "By each single method, one interface for every method listed",
+            "text": "Four interfaces, one per method, since the archive then implements only the two it supports and every client picks the ones it calls",
             "correct": false,
-            "says": "The page calls that over-segregation: interfaces so granular no client uses just one."
+            "says": "with one interface per method the dashboard and the retention job each need two of them, which means an intersection type or several fields holding one object"
+          },
+          {
+            "id": "d",
+            "text": "One interface plus an isWritable() method, since the archive then answers false and every client checks it before it saves or purges",
+            "correct": false,
+            "says": "the archive still has save and purge to stub, and a caller that forgets the check fails at run time exactly as before"
           }
         ],
         "origin": {
           "path": "31-solid-principles/README_8.1.4.md",
-          "section": "Interview Q&A Section"
+          "section": "Role Interfaces Turn the Refusal into a Compile Error"
         }
       },
       {
-        "id": "q-default",
-        "stem": "Per this page, what do Java's default methods do for an interface that has grown fat?",
+        "id": "q-added-method",
+        "stem": "A NotificationSender interface has send, sendBulk and cancel. One production class implements it, and fifteen test fakes implement it for services that only ever call send. A team adds an abstract method status(String id) and implements it in the production class. What happens when the whole codebase is rebuilt?",
         "options": [
           {
             "id": "a",
-            "text": "They soften it, but leave clients tied to every method",
-            "correct": true,
-            "says": "The page says default methods partially mitigate fat interfaces but do not solve the coupling."
+            "text": "It builds, since a fake is checked only for the methods its service calls, which excludes status()",
+            "correct": false,
+            "says": "javac checks that every non-abstract class implementing the interface implements all its abstract methods, whoever calls them"
           },
           {
             "id": "b",
-            "text": "They cure it, as clients then rely on no unused method",
+            "text": "It builds, since the fakes are compiled as test sources, apart from the interface they implement",
             "correct": false,
-            "says": "The page says default methods do not solve the fundamental coupling problem."
+            "says": "test sources are compiled against the same interface; on the page the test fake failed to compile"
           },
           {
             "id": "c",
-            "text": "They block it, as the compiler caps how many it may hold",
+            "text": "It fails, since each fake now lacks status(), a method the service it stands in for never calls",
+            "correct": true,
+            "says": "an abstract method added to a fat interface breaks every implementation, including fakes for services that never call it"
+          },
+          {
+            "id": "d",
+            "text": "It fails, since each service that uses a fake now lacks a call to status(), a method it never needed",
             "correct": false,
-            "says": "The page says default methods allow adding methods to an interface without breaking implementations."
+            "says": "callers that don't use the new method compile unchanged; it is the implementing classes, here the fakes, that break"
           }
         ],
         "origin": {
           "path": "31-solid-principles/README_8.1.4.md",
-          "section": "Key Points to Remember"
+          "section": "A Method Added to a Fat Interface Breaks Classes That Never Call It"
+        }
+      },
+      {
+        "id": "q-inherited-removeif",
+        "stem": "GuardedQueue, written in 2012, extends AbstractCollection and declares add, remove, size and iterator; add, remove and size are synchronized methods. A new cleanup task calls queue.removeIf(job -> job.expired()) while worker threads keep calling add. What does removeIf do?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It runs under the queue's lock, since removeIf calls the synchronized size() before it walks iterator()",
+            "correct": false,
+            "says": "removeIf is Collection's default; it calls iterator() and Iterator.remove() and never takes the queue's lock"
+          },
+          {
+            "id": "b",
+            "text": "It runs under the queue's lock, since inherited methods share the lock of the class's synchronized ones",
+            "correct": false,
+            "says": "synchronized applies only to the methods declared with it; the inherited default takes no lock"
+          },
+          {
+            "id": "c",
+            "text": "It runs outside the queue's lock, since it walks and deletes through iterator() and Iterator.remove() alone",
+            "correct": true,
+            "says": "the inherited default iterates without the lock, so a worker's add can land mid-iteration; the class must override removeIf to keep its locking"
+          },
+          {
+            "id": "d",
+            "text": "It runs outside the queue's lock, since the class predates removeIf and gets a default that throws",
+            "correct": false,
+            "says": "Collection.removeIf has a working default that iterates and removes; it doesn't throw by default"
+          }
+        ],
+        "origin": {
+          "path": "31-solid-principles/README_8.1.4.md",
+          "section": "A Default Method Keeps Implementations Compiling, and Runs Code That Never Saw Their Locks"
+        }
+      },
+      {
+        "id": "q-sequenced-addlast",
+        "stem": "ChapterList, a read-only class, extends AbstractCollection<Chapter> and implements SequencedCollection<Chapter>, overriding only iterator(), size() and reversed(). An editor screen holds one as a SequencedCollection<Chapter> and calls addLast(appendix). What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It fails to compile, since the interface's own addLast is abstract and ChapterList declares none",
+            "correct": false,
+            "says": "addLast has a default body in SequencedCollection, inherited by every implementation, so the call compiles"
+          },
+          {
+            "id": "b",
+            "text": "It fails at run time with UnsupportedOperationException, since the interface's own addLast refuses the call",
+            "correct": true,
+            "says": "SequencedCollection's default addLast always throws UnsupportedOperationException; javac accepts the call and the read-only class refuses it at run time"
+          },
+          {
+            "id": "c",
+            "text": "It appends the chapter, since the interface's own addLast falls back on the collection's add()",
+            "correct": false,
+            "says": "the default addLast doesn't call add(); it throws UnsupportedOperationException"
+          },
+          {
+            "id": "d",
+            "text": "It appends the chapter, since the interface's own addLast writes through the collection's iterator()",
+            "correct": false,
+            "says": "no default writes through the iterator for addLast; it throws, and only removeFirst/removeLast use the iterator"
+          }
+        ],
+        "origin": {
+          "path": "31-solid-principles/README_8.1.4.md",
+          "section": "Collection Is Fat on Purpose, and Java 21's SequencedCollection Repeats It"
         }
       }
     ]

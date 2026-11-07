@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Pick the standard interface that fits each job",
+  "title": "Give the checkout's own rule types their and, or and then",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,24 @@
     },
     {
       "type": "para",
-      "text": "`java.util.function` has one interface for each shape of job. A `Consumer<T>` takes a value and returns nothing, a `Supplier<T>` takes nothing and returns a value, a `Function<T, R>` turns one value into another, a `Predicate<T>` answers yes or no, and a `BinaryOperator<T>` combines two values of one type. Writing `Function<String, Void>` and returning `null` is the sign that a `Consumer` was wanted."
+      "text": "A web shop's checkout decides which parcels may ship next-day and what a parcel costs. The team declared its own `Rule` and `Adjustment` interfaces in `src/main/java/practice/Checkout.java`, so the code reads in the shop's words, but nobody has written their combining methods yet: `Rule.and`, `Rule.or` and `Adjustment.then` all throw."
     },
     {
       "type": "para",
-      "text": "Write the static factories of `Handlers`, each returning the interface named in its signature:"
+      "text": "Write those three methods. When you're done:"
     },
     {
-      "type": "table",
-      "headers": [
-        "method",
-        "what the returned object does"
-      ],
-      "rows": [
-        [
-          "`Consumer<String> appendTo(List<String> sink)`",
-          "adds every accepted string to `sink`, repeats included"
-        ],
-        [
-          "`Supplier<List<String>> freshList()`",
-          "gives an empty, modifiable list"
-        ],
-        [
-          "`Function<String, Integer> length()`",
-          "`\"hello\"` → `5`"
-        ],
-        [
-          "`Predicate<String> startsWithA()`",
-          "`\"Alice\"` → `true`; `\"Bob\"`, `\"alice\"` and `\"\"` → `false`"
-        ],
-        [
-          "`BinaryOperator<Integer> larger()`",
-          "`(3, 7)` → `7`, for any two `int` values"
-        ],
-        [
-          "`Consumer<String> both(Consumer<String> first, Consumer<String> second)`",
-          "runs `first`, then `second`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`nextDay()` turns down a parcel whose postcode is missing instead of failing on it;",
+        "every rule in a chain is asked at most once, in the order the chain was written, and only while the answer is still open, because some of the shop's rules call a slow address service;",
+        "`price(percentOff, courierFee)` charges the courier fee in full on top of the discounted goods."
       ]
     },
     {
       "type": "para",
-      "text": "A factory's supplier is called many times over its life, and \"first, then second\" is a promise about order."
+      "text": "About four lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.BinaryOperator;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\nimport java.util.function.Supplier;\n\npublic final class Handlers {\n\n    private Handlers() {\n    }\n\n    public static Consumer<String> appendTo(List<String> sink) {\n        return sink::add;\n    }\n\n    public static Supplier<List<String>> freshList() {\n        return ArrayList::new;\n    }\n\n    public static Function<String, Integer> length() {\n        return String::length;\n    }\n\n    public static Predicate<String> startsWithA() {\n        return s -> s.startsWith(\"A\");\n    }\n\n    public static BinaryOperator<Integer> larger() {\n        return Integer::max;\n    }\n\n    public static Consumer<String> both(Consumer<String> first, Consumer<String> second) {\n        return first.andThen(second);\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Decides which parcels may ship next-day and what a parcel costs. The team declared its own\n * Rule and Adjustment interfaces so that the checkout code reads in the shop's own words.\n */\npublic class Checkout {\n\n    public record Parcel(String country, String postcode, int grams) {}\n\n    /** One acceptance rule for a parcel. */\n    @FunctionalInterface\n    public interface Rule {\n        boolean accepts(Parcel parcel);\n\n        /** A rule that accepts a parcel only when this rule and {@code other} both accept it. */\n        default Rule and(Rule other) {\n            return parcel -> accepts(parcel) && other.accepts(parcel);\n        }\n\n        /** A rule that accepts a parcel when this rule or {@code other} accepts it. */\n        default Rule or(Rule other) {\n            return parcel -> accepts(parcel) || other.accepts(parcel);\n        }\n    }\n\n    /** One step that changes a price, in cents. */\n    @FunctionalInterface\n    public interface Adjustment {\n        long apply(long cents);\n\n        /** This step, and then {@code next} on its result. */\n        default Adjustment then(Adjustment next) {\n            return cents -> next.apply(apply(cents));\n        }\n    }\n\n    static Rule hasPostcode() {\n        return parcel -> parcel.postcode() != null;\n    }\n\n    static Rule postcodeStartsWith(String prefix) {\n        return parcel -> parcel.postcode().startsWith(prefix);\n    }\n\n    static Rule atMostGrams(int grams) {\n        return parcel -> parcel.grams() <= grams;\n    }\n\n    /** Next-day delivery: a known postcode in the courier's zone, and light enough to carry. */\n    public static Rule nextDay() {\n        return hasPostcode().and(postcodeStartsWith(\"NL-\")).and(atMostGrams(5_000));\n    }\n\n    /** Members get a percentage off the goods; the courier fee is added after the discount. */\n    public static Adjustment price(int percentOff, long courierFee) {\n        Adjustment discount = cents -> cents * (100 - percentOff) / 100;\n        Adjustment fee = cents -> cents + courierFee;\n        return discount.then(fee);\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.BinaryOperator;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\nimport java.util.function.Supplier;\n\npublic final class Handlers {\n\n    private Handlers() {\n    }\n\n    public static Consumer<String> appendTo(List<String> sink) {\n        throw new UnsupportedOperationException(\"write appendTo\");\n    }\n\n    public static Supplier<List<String>> freshList() {\n        throw new UnsupportedOperationException(\"write freshList\");\n    }\n\n    public static Function<String, Integer> length() {\n        throw new UnsupportedOperationException(\"write length\");\n    }\n\n    public static Predicate<String> startsWithA() {\n        throw new UnsupportedOperationException(\"write startsWithA\");\n    }\n\n    public static BinaryOperator<Integer> larger() {\n        throw new UnsupportedOperationException(\"write larger\");\n    }\n\n    public static Consumer<String> both(Consumer<String> first, Consumer<String> second) {\n        throw new UnsupportedOperationException(\"write both\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Decides which parcels may ship next-day and what a parcel costs. The team declared its own\n * Rule and Adjustment interfaces so that the checkout code reads in the shop's own words.\n */\npublic class Checkout {\n\n    public record Parcel(String country, String postcode, int grams) {}\n\n    /** One acceptance rule for a parcel. */\n    @FunctionalInterface\n    public interface Rule {\n        boolean accepts(Parcel parcel);\n\n        /** A rule that accepts a parcel only when this rule and {@code other} both accept it. */\n        default Rule and(Rule other) {\n            // TODO: The next-day rule is built by chaining rules with and(). Return a rule that\n            //       accepts a parcel only when both rules do, and that behaves well when an\n            //       earlier rule in the chain has already turned the parcel down.\n            throw new IllegalStateException(\"TODO: and\");\n        }\n\n        /** A rule that accepts a parcel when this rule or {@code other} accepts it. */\n        default Rule or(Rule other) {\n            // TODO: Return a rule that accepts a parcel when either rule does, asking no more\n            //       than it needs to.\n            throw new IllegalStateException(\"TODO: or\");\n        }\n    }\n\n    /** One step that changes a price, in cents. */\n    @FunctionalInterface\n    public interface Adjustment {\n        long apply(long cents);\n\n        /** This step, and then {@code next} on its result. */\n        default Adjustment then(Adjustment next) {\n            // TODO: Return one step that does this step's work and then next's, in that order.\n            throw new IllegalStateException(\"TODO: then\");\n        }\n    }\n\n    static Rule hasPostcode() {\n        return parcel -> parcel.postcode() != null;\n    }\n\n    static Rule postcodeStartsWith(String prefix) {\n        return parcel -> parcel.postcode().startsWith(prefix);\n    }\n\n    static Rule atMostGrams(int grams) {\n        return parcel -> parcel.grams() <= grams;\n    }\n\n    /** Next-day delivery: a known postcode in the courier's zone, and light enough to carry. */\n    public static Rule nextDay() {\n        return hasPostcode().and(postcodeStartsWith(\"NL-\")).and(atMostGrams(5_000));\n    }\n\n    /** Members get a percentage off the goods; the courier fee is added after the discount. */\n    public static Adjustment price(int percentOff, long courierFee) {\n        Adjustment discount = cents -> cents * (100 - percentOff) / 100;\n        Adjustment fee = cents -> cents + courierFee;\n        return discount.then(fee);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,8 +73,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "dbd3fc987552a895324fdf8cef71292dfc13ea7102bd6228e051331939aeccc0",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.BinaryOperator;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\nimport java.util.function.Supplier;\n\npublic final class Handlers {\n\n    private Handlers() {\n    }\n\n    public static Consumer<String> appendTo(List<String> sink) {\n        throw new UnsupportedOperationException(\"write appendTo\");\n    }\n\n    public static Supplier<List<String>> freshList() {\n        throw new UnsupportedOperationException(\"write freshList\");\n    }\n\n    public static Function<String, Integer> length() {\n        throw new UnsupportedOperationException(\"write length\");\n    }\n\n    public static Predicate<String> startsWithA() {\n        throw new UnsupportedOperationException(\"write startsWithA\");\n    }\n\n    public static BinaryOperator<Integer> larger() {\n        throw new UnsupportedOperationException(\"write larger\");\n    }\n\n    public static Consumer<String> both(Consumer<String> first, Consumer<String> second) {\n        throw new UnsupportedOperationException(\"write both\");\n    }\n}\n",
+  "content_sha256": "64b9e5d8462845affb9439eff2e16bfbd396b7779e5e06a8d6a3f43730a64f0f",
+  "starting_code": "package practice;\n\n/**\n * Decides which parcels may ship next-day and what a parcel costs. The team declared its own\n * Rule and Adjustment interfaces so that the checkout code reads in the shop's own words.\n */\npublic class Checkout {\n\n    public record Parcel(String country, String postcode, int grams) {}\n\n    /** One acceptance rule for a parcel. */\n    @FunctionalInterface\n    public interface Rule {\n        boolean accepts(Parcel parcel);\n\n        /** A rule that accepts a parcel only when this rule and {@code other} both accept it. */\n        default Rule and(Rule other) {\n            // TODO: The next-day rule is built by chaining rules with and(). Return a rule that\n            //       accepts a parcel only when both rules do, and that behaves well when an\n            //       earlier rule in the chain has already turned the parcel down.\n            throw new IllegalStateException(\"TODO: and\");\n        }\n\n        /** A rule that accepts a parcel when this rule or {@code other} accepts it. */\n        default Rule or(Rule other) {\n            // TODO: Return a rule that accepts a parcel when either rule does, asking no more\n            //       than it needs to.\n            throw new IllegalStateException(\"TODO: or\");\n        }\n    }\n\n    /** One step that changes a price, in cents. */\n    @FunctionalInterface\n    public interface Adjustment {\n        long apply(long cents);\n\n        /** This step, and then {@code next} on its result. */\n        default Adjustment then(Adjustment next) {\n            // TODO: Return one step that does this step's work and then next's, in that order.\n            throw new IllegalStateException(\"TODO: then\");\n        }\n    }\n\n    static Rule hasPostcode() {\n        return parcel -> parcel.postcode() != null;\n    }\n\n    static Rule postcodeStartsWith(String prefix) {\n        return parcel -> parcel.postcode().startsWith(prefix);\n    }\n\n    static Rule atMostGrams(int grams) {\n        return parcel -> parcel.grams() <= grams;\n    }\n\n    /** Next-day delivery: a known postcode in the courier's zone, and light enough to carry. */\n    public static Rule nextDay() {\n        return hasPostcode().and(postcodeStartsWith(\"NL-\")).and(atMostGrams(5_000));\n    }\n\n    /** Members get a percentage off the goods; the courier fee is added after the discount. */\n    public static Adjustment price(int percentOff, long courierFee) {\n        Adjustment discount = cents -> cents * (100 - percentOff) / 100;\n        Adjustment fee = cents -> cents + courierFee;\n        return discount.then(fee);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-03/practice-1/src/main/java/practice/Handlers.java",
-    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-03/practice-1/src/test/java/practice/HandlersTest.java",
+    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-03/practice-1/src/main/java/practice/Checkout.java",
+    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-03/practice-1/src/test/java/practice/CheckoutTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,19 +107,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HandlersTest#eachFactoryDoesItsJob",
+        "id": "practice.CheckoutTest#combinesRulesAndAdjustments",
         "kind": "main",
-        "says": "Each factory works over its whole input range: every string is appended, repeats too; only a capital A counts, and the empty string is no match; larger never overflows."
+        "says": "and accepts only when both rules accept, or when either does, and then chains two price steps"
       },
       {
-        "id": "practice.HandlersTest#eachGetMakesANewList",
+        "id": "practice.CheckoutTest#andLeavesTheOtherRuleUnaskedOnceThisOneRejects",
         "kind": "edge",
-        "says": "A Supplier used as a factory hands out a new list on every get, never the same one twice."
+        "says": "once this rule rejects a parcel, and() never asks the other rule, so a missing postcode is turned down instead of throwing"
       },
       {
-        "id": "practice.HandlersTest#bothRunsTheFirstConsumerFirst",
+        "id": "practice.CheckoutTest#andAsksThisRuleBeforeTheOther",
         "kind": "edge",
-        "says": "Consumer.andThen runs the receiver first and the argument second."
+        "says": "and() asks the rule it was called on first and the argument second"
+      },
+      {
+        "id": "practice.CheckoutTest#orLeavesTheOtherRuleUnaskedOnceThisOneAccepts",
+        "kind": "edge",
+        "says": "once this rule accepts a parcel, or() never asks the other rule"
+      },
+      {
+        "id": "practice.CheckoutTest#thenRunsThisStepFirst",
+        "kind": "edge",
+        "says": "a.then(b) applies a first and b to its result, so the courier fee is added after the discount"
       }
     ],
     "report": {
@@ -152,11 +138,11 @@
     },
     "origin": {
       "path": "13-lambda-expressions/README_4.1.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "andThen Runs the Receiver First and compose the Argument First; and/or Stop Early"
     },
     "concepts": [
-      "Consumer.andThen runs two consumers one after the other, the receiver first.",
-      "Consumer takes and returns nothing, Supplier gives without taking, Function transforms, Predicate tests, and BinaryOperator combines two of one type."
+      "Predicate.and and or evaluate the receiver first and the argument only when the receiver hasn't decided the result, so a guard placed first protects the checks after it.",
+      "f.andThen(g) applies f and then g to its result; f.compose(g) applies g first."
     ]
   }
 }

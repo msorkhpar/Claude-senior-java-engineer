@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Inheritance and threads",
+  "title": "Check yourself: composition in concurrent code",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,146 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-override",
-        "stem": "Per this page, what happens when a subclass overrides a `synchronized` method of its parent and leaves out the keyword?",
+        "id": "q-map-subclass-reserve",
+        "stem": "A booking service extends `ConcurrentHashMap<String, String>` with `synchronized boolean reserve(String seat, String customer) { if (containsKey(seat)) return false; put(seat, customer); return true; }`. A partner integration books seats on the same object through the map's own `putIfAbsent(seat, customer)`. Both are called for seat 14C at the same moment. What can happen?",
         "options": [
           {
             "id": "a",
-            "text": "The override runs without holding the monitor, so the parent's thread safety is quietly lost",
-            "correct": true,
-            "says": "The page says the subclass method then runs without holding the monitor, silently breaking the parent's thread safety."
+            "text": "The seat is booked once, since the `synchronized` on `reserve` also covers the map's inherited methods",
+            "correct": false,
+            "says": "the subclass's monitor excludes only code that locks this; the inherited methods keep the base's own locking"
           },
           {
             "id": "b",
-            "text": "The override takes on the parent's modifier, so it still runs while holding the monitor",
-            "correct": false,
-            "says": "The page says that without the keyword the subclass method runs without holding the monitor."
+            "text": "The seat can be booked twice, since `putIfAbsent` never waits for the monitor `reserve` holds",
+            "correct": true,
+            "says": "a synchronized subclass method locks this, and ConcurrentHashMap's methods never lock the map object, so putIfAbsent can run between containsKey and put"
           },
           {
             "id": "c",
-            "text": "The compiler rejects the override, since it must repeat every modifier the parent used",
+            "text": "The seat can be booked twice, since `reserve` and `putIfAbsent` each lock their own bin of the map",
             "correct": false,
-            "says": "The page's ExtendedCounter example overrides increment() without the keyword; it compiles and breaks thread safety."
+            "says": "reserve is a synchronized method, so it locks the subclass object itself, not a bin; two calls of reserve can't overlap"
+          },
+          {
+            "id": "d",
+            "text": "The seat is booked once, since `containsKey` and `put` are each atomic in a `ConcurrentHashMap`",
+            "correct": false,
+            "says": "each call is atomic, and another thread's putIfAbsent can still run between the two"
           }
         ],
         "origin": {
           "path": "34-composition-inheritance/README_8.4.2.md",
-          "section": "Common Pitfalls and How to Avoid Them"
+          "section": "A Subclass's synchronized Method Excludes Only Code That Locks this"
         }
       },
       {
-        "id": "q-thread",
-        "stem": "Per this page, why implement `Runnable` for a worker's logic rather than extend `Thread`?",
+        "id": "q-cart-service-per-request",
+        "stem": "A shop keeps carts in one `Collections.synchronizedMap(new HashMap<>())`. Each incoming request builds a new `CartService` over that map, whose `synchronized Cart cartFor(String user)` calls `get` and, if it returned null, `put`s a new cart. A user's browser sends two requests at once for a user with no cart yet. What follows?",
         "options": [
           {
             "id": "a",
-            "text": "It separates what the task does from how it runs, and frees the superclass slot",
-            "correct": true,
-            "says": "The page says extending Thread uses up the single inheritance slot and conflates what to do with how to run it."
+            "text": "The user can end up with two carts, since the wrapper runs `get` and `put` without its lock",
+            "correct": false,
+            "says": "each wrapper call takes the wrapper's lock whoever calls it; the gap is between the two calls"
           },
           {
             "id": "b",
-            "text": "It binds the task to platform threads, so it cannot move to a virtual thread",
-            "correct": false,
-            "says": "The page's Runnable DataProcessor 'Can run on platform threads, virtual threads, or single-threaded executor'."
+            "text": "The user can end up with two carts, since each request's `CartService` is a different lock",
+            "correct": true,
+            "says": "the synchronized method locks the service, one per request, so nothing excludes the two get-then-put sequences on the shared map"
           },
           {
             "id": "c",
-            "text": "It gives the task setPriority and setDaemon, which the task code relies on",
+            "text": "The user gets one cart, since each request's `CartService` runs `cartFor` with its lock held",
             "correct": false,
-            "says": "The page says Thread is a heavy class with many methods (setPriority, setDaemon, etc.) that are irrelevant to the task logic."
+            "says": "each CartService holds its own lock, and there is one per request, so the two calls don't exclude each other"
+          },
+          {
+            "id": "d",
+            "text": "The user gets one cart, since the wrapper keeps its lock across the whole of `cartFor`",
+            "correct": false,
+            "says": "the wrapper locks each call and releases the lock between get and put"
           }
         ],
         "origin": {
           "path": "34-composition-inheritance/README_8.4.2.md",
-          "section": "Interview Q&A Section"
+          "section": "A Helper Outside the Class Must Take the Lock the Class Takes"
+        }
+      },
+      {
+        "id": "q-recipient-set-shared-list",
+        "stem": "A `RecipientSet` keeps a `List<String>` field and guards its `addNew` (add the address unless it is there) and `snapshot()` methods with a private lock object. Its constructor stores the list the caller passes in, `new RecipientSet(recipients)`, and the caller keeps `recipients` and runs `if (!recipients.contains(a)) recipients.add(a)` from a nightly job. Can an address end up stored twice?",
+        "options": [
+          {
+            "id": "a",
+            "text": "No, since the job's check and add fall before or after each locked `addNew`, never inside it",
+            "correct": false,
+            "says": "nothing makes the job's unlocked calls wait for RecipientSet's lock, so they can land between addNew's check and its add"
+          },
+          {
+            "id": "b",
+            "text": "No, if `recipients` is a synchronized list, since the job's `add` then waits for `RecipientSet`'s lock",
+            "correct": false,
+            "says": "the wrapper's add locks the wrapper, not RecipientSet's private lock object"
+          },
+          {
+            "id": "c",
+            "text": "Yes, since `snapshot()` can copy the list while `addNew` is halfway through",
+            "correct": false,
+            "says": "snapshot and addNew hold the same private lock, so a copy never sees addNew halfway, and copying stores nothing"
+          },
+          {
+            "id": "d",
+            "text": "Yes, since the job's check and add take no lock that `RecipientSet` holds",
+            "correct": true,
+            "says": "the class is safe only while no reference to its state escapes; the caller's own reference is a path around the lock"
+          }
+        ],
+        "origin": {
+          "path": "34-composition-inheritance/README_8.4.2.md",
+          "section": "A Class That Owns the State and the Lock Doesn't Depend on What It Wraps"
+        }
+      },
+      {
+        "id": "q-eager-session",
+        "stem": "A gateway finds a backend session with `Session fresh = Session.open(id); Session old = sessions.putIfAbsent(id, fresh); return old != null ? old : fresh;` on a `ConcurrentHashMap`, where `Session.open` opens a TCP connection. Most requests are for ids that already have a session. What does the backend see?",
+        "options": [
+          {
+            "id": "a",
+            "text": "A new connection for every request, since `putIfAbsent` stores each newly opened session over the old one",
+            "correct": false,
+            "says": "putIfAbsent keeps the existing mapping and returns it; the extra session is thrown away, not stored"
+          },
+          {
+            "id": "b",
+            "text": "One connection per id, since `Session.open` runs only once `putIfAbsent` finds the key absent",
+            "correct": false,
+            "says": "the argument is evaluated before the call, so Session.open runs on every call; computeIfAbsent, by contrast, builds the value only when the key is absent"
+          },
+          {
+            "id": "c",
+            "text": "One connection per id, since `putIfAbsent` is atomic, so each session is opened once",
+            "correct": false,
+            "says": "atomicity covers the check and the put; it can't undo the construction that ran before the call"
+          },
+          {
+            "id": "d",
+            "text": "A new connection for every request, since `Session.open` runs before `putIfAbsent` looks at the key",
+            "correct": true,
+            "says": "the value is an argument, so it is built on every call; putIfAbsent only decides whether to keep it"
+          }
+        ],
+        "origin": {
+          "path": "34-composition-inheritance/README_8.4.2.md",
+          "section": "putIfAbsent Builds the Value Before It Knows It Is Needed"
         }
       }
     ],
     "concepts": [
-      "Extending Thread spends the one superclass slot and ties a task to how it runs; implementing Runnable or Callable and submitting it to an executor composes the two.",
-      "A subclass that overrides a synchronized method without the synchronized keyword runs without the monitor and silently breaks the parent's thread safety."
+      "The composed class's guarantee holds only while no reference to its state escapes: a list stored from the caller, or returned by a getter, is a path around the lock.",
+      "A helper's synchronized method locks the helper, so helpers created per request or per tenant over one shared collection exclude nothing; the helper must take the lock the collection itself takes, which works only where the collection documents it, as Collections.synchronizedList does.",
+      "A synchronized method added by a subclass locks this, so it excludes only code that locks this; over a base that locks a private object, such as CopyOnWriteArrayList or ConcurrentHashMap, the base's own methods run straight through it."
     ]
   }
 }

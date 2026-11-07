@@ -18,245 +18,329 @@
       "text": "7.2.4. Generic Methods in Enums"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "The payments service reads its settings through an enum, and `RetryPolicy` takes its limit from it when the service starts:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Map;\nimport java.util.Optional;\n\nfinal class RetryPolicy {\n    private final Optional<Integer> maxRetries;\n\n    RetryPolicy(Map<String, String> props) {\n        maxRetries = Setting.RETRIES.find(props);\n    }\n\n    int attemptsLeft(int used) {\n        return maxRetries.orElse(3) - used;\n    }\n}"
     },
     {
       "type": "para",
-      "text": "While Java enum types themselves cannot be generic (you cannot write `enum MyEnum<T>`), their individual methods can declare type parameters. This allows enum constants to act as type-safe operations, converters, factories, or aggregators that work with any type — combining the fixed, singleton nature of enums with the flexibility of generics."
+      "text": "The service starts and passes its health check. The first payment that needs a retry fails:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Exception in thread \"main\" java.lang.ClassCastException: class java.lang.String cannot be cast to class java.lang.Integer (java.lang.String and java.lang.Integer are in module java.base of loader 'bootstrap')\n\tat RetryPolicy.attemptsLeft(RetryPolicy.java:12)\n\tat Opening.main(Opening.java:8)"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Consider a set of kitchen appliances (enum constants) — a blender, a toaster, a coffee maker. Each appliance is a fixed, named item (you can't create new appliance types at runtime). But each appliance can process different ingredients (generic type parameter): the blender can blend fruits, vegetables, or ice; the toaster can toast bread, bagels, or waffles. The appliance is fixed; what it processes is generic."
-    },
-    {
-      "type": "para",
-      "text": "Key patterns for generic methods in enums:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Generic converter methods**: `<T> T convert(Object input, Class<T> targetType)`",
-        "**Generic collection operations**: `<T> List<T> execute(List<T> input, Predicate<T> predicate)`",
-        "**Bounded type parameters**: `<T extends Number> double aggregate(List<T> values)`",
-        "**Generic factory methods**: `<T> Collection<T> create()` for producing typed collections",
-        "**Generic comparison strategies**: `<T> int compare(T a, T b)` for pluggable comparators"
-      ]
+      "text": "`RetryPolicy` hasn't changed in a year. The bug is in `Setting.find`, which `RetryPolicy` calls, a generic method on an enum, and the stack trace doesn't mention it."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "An Enum Can't Take a Type Parameter, but Its Methods Can, and Each Call Picks T"
+    },
+    {
+      "type": "para",
+      "text": "An enum declaration can't be generic:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Setting.java:1: error: enums cannot be generic\nenum Setting<T> {\n             ^"
+    },
+    {
+      "type": "para",
+      "text": "JEP 301 proposed generic enums and was withdrawn; unit 7.2.2 covers the replacements. A method of an enum can still declare its own type parameter. This is the `Setting` that `RetryPolicy` uses:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Map;\nimport java.util.Optional;\n\nenum Setting {\n    HOST(\"db.host\"), RETRIES(\"http.retries\");\n\n    private final String key;\n\n    Setting(String key) { this.key = key; }\n\n    <T> T read(Map<String, String> props) {\n        return (T) props.get(key);\n    }\n\n    <T> Optional<T> find(Map<String, String> props) {\n        return Optional.ofNullable((T) props.get(key));\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "With `props` holding `http.retries=3`, which of these lines compile?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Integer retries = Setting.RETRIES.read(props);\nString text = Setting.RETRIES.read(props);"
+    },
+    {
+      "type": "para",
+      "text": "Both do. `T` belongs to each call, not to the constant: the compiler infers it from what the caller assigns the result to, so `T` is `Integer` in the first line and `String` in the second. Nothing ties `RETRIES` to `Integer`, because a constant has no type argument to carry it; only a typed key (unit 7.2.2) can make that promise."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "An Unchecked Cast Checks Nothing Where It Is Written"
+    },
+    {
+      "type": "para",
+      "text": "javac compiles `Setting` with a note to recompile with `-Xlint:unchecked`, which gives:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Setting.java:12: warning: [unchecked] unchecked cast\n        return (T) props.get(key);\n                            ^\n  required: T\n  found:    String\n  where T is a type-variable:\n    T extends Object declared in method <T>read(Map<String,String>)"
+    },
+    {
+      "type": "para",
+      "text": "After erasure, `T` inside `read` is `Object`, so `(T)` compiles to no check at all. The compiler adds a check (a `checkcast` instruction) in the caller, at the point where the value meets a concrete type, and only when the target needs it: even an explicit `<Integer>` adds no check when the result goes into an `Object`. Where the check lands decides where, or whether, the program fails (`r` is the result of `RETRIES.find(props)`):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Integer retries = RETRIES.read(props)      -> ClassCastException in CallSites.main\nString text = RETRIES.read(props)          -> 3 (String)\nObject o = RETRIES.<Integer>read(props)    -> 3 (String)\nOptional<Integer> r = RETRIES.find(props)  -> Optional[3]\nr.isPresent()                              -> true\nr.orElse(3) - 1                            -> ClassCastException in CallSites.main\nr.map(n -> n * 2)                          -> ClassCastException in Optional.map\nr.equals(Optional.of(3))                   -> false"
+    },
+    {
+      "type": "para",
+      "text": "An `Optional<Integer>` holding a `String` is stored without complaint, which is how `RetryPolicy` started cleanly. It fails in the caller's code at `orElse` and inside the JDK at `map`. At `equals`, which takes an `Object`, no check runs at all: it answers `false` and sends a comparison down the wrong branch. None of these places is the enum, so the developer reading the trace starts in the wrong class."
+    },
+    {
+      "type": "para",
+      "text": "The warning is the one message that points at the cause. Putting `@SuppressWarnings(\"unchecked\")` on such a method removes it and leaves the bug."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A `Class<T>` Token Makes the Cast Real, Inside the Method"
+    },
+    {
+      "type": "para",
+      "text": "The method can't see `T`, but the caller can hand it over as a `Class<T>` object, a **type token**. `Class.cast` checks at run time, so the check moves into the enum:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Map;\nimport java.util.function.Function;\n\nenum Setting {\n    HOST(\"db.host\", raw -> raw),\n    RETRIES(\"http.retries\", Integer::valueOf);\n\n    private final String key;\n    private final Function<String, ?> parser;\n\n    Setting(String key, Function<String, ?> parser) {\n        this.key = key;\n        this.parser = parser;\n    }\n\n    <T> T read(Map<String, String> props, Class<T> type) {\n        return type.cast(parser.apply(props.get(key)));\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "It compiles with no warning under `-Xlint:unchecked`. Each constant now parses its own value, and the token decides whether the caller may have it:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "RETRIES.read(props, Integer.class)     -> 3 (Integer)\nRETRIES.read(props, Number.class)      -> 3 (Integer)\nRETRIES.read(props, String.class)      -> ClassCastException: Cannot cast java.lang.Integer to java.lang.String\n                                          in Class.cast, called from Setting.read\nRETRIES.read(props, int.class)         -> ClassCastException: Cannot cast java.lang.Integer to int\n                                          in Class.cast, called from Setting.read"
+    },
+    {
+      "type": "para",
+      "text": "A wrong request now fails on its own line, with both types in the message. `cast` accepts any instance of the token's class, so a supertype such as `Number` works."
+    },
+    {
+      "type": "para",
+      "text": "`int.class` has the type `Class<Integer>` and so compiles, but no object is an instance of a primitive type, and `int.class.isInstance(3)` is `false`; a method that should accept `int.class` must map it to `Integer.class` first. And a token names a class, not a parameterized type: `List<Integer>.class` doesn't compile, so `Class.cast` can check that a value is a `List` but not what the list holds. A key missing from `props` is no longer an empty `Optional`, either: `HOST.read` returns `null`, since `cast(null)` passes, and `RETRIES.read` throws `NumberFormatException: Cannot parse null string` from its parser."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "`E extends Enum<E>` Accepts Any Enum and Hands Back That Enum's Own Type"
+    },
+    {
+      "type": "para",
+      "text": "The JDK's enum utilities all declare the same bound:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public static <T extends Enum<T>> T valueOf(Class<T> enumClass, String name)   // Enum\npublic static <E extends Enum<E>> EnumSet<E> noneOf(Class<E> elementType)       // EnumSet\npublic EnumMap(Class<K> keyType)                  // EnumMap<K extends Enum<K>, V>"
+    },
+    {
+      "type": "para",
+      "text": "`Enum` itself is declared `Enum<E extends Enum<E>>`, and the compiler makes an enum `Priority { LOW, NORMAL, HIGH }` extend `Enum<Priority>`. So `E extends Enum<E>` means \"an enum type `E`\", and a call with any other class doesn't compile:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Bounds.java:7: error: method valueOf in class Enum<E> cannot be applied to given types;\n        Enum.valueOf(String.class, \"LOW\");\n            ^\n  required: Class<T>,String\n  found:    Class<String>,String\n  reason: inference variable T has incompatible bounds\n    equality constraints: String\n    upper bounds: Enum<T>\n  where T,E are type-variables:\n    T extends Enum<T> declared in method <T>valueOf(Class<T>,String)\n    E extends Enum<E> declared in class Enum"
+    },
+    {
+      "type": "para",
+      "text": "The bound also lets `Enum`'s own methods speak in `E`: `compareTo(E)` accepts only constants of the same enum, and `getDeclaringClass()` returns `Class<E>`. A method that moves a status to the next constant uses that:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "final class Cycle {\n\n    static <E extends Enum<E>> E next(E current) {\n        E[] all = current.getDeclaringClass().getEnumConstants();\n        return all[(current.ordinal() + 1) % all.length];\n    }\n}"
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Spot the Problem: `getClass()` in Place of `getDeclaringClass()`"
+    },
+    {
+      "type": "para",
+      "text": "A colleague writes the same method with `getClass()`. The compiler refuses `E[] all = current.getClass().getEnumConstants()` (`CAP#1[] cannot be converted to E[]`), so they add a cast:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "@SuppressWarnings(\"unchecked\")\nstatic <E extends Enum<E>> E next(E current) {\n    E[] all = (E[]) current.getClass().getEnumConstants();\n    return all[(current.ordinal() + 1) % all.length];\n}"
+    },
+    {
+      "type": "para",
+      "text": "The enum has a constant with a body:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "enum Shipment {\n    CREATED,\n    IN_TRANSIT {\n        @Override boolean moving() { return true; }\n    },\n    DELIVERED;\n\n    boolean moving() { return false; }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "CycleByClass.next(CREATED)                 -> IN_TRANSIT\nCycleByClass.next(IN_TRANSIT)              -> java.lang.NullPointerException: Cannot read the array length because \"all\" is null\nIN_TRANSIT.getClass()                      -> class Shipment$1\nIN_TRANSIT.getClass().getEnumConstants()   -> null\nIN_TRANSIT.getDeclaringClass()             -> class Shipment"
+    },
+    {
+      "type": "para",
+      "text": "`IN_TRANSIT` is an instance of an anonymous subclass (unit 7.2.1), and `getEnumConstants()` returns `null` for a class that isn't an enum. The types had said so: `getClass()` returns `Class<? extends Enum>`, which promises nothing about `E`, and the cast hid the compile error that said so. With `getDeclaringClass()`, `next(IN_TRANSIT)` is `DELIVERED`, and `next(DELIVERED)` wraps to `CREATED`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Generic `parse` Reads Any Enum Through `getEnumConstants()`"
+    },
+    {
+      "type": "para",
+      "text": "An import reads shipment states and priorities from CSV files, written by people: `in-transit`, ` High `. `Enum.valueOf` matches the exact name only:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Enum.valueOf(Shipment.class, \"in-transit\") -> java.lang.IllegalArgumentException: No enum constant Shipment.in-transit"
+    },
+    {
+      "type": "para",
+      "text": "One generic method can do the lenient match for every enum, because `Class<E>` hands over the constants as an `E[]`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.EnumSet;\nimport java.util.Set;\n\nfinal class Parse {\n\n    static <E extends Enum<E>> E parse(Class<E> type, String text) {\n        String wanted = text.trim().replace('-', '_').replace(' ', '_');\n        for (E constant : type.getEnumConstants()) {\n            if (constant.name().equalsIgnoreCase(wanted)) return constant;\n        }\n        throw new IllegalArgumentException(type.getSimpleName() + \" has no constant for '\" + text + \"'\");\n    }\n\n    static <E extends Enum<E>> Set<E> parseAll(Class<E> type, String csv) {\n        Set<E> result = EnumSet.noneOf(type);\n        for (String part : csv.split(\",\")) result.add(parse(type, part));\n        return result;\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "parse(Shipment.class, \"in-transit\")        -> IN_TRANSIT\nparse(Priority.class, \" High \")            -> HIGH\nparse(Priority.class, \"urgent\")            -> java.lang.IllegalArgumentException: Priority has no constant for 'urgent'\nparseAll(Shipment.class, \"delivered,created\") -> [CREATED, DELIVERED]"
+    },
+    {
+      "type": "para",
+      "text": "The caller gets a `Shipment` back, with no cast. `EnumSet.noneOf(type)` needs the same `Class<E>` and keeps the constants in declaration order, whatever order the file listed them in."
+    },
+    {
+      "type": "para",
+      "text": "`getEnumConstants()`, like `values()`, returns a new copy of the array on every call. Calling it for every row of a large file allocates an array per row. A hot path builds a lookup map once per enum (unit 7.2.3)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Enum types cannot have type parameters (`enum Foo<T>` is illegal), but enum methods can (`<T> T convert(...)`).",
-        "Type parameters on enum methods are resolved at the call site, not at enum declaration time.",
-        "Abstract generic methods in enums must be overridden by each constant — each constant can have a different implementation.",
-        "Generic methods in enums enable the Template Method, Strategy, and Factory patterns with type safety.",
-        "Use `Class<T>` parameters for type tokens when the generic type must be known at runtime (e.g., for casting).",
-        "Bounded type parameters (`<T extends Number>`) constrain what types can be used with the method.",
-        "The `@SafeVarargs` annotation (to suppress heap-pollution warnings) can only go on `static`, `final` or (Java 9+) `private` methods and on constructors, so a generic varargs instance method in an enum must be declared `final`.",
-        "Enum generic methods can return `Optional<T>` for safe error handling."
+        "**An enum can't take a type parameter, but its methods can, and each call picks `T`.** The constant can't promise a type; any caller can ask `RETRIES` for a `String`.",
+        "**An unchecked cast checks nothing where it is written.** The value is checked where it meets a concrete type in the caller, or never, so the trace points away from the enum.",
+        "**A `Class<T>` token makes the cast real, inside the method.** It fails at the wrong request, but can't express `int` (map it to `Integer`) or `List<Integer>`.",
+        "**`E extends Enum<E>` accepts any enum and hands back that enum's own type.** Use `getDeclaringClass()`, which returns `Class<E>`; `getClass()` of a constant with a body isn't an enum class.",
+        "**A generic `parse` reads any enum through `getEnumConstants()`.** It returns the caller's own type and pairs with `EnumSet.noneOf(type)`."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Pattern matching for switch**: Generic enum methods combine well with switch expressions to dispatch different behaviors based on runtime types.",
-        "**Sealed interfaces with records**: Enums with generic factory methods can produce instances of sealed record hierarchies.",
-        "**Type inference improvements**: Java 21's improved type inference makes calling generic enum methods more concise.",
-        "**Virtual threads**: Generic executor-style enums can dispatch work onto virtual threads."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Call (Java 21)",
+        "Result"
+      ],
+      "rows": [
         [
-          "**Type erasure hiding bugs at runtime**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: unchecked cast at runtime due to erasure\npublic enum Converter {\n    INSTANCE;\n    @SuppressWarnings(\"unchecked\")\n    public <T> T convert(Object obj) {\n        return (T) obj; // Compiles but fails at runtime if types don't match\n    }\n}\n// Converter.INSTANCE.<Integer>convert(\"hello\"); // ClassCastException later!\n\n// RIGHT: use Class<T> type token for runtime safety\npublic <T> T convert(Object obj, Class<T> type) {\n    return type.cast(obj); // Throws ClassCastException immediately\n}"
-          }
+          "`enum E<T> {}`",
+          "compile error: `enums cannot be generic`"
         ],
         [
-          "**Ignoring generic type constraints in abstract methods**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: abstract method without proper bounds\npublic abstract <T> T aggregate(List<T> values);\n// Callers can pass List<String> to a numeric aggregation!\n\n// RIGHT: bound the type parameter\npublic abstract <T extends Number> double aggregate(List<T> values);"
-          }
+          "`(T) value` in a generic method",
+          "`unchecked cast` warning under `-Xlint:unchecked`; no check at run time"
         ],
         [
-          "**Heap pollution with varargs**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WARNING: potential heap pollution\npublic <T> Collection<T> of(T... elements) { /* ... */ }\n// Needs @SafeVarargs (only valid on static, final or private methods, and constructors)\n\n// Enum methods are NOT implicitly final (constant bodies can override them), so declare it final:\n@SafeVarargs\npublic final <T> Collection<T> of(T... elements) { /* ... */ }"
-          }
+          "`type.cast(value)`",
+          "returns `value`, or throws `ClassCastException` naming both types; `null` passes"
         ],
         [
-          "**Returning raw types from generic methods**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: raw type return\npublic <T> List execute(List<T> input) { return new ArrayList(); }\n\n// RIGHT: properly typed return\npublic <T> List<T> execute(List<T> input) { return new ArrayList<>(input); }"
-          }
+          "`int.class`",
+          "type `Class<Integer>`; `isInstance` is `false` for every object"
         ],
         [
-          "**Losing type information in enum method chains**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: type inference may not propagate through method chains\nList<String> result = CollectionOp.FILTER\n    .execute(List.of(\"a\", \"bb\", \"ccc\"), s -> s.length() > 1);\n// This works because Java infers T=String from the input list"
-          }
+          "`Enum.valueOf(type, name)`",
+          "exact name only; `IllegalArgumentException` otherwise, `NullPointerException` for a null name"
+        ],
+        [
+          "`constant.getDeclaringClass()`",
+          "the enum class, `Class<E>`, for every constant"
+        ],
+        [
+          "`constant.getClass()`",
+          "the enum class, or an anonymous subclass for a constant with a body"
+        ],
+        [
+          "`Class.getEnumConstants()`",
+          "a new array per call; `null` for a class that isn't an enum"
+        ],
+        [
+          "`EnumSet.noneOf(type)`, `new EnumMap<>(type)`",
+          "need the `Class<E>`; iterate in declaration order"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
-      "ordered": false,
+      "ordered": true,
       "items": [
-        "**Always use `Class<T>` type tokens** when the generic type must be known at runtime for casting or reflection.",
-        "**Prefer bounded type parameters** (`<T extends Number>`, `<T extends Comparable<T>>`) to catch type errors at compile time.",
-        "**Use `Optional<T>` for safe conversion methods** — `safeConvert()` returning `Optional<T>` is better than throwing exceptions.",
-        "**Document the generic method contract clearly** — what types are accepted, what happens on type mismatch.",
-        "**Mark varargs methods as `@SafeVarargs`** if they don't store the varargs array or do unsafe operations on it.",
-        "**Consider Comparator<T> integration** — generic comparison methods should return `Comparator<T>` for composability.",
-        "**Test with multiple types** — ensure generic methods work with Integer, String, custom objects, and edge cases."
+        "The settings enum grows to forty keys of six types. Compare the `Class<T>` token with a final class of typed keys (unit 7.2.2): what does each catch at compile time, and what does each cost when a key is added?",
+        "A library method takes `Class<T>` and you need it to return a `List<Order>`. What can you pass, and where does the unchecked cast end up?",
+        "Find the `@SuppressWarnings(\"unchecked\")` annotations in a codebase you know. For each, which line would the `ClassCastException` point at if the cast were wrong?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
+      "text": "Design Note: Why Enum Is Declared `Enum<E extends Enum<E>>`"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Null inputs to generic methods**: Always decide and document null handling — use `Objects.requireNonNull()` or return `Optional.empty()`.",
-        "**Empty collections**: Aggregation methods like `min()` and `max()` should throw `NoSuchElementException` on empty input, while `sum()` and `average()` should return 0.",
-        "**Incompatible types at runtime**: Use `Class.cast()` for safe casting — it throws `ClassCastException` with a clear message.",
-        "**Generic methods with wildcards**: `List<?>` as a parameter loses type information — prefer `<T> void process(List<T> items)`.",
-        "**Recursive type bounds**: `<T extends Comparable<T>>` ensures natural ordering is available."
-      ]
+      "type": "para",
+      "text": "The self-referencing bound lets methods written once in `Enum` talk about the subclass: `Priority.LOW.compareTo(Shipment.CREATED)` doesn't compile (`Shipment cannot be converted to Priority`), and `EnumSet` and `EnumMap` get the constants of exactly the caller's enum with no cast in the caller's code."
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**\"Why can't enums be generic but their methods can?\"** — The JLS does not allow type parameters on an enum declaration (see 7.2.2, Q1; JEP 301 proposed generic enums and was withdrawn). Methods can have their own type parameters because they are resolved at each call site.",
-        "**\"How do generic enum methods compare to generic interface implementations?\"** — Enums provide singleton constants + generic methods; interfaces provide polymorphic implementations. Enums are better when the set of operations is fixed.",
-        "**\"What's the difference between `<T>` and `<T extends Comparable<T>>` on an enum method?\"** — Unbounded allows any type but limits what you can do (no ordering, no arithmetic). Bounded constrains the type but enables more operations."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q1: Why can't Java enums have type parameters, and how do generic methods work around this?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Java enums cannot be generic because the JLS does not allow type parameters on an\nenum declaration. 7.2.2, Q1 has the detail: it is a language-design decision rather\nthan a consequence of erasure, and JEP 301 (\"Enhanced Enums\"), which proposed generic\nenums, was withdrawn.\n\nGeneric methods work around this by declaring type parameters at the method level.\nThe type is resolved at each call site, so the enum constant remains a singleton\nwhile its methods can operate on different types.\n\nThis gives us the best of both worlds: fixed constants with type-safe operations."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Enum cannot be generic\n// enum Converter<T> { } // COMPILE ERROR\n\n// But methods can be generic\npublic enum DataConverter {\n    STRING_TO_NUMBER {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            String str = String.valueOf(input);\n            if (targetType == Integer.class) return targetType.cast(Integer.parseInt(str));\n            if (targetType == Double.class) return targetType.cast(Double.parseDouble(str));\n            throw new UnsupportedOperationException(\"Unsupported: \" + targetType);\n        }\n    },\n    IDENTITY {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            return targetType.cast(input);\n        }\n    };\n\n    public abstract <T> T convert(Object input, Class<T> targetType);\n}\n\n// Usage — type resolved at call site\nInteger num = DataConverter.STRING_TO_NUMBER.convert(\"42\", Integer.class);\nDouble dbl = DataConverter.STRING_TO_NUMBER.convert(\"3.14\", Double.class);\nString str = DataConverter.IDENTITY.convert(\"hello\", String.class);"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q2: How do you implement a type-safe collection factory using enum generic methods?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A collection factory enum uses generic methods to create typed collections without\nrequiring the caller to cast. Each constant produces a different collection type\n(ArrayList, LinkedList, HashSet, TreeSet), but the generic method signature ensures\nthe returned collection has the correct element type.\n\nKey design decisions:\n- create() returns an empty collection of the specified type\n- createFrom(Collection<T> source) copies from a source collection\n- of(T... elements) creates a pre-populated collection (needs @SafeVarargs)\n- The return type is Collection<T>, not the specific implementation, for flexibility"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum CollectionFactory {\n    ARRAY_LIST {\n        @Override public <T> Collection<T> create() { return new ArrayList<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            return new ArrayList<>(src);\n        }\n    },\n    HASH_SET {\n        @Override public <T> Collection<T> create() { return new HashSet<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            return new HashSet<>(src);\n        }\n    },\n    TREE_SET {\n        @Override public <T> Collection<T> create() { return new TreeSet<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            TreeSet<T> set = new TreeSet<>();\n            set.addAll(src);\n            return set;\n        }\n    };\n\n    public abstract <T> Collection<T> create();\n    public abstract <T> Collection<T> createFrom(Collection<T> source);\n\n    @SafeVarargs\n    public final <T> Collection<T> of(T... elements) {\n        Collection<T> c = create();\n        Collections.addAll(c, elements);\n        return c;\n    }\n}\n\n// Type-safe usage\nCollection<String> strings = CollectionFactory.ARRAY_LIST.of(\"a\", \"b\", \"c\");\nCollection<Integer> numbers = CollectionFactory.HASH_SET.of(1, 2, 3, 2, 1);\n// numbers.size() == 3 (duplicates removed by HashSet)"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q3: How do bounded type parameters work with enum generic methods?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Bounded type parameters (<T extends SomeType>) constrain which types can be passed\nto a generic enum method. This is crucial for operations that require specific\ncapabilities (Comparable for sorting, Number for arithmetic).\n\nCommon bounds:\n- <T extends Number> — numeric operations (sum, average, min, max)\n- <T extends Comparable<T>> — ordering operations (sort, min, max)\n- <T extends Serializable> — serialization operations\n- <T extends CharSequence> — string-like operations\n- Multiple bounds: <T extends Number & Comparable<T>> — both numeric and orderable\n\nWithout bounds, you can only call Object methods on T. With bounds, you unlock\nthe methods of the bound type — this is checked at compile time."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum Aggregator {\n    SUM {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.stream().mapToDouble(Number::doubleValue).sum();\n        }\n    },\n    AVERAGE {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.isEmpty() ? 0.0 :\n                values.stream().mapToDouble(Number::doubleValue).average().orElse(0.0);\n        }\n    },\n    MAX {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.stream().mapToDouble(Number::doubleValue)\n                .max().orElseThrow(NoSuchElementException::new);\n        }\n    };\n\n    // Bounded type parameter — only Number subclasses allowed\n    public abstract <T extends Number> double aggregate(List<T> values);\n}\n\n// Works with any Number subclass\ndouble intSum = Aggregator.SUM.aggregate(List.of(1, 2, 3));         // 6.0\ndouble dblAvg = Aggregator.AVERAGE.aggregate(List.of(1.5, 2.5));   // 2.0\ndouble longMax = Aggregator.MAX.aggregate(List.of(100L, 200L));     // 200.0\n\n// Compile error — String is not a Number:\n// Aggregator.SUM.aggregate(List.of(\"a\", \"b\")); // ERROR"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q4: How do generic comparison strategies work in enums?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A comparison strategy enum uses generic methods to compare any two objects of\nthe same type. Each constant implements a different comparison algorithm:\nnatural ordering, reverse ordering, hash code comparison, or string-based comparison.\n\nThe key insight is that compare(T a, T b) returns an int (like Comparator),\nand toComparator() converts the strategy into a standard Comparator<T>.\n\nThis pattern is powerful because:\n- The set of strategies is fixed and known at compile time\n- Each strategy is a singleton (no allocation)\n- Strategies compose with Java's Comparator API (thenComparing, reversed)\n- Type safety is preserved throughout"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum CompareStrategy {\n    NATURAL {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> int compare(T a, T b) {\n            if (!(a instanceof Comparable<?>))\n                throw new UnsupportedOperationException(\"Not comparable\");\n            return ((Comparable<T>) a).compareTo(b);\n        }\n    },\n    REVERSE {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> int compare(T a, T b) {\n            return ((Comparable<T>) b).compareTo(a);\n        }\n    },\n    BY_STRING {\n        @Override\n        public <T> int compare(T a, T b) {\n            return String.valueOf(a).compareTo(String.valueOf(b));\n        }\n    };\n\n    public abstract <T> int compare(T a, T b);\n\n    // Convert to standard Comparator\n    public <T> Comparator<T> toComparator() {\n        return this::compare;\n    }\n\n    // Find min/max using this strategy\n    public <T> T min(List<T> items) {\n        return items.stream().min(this::compare).orElseThrow();\n    }\n}\n\n// Usage\nList<String> names = List.of(\"Charlie\", \"Alice\", \"Bob\");\nList<String> sorted = names.stream()\n    .sorted(CompareStrategy.NATURAL.toComparator())\n    .toList();\n// [Alice, Bob, Charlie]\n\nString first = CompareStrategy.NATURAL.min(names);   // \"Alice\"\nString last = CompareStrategy.REVERSE.min(names);     // \"Charlie\""
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q5: What are the limitations and workarounds for generic methods in enums?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Limitations:\n1. Cannot declare type parameters on the enum itself — only on methods\n2. Type information is erased at runtime — need Class<T> tokens for runtime safety\n3. Cannot create generic arrays directly — use collections instead\n4. Wildcard capture can be tricky with abstract enum methods\n5. @SafeVarargs only works on static, final or private methods (and constructors);\n   enum methods are not implicitly final, so a generic varargs method must be declared final\n6. No generic constant fields — fields must use raw or specific types\n\nWorkarounds:\n1. Class<T> type tokens for runtime type safety\n2. Optional<T> for safe conversion results\n3. Generic interfaces — enum can implement a generic interface\n4. Builder pattern alongside enum — enum selects the strategy, builder handles types\n5. Use sealed interfaces + records if you need both type-safe constants AND per-instance\n   generic types (the \"Typeclass\" pattern)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Limitation: no generic enum fields\n// enum Box<T> { INSTANCE; T value; } // ILLEGAL\n\n// Workaround 1: Type token parameter\npublic enum TypeSafe {\n    INSTANCE;\n    public <T> T safeCast(Object obj, Class<T> type) {\n        return type.isInstance(obj) ? type.cast(obj) : null;\n    }\n}\n\n// Workaround 2: Generic interface implementation\ninterface Transformer<T, R> { R transform(T input); }\n\n// The enum implements the generic interface, but with ONE parameterization for all constants\npublic enum StringTransformer implements Transformer<String, Object> {\n    TO_INT {\n        public Object transform(String s) { return Integer.parseInt(s); }\n    },\n    TO_UPPER {\n        public Object transform(String s) { return s.toUpperCase(); }\n    };\n    // Note: can't make the return type differ per constant at the enum level\n\n    // But CAN have a generic utility method\n    public <T> Optional<T> safeApply(String s, Class<T> type) {\n        try {\n            Object result = transform(s);\n            return Optional.of(type.cast(result));\n        } catch (Exception e) {\n            return Optional.empty();\n        }\n    }\n}\n\n// Workaround 3: Sealed interface + records for full generics\nsealed interface TypedConstant<T> {\n    T defaultValue();\n    record StringConst(String defaultValue) implements TypedConstant<String> {}\n    record IntConst(Integer defaultValue) implements TypedConstant<Integer> {}\n}"
+      "type": "para",
+      "text": "The price is the signatures. `<E extends Enum<E>>` is hard to read, and a reader meeting it in `EnumSet` for the first time has to learn that it only means \"an enum\". It says nothing about any other type: a setting's value type still needs a token, and a token still can't name `List<Integer>`."
     },
     {
       "type": "heading",
@@ -276,17 +360,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 15,
-    "paras": 3,
-    "code": 10,
-    "tables": 0,
-    "lists": 8,
+    "headings": 12,
+    "paras": 27,
+    "code": 18,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "e88f1ef00f485ce818f9659a1971b09174226d4925a5befaee1f63f3aac24629"
+  "content_sha256": "bbeea05869caa0e460640c07a9bed63cb954ca5af2744d9b46d5dfaa02ced50a"
 }

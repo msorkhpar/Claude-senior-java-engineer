@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "What volatile and final promise",
+  "title": "Check yourself: which calls order memory",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,181 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-counter",
-        "stem": "Per this page, four threads each run `count++` a thousand times on a field declared `volatile int count`. What does `volatile` give this code?",
+        "id": "q-verbose-heartbeat",
+        "stem": "A metrics thread loops `while (paused) { if (verbose) System.out.println(\"paused\"); }` on a plain boolean field `paused`, which an admin thread sets to false. In production, with verbose off, the thread never resumes. In staging, with verbose on, it resumes every time. What does staging show?",
         "options": [
           {
             "id": "a",
-            "text": "Every read sees the latest write, but increments can still be lost",
-            "correct": true,
-            "says": "The page says volatile gives visibility but not atomicity: i++ on a volatile is still a read-modify-write."
+            "text": "The println fixes the bug, since the lock it takes publishes the admin thread's write to the reader",
+            "correct": false,
+            "says": "the admin thread never takes PrintStream's lock, so the lock gives no edge from its write"
           },
           {
             "id": "b",
-            "text": "Every increment runs alone, so no thread's increment is ever lost",
-            "correct": false,
-            "says": "The page says volatile provides no mutual exclusion; multiple threads can read and write it at once."
+            "text": "The println only hides the bug, since the lock it takes is one the admin thread never takes",
+            "correct": true,
+            "says": "the lock acquire keeps HotSpot reading the field again, but with no edge from the writer the JLS still allows the loop to spin"
           },
           {
             "id": "c",
-            "text": "Every thread keeps a private copy, so the others' writes stay unseen",
+            "text": "The println only hides the bug, since the console output slows the loop until the write reaches main memory",
             "correct": false,
-            "says": "The page says a volatile write is visible to every later read of the variable, the opposite of a private copy."
+            "says": "the hang comes from the JIT hoisting the read out of the loop; a slower loop gets no edge from the admin thread's write, and the lock acquire is what makes HotSpot read the field again"
+          },
+          {
+            "id": "d",
+            "text": "The println fixes the bug, since the console output slows the loop until the write reaches main memory",
+            "correct": false,
+            "says": "the hang comes from the JIT hoisting the read out of the loop; a slower loop gets no edge from the admin thread's write, and the lock acquire is what makes HotSpot read the field again"
           }
         ],
         "origin": {
           "path": "18-happens-before/README_5.2.2.md",
-          "section": "5.2.2.2. Volatile Variables"
+          "section": "Sleep, Yield and println Create No Edge, Even When the Loop Ends"
         }
       },
       {
-        "id": "q-escape",
-        "stem": "Per this page, a constructor stores `this` in a static field before it assigns its `final int value = 42`. What does that early escape do to the final-field guarantee?",
+        "id": "q-two-lock-report",
+        "stem": "An order service sets `status` inside `synchronized (orderLock)`. A report thread reads `status` inside `synchronized (reportLock)`. Both fields are plain and both locks are private final objects. Is the report thread's read ordered after the write?",
         "options": [
           {
             "id": "a",
-            "text": "It keeps it, since value is still assigned inside the constructor",
-            "correct": false,
-            "says": "The page says that if this escapes during construction, the final field guarantee is void."
+            "text": "No, since a monitor exit is ordered before later entries of that same monitor",
+            "correct": true,
+            "says": "the writer releases orderLock and the reader acquires reportLock, so no unlock-lock pair connects them"
           },
           {
             "id": "b",
-            "text": "It delays it, until the constructor has returned to its caller",
+            "text": "No, since a monitor exit is ordered before later entries of monitors in that same class",
             "correct": false,
-            "says": "The page says the guarantee is void, and a reader might see the default 0 for value, not the guarantee arriving later."
+            "says": "the edge runs between an unlock and later locks of one monitor object; which class declares the lock fields plays no part"
           },
           {
             "id": "c",
-            "text": "It voids it, since the object is not properly constructed",
-            "correct": true,
-            "says": "The page says the guarantee needs a properly constructed object, with no escape of this, and is void otherwise."
+            "text": "Yes, since a monitor exit is ordered before later entries of other monitors too",
+            "correct": false,
+            "says": "an unlock is ordered only before later locks of that same monitor"
+          },
+          {
+            "id": "d",
+            "text": "Yes, since a monitor exit is ordered before later entries of any monitor guarding the field",
+            "correct": false,
+            "says": "an unlock is ordered before later locks of that monitor, not of any monitor; these two threads lock different monitors"
           }
         ],
         "origin": {
           "path": "18-happens-before/README_5.2.2.md",
-          "section": "5.2.2.3. Final Fields"
+          "section": "Only an Acquire That Succeeds, on the Same Object, Gets the Edge"
+        }
+      },
+      {
+        "id": "q-timed-await-subtotals",
+        "stem": "A coordinator starts three workers. Each writes its subtotal into its own slot of a plain long[] and then calls `done.countDown()` on a CountDownLatch(3). The coordinator calls `done.await(2, TimeUnit.SECONDS)` and then adds up the array. Today one worker needs 5 seconds. What can the coordinator count on?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Every subtotal, since an await() that times out still waits for the countDown() calls in progress",
+            "correct": false,
+            "says": "a timed await returns false when the time runs out, without waiting for anything further"
+          },
+          {
+            "id": "b",
+            "text": "Every subtotal, since an await() that times out gets the edge from every countDown(), early or late",
+            "correct": false,
+            "says": "the slow worker had not counted down, and a timed-out await gets no edge at all"
+          },
+          {
+            "id": "c",
+            "text": "No subtotal for certain, since an await() of any kind gets no edge for writes to a plain long[]",
+            "correct": false,
+            "says": "a successful await() is ordered after every write made before the countDown() calls, plain array slots included; this one failed because it timed out"
+          },
+          {
+            "id": "d",
+            "text": "No subtotal for certain, since an await() that times out gets no edge from any countDown() call",
+            "correct": true,
+            "says": "the javadoc grants the edge to actions following a successful return from await(); a return of false gets nothing"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.2.md",
+          "section": "Only an Acquire That Succeeds, on the Same Object, Gets the Edge"
+        }
+      },
+      {
+        "id": "q-session-user-after-put",
+        "stem": "A login handler creates a Session with plain fields, puts it into a ConcurrentHashMap under its token, and then sets `session.user = loadUser(token)`. A request thread gets the session for that token (non-null) and reads `session.user`. What does it see?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The user, since the map orders the setter that follows the put before a get that returns the session",
+            "correct": false,
+            "says": "the map orders only what was written before the put; the setter ran after it"
+          },
+          {
+            "id": "b",
+            "text": "No particular value, since the map orders what preceded the put before a get that returns it",
+            "correct": true,
+            "says": "the user is written after the put, so no edge reaches the request thread's read: it may see the user or null"
+          },
+          {
+            "id": "c",
+            "text": "The user, since a get that runs once the handler is done is ordered after the put and the setter",
+            "correct": false,
+            "says": "being later in time gives no edge; only the put is ordered before the get"
+          },
+          {
+            "id": "d",
+            "text": "No particular value, since a put is ordered before a get only when both run on one thread",
+            "correct": false,
+            "says": "a get on any thread that returns the session is ordered after the put, so everything written before the put is visible"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.2.md",
+          "section": "The Edge Covers Writes Made Before the Release, Not After It"
+        }
+      },
+      {
+        "id": "q-sleeping-test",
+        "stem": "An integration test starts a worker that adds 10 records to a plain ArrayList, calls Thread.sleep(500) on the test thread, and asserts that the list holds 10 records. It has passed 2,000 times in a row. What does the assertion see, by the Java memory model?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Nothing about the records, since waking from sleep() orders no other thread's writes",
+            "correct": true,
+            "says": "JLS 17.3: sleep has no synchronization semantics, and finishing earlier in time creates no edge either"
+          },
+          {
+            "id": "b",
+            "text": "It sees all 10 records, since the worker is done long before sleep(500) is up",
+            "correct": false,
+            "says": "finishing earlier in time creates no edge to the test's read"
+          },
+          {
+            "id": "c",
+            "text": "It sees all 10 records, since a thread waking from sleep() reads shared fields again",
+            "correct": false,
+            "says": "JLS 17.3: sleep has no synchronization semantics; the compiler need not reload values after it"
+          },
+          {
+            "id": "d",
+            "text": "Nothing about the records, since sleep() orders the read before the worker's adds",
+            "correct": false,
+            "says": "sleep has no synchronization semantics (JLS 17.3), so it orders the read neither before nor after the adds"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.2.md",
+          "section": "Sleep, Yield and println Create No Edge, Even When the Loop Ends"
         }
       }
     ],
     "concepts": [
-      "Final fields of a properly constructed object are visible to any thread that gets the reference, unless this escaped the constructor.",
-      "volatile gives visibility but not atomicity: count++ on a volatile is still a read-modify-write race."
+      "A value changed in place after it was put in a ConcurrentHashMap may be seen changed, partly changed or unchanged by a thread that gets it.",
+      "A println in a spin loop takes a lock the writer never takes, so it can make a visibility bug disappear on HotSpot without creating an edge.",
+      "An unlock is ordered only before later locks of the same monitor; a lock the writer never takes gives the reader no edge, and HotSpot may remove a lock on an unshared object altogether.",
+      "Thread.sleep and Thread.yield have no synchronization semantics, and a delay orders neither memory nor time; wait on a Future or a latch instead."
     ]
   }
 }

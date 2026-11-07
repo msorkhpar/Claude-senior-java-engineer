@@ -1,22 +1,16 @@
-Inlining is the JIT's most important optimisation, and HotSpot decides it with
-simple rules the page lists:
+The team settles performance arguments with `MicroBench`, a small helper of its own, because JMH
+isn't on the build's class path. Last week it reported that the new coupon check costs 0.02 ns
+per call, and that the old one, which nobody had touched, had become three times slower after
+someone raised the number of warm-up rounds. Nobody believes either number.
 
-- a method of **at most `MaxInlineSize`** bytes of bytecode (35 by default)
-  is inlined at any call site;
-- at a **hot** call site the limit is **`FreqInlineSize`** (325 by default);
-- a call site that has seen **three or more receiver types** is megamorphic:
-  the JIT gives up devirtualization, so the call is not inlined. One type
-  (monomorphic) or two (bimorphic) are fine.
+Write `measure(...)` in `src/main/java/practice/MicroBench.java`. It gets the work, the inputs
+to call it with, and the number of warm-up rounds; it runs the work over every input in each
+warm-up round and then in one timed round. The report it returns gives:
 
-Write `InlinePolicy` with `new InlinePolicy(maxInlineSize, freqInlineSize)`,
-`InlinePolicy.defaults()` (35 and 325), and
-`decide(bytecodeSize, hot, receiverTypes)` returning the nested enum
-`Decision { INLINE, TOO_BIG, MEGAMORPHIC }`. Check the receiver types first.
+- `nanosPerCall`: the time per call of the timed round;
+- `checksum`: the sum of every value the work returned.
 
-| call site | bytes | hot | receiver types | decision |
-|---|---|---|---|---|
-| `smallMethod` (`x + 1`) | 4 | no | 1 | `INLINE` |
-| the page's `largeMethod` | 36 | yes | 1 | `INLINE` |
-| the page's `largeMethod` | 36 | no | 1 | `TOO_BIG` |
-| a 500-line method | 2000 | yes | 1 | `TOO_BIG` |
-| `Shape s = getRandomShape(); s.draw()` | 20 | yes | 3 | `MEGAMORPHIC` |
+When you're done, the numbers describe the work as it would run in production, whatever the JIT
+is allowed to do with the loop. About seven lines.
+
+The tests pass a clock of their own, so no test depends on how fast the machine is.

@@ -1,20 +1,12 @@
-A try-with-resources statement can carry `catch` and `finally` blocks, as in the page's syntax
-example. The resources are closed as the `try` block exits, before any `catch` or `finally` block of
-the same statement runs.
+The billing importer reads the first record of each meter archive from the archive store, over a
+pool of a few connections. `ArchiveReader.Decoder` checks an archive's header when it is
+constructed, and closing a decoder closes the connection under it, the way a stream decorator
+closes the stream it wraps.
 
-Write `Traced.run(Opener opener, Body body, List<String> log)` as one try-with-resources statement
-with a `catch` and a `finally`:
+Two things went wrong last month. A partner uploaded a few hundred CSV exports instead of
+archives, and from then on every import failed with `pool exhausted`. And on an ordinary day, two
+imports were found reading over the same connection at once.
 
-- declare the resource `opener.open("r")` (the opener and the resource record `"open r"` and
-  `"close r"` in the same log themselves);
-- run `body`, then add `"body done"`;
-- catch any `IOException` (from opening, from the body or from closing) and add `"caught " + message`;
-  anything else leaves `run` unchanged, after the steps below;
-- in `finally`, add `"finally"`.
-
-| body | log |
-|---|---|
-| completes | `open r, body done, close r, finally` |
-
-Work out where `"caught boom"` lands when the body throws `IOException("boom")`, and which block
-handles a failure of the resource's own `close()`.
+Finish the two `TODO`s in `src/main/java/practice/ArchiveReader.java`: `firstRecord(...)` and
+`Lease.close()`. When you're done, a rejected file costs the pool nothing, and a connection is
+never handed to two readers. About six lines in total.

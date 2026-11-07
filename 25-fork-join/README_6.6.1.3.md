@@ -1,361 +1,225 @@
 # 6.6.1.3. Implementing RecursiveAction for Resultless Tasks
 
-## Concept Explanation
+The nightly repricing job raises 2 million catalogue prices by 3 % in place, and the web-shop
+export starts as soon as `pool.invoke` returns. Every morning the shop shows old prices for a few
+hundred thousand products, different ones each night. On a laptop with 500 test products it never
+happens. One night a negative price made the job throw, the operator re-ran it, and most of the
+catalogue went up twice.
 
-`RecursiveAction` is an abstract class in `java.util.concurrent` that extends `ForkJoinTask<Void>`. It is designed for
-fork/join computations that **do not return a result** -- they perform side effects such as modifying an array in-place,
-updating shared data structures (with proper synchronization), or writing output.
+The job is a `RecursiveAction`: a fork/join task whose `compute()` returns `void`, so its result is
+whatever it wrote. Each section below is one rule about writing such a task.
 
-The `compute()` method returns `void`. Instead of combining results from subtasks, the effects of all subtasks
-collectively produce the desired outcome.
+## A RecursiveAction Is Finished Only When compute() Has Waited for Its Subtasks
 
-**Real-world analogy**: Imagine painting a long fence. You divide the fence into sections and assign each section to a
-painter. No painter returns a "result" -- the fence itself is the output. Each painter modifies their section in place.
-If a section is small enough, one painter handles it directly. `RecursiveAction` works the same way.
-
-### RecursiveAction vs. RecursiveTask
-
-| Aspect            | RecursiveTask<V>        | RecursiveAction          |
-|-------------------|-------------------------|--------------------------|
-| Return type       | V (any type)            | Void (no return)         |
-| compute() returns | V                       | void                     |
-| Use case          | Reduce / aggregate      | In-place transformation  |
-| Result combining  | At join points          | Not needed               |
-| Preferred pattern | fork-compute-join       | invokeAll()              |
-
-### When to Use RecursiveAction
-
-- **In-place array modifications**: incrementing, squaring, filling, transforming elements
-- **Parallel initialization**: setting up large arrays or data structures
-- **Side-effect computations**: logging, counting with atomic variables, sending notifications
-- **Parallel iteration**: processing each element without producing a combined result
-
-## Key Points to Remember
-
-1. `RecursiveAction` extends `ForkJoinTask<Void>` -- its `compute()` returns `void`.
-2. Use `invokeAll(left, right)` to fork and join two subtasks in one call.
-3. `invokeAll()` is preferred over manual fork/join for `RecursiveAction` because there is no result to combine inline.
-4. Side effects must be **thread-safe** -- use atomic variables, thread-local accumulators, or operate on disjoint
-   array ranges.
-5. The threshold pattern is the same as `RecursiveTask` -- check size, compute sequentially or split.
-6. Multiple subtasks can be passed to `invokeAll(task1, task2, task3, ...)`.
-7. `invokeAll()` blocks until all provided tasks complete.
-8. For counting or accumulating in `RecursiveAction`, use `AtomicInteger`/`AtomicLong`.
-
-## Relevant Java 21 Features
-
-- `RecursiveAction` is unchanged since Java 7, but modern Java offers alternatives:
-  - **`Arrays.parallelSetAll()`**: Built-in parallel array initialization (uses Fork/Join internally).
-  - **`Arrays.parallelSort()`**: Built-in parallel sorting.
-  - **`Arrays.parallelPrefix()`**: Parallel prefix computation.
-  - **Virtual threads**: For I/O-side-effect tasks, prefer virtual threads over Fork/Join.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Unsynchronized writes to shared state**
-
-   ```java
-   // Problem: race condition on count
-   private int count = 0;
-   protected void compute() {
-       if (length <= THRESHOLD) {
-           for (int i = start; i < end; i++) {
-               if (array[i] == target) count++; // data race!
-           }
-           return;
-       }
-       invokeAll(left, right);
-   }
-   ```
-
-   **Fix**: Use `AtomicInteger` or accumulate locally and update atomically:
-
-   ```java
-   private final AtomicInteger count;
-   protected void compute() {
-       if (length <= THRESHOLD) {
-           int localCount = 0;
-           for (int i = start; i < end; i++) {
-               if (array[i] == target) localCount++;
-           }
-           count.addAndGet(localCount); // single atomic update
-           return;
-       }
-       invokeAll(left, right);
-   }
-   ```
-
-2. **Using fork-compute-join pattern unnecessarily**: Unlike `RecursiveTask`, there is no result to compute inline.
-   `invokeAll()` is cleaner.
-
-   ```java
-   // Unnecessary complexity for RecursiveAction
-   left.fork();
-   right.compute();
-   left.join();
-
-   // Cleaner
-   invokeAll(left, right);
-   ```
-
-3. **Overlapping array ranges**: If two subtasks write to overlapping ranges, you get data corruption.
-   **Fix**: Ensure `[start, mid)` and `[mid, end)` ranges are strictly disjoint.
-
-4. **Modifying the array and reading it concurrently**: If another thread reads the array while `RecursiveAction`
-   modifies it, use proper synchronization or ensure the action completes before reading.
-
-## Best Practices and Optimization Techniques
-
-1. Use `invokeAll()` for `RecursiveAction` -- it is cleaner and handles fork/join internally.
-2. Operate on **disjoint array ranges** to avoid synchronization entirely.
-3. For accumulation patterns, use `AtomicInteger`/`AtomicLong` with **local accumulation** -- count locally in the
-   base case and update the atomic variable once.
-4. Consider using `Arrays.parallelSetAll()` instead of a custom `RecursiveAction` for simple array initialization.
-5. Validate inputs in the constructor, not in `compute()` -- fail fast.
-6. Keep the base case simple and fast -- this is where most time is spent.
-
-## Edge Cases and Their Handling
-
-1. **Null array**: Throw `IllegalArgumentException` in the constructor.
-2. **Empty array**: Return immediately from `compute()` without forking.
-3. **Single element**: Handled by the threshold -- compute sequentially.
-4. **Start >= end**: No work to do -- return immediately.
-5. **AtomicInteger overflow**: For very large arrays with many matches, use `AtomicLong`.
-6. **Concurrent reads during modification**: The array is being modified in place. Ensure no other thread reads it
-   until the action completes (call `invoke()` which blocks until done).
-
-## Interview-specific Insights
-
-- Interviewers may ask you to implement an in-place parallel array transformation.
-- Know the difference between `invokeAll()` and manual fork/join.
-- Be able to explain why `RecursiveAction` uses `invokeAll()` while `RecursiveTask` uses fork-compute-join.
-- Understand thread safety concerns with in-place modifications.
-- Be ready to discuss when `RecursiveAction` is better than `RecursiveTask` (and vice versa).
-
-## Interview Q&A Section
-
-**Q1: When should you use RecursiveAction instead of RecursiveTask?**
-
-```text
-A1: Use RecursiveAction when your computation produces no return value -- it
-performs side effects instead. Common scenarios:
-
-1. In-place array modifications (increment, square, fill, transform)
-2. Parallel initialization of data structures
-3. Side-effect operations (logging, counting with atomics)
-4. Writing output to files or streams
-
-Use RecursiveTask when you need to compute and return a result that is
-combined from subtask results (sum, max, sorted array, search result).
-
-Rule of thumb: If your sequential version returns void, use RecursiveAction.
-If it returns a value, use RecursiveTask.
-```
+The task, with the 10,000-row threshold of unit 6.6.1:
 
 ```java
-// RecursiveAction -- no return value, modifies array in place
-class SquareAction extends RecursiveAction {
+import java.util.concurrent.RecursiveAction;
+
+class Markup extends RecursiveAction {
+    static final int THRESHOLD = 10_000;
+    final long[] cents;
+    final int from, to;
+
+    Markup(long[] cents, int from, int to) { this.cents = cents; this.from = from; this.to = to; }
+
+    @Override
     protected void compute() {
-        if (length <= THRESHOLD) {
-            for (int i = start; i < end; i++)
-                array[i] = array[i] * array[i];
+        if (to - from <= THRESHOLD) {
+            for (int i = from; i < to; i++) cents[i] = raise(cents[i]);
             return;
         }
-        invokeAll(
-            new SquareAction(array, start, mid),
-            new SquareAction(array, mid, end)
-        );
+        int mid = (from + to) >>> 1;
+        invokeAll(new Markup(cents, from, mid), new Markup(cents, mid, to));
+    }
+
+    static long raise(long c) {
+        if (c < 0) throw new IllegalArgumentException("negative price: " + c);
+        return c * 103 / 100;
     }
 }
 ```
 
-**Q2: What is invokeAll() and why is it preferred for RecursiveAction?**
-
-```text
-A2: invokeAll() is a static method on ForkJoinTask that forks all provided tasks
-and waits for all of them to complete. It is a convenience method that combines
-fork() and join() for multiple tasks.
-
-Why it is preferred for RecursiveAction:
-- RecursiveAction has no result to combine, so there is no advantage to
-  computing one subtask inline (the fork-compute-join pattern)
-- invokeAll() is more readable and less error-prone
-- It handles the fork/join lifecycle automatically
-
-For RecursiveTask, fork-compute-join is preferred because the current thread
-can productively compute one subtask's result while waiting for the other.
-With RecursiveAction, both subtasks perform side effects independently, so
-invokeAll() is equally efficient and cleaner.
-
-invokeAll() can accept 2 or more tasks:
-  invokeAll(task1, task2);
-  invokeAll(task1, task2, task3, task4);
-  invokeAll(collectionOfTasks);
-```
+The job's version had no result to join, so its author forked both halves and returned:
 
 ```java
-// Using invokeAll with RecursiveAction
-protected void compute() {
-    if (end - start <= THRESHOLD) {
-        // base case: sequential work
-        for (int i = start; i < end; i++) {
-            array[i] += incrementBy;
-        }
-        return;
-    }
-    int mid = start + (end - start) / 2;
-    invokeAll(
-        new IncrementAction(array, start, mid, incrementBy),
-        new IncrementAction(array, mid, end, incrementBy)
-    );
-}
+int mid = (from + to) >>> 1;
+new MarkupNoJoin(cents, from, mid).fork();
+new MarkupNoJoin(cents, mid, to).fork();
 ```
 
-**Q3: How do you accumulate results in a RecursiveAction?**
+Both run on `ForkJoinPool(8)` over 2 million prices (`ex/Reprice.java`, Java 21), and the caller
+counts the prices still unchanged as soon as `pool.invoke` returns:
 
 ```text
-A3: Since RecursiveAction returns void, accumulation requires a shared
-thread-safe container. The recommended approach is:
-
-1. Pass an AtomicInteger/AtomicLong to the task
-2. In the base case, count locally (no atomics needed for local variable)
-3. Update the atomic variable ONCE with the local count
-4. This minimizes contention on the atomic variable
-
-Why local accumulation matters:
-- Updating an atomic variable on every iteration causes contention
-- Local counting is purely sequential (fast)
-- A single addAndGet() at the end of each base case is minimal contention
-- With K leaf tasks, there are only K atomic updates instead of N
-
-Alternative: Use RecursiveTask<Integer> instead, which avoids shared state
-entirely by returning counts that are combined at join points.
+invokeAll:     0 of 2,000,000 prices still old when invoke returned
+fork, no join: 1,739,131 of 2,000,000 prices still old when invoke returned
 ```
+
+`invoke` returns when the root task's `compute()` returns. The forking version returns after two
+`fork()` calls, so the caller reads the array while the leaves are still writing it, and nothing
+in this code waits for them. The count changes from run to run. With 500 products there is one leaf,
+no fork, and no bug.
+
+`invokeAll(left, right)` forks `right`, runs `left` on the current thread, then waits for `right`:
+the fork, compute, join of unit 6.6.1 in one call. Because it waits, a task can also work after its
+subtasks. The `RecursiveAction` javadoc's sort example sorts both halves with `invokeAll`, then
+merges them.
+
+## Subtasks Write Disjoint Ranges and Read Nothing Another Subtask Writes
+
+The leaves share one array and no lock. That is safe only because no element belongs to two
+leaves. Make the left half `[from, mid]` instead of `[from, mid)`, by passing `mid + 1`:
 
 ```java
-class CountMatchingAction extends RecursiveAction {
-    private final int[] array;
-    private final int target;
-    private final AtomicInteger counter;
-
-    protected void compute() {
-        if (end - start <= THRESHOLD) {
-            int localCount = 0; // no atomics needed locally
-            for (int i = start; i < end; i++) {
-                if (array[i] == target) localCount++;
-            }
-            counter.addAndGet(localCount); // single atomic update
-            return;
-        }
-        int mid = start + (end - start) / 2;
-        invokeAll(
-            new CountMatchingAction(array, start, mid, target, counter),
-            new CountMatchingAction(array, mid, end, target, counter)
-        );
-    }
-}
-
-// Usage
-AtomicInteger count = new AtomicInteger(0);
-pool.invoke(new CountMatchingAction(array, 0, array.length, target, count));
-System.out.println("Count: " + count.get());
+invokeAll(new MarkupOverlap(cents, from, mid + 1), new MarkupOverlap(cents, mid, to));
 ```
-
-**Q4: What built-in Java methods use RecursiveAction internally?**
 
 ```text
-A4: Several java.util.Arrays methods use the Fork/Join framework internally:
-
-1. Arrays.parallelSort() -- sorts an array in parallel (sorting parts and merging
-   them), implemented with CountedCompleter tasks rather than RecursiveAction/
-   RecursiveTask; small arrays are simply sorted sequentially.
-
-2. Arrays.parallelSetAll() -- initializes array elements in parallel using
-   an IntUnaryOperator (for int[]) or IntFunction<T> (for T[]); it runs a
-   parallel IntStream, so it reaches Fork/Join through the stream framework.
-
-3. Arrays.parallelPrefix() -- computes prefix sums (or other associative
-   operations) in parallel, also with CountedCompleter tasks.
-
-These methods use the common ForkJoinPool and handle threshold selection
-internally. For standard array operations, prefer these built-in methods
-over writing custom RecursiveAction tasks.
-
-Custom RecursiveAction is needed when:
-- Your transformation logic is complex
-- You need a custom pool
-- You need custom threshold behavior
-- The built-in methods don't cover your use case
+overlap:       255 prices raised twice
 ```
 
-```java
-// Built-in parallel array operations (use Fork/Join internally)
+Why 255? Two million prices in leaves of at most 10,000 make 256 leaves
+and 255 splits, and each split hands its `mid` to both sides. The count is the same every run, so a
+test with an exact expected array catches it; a test on 500 prices does not split.
 
-// parallelSort
-int[] array = {5, 3, 1, 4, 2};
-Arrays.parallelSort(array); // [1, 2, 3, 4, 5]
-
-// parallelSetAll -- initialize with index-based function
-int[] squares = new int[100];
-Arrays.parallelSetAll(squares, i -> i * i);
-// squares = [0, 1, 4, 9, 16, ...]
-
-// parallelPrefix -- cumulative sum
-int[] cumSum = {1, 2, 3, 4, 5};
-Arrays.parallelPrefix(cumSum, Integer::sum);
-// cumSum = [1, 3, 6, 10, 15]
-```
-
-**Q5: How do you test RecursiveAction tasks?**
+Reading is the other half of the rule. A three-point moving average written in place reads
+`a[i - 1]` and `a[i + 1]`, and at a leaf's edge those belong to the neighbouring leaf, which may or
+may not have overwritten them yet (`ex/Smooth.java`, four runs over a million values, against the
+same average written to a second array):
 
 ```text
-A5: Testing RecursiveAction requires verifying side effects since there is
-no return value. Key strategies:
-
-1. Array verification: Create an input array, invoke the action, then
-   assert the array contents match expected values.
-
-2. AtomicInteger verification: For counting tasks, verify the counter's
-   final value.
-
-3. Null/empty handling: Test that null and empty arrays are handled
-   gracefully (no exceptions, no modifications).
-
-4. Boundary testing: Test with arrays smaller than, equal to, and larger
-   than the threshold to exercise both the base case and recursive case.
-
-5. Correctness vs. sequential: Compare the result of the parallel action
-   with a simple sequential implementation.
-
-6. Concurrent consistency: For large arrays, verify that all elements are
-   correctly modified (no missed or double-modified elements).
+in place: hash -813368940   to a copy: hash 1843535354
+in place: hash 1353513801   to a copy: hash 1843535354
+in place: hash -1680316791   to a copy: hash 1843535354
+in place: hash 659750338   to a copy: hash 1843535354
 ```
+
+<!-- practice 1 -->
+
+## Leaves Count Locally and Add to the Shared Total Once
+
+A counting action has nowhere to return its count, so the leaves add it to an object they all
+share. Twenty million request latencies, counting those over a 250 ms target, three ways
+(`ex/Tally.java`, threshold 10,000, best of five runs):
 
 ```java
-@Test
-void testIncrementAction() {
-    int[] array = {1, 2, 3, 4, 5};
-    ForkJoinPool.commonPool().invoke(new IncrementAction(array, 0, 5, 10));
-    assertThat(array).containsExactly(11, 12, 13, 14, 15);
-}
-
-@Test
-void testCountMatchingAction() {
-    int[] array = {1, 2, 3, 2, 1, 2};
-    AtomicInteger counter = new AtomicInteger(0);
-    ForkJoinPool.commonPool().invoke(
-        new CountMatchingAction(array, 0, 6, 2, counter));
-    assertThat(counter.get()).isEqualTo(3);
-}
-
-@Test
-void testLargeArrayConsistency() {
-    int[] array = new int[10_000];
-    Arrays.fill(array, 5);
-    ForkJoinPool.commonPool().invoke(new SquareAction(array, 0, 10_000));
-    assertThat(array).containsOnly(25); // every element should be 25
-}
+// PLAIN_FIELD: a long field of an object every leaf shares
+for (int i = from; i < to; i++) if (ms[i] > SLO_MS) counts.slow++;
+// ATOMIC_PER_HIT: an AtomicLong, once per slow request
+for (int i = from; i < to; i++) if (ms[i] > SLO_MS) slow.incrementAndGet();
+// LOCAL_THEN_ADD: a local count, added once per leaf
+long local = 0;
+for (int i = from; i < to; i++) if (ms[i] > SLO_MS) local++;
+slow.addAndGet(local);
 ```
+
+```text
+expected: 9,960,000 slow requests
+PLAIN_FIELD       3,543,771    20 ms
+ATOMIC_PER_HIT    9,960,000    91 ms
+LOCAL_THEN_ADD    9,960,000     3 ms
+```
+
+`counts.slow++` reads, adds and writes, and eight workers doing it at once overwrite each other's
+updates (unit 6.2.1). It lost almost two thirds of the count, a different amount on every run, and
+nothing failed. Adding a local count to the plain field once per leaf makes the loss rarer, not
+impossible: `+=` is the same three steps. The atomic count is right, but each slow request writes
+one memory location that all eight cores contend for. A local count added once per leaf makes
+2,048 atomic updates instead of ten million.
+
+When the action's whole output is one number, a `RecursiveTask` returns it through `join()` with
+no shared state at all (unit 6.6.1.2). The shared total fits when the action's main work is
+elsewhere, such as rewriting an array, and the count comes along.
+
+<!-- practice 2 -->
+
+## A Failure Leaves the Array Partly Changed, So Write to a Copy
+
+The same `Markup`, with one price set to `-1` a quarter of the way in:
+
+```text
+bad row:       invoke threw IllegalArgumentException, 1,750,000 of 2,000,000 prices raised
+```
+
+Other runs raised 1,992,188. The exception reached the caller as unit 6.6.1.1 describes, but every
+leaf that ran kept its writes, including leaves that finished after the throw. Re-running the job raises those prices a second time.
+
+Rolling back in the `catch` with a snapshot taken before is not enough either. When the task run
+on the current thread fails, `invokeAll` rethrows at once and cancels the other one, and
+cancelling stops a task only if it hasn't started (`ForkJoinTask.cancel` javadoc). A subtask that is
+already running keeps going, and so do the subtasks it forks. In `ex/Straggler.java` the left
+leaf of an eight-price array throws while a latch holds the right leaf:
+
+```text
+invoke threw:    [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]
+200 ms later:    [1000, 1000, 1000, 1000, 1030, 1030, 1030, 1030]
+```
+
+The caller had caught the exception, and the right leaf wrote its half afterwards. The left leaf
+stopped at its throw and wrote nothing more.
+
+Run the action on a copy, and publish the copy only when `invoke` returns normally:
+
+```java
+long[] next = prices.clone();
+pool.invoke(new Markup(next, 0, next.length));
+prices = next;                               // reached only if every leaf succeeded
+```
+
+A failure leaves `prices` untouched, and a leaf still running writes into a copy nobody reads. If
+other threads read `prices`, make the field `volatile` so they see the new array whole. The copy
+costs one array's memory and one pass to clone. Validating the input first does not replace it: a
+leaf can still fail on something no check foresaw.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A `RecursiveAction` is finished only when `compute()` has waited for its subtasks.** Fork
+  without join, and `invoke` returns while the leaves are still writing.
+- **Subtasks write disjoint ranges and read nothing another subtask writes.** An inclusive `mid`
+  changes the same elements twice every run; reading a neighbour's range gives a different answer
+  every run.
+- **Leaves count locally and add to the shared total once.** A plain field loses updates silently;
+  an atomic per element works but makes every core wait for one memory location.
+- **A failure leaves the array partly changed.** Write to a copy and publish it only on success;
+  a rollback in the `catch` can be overwritten by a leaf still running.
+
+## Reference
+
+| Call | What it does |
+|---|---|
+| `invokeAll(t1, t2)` | forks `t2`, runs `t1` on this thread, waits for `t2`; if `t1` fails, cancels `t2` and rethrows at once |
+| `invokeAll(t1, t2, t3, ...)`, `invokeAll(collection)` | for any number of tasks: runs the first, waits for the others in order; on the first failure it sees, cancels the rest and rethrows |
+| `RecursiveAction.compute()` | returns `void`; `join()` and `invoke()` on the task return `null` |
+| `task.cancel(...)` | stops a task that hasn't started; one already running keeps running, though it reports cancelled and done |
+| `RecursiveTask<V>.compute()` | returns `V`, which `join()` hands back (unit 6.6.1.2) |
+| `Arrays.parallelSetAll(a, i -> ...)` | sets every element from its index, through a parallel stream (the common pool, unless called from a task of another pool) |
+| `Arrays.parallelPrefix(a, op)` | cumulative results in place, e.g. running totals |
+| `Arrays.parallelSort(a)` | sorts in parallel; an object array of 8,192 elements or fewer is sorted sequentially (javadoc: "minimum granularity") |
+
+For plain array work these built-ins already run on fork/join; write your own action when the
+per-element step or the split is your own.
+
+## Challenges
+
+1. The repricing job also has to report how many prices crossed a round number. Is that a shared
+   total inside `Markup`, a second pass, or a `RecursiveTask`? Measure the first two.
+2. Clone 2 million prices, then 200 million. At what size does the copy in the last section cost
+   more than the job, and what would you do instead?
+3. A tree of product categories gets a discount applied to every node, and each node's total must
+   include its children. Where in `compute()` does the node's own update go, and why can it not go
+   before `invokeAll`?
+
+## Design Note: A Task Without a Result Leaves the Caller Trusting Shared State
+
+A `RecursiveTask` hands each partial result to its parent through `join()`: the data travels with
+the waiting, so a parent cannot use a result it hasn't waited for. A `RecursiveAction` separates
+the two. The result is in shared memory the whole time, readable half-written, and nothing in the
+type forces anyone to wait before reading it. That is what makes in-place work cheap, with no
+partial arrays to allocate and merge, and it is why every rule on this page is about who may touch
+the shared array, and when.
 
 ## Code Examples
 

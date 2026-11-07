@@ -1,24 +1,13 @@
-The page's second pitfall: an observer that calls `removeObserver()` inside
-`update()` changes the list the subject is looping over, and the loop fails
-with `ConcurrentModificationException`. The fix is to **iterate a snapshot**
-of the list. Its edge cases add one more rule: **one observer that throws
-must not stop the others** from being notified.
+This practice continues the previous one: `BuildEvents.publish` already walks the plug-ins safely
+when one of them unsubscribes itself, and now hands each build to each plug-in through
+`deliver(listener, buildId)`.
 
-`Observer<T>` (given) has `void update(String event, T data)`. Write
-`SafeSubject<T>`:
+Plug-ins are written by other teams. Last night the artifact-cleaner plug-in threw on every build
+because an agent's disk was full. Every plug-in registered after it stopped hearing about builds,
+and the code that calls `publish` at the end of a build marked green builds as failed. Nobody
+running the server could tell which plug-in was at fault.
 
-- `addObserver(o)` registers `o` (`null` throws `IllegalArgumentException`);
-  `removeObserver(o)` unregisters it.
-- `notifyObservers(event, data)` calls `update(event, data)` on **the
-  observers registered when the notification starts**. An observer may add
-  or remove observers (itself included) from inside `update()`: that
-  changes who gets the *next* event, not this one.
-- If an observer throws a `RuntimeException`, the rest are still notified.
-  `notifyObservers` returns the exceptions thrown, in the order they
-  happened (an empty list when none).
-
-| observers, in order | during `update` | first event reaches | second event reaches |
-|---|---|---|---|
-| A, R, B | R removes R | A, R, B | A, B |
-| A, B | A adds N | A, B | A, B, N |
-| X, B | X throws | B, and X's exception is returned | B, and X's exception again |
+`BuildEvents` now takes an `onPluginFailure` handler in its constructor. Finish
+`deliver(listener, buildId)` in `src/main/java/practice/BuildEvents.java` so that a plug-in that
+throws costs no other plug-in its build, never makes `publish` fail, and is reported to that
+handler with the build id and the exception it threw. About five lines in total.

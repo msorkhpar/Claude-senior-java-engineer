@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Sort names with a comparator lambda instead of an anonymous class",
+  "title": "Number tonight's tenant exports so they stay numbered",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,22 @@
     },
     {
       "type": "para",
-      "text": "Before Java 8, sorting with a custom order meant writing an anonymous inner class that implements `Comparator<String>`. A lambda, or a method reference such as `String::compareTo`, passes the same behaviour in one line."
+      "text": "The nightly export builds one task per tenant at 23:00 and hands the list to a scheduler, which runs the tasks whenever it has capacity: sometimes in order, sometimes last task first. Each export is stamped with its task number, and the morning report matches stamps against the plan. Last week the report showed tenants under the wrong numbers, and one tenant that was added to the admin screen at 23:05 got exported although it wasn't in the 23:00 plan."
     },
     {
       "type": "para",
-      "text": "Write two methods in `NameSorter`, each taking a `List<String>` and returning a **new** sorted list that holds every name, duplicates included. \"Alphabetical\" means `String`'s natural order (`compareTo`), in which capitals sort before lower-case letters:"
+      "text": "`ExportPlan` already builds the list of tasks. Finish the `TODO` in `src/main/java/practice/ExportPlan.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`alphabetical(List<String> names)` orders the names alphabetically.",
-        "`byLength(List<String> names)` orders them by length, shortest first; names of the same length are ordered alphabetically."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`alphabetical([\"Charlie\", \"Alice\", \"Bob\"])`",
-          "`[\"Alice\", \"Bob\", \"Charlie\"]`"
-        ],
-        [
-          "`byLength([\"aaa\", \"b\", \"cc\"])`",
-          "`[\"b\", \"cc\", \"aaa\"]`"
-        ]
+        "`task(tenants, index)`: the task for the tenant at `index`, numbered `index + 1`."
       ]
     },
     {
       "type": "para",
-      "text": "Think about what happens to the list the caller handed you, and about names that tie on length."
+      "text": "When you're done, every task exports the tenant and the number it was planned with, whatever order the scheduler runs the tasks in and whatever the caller does to its list after `tasksFor` returns. About three lines in total."
     },
     {
       "type": "heading",
@@ -67,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\n\npublic final class NameSorter {\n\n    private NameSorter() {\n    }\n\n    /** A new list holding {@code names} in alphabetical order. */\n    public static List<String> alphabetical(List<String> names) {\n        List<String> sorted = new ArrayList<>(names);\n        sorted.sort(String::compareTo);\n        return sorted;\n    }\n\n    /** A new list holding {@code names} shortest first, equal lengths in alphabetical order. */\n    public static List<String> byLength(List<String> names) {\n        List<String> sorted = new ArrayList<>(names);\n        sorted.sort(Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()));\n        return sorted;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Builds tonight's export tasks: one task per tenant, numbered from 1 in the order the tenants\n * are given. The scheduler runs the tasks later, in its own order, after the caller has gone\n * back to editing its tenant list.\n */\npublic class ExportPlan {\n\n    /** Exports one tenant's data; {@code seq} is the task's number in tonight's run. */\n    public interface Exporter {\n        void export(String tenant, int seq);\n    }\n\n    private final Exporter exporter;\n\n    public ExportPlan(Exporter exporter) {\n        this.exporter = exporter;\n    }\n\n    /** Builds one task per tenant; building exports nothing. */\n    public List<Runnable> tasksFor(List<String> tenants) {\n        List<Runnable> tasks = new ArrayList<>();\n        for (int i = 0; i < tenants.size(); i++) {\n            tasks.add(task(tenants, i));\n        }\n        return tasks;\n    }\n\n    /** The task for the tenant at {@code index}, which exports it as number index + 1. */\n    Runnable task(List<String> tenants, int index) {\n        String tenant = tenants.get(index);\n        int seq = index + 1;\n        return () -> exporter.export(tenant, seq);\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class NameSorter {\n\n    private NameSorter() {\n    }\n\n    /** A new list holding {@code names} in alphabetical order. */\n    public static List<String> alphabetical(List<String> names) {\n        throw new UnsupportedOperationException(\"write alphabetical\");\n    }\n\n    /** A new list holding {@code names} shortest first, equal lengths in alphabetical order. */\n    public static List<String> byLength(List<String> names) {\n        throw new UnsupportedOperationException(\"write byLength\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Builds tonight's export tasks: one task per tenant, numbered from 1 in the order the tenants\n * are given. The scheduler runs the tasks later, in its own order, after the caller has gone\n * back to editing its tenant list.\n */\npublic class ExportPlan {\n\n    /** Exports one tenant's data; {@code seq} is the task's number in tonight's run. */\n    public interface Exporter {\n        void export(String tenant, int seq);\n    }\n\n    private final Exporter exporter;\n\n    public ExportPlan(Exporter exporter) {\n        this.exporter = exporter;\n    }\n\n    /** Builds one task per tenant; building exports nothing. */\n    public List<Runnable> tasksFor(List<String> tenants) {\n        List<Runnable> tasks = new ArrayList<>();\n        for (int i = 0; i < tenants.size(); i++) {\n            tasks.add(task(tenants, i));\n        }\n        return tasks;\n    }\n\n    /** The task for the tenant at {@code index}, which exports it as number index + 1. */\n    Runnable task(List<String> tenants, int index) {\n        // TODO: The scheduler runs this task tonight, after the caller has moved on and possibly\n        //       reordered or edited its list, and not necessarily in the order the tasks were\n        //       built. Return a task that exports the tenant at this index, numbered index + 1.\n        throw new IllegalStateException(\"TODO: task\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,7 +71,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -98,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b7b11c0b45308c2cd256c640a9e0618271f6bf9975566d7a91fa54707bf9fb69",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class NameSorter {\n\n    private NameSorter() {\n    }\n\n    /** A new list holding {@code names} in alphabetical order. */\n    public static List<String> alphabetical(List<String> names) {\n        throw new UnsupportedOperationException(\"write alphabetical\");\n    }\n\n    /** A new list holding {@code names} shortest first, equal lengths in alphabetical order. */\n    public static List<String> byLength(List<String> names) {\n        throw new UnsupportedOperationException(\"write byLength\");\n    }\n}\n",
+  "content_sha256": "0602a360ad19584deb1cc3ec77c81d4304ae248524abaf437517bd4ca1f443e2",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Builds tonight's export tasks: one task per tenant, numbered from 1 in the order the tenants\n * are given. The scheduler runs the tasks later, in its own order, after the caller has gone\n * back to editing its tenant list.\n */\npublic class ExportPlan {\n\n    /** Exports one tenant's data; {@code seq} is the task's number in tonight's run. */\n    public interface Exporter {\n        void export(String tenant, int seq);\n    }\n\n    private final Exporter exporter;\n\n    public ExportPlan(Exporter exporter) {\n        this.exporter = exporter;\n    }\n\n    /** Builds one task per tenant; building exports nothing. */\n    public List<Runnable> tasksFor(List<String> tenants) {\n        List<Runnable> tasks = new ArrayList<>();\n        for (int i = 0; i < tenants.size(); i++) {\n            tasks.add(task(tenants, i));\n        }\n        return tasks;\n    }\n\n    /** The task for the tenant at {@code index}, which exports it as number index + 1. */\n    Runnable task(List<String> tenants, int index) {\n        // TODO: The scheduler runs this task tonight, after the caller has moved on and possibly\n        //       reordered or edited its list, and not necessarily in the order the tasks were\n        //       built. Return a task that exports the tenant at this index, numbered index + 1.\n        throw new IllegalStateException(\"TODO: task\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-1/src/main/java/practice/NameSorter.java",
-    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-1/src/test/java/practice/NameSorterTest.java",
+    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-1/src/main/java/practice/ExportPlan.java",
+    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-1/src/test/java/practice/ExportPlanTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,24 +105,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NameSorterTest#sortsAlphabetically",
+        "id": "practice.ExportPlanTest#tasksRunInOrderExportEachTenantWithItsNumber",
         "kind": "main",
-        "says": "It returns the names in alphabetical order."
+        "says": "tasks run in the order they were built export each tenant with its number, from 1"
       },
       {
-        "id": "practice.NameSorterTest#sortsByLength",
+        "id": "practice.ExportPlanTest#buildingTheTasksExportsNothing",
         "kind": "main",
-        "says": "It returns the names shortest first."
+        "says": "building the tasks exports nothing; only running them does"
       },
       {
-        "id": "practice.NameSorterTest#leavesTheInputUntouched",
+        "id": "practice.ExportPlanTest#aTaskKeepsItsNumberWhateverOrderTheSchedulerRunsThemIn",
         "kind": "edge",
-        "says": "The caller's list keeps its order; the sorted names come back in a new list."
+        "says": "a task's number is fixed when the task is built, so running the tasks in reverse order still exports each tenant with its own number"
       },
       {
-        "id": "practice.NameSorterTest#equalLengthsFallBackToAlphabetical",
+        "id": "practice.ExportPlanTest#editingTheListAfterwardsDoesNotChangeTonightsTasks",
         "kind": "edge",
-        "says": "Names of equal length are ordered alphabetically, not left in input order."
+        "says": "a task exports the tenant that was at its index when it was built, even after the caller reorders or edits its list"
       }
     ],
     "report": {
@@ -149,10 +131,10 @@
     },
     "origin": {
       "path": "13-lambda-expressions/README_4.1.1.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "A Lambda Copies the Locals It Uses, So They Must Be Effectively Final"
     },
     "concepts": [
-      "A lambda passes behaviour as an argument, replacing a verbose anonymous inner class such as a Comparator."
+      "A lambda copies the values of the locals it captures when it is created; for a reference that is the reference, so the object behind it can still change."
     ]
   }
 }

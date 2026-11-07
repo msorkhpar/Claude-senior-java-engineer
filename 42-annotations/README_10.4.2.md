@@ -1,481 +1,475 @@
 # 10.4.2. Custom Annotation Creation
 
-## Concept Explanation
-
-Java allows developers to define their own annotations using the `@interface` keyword. Custom annotations are a powerful
-metadata mechanism that enables you to attach structured information to code elements (classes, methods, fields,
-parameters, etc.) and process that metadata at compile time or runtime.
-
-**Real-world analogy**: Custom annotations are like custom labels or tags in a warehouse system. While the warehouse
-comes with standard labels (like "FRAGILE" or "THIS SIDE UP" — analogous to built-in annotations), you can create your
-own labels specific to your business needs (like "PRIORITY-1 SHIPPING" or "TEMPERATURE-SENSITIVE"). These custom labels
-carry structured information and trigger specific handling processes.
-
-Custom annotations consist of:
-- **Declaration**: Using `@interface` to define the annotation type
-- **Elements**: The annotation's members (look like methods but act as named parameters)
-- **Meta-annotations**: Annotations on the annotation itself that control its behavior (`@Target`, `@Retention`,
-  `@Documented`, `@Inherited`, `@Repeatable`)
-
-### Types of Custom Annotations
-
-1. **Marker annotations**: No elements — simply mark presence (e.g., `@ThreadSafe`)
-2. **Single-value annotations**: One element named `value` — allows shorthand usage (e.g., `@Author("Jane")`)
-3. **Multi-value annotations**: Multiple elements with optional defaults (e.g., `@ApiEndpoint(path="/users", method="GET")`)
-4. **Repeatable annotations**: Can be applied multiple times to the same element (e.g., `@Role("ADMIN") @Role("MANAGER")`)
-
-## Key Points to Remember
-
-1. Annotation elements can only be: primitives, `String`, `Class`, enums, annotations, or arrays of these.
-2. Element defaults are specified with the `default` keyword: `String value() default "unknown";`.
-3. If the only element is named `value`, the name can be omitted: `@Author("Jane")` instead of `@Author(value = "Jane")`.
-4. Annotations cannot extend other annotations or interfaces.
-5. Annotation elements cannot have `null` as a default — use sentinel values like `""` or `-1` instead.
-6. `@Inherited` only works on class-level annotations — method and field annotations are never inherited.
-7. `@Repeatable` requires a container annotation that holds an array of the repeatable annotation.
-8. `@Documented` causes the annotation to appear in Javadoc-generated documentation.
-9. Annotation instances are immutable — once applied, their values cannot be changed.
-
-## Relevant Java 21 Features
-
-- **Repeatable annotations** (Java 8+): Allow the same annotation to appear multiple times on a single element.
-- **TYPE_USE and TYPE_PARAMETER targets** (Java 8+): Enable annotations on generic type arguments and type uses
-  (e.g., `@NonNull String`, `List<@NonNull String>`).
-- **Record components** can be annotated, and annotations propagate to the corresponding field, accessor method, and
-  constructor parameter based on `@Target`.
-- **Sealed classes** work well with custom annotations for marking the permitted hierarchy.
-- Modern frameworks (Spring, Jakarta EE, Micronaut) rely heavily on custom annotations processed at compile time or
-  runtime for dependency injection, validation, and endpoint mapping.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using `null` as a default value**: Annotation elements cannot default to `null`.
-   ```java
-   // COMPILATION ERROR
-   @interface MyAnnotation {
-       String value() default null; // Not allowed!
-   }
-
-   // FIX: Use a sentinel value
-   @interface MyAnnotation {
-       String value() default "";
-   }
-   ```
-
-2. **Forgetting @Retention(RUNTIME) for reflection-based processing**: The default retention is CLASS, which is NOT
-   available at runtime.
-   ```java
-   // BAD: Default CLASS retention — invisible to reflection
-   @interface MyAnnotation { }
-
-   // GOOD: Explicit RUNTIME retention
-   @Retention(RetentionPolicy.RUNTIME)
-   @interface MyAnnotation { }
-   ```
-
-3. **Using complex types as annotation elements**: Only primitives, String, Class, enums, annotations, and arrays thereof
-   are allowed.
-   ```java
-   // COMPILATION ERROR: List is not a valid annotation element type
-   @interface BadAnnotation {
-       List<String> values(); // Not allowed!
-   }
-
-   // FIX: Use an array
-   @interface GoodAnnotation {
-       String[] values();
-   }
-   ```
-
-4. **Expecting @Inherited to work on methods**: `@Inherited` only applies to class-level annotations. Method and field
-   annotations are never automatically inherited by subclasses.
-
-5. **Forgetting the container annotation for @Repeatable**: Every repeatable annotation needs a container.
-   ```java
-   // Need BOTH the repeatable annotation AND its container
-   @Repeatable(Roles.class)
-   @interface Role { String value(); }
-
-   @interface Roles { Role[] value(); } // Container
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Always specify `@Retention` explicitly** — don't rely on the default (CLASS), which is rarely what you want.
-2. **Always specify `@Target`** — restricts where the annotation can be used, preventing misuse.
-3. **Use `@Documented`** for public API annotations so they appear in Javadoc.
-4. **Provide meaningful default values** for optional elements to reduce boilerplate at usage sites.
-5. **Name the primary element `value`** if there's a single most-important element — enables shorthand syntax.
-6. **Validate annotation values at processing time**, not just at usage time.
-7. **Keep annotations focused** — each annotation should represent one concern (SRP applies to annotations too).
-8. **Use enums for constrained choices** instead of String elements to prevent typos:
-   ```java
-   enum HttpMethod { GET, POST, PUT, DELETE }
-
-   @interface Endpoint {
-       HttpMethod method() default HttpMethod.GET; // Better than String
-   }
-   ```
-
-## Edge Cases and Their Handling
-
-1. **Empty arrays as defaults**: Allowed and useful — `String[] tags() default {}`.
-2. **Annotation element of annotation type**: You can nest annotations — `@Constraint(validatedBy = @Validator(...))`.
-3. **Class<?> elements**: Useful for specifying types — `Class<?> implementation() default Void.class`.
-4. **Repeatable annotations accessed via container**: When using `getAnnotation()`, you get the container; use
-   `getAnnotationsByType()` to get individual repeatable annotations.
-5. **Annotations on local variables**: Whatever the retention, a declaration annotation on a local variable is never
-   stored in the class file (JLS 9.6.4.2), so only the compiler and annotation processors can see it.
-6. **Inheriting annotations with `@Inherited`**: Only the annotation from the most-specific parent is inherited; if both
-   parent and grandparent have the annotation, only the parent's is seen.
-
-## Interview-specific Insights
-
-Interviewers often focus on:
-
-- The syntax and structure of custom annotation declarations
-- Understanding which types are valid as annotation elements (and which are not)
-- The role of meta-annotations (`@Target`, `@Retention`, `@Inherited`, `@Documented`, `@Repeatable`)
-- How `@Inherited` works (and its limitations — class-level only)
-- The difference between `getAnnotation()` and `getAnnotationsByType()` for repeatable annotations
-- Practical use cases: validation frameworks, ORM mapping, REST endpoint definitions
-
-Common tricky questions:
-- "Can annotations extend other annotations?" (No)
-- "Can you use null as a default value?" (No)
-- "Does @Inherited work on method annotations?" (No)
-
-## Interview Q&A Section
-
-**Q1: How do you create a custom annotation in Java?**
-
-```text
-A1: A custom annotation is declared using the @interface keyword. The declaration includes:
-
-1. Meta-annotations that control the annotation's behavior:
-   - @Retention — when the annotation is available (SOURCE, CLASS, or RUNTIME)
-   - @Target — where the annotation can be applied (TYPE, METHOD, FIELD, etc.)
-   - @Documented — whether it appears in Javadoc
-   - @Inherited — whether subclasses inherit it (class-level only)
-
-2. Elements (which look like abstract methods but act as named parameters):
-   - Must return: primitive, String, Class, enum, annotation, or array thereof
-   - Can have default values
-   - If named "value" and it's the only required element, the name can be omitted at usage
-
-3. The annotation is then used by prefixing @ to its name at applicable locations.
-```
+A support agent with no roles voided a customer's payment. The method is guarded:
 
 ```java
-// Marker annotation (no elements)
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.TYPE)
-@interface ThreadSafe { }
+@Role("ADMIN") @Role("AUDITOR")
+public void voidPayment() { }
+```
 
-// Single-value annotation
-@Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.METHOD, ElementType.TYPE})
-@interface Author {
-    String value(); // Named 'value' — allows shorthand
+and the guard, written when every method had one role, reads `getAnnotation(Role.class)` and lets
+the call through when it finds no `@Role`. `refund()`, which carries a single `@Role("ADMIN")`,
+refuses the same agent. Both methods compile, but javac stores their annotations differently.
+
+Every annotation this page reads by reflection is `@Retention(RetentionPolicy.RUNTIME)`;
+what the other retentions keep is unit 10.4.3. Reading annotations inside javac with a processor is
+unit 10.4.4, and the built-in ones such as `@Override` are unit 10.4.1.
+
+## An Element Holds a Compile-Time Constant of a Few Types
+
+An annotation type is declared with `@interface`. Which of these elements compile?
+
+```java
+import java.util.List;
+
+@interface Cache {
+    Object key();                                        // 1
+    List<String> regions();                              // 2
+    Integer maxEntries();                                // 3
+    String owner() default null;                         // 4
+    long ttlMillis() default System.currentTimeMillis(); // 5
+    String[][] tiers();                                  // 6
+}
+```
+
+```text
+Cache.java:7: error: element value must be a constant expression
+    String owner() default null;                         // 4
+                           ^
+Cache.java:8: error: expression not allowed as annotation value
+    long ttlMillis() default System.currentTimeMillis(); // 5
+                                                     ^
+Cache.java:4: error: invalid type for annotation interface element
+    Object key();                                        // 1
+    ^
+Cache.java:5: error: invalid type for annotation interface element
+    List<String> regions();                              // 2
+        ^
+Cache.java:6: error: invalid type for annotation interface element
+    Integer maxEntries();                                // 3
+    ^
+Cache.java:9: error: invalid type for annotation interface element
+    String[][] tiers();                                  // 6
+          ^
+6 errors
+```
+
+None compiles. An element's type is a primitive, `String`, `Class`, an enum, another annotation, or a
+one-dimensional array of one of these. Every value, the defaults included, is fixed when javac runs:
+the class file stores it as a constant, an enum constant's name, a class name, a nested
+annotation or an array of these, so the JVM can rebuild it without calling the code that
+computed it. A `List`, an `Integer` or a
+call has no such form. `null` has none either, so "not set" needs a sentinel: `""`, `-1`, or
+`Void.class` for a `Class` element.
+
+The value must be a constant expression in the language's sense, and a `static final` field is not
+always one:
+
+```java
+final class Limits {
+    static final int MAX_ATTEMPTS = 3;
+    static final int FROM_ENV = Integer.parseInt("3");
+    static final Integer BOXED = 3;
 }
 
-// Multi-value annotation with defaults
+@interface Retry {
+    int attempts() default Limits.MAX_ATTEMPTS;   // compiles
+    long backoffMs() default 60 * 1000;           // compiles
+    int fromEnv() default Limits.FROM_ENV;        // error
+    int boxed() default Limits.BOXED;             // error
+}
+```
+
+```text
+Retry.java:10: error: element value must be a constant expression
+    int fromEnv() default Limits.FROM_ENV;        // error
+                                ^
+Retry.java:11: error: element value must be a constant expression
+    int boxed() default Limits.BOXED;             // error
+                              ^
+2 errors
+```
+
+A team that wants the retry count to come from configuration can't put it in the annotation, as a
+default or at the use site. The annotation names a key (`@Retry(attemptsKey = "orders.retries")`),
+and the code that reads the annotation looks the value up.
+
+## Defaults Live in the Annotation Type, and Only value Can Go Unnamed
+
+A small web library declares `@Endpoint`, and a service uses it:
+
+```java
+import java.lang.annotation.*;
+
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
-@interface ApiEndpoint {
-    String path();
+public @interface Endpoint {
+    String value();                    // the path
     String method() default "GET";
-    String description() default "";
-    int version() default 1;
+    int timeoutMs() default 2000;
     String[] produces() default {"application/json"};
 }
-
-// Usage
-@ThreadSafe
-@Author("Jane Doe")
-class UserService {
-    @ApiEndpoint(path = "/users", method = "POST", version = 2)
-    public String createUser() { return "created"; }
-}
-```
-
-**Q2: What types can annotation elements return?**
-
-```text
-A2: Annotation elements are restricted to a specific set of types. This limitation exists
-because annotation values must be compile-time constants that can be embedded in bytecode.
-
-Valid annotation element types:
-1. Primitive types: int, long, short, byte, float, double, boolean, char
-2. String
-3. Class<?> (or Class<? extends SomeType>)
-4. Enum types
-5. Other annotation types
-6. Arrays of any of the above (1D arrays only)
-
-NOT allowed:
-- Wrapper types (Integer, Long, etc.) — use primitives instead
-- Collections (List, Set, Map) — use arrays instead
-- Arbitrary objects — annotations are compile-time constructs
-- null — cannot be a default value or assigned value
-- Multi-dimensional arrays
-
-The restriction to compile-time constants ensures annotations can be processed efficiently
-by the compiler and stored compactly in bytecode.
 ```
 
 ```java
-@Retention(RetentionPolicy.RUNTIME)
-@interface ComprehensiveAnnotation {
-    // Primitives
-    int count() default 0;
-    boolean enabled() default true;
+import java.lang.reflect.Method;
 
-    // String
-    String name() default "default";
+public class Orders {
+    @Endpoint("/orders")
+    public void list() { }
 
-    // Class
-    Class<?> implementation() default Void.class;
+    @Endpoint(value = "/orders", method = "POST", produces = "text/csv")
+    public void export() { }
 
-    // Enum
-    RetentionPolicy retention() default RetentionPolicy.RUNTIME;
-
-    // Nested annotation
-    Deprecated deprecated() default @Deprecated(since = "1.0");
-
-    // Array
-    String[] tags() default {};
-    int[] priorities() default {1, 2, 3};
-}
-```
-
-**Q3: What is the difference between @Inherited and non-inherited annotations?**
-
-```text
-A3: The @Inherited meta-annotation controls whether a class-level annotation is automatically
-inherited by subclasses.
-
-With @Inherited:
-- If class A has the annotation, class B extends A automatically "sees" the annotation
-- getAnnotation() on class B returns the parent's annotation
-- Only works on CLASS-level annotations (not methods, fields, or interfaces)
-
-Without @Inherited (default):
-- The annotation only appears on the element it was directly applied to
-- Subclasses must explicitly re-apply the annotation
-
-Key limitations:
-1. @Inherited does NOT work on interface annotations — implementing an interface does not
-   inherit its annotations
-2. @Inherited does NOT work on method or field annotations
-3. If a subclass declares the same annotation, it shadows (replaces) the parent's
-4. getDeclaredAnnotations() only returns directly-applied annotations, even with @Inherited
-
-This is frequently misunderstood in interviews — many candidates assume all annotations
-are inherited, or that @Inherited works on methods.
-```
-
-```java
-@Inherited
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.TYPE)
-@interface Auditable {
-    String level() default "INFO";
-}
-
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.TYPE)
-@interface Author {
-    String value();
-}
-
-@Auditable(level = "DEBUG")
-@Author("Jane")
-class ParentService { }
-
-class ChildService extends ParentService { }
-
-// At runtime:
-Auditable a = ChildService.class.getAnnotation(Auditable.class);
-// a != null, level = "DEBUG" — inherited!
-
-Author auth = ChildService.class.getAnnotation(Author.class);
-// auth == null — @Author is NOT @Inherited
-```
-
-**Q4: How do repeatable annotations work?**
-
-```text
-A4: Repeatable annotations (Java 8+) allow the same annotation to be applied multiple times
-to a single program element. They require two annotation declarations:
-
-1. The repeatable annotation itself, marked with @Repeatable(ContainerAnnotation.class)
-2. A container annotation that holds an array of the repeatable annotation
-
-When you apply a repeatable annotation multiple times, the compiler wraps them in the
-container annotation. You can access them via:
-
-- getAnnotationsByType(Role.class) — returns the individual annotations (recommended)
-- getAnnotation(Roles.class) — returns the container annotation
-
-If only one instance is applied, getAnnotation(Role.class) returns it directly, while
-getAnnotation(Roles.class) returns null (no container needed for a single instance).
-```
-
-```java
-// Container annotation
-@Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.METHOD, ElementType.TYPE})
-@interface Roles {
-    Role[] value();
-}
-
-// Repeatable annotation
-@Repeatable(Roles.class)
-@Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.METHOD, ElementType.TYPE})
-@interface Role {
-    String value();
-}
-
-// Usage: Multiple @Role on one method
-class Service {
-    @Role("ADMIN")
-    @Role("MANAGER")
-    public void sensitiveOperation() { }
-}
-
-// Reading repeatable annotations
-Method m = Service.class.getDeclaredMethod("sensitiveOperation");
-Role[] roles = m.getAnnotationsByType(Role.class);
-// roles = [@Role("ADMIN"), @Role("MANAGER")]
-
-Roles container = m.getAnnotation(Roles.class);
-// container.value() = [@Role("ADMIN"), @Role("MANAGER")]
-```
-
-**Q5: How can you build a simple validation framework using custom annotations?**
-
-```text
-A5: A validation framework using annotations typically consists of three parts:
-
-1. Constraint annotations: Custom annotations that define validation rules
-   (e.g., @NotEmpty, @Range, @Pattern)
-
-2. Validated classes: Domain objects annotated with constraint annotations on their fields
-
-3. Validator processor: A class that uses reflection to read annotations from fields,
-   extract their parameters, and apply the validation logic
-
-The validator iterates over declared fields, checks for annotation presence using
-field.isAnnotationPresent(), reads annotation values, and compares against the actual
-field value. Validation errors are collected and returned.
-
-This is essentially how frameworks like Jakarta Bean Validation (Hibernate Validator)
-work, though they add layers of caching, custom validators, groups, and message
-interpolation.
-```
-
-```java
-// Step 1: Define constraint annotations
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.FIELD)
-@interface NotEmpty {
-    String message() default "Field must not be empty";
-}
-
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.FIELD)
-@interface Range {
-    int min() default Integer.MIN_VALUE;
-    int max() default Integer.MAX_VALUE;
-    String message() default "Value out of range";
-}
-
-// Step 2: Annotate domain class
-class User {
-    @NotEmpty(message = "Name is required")
-    private String name;
-
-    @Range(min = 0, max = 150, message = "Invalid age")
-    private int age;
-
-    User(String name, int age) { this.name = name; this.age = age; }
-}
-
-// Step 3: Validator processor
-record ValidationError(String field, String message) {}
-
-List<ValidationError> validate(Object obj) {
-    List<ValidationError> errors = new ArrayList<>();
-    for (Field field : obj.getClass().getDeclaredFields()) {
-        field.setAccessible(true);
-        if (field.isAnnotationPresent(NotEmpty.class)) {
-            Object val = field.get(obj);
-            if (val == null || (val instanceof String s && s.isBlank())) {
-                errors.add(new ValidationError(field.getName(),
-                    field.getAnnotation(NotEmpty.class).message()));
-            }
+    public static void main(String[] args) throws Exception {
+        for (String name : new String[] {"list", "export"}) {
+            Method m = Orders.class.getMethod(name);
+            Endpoint e = m.getAnnotation(Endpoint.class);
+            System.out.println(name + ": " + e);
+            System.out.println("  " + e.method() + " " + e.value() + ", timeout " + e.timeoutMs() + " ms");
         }
-        // ... similar for @Range
     }
-    return errors;
 }
 ```
-
-**Q6: Can annotations extend other annotations or classes?**
 
 ```text
-A6: No. Annotations in Java cannot extend other annotations, classes, or interfaces. Every
-annotation type implicitly extends java.lang.annotation.Annotation, and this is the only
-inheritance relationship allowed.
-
-This means:
-- You cannot create an annotation hierarchy (e.g., @HttpMethod extending @Annotation)
-- You cannot share elements between annotations via inheritance
-- Each annotation type is standalone
-
-Workarounds for "annotation inheritance":
-1. Composition: Use a meta-annotation pattern — annotate your annotation with another
-   annotation (like Spring's @Component annotated with @Indexed)
-2. Annotation element of annotation type: Include one annotation as an element of another
-3. Processing logic: Handle the "inheritance" in your annotation processor by checking
-   for multiple annotation types
-
-This limitation exists because annotations are designed to be simple metadata containers,
-not full-featured types with inheritance hierarchies.
+list: @Endpoint(method="GET", produces={"application/json"}, timeoutMs=2000, value="/orders")
+  GET /orders, timeout 2000 ms
+export: @Endpoint(method="POST", produces={"text/csv"}, timeoutMs=2000, value="/orders")
+  POST /orders, timeout 2000 ms
 ```
+
+`getAnnotation` returns an object of the annotation type; each element call returns the use-site
+value or the default. A single value for an array element needs
+no braces (`produces = "text/csv"`).
+
+Now the library's next release lowers the default to `int timeoutMs() default 500;`. We recompile
+`Endpoint.java` alone and run the same `Orders.class`:
+
+```text
+list: @Endpoint(method="GET", produces={"application/json"}, timeoutMs=500, value="/orders")
+  GET /orders, timeout 500 ms
+export: @Endpoint(method="POST", produces={"text/csv"}, timeoutMs=500, value="/orders")
+  POST /orders, timeout 500 ms
+```
+
+The class file of `Orders` records only the elements written at the use site. The default is stored
+once, in `Endpoint.class`, and filled in when the annotation is read. Upgrading the library jar
+changes the timeout of every endpoint that didn't set one, with no rebuild of the service, so a
+changed default belongs in the release notes.
+
+`@Endpoint("/orders")` leaves out the name `value`. That is the only element whose name may go,
+and only when every other element has a default. Declare `@Endpoint` with no default for `method`,
+and the shorthand fails:
 
 ```java
-// This is NOT allowed:
-// @interface HttpGet extends HttpMethod { } // COMPILATION ERROR
-
-// Workaround 1: Composition via meta-annotations
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.ANNOTATION_TYPE)
-@interface HttpMethod {
+@interface Endpoint {
     String value();
+    String method();
 }
 
-@HttpMethod("GET")
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.METHOD)
-@interface GetMapping {
-    String path();
-}
-
-// Workaround 2: Annotation as element
-@Retention(RetentionPolicy.RUNTIME)
-@interface Constraint {
-    Class<?> validatedBy();
-}
-
-@Retention(RetentionPolicy.RUNTIME)
-@Constraint(validatedBy = NotEmptyValidator.class)
-@interface NotEmpty {
-    String message() default "must not be empty";
+class Users {
+    @Endpoint("/users")
+    void list() { }
 }
 ```
+
+```text
+Endpoint.java:7: error: annotation @Endpoint is missing a default value for the element 'method'
+    @Endpoint("/users")
+    ^
+1 error
+```
+
+## @Target Is Checked by javac at Every Use
+
+A timing aspect wraps methods annotated `@Timed`, and someone writes `@Timed` on a field. With
+`@Target(ElementType.METHOD)`, javac refuses it:
+
+```java
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Target;
+
+@Target(ElementType.METHOD)
+@interface Timed { }
+
+class Checkout {
+    @Timed
+    private int attempts;
+
+    @Timed
+    void pay() { }
+}
+```
+
+```text
+Timed.java:8: error: annotation interface not applicable to this kind of declaration
+    @Timed
+    ^
+1 error
+```
+
+Without `@Target`, the field compiles, the aspect never looks at fields, and nothing is timed. An annotation type with no `@Target` is accepted on every declaration, a type parameter
+included, and in no type context:
+
+```java
+import java.util.List;
+
+@interface Tag { }
+
+class Box<@Tag T> {
+    @Tag List<String> names;
+    List<@Tag String> ids;
+}
+```
+
+```text
+Tag.java:7: error: annotation @Tag not applicable in this type context
+    List<@Tag String> ids;
+         ^
+1 error
+```
+
+Annotations written on a type, such as `List<@NonNull String>`, need `ElementType.TYPE_USE` in
+the target.
+
+## A Repeated Annotation Is Stored Inside Its Container
+
+The opening's service and its guard:
+
+```java
+import java.lang.annotation.*;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Set;
+
+public class Repeat {
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @Repeatable(Roles.class)
+    @interface Role { String value(); }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @interface Roles { Role[] value(); }
+
+    static class Payments {
+        @Role("ADMIN")
+        public void refund() { }
+
+        @Role("ADMIN") @Role("AUDITOR")
+        public void voidPayment() { }
+    }
+
+    /** The guard as first written: no @Role means anyone may call. */
+    static boolean allowed(Method m, Set<String> granted) {
+        Role role = m.getAnnotation(Role.class);
+        return role == null || granted.contains(role.value());
+    }
+
+    public static void main(String[] args) throws Exception {
+        Set<String> agent = Set.of("SUPPORT");
+        for (String name : new String[] {"refund", "voidPayment"}) {
+            Method m = Payments.class.getMethod(name);
+            System.out.println(name + ", support agent allowed: " + allowed(m, agent));
+        }
+        System.out.println();
+        for (String name : new String[] {"refund", "voidPayment"}) {
+            Method m = Payments.class.getMethod(name);
+            System.out.println(name + ":");
+            System.out.println("  getAnnotation(Role.class)          " + m.getAnnotation(Role.class));
+            System.out.println("  getAnnotation(Roles.class)         " + m.getAnnotation(Roles.class));
+            System.out.println("  getAnnotationsByType(Role.class)   " + Arrays.toString(m.getAnnotationsByType(Role.class)));
+            System.out.println("  getAnnotations()                   " + Arrays.toString(m.getAnnotations()));
+        }
+    }
+}
+```
+
+```text
+refund, support agent allowed: false
+voidPayment, support agent allowed: true
+
+refund:
+  getAnnotation(Role.class)          @Repeat.Role("ADMIN")
+  getAnnotation(Roles.class)         null
+  getAnnotationsByType(Role.class)   [@Repeat.Role("ADMIN")]
+  getAnnotations()                   [@Repeat.Role("ADMIN")]
+voidPayment:
+  getAnnotation(Role.class)          null
+  getAnnotation(Roles.class)         @Repeat.Roles({@Repeat.Role("ADMIN"), @Repeat.Role("AUDITOR")})
+  getAnnotationsByType(Role.class)   [@Repeat.Role("ADMIN"), @Repeat.Role("AUDITOR")]
+  getAnnotations()                   [@Repeat.Roles({@Repeat.Role("ADMIN"), @Repeat.Role("AUDITOR")})]
+```
+
+`@Repeatable(Roles.class)` lets you write `@Role` more than once. When you do, javac writes a
+single `@Roles({@Role("ADMIN"), @Role("AUDITOR")})` into the class file instead (`javap -v`
+shows only `Roles` on `voidPayment`), and no `@Role` is directly on the method.
+`getAnnotation(Role.class)` returns `null`, and the guard opened the method to anyone. A single
+`@Role` is stored as itself, so `getAnnotation(Roles.class)` is `null` there. Code that reads only
+the container breaks on the other half of the methods.
+
+`getAnnotationsByType(Role.class)` looks through the container and returns every `@Role` in the
+order written, for one or for many, so code that reads a repeatable annotation should use it.
+
+javac checks the container against the repeatable annotation, among other rules: it needs a
+`value()` element of the repeatable type's array, a retention at least as long, and targets that
+are a subset of the repeatable type's. Forget its `@Retention`, and it defaults to `CLASS`:
+
+```java
+import java.lang.annotation.*;
+
+@Retention(RetentionPolicy.RUNTIME)
+@Repeatable(Roles.class)
+@interface Role { String value(); }
+
+@interface Roles { Role[] value(); }   // no @Retention: CLASS
+```
+
+```text
+Role.java:4: error: retention of containing annotation interface (Roles) is shorter than the retention of repeatable annotation interface (Role)
+@Repeatable(Roles.class)
+^
+1 error
+```
+
+<!-- practice 1 -->
+
+## @Inherited Reaches a Class Only from Its Superclasses
+
+An audit interceptor logs every call to a class carrying `@Audited` and reads the level from it:
+
+```java
+import java.lang.annotation.*;
+
+public class Inherit {
+    @Inherited
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target({ElementType.TYPE, ElementType.METHOD})
+    @interface Audited { String level() default "INFO"; }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @interface Owner { String value(); }
+
+    @Audited(level = "FULL") interface PaymentApi { }
+    @Owner("payments-team")
+    @Audited(level = "FULL") static class BaseService { @Audited public void pay() { } }
+    @Audited(level = "BASIC") static class CardService extends BaseService { }
+
+    static class StripeService extends CardService { @Override public void pay() { } }
+    static class LedgerService implements PaymentApi { }
+
+    static void show(Class<?> c) {
+        System.out.printf("%-14s getAnnotation: %-36s getDeclaredAnnotation: %s%n", c.getSimpleName(),
+                c.getAnnotation(Audited.class), c.getDeclaredAnnotation(Audited.class));
+    }
+
+    public static void main(String[] args) throws Exception {
+        show(CardService.class);
+        show(StripeService.class);
+        show(LedgerService.class);
+        System.out.println("StripeService.pay() getAnnotation: "
+                + StripeService.class.getMethod("pay").getAnnotation(Audited.class));
+        System.out.println("StripeService @Owner: " + StripeService.class.getAnnotation(Owner.class));
+    }
+}
+```
+
+```text
+CardService    getAnnotation: @Inherit.Audited(level="BASIC")      getDeclaredAnnotation: @Inherit.Audited(level="BASIC")
+StripeService  getAnnotation: @Inherit.Audited(level="BASIC")      getDeclaredAnnotation: null
+LedgerService  getAnnotation: null                                 getDeclaredAnnotation: null
+StripeService.pay() getAnnotation: null
+StripeService @Owner: null
+```
+
+`StripeService` declares nothing and still gets `BASIC`. When a class has no `@Audited` of its own,
+`getAnnotation` asks its superclass, then that one's superclass, and returns the first it finds, so
+the nearest declaration wins and `FULL` two levels up is never seen. `getDeclaredAnnotation` skips
+that search. `@Owner` has no `@Inherited`, so it stays on `BaseService`.
+
+`LedgerService` implements an audited
+interface and isn't audited: the `@Inherited` javadoc says annotations on implemented interfaces
+have no effect. `StripeService.pay()` overrides an audited method and isn't audited either:
+`@Inherited` has no effect on anything but a class, even though `Audited` allows `METHOD`. A
+developer who overrides `pay()` to add a log line has removed its auditing.
+
+A superclass chain has one nearest declaration; a class can implement two interfaces that carry
+different values. A library that wants interface or method annotations walks the hierarchy in its
+own code, with its own rule for which declaration wins.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Summary
+
+- **An element holds a compile-time constant** of a primitive, `String`, `Class`, enum,
+  annotation or a one-dimensional array of these. No `null`, no collections, nothing computed at
+  run time: configuration can't reach an annotation.
+- **Defaults live in the annotation type** and are filled in when the annotation is read, so a
+  library that changes a default changes every caller that didn't set it. Only `value` may be
+  written unnamed, and only when every other element has a default.
+- **`@Target` is checked by javac at every use.** Without it, a misplaced annotation compiles and
+  is silently ignored by whatever reads it.
+- **A repeated annotation is stored inside its container.** `getAnnotation(Role.class)` misses a
+  repeated `@Role`, and a guard that reads it opens the method; `getAnnotationsByType` finds every
+  one.
+- **`@Inherited` reaches a class only from its superclasses**, nearest first. Interfaces, methods
+  and fields inherit nothing.
+
+## Reference
+
+**Element types (JLS 9.6.1)**
+
+| Allowed | Not allowed (javac error) |
+|---|---|
+| `byte` `short` `int` `long` `float` `double` `char` `boolean` | wrappers such as `Integer` |
+| `String`, `Class` (also `Class<? extends T>`), an enum, an annotation type | `Object`, `List`, any other class |
+| a one-dimensional array of the above | `String[][]`; a `null` value or default |
+
+**Reading annotations (`AnnotatedElement`, Java 21)**
+
+| Method | Sees a repeated annotation inside its container | Sees a class annotation inherited through `@Inherited` |
+|---|---|---|
+| `getAnnotation(A)` | no | yes |
+| `getDeclaredAnnotation(A)` | no | no |
+| `getAnnotationsByType(A)` | yes | yes |
+| `getDeclaredAnnotationsByType(A)` | yes | no |
+| `getAnnotations()` | returns the container itself | yes |
+
+**Container rules checked by javac (Java 21)**
+
+| Container | Error |
+|---|---|
+| no `value()` element | `Tags is not a valid @Repeatable, no value element method declared` |
+| shorter retention | `retention of containing annotation interface (Roles) is shorter than ...` |
+| more targets | `containing annotation interface (Tags) is applicable to more targets than ...` |
+| another element without a default | `containing annotation interface (Tags3) does not have a default value for element other()` |
+| not `@Inherited` while the repeatable type is | `repeatable annotation interface (Tag4) is @Inherited while containing annotation interface (Tags4) is not` |
+
+## Challenges
+
+1. A security library must decide whether a method with no `@Role` is open or closed. Which
+   default would have made the opening's bug fail safe, and what would it cost a team adopting the
+   library on an existing code base?
+2. You need `@Endpoint` timeouts to differ between staging and production. Design the annotation
+   and its reader so that no value is compiled into a class file.
+3. Write a lookup that finds `@Audited` on an interface method when the implementing method has
+   none. Decide what it does when two interfaces disagree, and when a superclass method disagrees
+   with an interface.
+
+## Design Note: Annotations Are Constants So the JVM Can Read Them Without Running Code
+
+The element rules on this page follow from one choice: an annotation's values live in the class
+file as constants. Reflection rebuilds an annotation from those bytes, a processor reads them
+before the program exists, and a tool can read them from the class files without loading a class.
+
+The cost is that an annotation can't express anything that is decided later: an environment's
+timeout, a role list from a database, `null`. Those end up as keys and sentinels that some other
+code resolves, and the annotation then states only part of what happens. The default is the
+exception: it is looked up in the annotation type when the annotation is read, which is why an
+upgrade can change it without a rebuild.
 
 ## Code Examples
 

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Evaluate and print an expression tree",
+  "title": "Simplify alert rules at every depth",
   "blocks": [
     {
       "type": "heading",
@@ -19,49 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's answer on algebraic data types: a sealed interface is a **sum type** (a value is exactly one of its variants), and each variant as a record is a **product type** (it is made of its fields). `Calc` models arithmetic expressions that way:"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "sealed interface Expr permits Num, Add, Mul, Neg\nrecord Num(long value)          record Add(Expr left, Expr right)\nrecord Mul(Expr left, Expr right)   record Neg(Expr operand)"
+      "text": "The monitoring service stores each alert as a tree of rules: `Above(metric, threshold)`, `And`, `Or`, `Not`, and `Const(true)` or `Const(false)`. The rule editor produces constants whenever someone switches a condition off, so stored rules are full of `And(Const(true), …)` and `Not(Not(…))`, and the on-call engineers can no longer read them. `fires` already evaluates a rule."
     },
     {
       "type": "para",
-      "text": "Write two functions over `Expr`, each one `switch` over the variants (record patterns such as `case Add(Expr l, Expr r)` fit well):"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`static long eval(Expr e)`: the expression's value.",
-        [
-          "`static String show(Expr e)`: the expression as text, with only the parentheses its meaning needs:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "a `Num` prints its value;",
-              "an `Add` prints `left + right`, and its operands never need parentheses;",
-              "a `Mul` prints `left * right`, and an operand that is an `Add` is put in parentheses;",
-              "a `Neg` prints `-` then its operand, and an operand that is an `Add` or a `Mul` is put in parentheses."
-            ]
-          }
-        ]
-      ]
+      "text": "Finish `simplify(Rule)` in `src/main/java/practice/AlertRules.java`. The result must fire for exactly the readings the input fires for, with no `Const` left beside an `And` or an `Or`, no `Not` of a `Const` and no `Not` directly inside a `Not`, at any depth of the tree. A rule that ends up always or never firing becomes a single `Const`. About fifteen lines in total."
     },
     {
       "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Add(Num(1), Mul(Num(2), Num(3)))`: `eval` -> `7`, `show` -> `\"1 + 2 * 3\"`",
-        "`Mul(Add(Num(1), Num(2)), Num(3))`: `eval` -> `9`, `show` -> `\"(1 + 2) * 3\"`",
-        "`Neg(Num(4))`: `eval` -> `-4`, `show` -> `\"-4\"`"
-      ]
+      "text": "The tests build their own rules over their own metrics."
     },
     {
       "type": "heading",
@@ -76,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Calc {\n\n    public sealed interface Expr permits Num, Add, Mul, Neg {\n    }\n\n    public record Num(long value) implements Expr {\n    }\n\n    public record Add(Expr left, Expr right) implements Expr {\n    }\n\n    public record Mul(Expr left, Expr right) implements Expr {\n    }\n\n    public record Neg(Expr operand) implements Expr {\n    }\n\n    public static long eval(Expr e) {\n        return switch (e) {\n            case Num(long value) -> value;\n            case Add(Expr left, Expr right) -> eval(left) + eval(right);\n            case Mul(Expr left, Expr right) -> eval(left) * eval(right);\n            case Neg(Expr operand) -> -eval(operand);\n        };\n    }\n\n    public static String show(Expr e) {\n        return switch (e) {\n            case Num(long value) -> Long.toString(value);\n            case Add(Expr left, Expr right) -> show(left) + \" + \" + show(right);\n            case Mul(Expr left, Expr right) -> factor(left) + \" * \" + factor(right);\n            case Neg(Expr operand) -> \"-\" + (operand instanceof Add || operand instanceof Mul ? \"(\" + show(operand) + \")\" : show(operand));\n        };\n    }\n\n    private static String factor(Expr e) {\n        return e instanceof Add ? \"(\" + show(e) + \")\" : show(e);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\n\n/** Alert rules as a tree: a rule fires when its readings say so. */\npublic class AlertRules {\n\n    public sealed interface Rule permits Above, Const, Not, And, Or {}\n    /** Fires when the metric's reading is above the threshold. */\n    public record Above(String metric, double threshold) implements Rule {}\n    /** Always fires, or never. */\n    public record Const(boolean value) implements Rule {}\n    public record Not(Rule rule) implements Rule {}\n    public record And(Rule left, Rule right) implements Rule {}\n    public record Or(Rule left, Rule right) implements Rule {}\n\n    /** Whether the rule fires for these readings; a metric with no reading is not above anything. */\n    public static boolean fires(Rule rule, Map<String, Double> readings) {\n        return switch (rule) {\n            case Above(String metric, double threshold) ->\n                    readings.containsKey(metric) && readings.get(metric) > threshold;\n            case Const(boolean value) -> value;\n            case Not(Rule r) -> !fires(r, readings);\n            case And(Rule l, Rule r) -> fires(l, readings) && fires(r, readings);\n            case Or(Rule l, Rule r) -> fires(l, readings) || fires(r, readings);\n        };\n    }\n\n    /**\n     * The same rule with every constant folded away and every double negation removed, at any depth.\n     * The result fires for exactly the readings the input fires for.\n     */\n    public static Rule simplify(Rule rule) {\n        Rule walked = switch (rule) {\n            case Above a -> a;\n            case Const c -> c;\n            case Not(Rule r) -> new Not(simplify(r));\n            case And(Rule l, Rule r) -> new And(simplify(l), simplify(r));\n            case Or(Rule l, Rule r) -> new Or(simplify(l), simplify(r));\n        };\n        return switch (walked) {\n            case Not(Not(Rule r)) -> r;\n            case Not(Const(boolean v)) -> new Const(!v);\n            case And(Const(boolean v), Rule r) -> v ? r : new Const(false);\n            case And(Rule l, Const(boolean v)) -> v ? l : new Const(false);\n            case Or(Const(boolean v), Rule r) -> v ? new Const(true) : r;\n            case Or(Rule l, Const(boolean v)) -> v ? new Const(true) : l;\n            default -> walked;\n        };\n    }\n}\n"
         }
       ]
     },
@@ -88,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Calc {\n\n    public sealed interface Expr permits Num, Add, Mul, Neg {\n    }\n\n    public record Num(long value) implements Expr {\n    }\n\n    public record Add(Expr left, Expr right) implements Expr {\n    }\n\n    public record Mul(Expr left, Expr right) implements Expr {\n    }\n\n    public record Neg(Expr operand) implements Expr {\n    }\n\n    public static long eval(Expr e) {\n        throw new UnsupportedOperationException(\"write eval\");\n    }\n\n    public static String show(Expr e) {\n        throw new UnsupportedOperationException(\"write show\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\n\n/** Alert rules as a tree: a rule fires when its readings say so. */\npublic class AlertRules {\n\n    public sealed interface Rule permits Above, Const, Not, And, Or {}\n    /** Fires when the metric's reading is above the threshold. */\n    public record Above(String metric, double threshold) implements Rule {}\n    /** Always fires, or never. */\n    public record Const(boolean value) implements Rule {}\n    public record Not(Rule rule) implements Rule {}\n    public record And(Rule left, Rule right) implements Rule {}\n    public record Or(Rule left, Rule right) implements Rule {}\n\n    /** Whether the rule fires for these readings; a metric with no reading is not above anything. */\n    public static boolean fires(Rule rule, Map<String, Double> readings) {\n        return switch (rule) {\n            case Above(String metric, double threshold) ->\n                    readings.containsKey(metric) && readings.get(metric) > threshold;\n            case Const(boolean value) -> value;\n            case Not(Rule r) -> !fires(r, readings);\n            case And(Rule l, Rule r) -> fires(l, readings) && fires(r, readings);\n            case Or(Rule l, Rule r) -> fires(l, readings) || fires(r, readings);\n        };\n    }\n\n    /**\n     * The same rule with every constant folded away and every double negation removed, at any depth.\n     * The result fires for exactly the readings the input fires for.\n     */\n    public static Rule simplify(Rule rule) {\n        // TODO: return the simplified rule.\n        throw new IllegalStateException(\"TODO: simplify\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,9 +63,9 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 2,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -107,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "050b1a5b6d6db6dfab8bc3c075f5d03a71eca4736870d3949b2179ed7dcf3642",
-  "starting_code": "package practice;\n\npublic class Calc {\n\n    public sealed interface Expr permits Num, Add, Mul, Neg {\n    }\n\n    public record Num(long value) implements Expr {\n    }\n\n    public record Add(Expr left, Expr right) implements Expr {\n    }\n\n    public record Mul(Expr left, Expr right) implements Expr {\n    }\n\n    public record Neg(Expr operand) implements Expr {\n    }\n\n    public static long eval(Expr e) {\n        throw new UnsupportedOperationException(\"write eval\");\n    }\n\n    public static String show(Expr e) {\n        throw new UnsupportedOperationException(\"write show\");\n    }\n}\n",
+  "content_sha256": "27f1f9eba4f2677200d4ca501addf861462947d76b72155c199887a2184728ec",
+  "starting_code": "package practice;\n\nimport java.util.Map;\n\n/** Alert rules as a tree: a rule fires when its readings say so. */\npublic class AlertRules {\n\n    public sealed interface Rule permits Above, Const, Not, And, Or {}\n    /** Fires when the metric's reading is above the threshold. */\n    public record Above(String metric, double threshold) implements Rule {}\n    /** Always fires, or never. */\n    public record Const(boolean value) implements Rule {}\n    public record Not(Rule rule) implements Rule {}\n    public record And(Rule left, Rule right) implements Rule {}\n    public record Or(Rule left, Rule right) implements Rule {}\n\n    /** Whether the rule fires for these readings; a metric with no reading is not above anything. */\n    public static boolean fires(Rule rule, Map<String, Double> readings) {\n        return switch (rule) {\n            case Above(String metric, double threshold) ->\n                    readings.containsKey(metric) && readings.get(metric) > threshold;\n            case Const(boolean value) -> value;\n            case Not(Rule r) -> !fires(r, readings);\n            case And(Rule l, Rule r) -> fires(l, readings) && fires(r, readings);\n            case Or(Rule l, Rule r) -> fires(l, readings) || fires(r, readings);\n        };\n    }\n\n    /**\n     * The same rule with every constant folded away and every double negation removed, at any depth.\n     * The result fires for exactly the readings the input fires for.\n     */\n    public static Rule simplify(Rule rule) {\n        // TODO: return the simplified rule.\n        throw new IllegalStateException(\"TODO: simplify\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-3/src/main/java/practice/Calc.java",
-    "test_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-3/src/test/java/practice/CalcTest.java",
+    "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-3/src/main/java/practice/AlertRules.java",
+    "test_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-3/src/test/java/practice/AlertRulesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -132,19 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CalcTest#evaluatesAndPrintsAnExpression",
+        "id": "practice.AlertRulesTest#leavesARuleWithNothingToFoldAsItIs",
         "kind": "main",
-        "says": "A sum of a number and a product evaluates to its value and prints without extra parentheses."
+        "says": "a rule with no constants and no double negation comes back equal"
       },
       {
-        "id": "practice.CalcTest#aSumInsideAProductKeepsItsParentheses",
-        "kind": "edge",
-        "says": "A sum used as an operand of a product is printed in parentheses."
+        "id": "practice.AlertRulesTest#foldsConstantsAndDoubleNegationsAtTheTop",
+        "kind": "main",
+        "says": "a constant beside And or Or, a negated constant and a double negation at the top are folded"
       },
       {
-        "id": "practice.CalcTest#aNegatedSumOrProductKeepsItsParentheses",
+        "id": "practice.AlertRulesTest#simplifiesInsideANegation",
         "kind": "edge",
-        "says": "A negated sum or product is printed in parentheses after the minus sign."
+        "says": "a constant under a Not is folded too, so the walk reaches inside every kind of node"
+      },
+      {
+        "id": "practice.AlertRulesTest#foldsWhatSimplifyingTheChildrenUncovers",
+        "kind": "edge",
+        "says": "a constant that appears only once a child is simplified is folded as well, and the result fires the same"
+      },
+      {
+        "id": "practice.AlertRulesTest#foldsAConstantOnEitherSide",
+        "kind": "edge",
+        "says": "a constant on the right of And or Or is folded like one on the left"
       }
     ],
     "report": {
@@ -153,11 +129,10 @@
     },
     "origin": {
       "path": "10-sealed/README_2.5.3.md",
-      "section": "Interview Q&A:"
+      "section": "An Expression Tree Is Records and a Recursive switch: Keep the Walk Exhaustive, Only the Rules Partial"
     },
     "concepts": [
-      "A sealed interface is a sum type and its records are product types, together forming an algebraic data type.",
-      "A switch over a sealed type is checked for exhaustiveness, binds each case to its subtype, and needs no default."
+      "A tree rewrite keeps its recursion in a switch over every node with no default and its partial rules in a second switch, so every node is walked and a new node breaks the build."
     ]
   }
 }

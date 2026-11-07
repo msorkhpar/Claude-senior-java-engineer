@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Guards and null in a pattern switch",
+  "title": "Check yourself: switch patterns",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,146 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-null-exhaustive",
-        "stem": "Per this page, what part does `case null` play in whether a pattern switch is exhaustive?",
+        "id": "q-number-before-integer",
+        "stem": "A pricing method switches over `Object item` with these cases, in this order: `case Number n -> \"number\";`, then `case Integer i when i > 1000 -> \"bulk\";`, then `default -> \"other\";`. It is called with `5000`. What happens?",
         "options": [
           {
             "id": "a",
-            "text": "A full part: no switch is exhaustive without it",
-            "correct": false,
-            "says": "The page says null plays no part in exhaustiveness checking."
+            "text": "The class doesn't compile, since the unguarded `Number` case already takes every `Integer`",
+            "correct": true,
+            "says": "an unguarded case dominates any later case, guarded or not, whose type is a subtype of its own, and javac reports the later one as dominated"
           },
           {
             "id": "b",
-            "text": "A part only when the switch is over a sealed type",
+            "text": "The call returns \"bulk\", since the `Integer` case is narrower than the `Number` case",
             "correct": false,
-            "says": "The page says a switch can be exhaustive without case null, sealed type or not."
+            "says": "cases are not ranked by how specific they are; order is the only priority, and here the compiler refuses the order"
           },
           {
             "id": "c",
-            "text": "No part: a switch can be exhaustive without it",
-            "correct": true,
-            "says": "The page says null plays no part in exhaustiveness checking; a switch can be exhaustive without case null."
+            "text": "The call returns \"number\", since the cases are tried in order and the compiler doesn't evaluate guards",
+            "correct": false,
+            "says": "a guard keeps a case from dominating others, but it doesn't keep the case from being dominated by an earlier unguarded case of a supertype"
+          },
+          {
+            "id": "d",
+            "text": "The class doesn't compile, since a guarded case must come before every unguarded case of the switch",
+            "correct": false,
+            "says": "only an earlier unguarded case of the same type or a supertype dominates; a guarded case may follow unguarded cases of unrelated types"
           }
         ],
         "origin": {
           "path": "05-pattern-matching/README_1.5.4.md",
-          "section": "Interview-specific Insights"
+          "section": "The Compiler Rejects a Case That an Earlier Case Always Wins, but It Does Not Read Guards"
         }
       },
       {
-        "id": "q-guard",
-        "stem": "Per this page, when is the condition after `when` in a case evaluated?",
+        "id": "q-two-guards-on-deploy",
+        "stem": "`sealed interface Job permits Build, Deploy`, where `Deploy` is a record with a `boolean prod()`. A switch expression over a `Job` has `case Build b -> \"run\";`, `case Deploy d when d.prod() -> \"approve\";` and `case Deploy d when !d.prod() -> \"run\";`, and no `default`. What does javac 21 do?",
         "options": [
           {
             "id": "a",
-            "text": "Only after the case's pattern has matched",
-            "correct": true,
-            "says": "The page says guards are evaluated only if the pattern matches."
+            "text": "It accepts the switch, since between them the two guards accept every `Deploy`",
+            "correct": false,
+            "says": "the compiler doesn't evaluate guards, so it can't see that they complement each other"
           },
           {
             "id": "b",
-            "text": "Just before the pattern, to skip its type test",
+            "text": "It accepts the switch, since `Job` is sealed and each permitted type has a case",
             "correct": false,
-            "says": "The page says a guard is evaluated only once its pattern has matched, not before."
+            "says": "only an unguarded case covers its type; both Deploy cases are guarded"
           },
           {
             "id": "c",
-            "text": "Once only, when the switch is first entered",
+            "text": "It refuses the switch, since no case covers `Deploy` without a condition",
+            "correct": true,
+            "says": "a guarded case covers nothing, so Deploy is not covered and the switch expression doesn't cover all possible input values"
+          },
+          {
+            "id": "d",
+            "text": "It refuses the switch, since two cases for the same type can't both carry a guard",
             "correct": false,
-            "says": "The page says a guard is evaluated for its case, after that case's pattern matches."
+            "says": "any number of guarded cases may share a type; the compiler doesn't even check whether they overlap"
           }
         ],
         "origin": {
           "path": "05-pattern-matching/README_1.5.4.md",
-          "section": "Interview-specific Insights"
+          "section": "Over a Sealed Type, Naming Every Permitted Subtype Is Exhaustive, and Only Unguarded Cases Count"
+        }
+      },
+      {
+        "id": "q-statement-over-payload",
+        "stem": "An audit method uses a switch statement, not an expression, over `Object payload`: `case String s -> log(s);` and `case byte[] bytes -> log(bytes.length + \" bytes\");`, nothing else. What happens when the class is built and called with an `Integer`?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It builds, and the `Integer` runs no case, since a switch statement may leave values uncovered",
+            "correct": false,
+            "says": "that holds for a classic statement only; a statement that uses a pattern must be exhaustive like an expression"
+          },
+          {
+            "id": "b",
+            "text": "It builds, and the `Integer` throws `MatchException`, since javac adds a default that throws",
+            "correct": false,
+            "says": "javac adds that default only to a switch it has already found exhaustive; this one is refused first"
+          },
+          {
+            "id": "c",
+            "text": "It doesn't build, since a statement with patterns must cover every possible payload",
+            "correct": true,
+            "says": "a switch statement that uses patterns gets the expression's rule: the switch statement does not cover all possible input values"
+          },
+          {
+            "id": "d",
+            "text": "It doesn't build, since a switch over `Object` must also have a `case null`",
+            "correct": false,
+            "says": "case null plays no part in exhaustiveness; a default or a case Object o would make this switch compile"
+          }
+        ],
+        "origin": {
+          "path": "05-pattern-matching/README_1.5.4.md",
+          "section": "A Switch Statement With Patterns Must Be Exhaustive Too"
+        }
+      },
+      {
+        "id": "q-object-case-and-null",
+        "stem": "A settings page renders values with `return switch (value) { case String s -> s; case Object o -> o.toString(); };`. A key in the file has no value, so `value` is `null`. What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It returns \"null\", since `case Object o` matches every value the selector can hold",
+            "correct": false,
+            "says": "a type pattern, even case Object o, never matches null; null reaches only case null"
+          },
+          {
+            "id": "b",
+            "text": "It returns \"null\", since a switch with a case for every value sends `null` to the last one",
+            "correct": false,
+            "says": "exhaustiveness says nothing about null; without case null a null selector throws before any case is tried"
+          },
+          {
+            "id": "c",
+            "text": "It throws `NullPointerException` inside the `Object` case, since `o.toString()` is called on `null`",
+            "correct": false,
+            "says": "no case is entered: the switch itself throws on the null selector"
+          },
+          {
+            "id": "d",
+            "text": "It throws `NullPointerException` before any case, since the switch has no `case null`",
+            "correct": true,
+            "says": "a pattern switch without case null throws NullPointerException on a null selector, whatever its other cases"
+          }
+        ],
+        "origin": {
+          "path": "05-pattern-matching/README_1.5.4.md",
+          "section": "null Matches Only case null; Neither default Nor case Object Does"
         }
       }
     ],
     "concepts": [
-      "A guard is evaluated only after its pattern has matched, and may use the pattern's variables.",
-      "case null plays no part in exhaustiveness: a switch can be exhaustive without it."
+      "A guarded case covers nothing for exhaustiveness, even when the guards together accept every value.",
+      "A switch statement that uses a pattern or case null must be exhaustive, like a switch expression.",
+      "An unguarded case dominates every later case of its own type or a subtype, guarded or not, and javac refuses the later case; a default before a pattern case and a constant after its type are refused too."
     ]
   }
 }

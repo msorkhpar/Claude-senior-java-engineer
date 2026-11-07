@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Clean only as much as you need",
+  "title": "Tell on-call which account has no invoice address",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page says streams are lazy: intermediate operations run only when a terminal operation pulls elements, and operations such as `findFirst()` and `anyMatch()` are short-circuiting. Its pitfall is collecting a whole filtered list just to look at its first element, which processes the entire stream."
+      "text": "The invoicing run e-mails each invoice to the account's billing address. Last night it stopped halfway with nothing in the log but `java.util.NoSuchElementException: No value present`, and the on-call engineer spent an hour finding out which of 30,000 accounts caused it."
     },
     {
       "type": "para",
-      "text": "Write `FirstMatch.first(List<String> raw, Function<String, String> clean, Predicate<String> wanted)`. It applies `clean` to the elements of `raw`, in order, and returns the first cleaned value that `wanted` accepts, or an empty `Optional` if none does."
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`clean` may be expensive: call it only on the elements up to and including the first match, never on the rest.",
-        "`raw` may contain `null` elements: skip them without calling `clean` on them."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "raw",
-        "clean",
-        "wanted",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`[\" a \", \" bb \", \" ccc \", \" dd \"]`",
-          "`String::strip`",
-          "length is 2",
-          "`Optional[bb]`, and `clean` ran twice"
-        ],
-        [
-          "`[\" a \", \" b \"]`",
-          "`String::strip`",
-          "length is 2",
-          "`Optional.empty`"
-        ],
-        [
-          "`[null, \" x \"]`",
-          "`String::strip`",
-          "not empty",
-          "`Optional[x]`"
-        ]
-      ]
+      "text": "Write `invoiceAddress(accountId)` in `src/main/java/practice/BillingContacts.java`. An account without a billing e-mail is normal: its invoices go to `RECEIVABLES`. An invoice for an account that doesn't exist is a bug upstream, and the run should fail with an `UnknownAccountException` that says which account it was. `find` and `Account.billingEmail()` already return `Optional`. About four lines."
     },
     {
       "type": "heading",
@@ -75,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\n\npublic final class FirstMatch {\n\n    private FirstMatch() {\n    }\n\n    /** The first cleaned value that {@code wanted} accepts, cleaning no element after it. */\n    public static Optional<String> first(List<String> raw, Function<String, String> clean, Predicate<String> wanted) {\n        return raw.stream()\n                .filter(Objects::nonNull)\n                .map(clean)\n                .filter(wanted)\n                .findFirst();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\n\n/** Decides where an invoice for an account is e-mailed. */\npublic class BillingContacts {\n\n    /** Where invoices go when an account has no billing address of its own. */\n    public static final String RECEIVABLES = \"receivables@example.com\";\n\n    /** Thrown when an invoice names an account that doesn't exist. */\n    public static class UnknownAccountException extends RuntimeException {\n        public UnknownAccountException(String message) {\n            super(message);\n        }\n    }\n\n    /** An account; its billing e-mail is optional. */\n    public static final class Account {\n        private final String id;\n        private final String billingEmail;   // null when the customer gave none\n\n        public Account(String id, String billingEmail) {\n            this.id = id;\n            this.billingEmail = billingEmail;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public Optional<String> billingEmail() {\n            return Optional.ofNullable(billingEmail);\n        }\n    }\n\n    private final Map<String, Account> accounts = new HashMap<>();\n\n    public void add(Account account) {\n        accounts.put(account.id(), account);\n    }\n\n    public Optional<Account> find(String accountId) {\n        return Optional.ofNullable(accounts.get(accountId));\n    }\n\n    /** The address the invoice for this account is sent to. */\n    public String invoiceAddress(String accountId) {\n        return find(accountId)\n                .orElseThrow(() -> new UnknownAccountException(\"no account \" + accountId))\n                .billingEmail()\n                .orElse(RECEIVABLES);\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\n\npublic final class FirstMatch {\n\n    private FirstMatch() {\n    }\n\n    /** The first cleaned value that {@code wanted} accepts, cleaning no element after it. */\n    public static Optional<String> first(List<String> raw, Function<String, String> clean, Predicate<String> wanted) {\n        throw new UnsupportedOperationException(\"write first\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\n\n/** Decides where an invoice for an account is e-mailed. */\npublic class BillingContacts {\n\n    /** Where invoices go when an account has no billing address of its own. */\n    public static final String RECEIVABLES = \"receivables@example.com\";\n\n    /** Thrown when an invoice names an account that doesn't exist. */\n    public static class UnknownAccountException extends RuntimeException {\n        public UnknownAccountException(String message) {\n            super(message);\n        }\n    }\n\n    /** An account; its billing e-mail is optional. */\n    public static final class Account {\n        private final String id;\n        private final String billingEmail;   // null when the customer gave none\n\n        public Account(String id, String billingEmail) {\n            this.id = id;\n            this.billingEmail = billingEmail;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public Optional<String> billingEmail() {\n            return Optional.ofNullable(billingEmail);\n        }\n    }\n\n    private final Map<String, Account> accounts = new HashMap<>();\n\n    public void add(Account account) {\n        accounts.put(account.id(), account);\n    }\n\n    public Optional<Account> find(String accountId) {\n        return Optional.ofNullable(accounts.get(accountId));\n    }\n\n    /** The address the invoice for this account is sent to. */\n    public String invoiceAddress(String accountId) {\n        // TODO: Invoices for an account with no billing e-mail go to RECEIVABLES. An invoice\n        //       for an account that doesn't exist is a bug upstream: fail so that whoever reads\n        //       the log can tell which account it was.\n        throw new IllegalStateException(\"TODO: invoiceAddress\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "71b544d9e8db5922588cd6808ee1789e2036cd8982d021ff777dccc6c05b4d29",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.function.Function;\nimport java.util.function.Predicate;\n\npublic final class FirstMatch {\n\n    private FirstMatch() {\n    }\n\n    /** The first cleaned value that {@code wanted} accepts, cleaning no element after it. */\n    public static Optional<String> first(List<String> raw, Function<String, String> clean, Predicate<String> wanted) {\n        throw new UnsupportedOperationException(\"write first\");\n    }\n}\n",
+  "content_sha256": "d33614bd8cdcc583d71325bcd856e61c20d4c68aa7bb765201e8483a3de7fd9f",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\n\n/** Decides where an invoice for an account is e-mailed. */\npublic class BillingContacts {\n\n    /** Where invoices go when an account has no billing address of its own. */\n    public static final String RECEIVABLES = \"receivables@example.com\";\n\n    /** Thrown when an invoice names an account that doesn't exist. */\n    public static class UnknownAccountException extends RuntimeException {\n        public UnknownAccountException(String message) {\n            super(message);\n        }\n    }\n\n    /** An account; its billing e-mail is optional. */\n    public static final class Account {\n        private final String id;\n        private final String billingEmail;   // null when the customer gave none\n\n        public Account(String id, String billingEmail) {\n            this.id = id;\n            this.billingEmail = billingEmail;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public Optional<String> billingEmail() {\n            return Optional.ofNullable(billingEmail);\n        }\n    }\n\n    private final Map<String, Account> accounts = new HashMap<>();\n\n    public void add(Account account) {\n        accounts.put(account.id(), account);\n    }\n\n    public Optional<Account> find(String accountId) {\n        return Optional.ofNullable(accounts.get(accountId));\n    }\n\n    /** The address the invoice for this account is sent to. */\n    public String invoiceAddress(String accountId) {\n        // TODO: Invoices for an account with no billing e-mail go to RECEIVABLES. An invoice\n        //       for an account that doesn't exist is a bug upstream: fail so that whoever reads\n        //       the log can tell which account it was.\n        throw new IllegalStateException(\"TODO: invoiceAddress\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-01/practice-2/src/main/java/practice/FirstMatch.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-01/practice-2/src/test/java/practice/FirstMatchTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-01/practice-2/src/main/java/practice/BillingContacts.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-01/practice-2/src/test/java/practice/BillingContactsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FirstMatchTest#findsTheFirstCleanedMatch",
+        "id": "practice.BillingContactsTest#anInvoiceGoesToTheAccountsBillingAddress",
         "kind": "main",
-        "says": "The first cleaned value the predicate accepts comes back, in list order."
+        "says": "an account with a billing e-mail gets its invoice there"
       },
       {
-        "id": "practice.FirstMatchTest#noMatchIsAnEmptyOptional",
+        "id": "practice.BillingContactsTest#anUnknownAccountFailsWithItsIdInTheMessage",
         "kind": "edge",
-        "says": "When no value matches, the answer is an empty Optional, not an exception."
+        "says": "an unknown account fails with UnknownAccountException naming the account"
       },
       {
-        "id": "practice.FirstMatchTest#stopsCleaningAtTheFirstMatch",
+        "id": "practice.BillingContactsTest#anAccountWithoutABillingAddressGoesToReceivables",
         "kind": "edge",
-        "says": "The cleaning function runs only on the elements up to the first match."
-      },
-      {
-        "id": "practice.FirstMatchTest#nullsAreSkippedUncleaned",
-        "kind": "edge",
-        "says": "A null element is skipped and never handed to the cleaning function."
+        "says": "an account that exists but has no billing e-mail gets the receivables address"
       }
     ],
     "report": {
@@ -157,12 +115,10 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Optional Is a Return Type, and get() Without a Check Only Renames the NullPointerException"
     },
     "concepts": [
-      "Behaviour is passed as lambdas or method references to built-in functional interfaces such as Function and Predicate.",
-      "Intermediate operations are lazy and run only as far as the terminal operation pulls elements.",
-      "findFirst and anyMatch short-circuit, so collecting a whole list to test its first element wastes work."
+      "Optional.get() on an empty Optional throws NoSuchElementException with no context; orElseThrow with an exception that names the key tells on-call what failed."
     ]
   }
 }

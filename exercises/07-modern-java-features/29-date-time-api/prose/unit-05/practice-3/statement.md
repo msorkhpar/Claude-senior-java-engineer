@@ -1,19 +1,14 @@
-A timesheet lists shifts, each a start and an end `LocalTime`. Write
-`Timesheet.total(List<Shift> shifts)`: the total time worked, as the hours, a
-colon and the minutes in two digits (`7:45`, `0:05`, `41:30`).
+A care home pays its staff for the hours they work beyond their contract, and deducts the hours
+they fall short. Payslips show the week's balance as hours and minutes: `2:30` over, `-0:40`
+short. Since the night team joined, payroll has seen a full week of nights shown as dozens of hours
+short, a balance printed as `0:-40`, and a nurse who worked a week of double shifts shown as only
+a few hours over.
 
-- A shift whose end is before its start **runs past midnight**: `22:00` to
-  `06:00` is 8 hours. An end of `00:00` is midnight at the end of the shift.
-- The total can exceed a day, and **every hour is shown**: 28 hours and 30
-  minutes is `28:30`.
+`Timesheet.balance(...)` already adds up the shifts and subtracts the contract. Finish the two
+`TODO`s in `src/main/java/practice/Timesheet.java`:
 
-`Shift(LocalTime start, LocalTime end)` is given. Shift times are whole
-minutes, no shift is longer than 24 hours, and no shift has its end equal to its start.
+- `length(start, end)`: how long one shift lasts, given the times on the clock;
+- `label(amount)`: the text payroll reads, hours then a colon and two-digit minutes, with a
+  minus sign in front when the amount is negative.
 
-| shifts | answer |
-|---|---|
-| `09:00-12:30`, `13:00-17:15` | `7:45` |
-| (none) | `0:00` |
-| `22:00-06:00` | `8:00` |
-| `20:00-00:00` | `4:00` |
-| three of `06:00-13:00` and one `06:00-13:30` | `28:30` |
+About four lines in total.

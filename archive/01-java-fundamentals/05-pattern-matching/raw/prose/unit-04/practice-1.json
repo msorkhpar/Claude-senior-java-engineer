@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Guards, and the first case that matches",
+  "title": "Screen payments without paying twice for a score",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,56 @@
     },
     {
       "type": "para",
-      "text": "A guard narrows a type pattern: `case Integer i when i < 0 ->`. The cases are tried from the top, and the first one that matches wins, so when two guarded cases overlap, the narrower one comes first. An unguarded `case Integer i` then catches every remaining `Integer`."
-    },
-    {
-      "type": "para",
-      "text": "Write `classify(Object obj)` in `Classifier` as one switch expression, after the page's own example:"
+      "text": "The payment gateway hands every incoming payment to `PaymentScreen` before it is booked. Risk has agreed these rules with finance (amounts in cents):"
     },
     {
       "type": "table",
       "headers": [
-        "obj",
-        "result"
+        "Payment",
+        "Decision"
       ],
       "rows": [
         [
-          "an `Integer` below 0",
-          "`\"Negative integer\"`"
+          "a `Transfer` of up to 500,000",
+          "`ACCEPT`"
         ],
         [
-          "`0`",
-          "`\"Zero\"`"
+          "a `Transfer` above 500,000",
+          "`REVIEW`"
         ],
         [
-          "an `Integer` from 1 to 100",
-          "`\"Small positive integer\"`"
+          "a `Transfer` above 5,000,000",
+          "`HOLD`"
         ],
         [
-          "any larger `Integer`",
-          "`\"Large positive integer\"`"
+          "a `Card` whose fraud score is below 60",
+          "`ACCEPT`"
         ],
         [
-          "`Double.NaN`",
-          "`\"Not a number\"`"
+          "a `Card` whose fraud score is 60 or more",
+          "`REVIEW`"
         ],
         [
-          "an infinite `Double`",
-          "`\"Infinite\"`"
+          "a `Card` whose fraud score is 90 or more",
+          "`DECLINE`"
         ],
         [
-          "any other `Double`",
-          "`\"Finite double\"`"
-        ],
-        [
-          "anything else",
-          "`\"Not a number type\"`"
+          "a `Voucher`",
+          "`ACCEPT`"
         ]
       ]
+    },
+    {
+      "type": "para",
+      "text": "Where two rows match a payment, the stricter one, lower in the table, wins."
+    },
+    {
+      "type": "para",
+      "text": "The fraud score comes from the card network through `RiskScores`, and the network bills every call. Last month's invoice was twice what finance expected for the number of card payments, and nobody wants to repeat that."
+    },
+    {
+      "type": "para",
+      "text": "Write `screen(...)` in `src/main/java/practice/PaymentScreen.java`. Decisions follow the table, a card payment costs at most one score call, and any other payment costs none. About eight lines in total."
     },
     {
       "type": "heading",
@@ -79,7 +83,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Classifier {\n\n    private Classifier() {\n    }\n\n    /** Classifies a number by its type and value. */\n    public static String classify(Object obj) {\n        return switch (obj) {\n            case Integer i when i < 0 -> \"Negative integer\";\n            case Integer i when i == 0 -> \"Zero\";\n            case Integer i when i <= 100 -> \"Small positive integer\";\n            case Integer i -> \"Large positive integer\";\n            case Double d when d.isNaN() -> \"Not a number\";\n            case Double d when d.isInfinite() -> \"Infinite\";\n            case Double d -> \"Finite double\";\n            default -> \"Not a number type\";\n        };\n    }\n}\n"
+          "text": "package practice;\n\n/** Decides what happens to each incoming payment before it is booked. */\npublic final class PaymentScreen {\n\n    /** A payment as the gateway delivers it. Amounts are in cents. */\n    public sealed interface Payment permits Card, Transfer, Voucher {\n    }\n\n    public record Card(String customer, long cents) implements Payment {\n    }\n\n    public record Transfer(String customer, long cents) implements Payment {\n    }\n\n    public record Voucher(String code, long cents) implements Payment {\n    }\n\n    public enum Decision { ACCEPT, REVIEW, HOLD, DECLINE }\n\n    /** The card network's fraud score for a card payment, from 0 to 100. Every call is billed. */\n    public interface RiskScores {\n        int score(Card card);\n    }\n\n    private final RiskScores risk;\n\n    public PaymentScreen(RiskScores risk) {\n        this.risk = risk;\n    }\n\n    /** The decision for one payment. */\n    public Decision screen(Payment payment) {\n        return switch (payment) {\n            case Transfer t when t.cents() > 5_000_000 -> Decision.HOLD;\n            case Transfer t when t.cents() > 500_000 -> Decision.REVIEW;\n            case Transfer t -> Decision.ACCEPT;\n            case Card c -> {\n                int score = risk.score(c);\n                yield score >= 90 ? Decision.DECLINE : score >= 60 ? Decision.REVIEW : Decision.ACCEPT;\n            }\n            case Voucher v -> Decision.ACCEPT;\n        };\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +95,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Classifier {\n\n    private Classifier() {\n    }\n\n    /** Classifies a number by its type and value. */\n    public static String classify(Object obj) {\n        throw new UnsupportedOperationException(\"write classify\");\n    }\n}\n"
+      "text": "package practice;\n\n/** Decides what happens to each incoming payment before it is booked. */\npublic final class PaymentScreen {\n\n    /** A payment as the gateway delivers it. Amounts are in cents. */\n    public sealed interface Payment permits Card, Transfer, Voucher {\n    }\n\n    public record Card(String customer, long cents) implements Payment {\n    }\n\n    public record Transfer(String customer, long cents) implements Payment {\n    }\n\n    public record Voucher(String code, long cents) implements Payment {\n    }\n\n    public enum Decision { ACCEPT, REVIEW, HOLD, DECLINE }\n\n    /** The card network's fraud score for a card payment, from 0 to 100. Every call is billed. */\n    public interface RiskScores {\n        int score(Card card);\n    }\n\n    private final RiskScores risk;\n\n    public PaymentScreen(RiskScores risk) {\n        this.risk = risk;\n    }\n\n    /** The decision for one payment. */\n    public Decision screen(Payment payment) {\n        // TODO: Decide every payment by the rules in the statement. Large transfers must reach the\n        //       decision meant for them, and a card payment's score is a billed call.\n        throw new IllegalStateException(\"TODO: screen\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -99,7 +103,7 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
     "tables": 1,
     "lists": 0,
@@ -110,11 +114,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5509eb1bfa65c8b7c4b94f1f6c8cf079c0ba664133932f2784a90f26a87824c7",
-  "starting_code": "package practice;\n\npublic final class Classifier {\n\n    private Classifier() {\n    }\n\n    /** Classifies a number by its type and value. */\n    public static String classify(Object obj) {\n        throw new UnsupportedOperationException(\"write classify\");\n    }\n}\n",
+  "content_sha256": "0a446042b0636d83901ff5cfd3da8fe6e946ae7a06eb6ef7fbc7c00cd762e15d",
+  "starting_code": "package practice;\n\n/** Decides what happens to each incoming payment before it is booked. */\npublic final class PaymentScreen {\n\n    /** A payment as the gateway delivers it. Amounts are in cents. */\n    public sealed interface Payment permits Card, Transfer, Voucher {\n    }\n\n    public record Card(String customer, long cents) implements Payment {\n    }\n\n    public record Transfer(String customer, long cents) implements Payment {\n    }\n\n    public record Voucher(String code, long cents) implements Payment {\n    }\n\n    public enum Decision { ACCEPT, REVIEW, HOLD, DECLINE }\n\n    /** The card network's fraud score for a card payment, from 0 to 100. Every call is billed. */\n    public interface RiskScores {\n        int score(Card card);\n    }\n\n    private final RiskScores risk;\n\n    public PaymentScreen(RiskScores risk) {\n        this.risk = risk;\n    }\n\n    /** The decision for one payment. */\n    public Decision screen(Payment payment) {\n        // TODO: Decide every payment by the rules in the statement. Large transfers must reach the\n        //       decision meant for them, and a card payment's score is a billed call.\n        throw new IllegalStateException(\"TODO: screen\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-04/practice-1/src/main/java/practice/Classifier.java",
-    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-04/practice-1/src/test/java/practice/ClassifierTest.java",
+    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-04/practice-1/src/main/java/practice/PaymentScreen.java",
+    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-04/practice-1/src/test/java/practice/PaymentScreenTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,24 +139,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ClassifierTest#classifiesNumbers",
+        "id": "practice.PaymentScreenTest#decidesEveryKindOfPayment",
         "kind": "main",
-        "says": "-5, 42, 5000, 2.5 and \"7\" are classified."
+        "says": "transfers up to the hold limit, vouchers and card payments get the decision the table gives them"
       },
       {
-        "id": "practice.ClassifierTest#zeroHasItsOwnCase",
+        "id": "practice.PaymentScreenTest#holdsTransfersAboveTheHoldLimit",
         "kind": "edge",
-        "says": "0 is \"Zero\": its case comes before the wider small-positive guard."
+        "says": "a transfer above 50,000.00 is held, not sent to review, although it is also above the review limit"
       },
       {
-        "id": "practice.ClassifierTest#oneHundredIsStillSmall",
+        "id": "practice.PaymentScreenTest#scoresEachCardPaymentOnceAndNothingElse",
         "kind": "edge",
-        "says": "100 is small and 101 is large."
-      },
-      {
-        "id": "practice.ClassifierTest#specialDoublesAreNamed",
-        "kind": "edge",
-        "says": "NaN is \"Not a number\" and the infinities are \"Infinite\"."
+        "says": "each card payment costs exactly one score call, whatever its score, and other payments cost none"
       }
     ],
     "report": {
@@ -161,11 +160,12 @@
     },
     "origin": {
       "path": "05-pattern-matching/README_1.5.4.md",
-      "section": "Interview-specific Insights"
+      "section": "A Guard Runs Only After Its Pattern Matches, and Again for Every Case That Tries It"
     },
     "concepts": [
-      "Overlapping cases are tried in order and the first that matches wins, so narrower guards come first.",
-      "A when guard narrows a type pattern with a condition on the pattern variable."
+      "A pattern switch tries its cases from the top and runs the first whose pattern matches and whose guard is true; cases are not ranked by how specific they are.",
+      "A guard runs only after its pattern matches, and again for every case that tries it, so a call in two guards runs twice; a call made once in the arm doesn't.",
+      "The compiler doesn't evaluate guards, so overlapping guarded cases compile silently and their order decides which one wins."
     ]
   }
 }

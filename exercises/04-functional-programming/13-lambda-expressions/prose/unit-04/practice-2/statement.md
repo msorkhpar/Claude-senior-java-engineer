@@ -1,23 +1,10 @@
-A rule used in more than one place belongs in a named constant, and named predicates combine
-into bigger ones: `IS_ADULT.and(IS_ACTIVE).and(HAS_VERIFIED_EMAIL)` reads as the rule it is.
+A bakery's costing tool works out what each item on the menu costs to make. A recipe's cost is
+the sum of its ingredients' costs, and an ingredient can be a recipe of its own: the pesto in
+pasta al pesto. Working an item out is slow in the real tool, so each cost is worked out once and
+remembered in the `known` map.
 
-The file declares `record User(String name, int age, boolean active, String email, boolean emailVerified)`.
-Fill in the constants of `UserFilters` and write one method:
+Write `cost(item)` in `src/main/java/practice/RecipeCosts.java`. `workOut(item)` already computes
+a cost from scratch, calling `cost(...)` for each ingredient.
 
-| member | holds for a user when |
-|---|---|
-| `Predicate<User> IS_ADULT` | the age is 18 or more |
-| `Predicate<User> IS_ACTIVE` | the user is active |
-| `Predicate<User> HAS_VERIFIED_EMAIL` | the email is not `null` (any non-null string counts, even a blank one) and it is verified |
-| `Predicate<User> IS_ELIGIBLE` | all three of the above hold |
-| `List<String> eligibleNames(List<User> users)` | returns the names of the eligible users, in order |
-
-| user | eligible? |
-|---|---|
-| `User("Alice", 30, true, "alice@example.com", true)` | yes |
-| `User("Bob", 16, true, null, false)` | no |
-| `User("Carol", 40, false, "carol@example.com", false)` | no |
-
-Building `IS_ELIGIBLE` from the other three with `and` keeps the rule in one place; the tests check what it
-accepts. Check the exact age at the boundary, an email that is missing, and a user who passes only some
-of the rules.
+When you're done, any item can be costed, whatever has or hasn't been costed before it, and no
+item is worked out twice. About five lines.

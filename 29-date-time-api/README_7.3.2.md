@@ -1,301 +1,242 @@
 # 7.3.2. Overview of the java.time Package
 
-## Concept Explanation
-
-The `java.time` package was introduced in Java 8 (JSR 310) as a complete replacement for the legacy `java.util.Date` and `java.util.Calendar` classes. The JSR was led by Stephen Colebourne (the creator of Joda-Time) together with Michael Nascimento Santos, and the result provides a comprehensive, immutable, and thread-safe API for date and time operations.
-
-**Real-world analogy**: Think of the old Date/Calendar API as a Swiss Army knife that tries to do everything but does nothing well -- it tells dates, times, timestamps, and timezones all in one mutable object. The `java.time` package is like a professional toolbox where each tool has a specific purpose: a calendar for dates, a clock for times, a stopwatch for durations, and a world clock for timezones.
-
-The package is organized around several key concepts:
-- **Human time** vs. **Machine time**: `LocalDate`/`LocalTime` represent human-readable values; `Instant` represents a point on the machine timeline.
-- **Date-based** vs. **Time-based** amounts: `Period` measures in years/months/days; `Duration` measures in hours/minutes/seconds.
-- **Local** vs. **Zoned**: Local types have no timezone; Zoned types carry full timezone information.
-
-## Key Points to Remember
-
-1. **All classes are immutable and thread-safe** -- no synchronization needed.
-2. **ISO-8601 is the default standard** for parsing and formatting.
-3. **Null-hostile design** -- methods throw `NullPointerException` for null arguments rather than accepting them silently.
-4. **Fluent API** -- method chaining for readable transformations (e.g., `date.plusDays(1).with(lastDayOfMonth())`).
-5. **Strict validation** -- invalid values throw `DateTimeException` immediately.
-6. **Month values are 1-based** -- January = 1, December = 12.
-7. **Core classes**: `LocalDate`, `LocalTime`, `LocalDateTime`, `Instant`, `ZonedDateTime`, `OffsetDateTime`, `Duration`, `Period`, `DateTimeFormatter`.
-8. **Sub-packages**: `java.time.format` (formatting), `java.time.temporal` (fields, units, adjusters), `java.time.zone` (timezone rules), `java.time.chrono` (non-ISO calendars).
-
-## Relevant Java 21 Features
-
-- The `java.time` API is fully mature and stable in Java 21 with no breaking changes since Java 8.
-- Pattern matching for `switch` and `instanceof` can dispatch on the concrete temporal types (for example `case LocalDate d ->`); note that the temporal interfaces are not sealed, so such a switch needs a `default` branch.
-- Virtual threads benefit from the inherently thread-safe nature of all `java.time` classes.
-- Records pair naturally with `java.time` types for data transfer objects.
-- `LocalDate.datesUntil()` (added in Java 9) returns a `Stream<LocalDate>`, which allows elegant date range operations.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Confusing `LocalDateTime` with `ZonedDateTime`**:
-   ```java
-   // Problem: LocalDateTime has NO timezone -- it's just a date+time on a wall clock
-   LocalDateTime ldt = LocalDateTime.now(); // No timezone info
-
-   // Fix: Use ZonedDateTime when timezone matters
-   ZonedDateTime zdt = ZonedDateTime.now(ZoneId.of("America/New_York"));
-   ```
-
-2. **Using `LocalDateTime` for timestamps**:
-   ```java
-   // Problem: LocalDateTime is NOT a timestamp -- it has no timezone context
-   LocalDateTime created = LocalDateTime.now(); // Ambiguous
-
-   // Fix: Use Instant for timestamps
-   Instant created = Instant.now(); // Unambiguous UTC timestamp
-   ```
-
-3. **Ignoring DST when converting between zones**:
-   ```java
-   // Problem: Adding hours without considering DST changes
-   ZonedDateTime zdt = ZonedDateTime.of(2024, 3, 10, 1, 0, 0, 0, ZoneId.of("America/New_York"));
-   ZonedDateTime later = zdt.plusHours(1);
-   // At 2 AM, clocks spring forward to 3 AM -- hour 2 doesn't exist!
-   ```
-
-4. **Comparing `ZonedDateTime` with `equals()` instead of `isEqual()`**:
-   ```java
-   // Problem: equals() checks zone too, not just the instant
-   ZonedDateTime ny = ZonedDateTime.parse("2024-03-15T12:00-04:00[America/New_York]");
-   ZonedDateTime utc = ny.withZoneSameInstant(ZoneId.of("UTC"));
-   ny.equals(utc); // false! Different zones
-
-   // Fix: Use isEqual() to compare instants
-   ny.isEqual(utc); // true -- same point in time
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Choose the right type** for your use case:
-   - `Instant` for timestamps and machine time
-   - `LocalDate` for birthdays, holidays, dates without time
-   - `LocalTime` for opening hours, alarms
-   - `ZonedDateTime` for scheduling events across timezones
-   - `OffsetDateTime` for database storage and API responses
-
-2. **Use constants** for frequently used formatters and zone IDs.
-3. **Use `Clock` for testability** -- inject `Clock` rather than calling `LocalDate.now()` directly.
-4. **Use `TemporalAdjusters`** for complex calendar logic (next Monday, last day of month, etc.).
-5. **Store timestamps as `Instant`** in databases and convert to user timezone for display.
-
-## Edge Cases and Their Handling
-
-1. **Dates at year boundaries**: `LocalDate.of(2024, 12, 31).plusDays(1)` correctly returns `2025-01-01`.
-2. **Leap second handling**: Java's `Instant` does not model leap seconds -- it uses a "smoothed" timeline.
-3. **DST gaps and overlaps**: `ZonedDateTime` adjusts automatically during DST transitions.
-4. **End-of-month adjustment**: `LocalDate.of(2024, 1, 31).plusMonths(1)` returns `2024-02-29` (not March 2).
-5. **Minimum/maximum values**: `LocalDate.MIN` and `LocalDate.MAX` represent extreme boundaries.
-
-## Interview-specific Insights
-
-Interviewers expect knowledge of:
-- The class hierarchy and when to use each type
-- Thread-safety guarantees and why they matter
-- The difference between `Duration` and `Period`
-- How DST affects timezone conversions
-- The ISO-8601 standard and its role in the API
-
-## Interview Q&A Section
-
-**Q1: What are the main classes in java.time and when should you use each?**
-
-```text
-A1: The java.time package has distinct classes for different use cases:
-
-- LocalDate: Date without time or timezone (e.g., 2024-03-15). Use for birthdays, 
-  holidays, any date-only concept.
-
-- LocalTime: Time without date or timezone (e.g., 14:30:00). Use for business hours,
-  alarm times.
-
-- LocalDateTime: Date and time without timezone (e.g., 2024-03-15T14:30). Use when 
-  timezone is implicit (all in same zone) or irrelevant.
-
-- Instant: A point on the UTC timeline (epoch-based). Use for timestamps, event logging,
-  database storage.
-
-- ZonedDateTime: Date, time, and timezone (e.g., 2024-03-15T14:30-04:00[America/New_York]).
-  Use for scheduling across timezones, displaying user-local times.
-
-- OffsetDateTime: Date, time, and UTC offset (e.g., 2024-03-15T14:30+05:30). Use for 
-  API serialization and database storage.
-
-- Duration: Time-based amount (hours, minutes, seconds). Use for measuring elapsed time.
-
-- Period: Date-based amount (years, months, days). Use for calendar arithmetic.
-
-The key principle: use the most specific type that captures your semantic intent. Don't 
-use ZonedDateTime when LocalDate suffices, and don't use LocalDateTime for timestamps.
-```
+A subscription service mails each customer on the day their 14-day trial ends. Support has two
+tickets against it: customers in Sydney get the mail a day late, and a trial extended by a week
+still ends on the old day. Nobody can reproduce the first in a test. Both come from one method:
 
 ```java
-// Choose the right type for the job
-LocalDate birthday = LocalDate.of(1990, 6, 15);       // Date only
-LocalTime openingTime = LocalTime.of(9, 0);             // Time only
-Instant eventTimestamp = Instant.now();                  // Machine timestamp
-ZonedDateTime meeting = ZonedDateTime.now(ZoneId.of("America/New_York")); // Full timezone
-Duration timeout = Duration.ofMinutes(30);               // Time-based amount
-Period subscription = Period.ofMonths(12);               // Date-based amount
+static boolean lastTrialDay(Account account) {
+    LocalDate ends = account.trialStarted().toLocalDate().plusDays(14);   // trialStarted() is a LocalDateTime
+    if (account.extended()) {
+        ends.plusDays(7);
+    }
+    return LocalDate.now().equals(ends);
+}
 ```
 
-**Q2: Why are java.time classes immutable and why does that matter?**
+It compiles without a warning under `javac -Xlint:all`. Each section below fixes one of its
+mistakes. Outputs are from Java 21.0.12 with tzdata 2026b, and each output names the
+`-Duser.timezone` it ran with.
 
-```text
-A2: All java.time classes are immutable, meaning once created, their state cannot change.
-Methods like plusDays(), minusHours(), etc. return NEW instances rather than modifying the
-existing one.
+## Each Type Answers One Question, and Only Instant Is a Moment
 
-This matters for several reasons:
+`java.time` replaces `java.util.Date` and `Calendar`, where one class stood for a moment, a date
+and a wall-clock reading (unit 7.3.1). Its main types each answer one question:
 
-1. Thread safety: Immutable objects can be freely shared between threads without 
-   synchronization. This is critical in concurrent applications.
+| Question | Type | Prints as | Details |
+|---|---|---|---|
+| When did it happen, for everyone? | `Instant` | `2026-03-31T22:30:00Z` | 7.3.2.2 |
+| What did the clock on a wall in a place show? | `ZonedDateTime` | `2026-04-01T00:30+02:00[Europe/Amsterdam]` | 7.3.2.5 |
+| Date and time with a fixed offset (no zone rules) | `OffsetDateTime` | `2026-04-01T00:30+02:00` | 7.3.2.5 |
+| Date and time, place unknown | `LocalDateTime` | `2026-04-01T00:30` | 7.3.2.1 |
+| Which calendar day? Which time of day? | `LocalDate`, `LocalTime` | `2026-04-01`, `00:30` | 7.3.2.1 |
+| Which rules turn a moment into a wall-clock time? | `ZoneId`, `ZoneOffset` | `Europe/Amsterdam`, `+02:00` | 7.3.2.5 |
+| How much time: exact, or in calendar units? | `Duration`, `Period` | `PT1H30M`, `P1M` | 7.3.2.3 |
 
-2. Predictability: When you pass a LocalDate to a method, you know it won't be modified.
-   No defensive copying needed.
-
-3. Hash map safety: Immutable objects can be safely used as HashMap keys because their 
-   hashCode never changes.
-
-4. Functional programming: Immutable types work naturally with streams and lambda expressions.
-
-5. Cache-friendly: Static instances (like LocalDate.of(2024, 1, 1)) can be cached and 
-   reused safely.
-
-This is in direct contrast to java.util.Date, where mutability caused countless bugs, 
-race conditions, and forced developers into defensive copying patterns.
-```
+The first six rows print one payment: an `Instant`, converted with `atZone`, then
+`toOffsetDateTime()`, `toLocalDateTime()`, `toLocalDate()` and `toLocalTime()`, with
+`getZone()` and `getOffset()` for the zone row. From the `ZonedDateTime` down, each conversion drops
+something: the zone's rules, then the offset, then the date or the time. Going back up asks for
+what was dropped:
 
 ```java
-// Immutability in action
-LocalDate today = LocalDate.of(2024, 3, 15);
-LocalDate tomorrow = today.plusDays(1);
-
-System.out.println(today);     // 2024-03-15 (unchanged!)
-System.out.println(tomorrow);  // 2024-03-16 (new object)
-
-// Safe to share across threads
-private static final LocalDate EPOCH_DATE = LocalDate.of(1970, 1, 1);
-// Any thread can read EPOCH_DATE without synchronization
+Instant paid = Instant.parse("2026-03-31T22:30:00Z");
+ZonedDateTime zoned = paid.atZone(ZoneId.of("Europe/Amsterdam"));
+LocalDateTime stored = zoned.toLocalDateTime();       // what a LocalDateTime column keeps
+Instant back = Instant.from(stored);
 ```
-
-**Q3: What is the difference between `Instant` and `LocalDateTime`?**
 
 ```text
-A3: Instant and LocalDateTime represent fundamentally different concepts:
-
-Instant:
-- Represents a single point on the UTC timeline
-- Measured in seconds and nanoseconds from the Unix epoch (1970-01-01T00:00:00Z)
-- Has no timezone or calendar context
-- Equivalent to a machine timestamp
-- Use for: event logs, database timestamps, API responses
-
-LocalDateTime:
-- Represents a date and time on a wall clock
-- Has no timezone information at all
-- The same LocalDateTime means different instants depending on timezone
-- Use for: local events where timezone is implicit
-
-Example: "March 15, 2024 at 2:30 PM" as a LocalDateTime could mean different moments 
-depending on whether you're in New York, London, or Tokyo.
-
-Key insight for interviews: LocalDateTime is NOT a more precise version of Instant. They 
-serve completely different purposes. Using LocalDateTime for timestamps is a common mistake.
+DateTimeException: Unable to obtain Instant from TemporalAccessor: 2026-04-01T00:30 of type java.time.LocalDateTime
 ```
 
-```java
-// Instant -- a specific point in time (always UTC)
-Instant now = Instant.now(); // e.g., 2024-03-15T18:30:00Z
-
-// LocalDateTime -- a wall clock reading (no timezone)
-LocalDateTime local = LocalDateTime.of(2024, 3, 15, 14, 30);
-
-// Converting between them requires a timezone
-ZoneId nyZone = ZoneId.of("America/New_York");
-LocalDateTime nyTime = LocalDateTime.ofInstant(now, nyZone);
-Instant backToInstant = nyTime.atZone(nyZone).toInstant();
-```
-
-**Q4: How does java.time handle Daylight Saving Time (DST)?**
+A `LocalDateTime` is not a moment; turning it into one needs a zone or offset. A job that
+supplies the wrong one gets a wrong moment and no error. The trial service's servers wrote
+`trialStarted` in Amsterdam; a report job on a UTC server reads it back with
+`stored.atZone(ZoneOffset.UTC).toInstant()`, next to the correct reading with Amsterdam's zone:
 
 ```text
-A4: The java.time API handles DST transparently through ZonedDateTime:
-
-1. DST Gap (spring forward): When clocks skip ahead (e.g., 2:00 AM -> 3:00 AM), creating 
-   a ZonedDateTime for the non-existent time adjusts forward. ZonedDateTime.of(2024, 3, 10, 
-   2, 30, 0, 0, nyZone) produces 3:30 AM EDT instead.
-
-2. DST Overlap (fall back): When clocks repeat an hour, the API uses the earlier offset 
-   by default but allows selecting via withEarlierOffsetAtOverlap() or 
-   withLaterOffsetAtOverlap().
-
-3. Duration-based addition: plusHours(24) adds exactly 24 hours, which may result in a 
-   different local time across DST boundaries.
-
-4. Calendar-based addition: plusDays(1) keeps the same local time, adjusting the instant 
-   to compensate for DST.
-
-This distinction between duration-based and calendar-based arithmetic is crucial for 
-correct timezone handling.
+read as UTC:       2026-04-01T00:30:00Z
+read as Amsterdam: 2026-03-31T22:30:00Z
 ```
+
+Every trial start read this way is two hours late, or one hour for a start written in winter,
+because Amsterdam's offset changes with the season. `LocalDateTime` is for values with no place,
+such as "the sale starts at 09:00 in every store".
+
+## Between a Moment and a Date There Is Always a Zone
+
+An `Instant` has no date. The date is a question about a place, so every conversion between the
+two takes a `ZoneId`. Here is the payment's date in three places:
 
 ```java
-ZoneId ny = ZoneId.of("America/New_York");
-
-// Spring forward: 2 AM does not exist on March 10, 2024
-ZonedDateTime gap = ZonedDateTime.of(2024, 3, 10, 2, 30, 0, 0, ny);
-System.out.println(gap); // 2024-03-10T03:30-04:00[America/New_York]
-
-// Duration vs Calendar addition across DST
-ZonedDateTime before = ZonedDateTime.of(2024, 3, 10, 1, 0, 0, 0, ny);
-ZonedDateTime plus24h = before.plusHours(24);   // Exact 24 hours later
-ZonedDateTime plusOneDay = before.plusDays(1);   // Same wall clock time next day
-// plus24h and plusOneDay may differ by 1 hour due to DST!
+Instant paid = Instant.parse("2026-03-31T22:30:00Z");
+System.out.println(LocalDate.ofInstant(paid, ZoneId.of("America/New_York")));
+System.out.println(LocalDate.ofInstant(paid, ZoneId.of("Europe/Amsterdam")));
+System.out.println(LocalDate.ofInstant(paid, ZoneId.of("Australia/Sydney")));
 ```
-
-**Q5: What is the ISO-8601 standard and how does java.time use it?**
 
 ```text
-A5: ISO-8601 is an international standard for date and time representation. java.time 
-uses it as the default format for parsing and formatting:
-
-Date: 2024-03-15 (yyyy-MM-dd)
-Time: 14:30:00 (HH:mm:ss)
-DateTime: 2024-03-15T14:30:00
-Offset: 2024-03-15T14:30:00+05:30
-Zoned: 2024-03-15T14:30:00+05:30[Asia/Kolkata]
-Instant: 2024-03-15T14:30:00Z (Z = UTC)
-Duration: PT2H30M (2 hours 30 minutes)
-Period: P1Y2M3D (1 year 2 months 3 days)
-
-Benefits of ISO-8601:
-1. Unambiguous: No confusion between MM/DD and DD/MM formats
-2. Sortable: String sorting matches chronological ordering
-3. International: Language-independent representation
-4. Well-defined: Covers edge cases like timezone offsets
-
-java.time's toString() methods produce ISO-8601 by default, and parse() methods accept 
-ISO-8601 strings. This makes serialization and deserialization straightforward.
+2026-03-31
+2026-04-01
+2026-04-01
 ```
+
+A method without a zone argument still uses one, the JVM's default: `LocalDate.now()` reads the
+system clock "in the default time-zone" (its javadoc). The same conversion with
+`ZoneId.systemDefault()` on two servers, run with `-Duser.timezone=America/New_York` and then
+`-Duser.timezone=Australia/Sydney`:
+
+```text
+LocalDate.ofInstant(paid, ZoneId.systemDefault()) = 2026-03-31
+LocalDate.ofInstant(paid, ZoneId.systemDefault()) = 2026-04-01
+```
+
+The default zone is a deployment setting, not a fact about the customer. The mail job runs daily
+at 22:30 on a UTC server. Take a Sydney customer whose trial ends on 1 April, even with `ends`
+computed in Sydney's calendar: at 22:30 UTC on 31 March it is already 09:30 on 1 April in Sydney,
+but the job's `LocalDate.now()` says 31 March. The mail goes out a day late.
+
+<!-- practice 1 -->
+
+## Values Never Change: Keep What plusDays Returns
+
+### Spot the Problem: The Grace Period That Does Nothing
+
+An invoice is due 30 days after issue, plus 7 for customers with a grace period:
 
 ```java
-// toString() produces ISO-8601 by default
-LocalDate date = LocalDate.of(2024, 3, 15);
-System.out.println(date); // "2024-03-15"
-
-Duration duration = Duration.ofHours(2).plusMinutes(30);
-System.out.println(duration); // "PT2H30M"
-
-// parse() accepts ISO-8601 by default
-LocalDate parsed = LocalDate.parse("2024-03-15");
-Instant instant = Instant.parse("2024-03-15T14:30:00Z");
-Duration parsedDur = Duration.parse("PT2H30M");
+static LocalDate dueDate(LocalDate issued, boolean gracePeriod) {
+    LocalDate due = issued.plusDays(30);
+    if (gracePeriod) {
+        due.plusDays(7);                       // (1)
+    }
+    return due;
+}
 ```
+
+For an invoice issued on 2026-03-02 (run with `-Duser.timezone=UTC`):
+
+```text
+no grace:   2026-04-01
+with grace: 2026-04-01
+```
+
+Line (1) computes 2026-04-08 and throws it away. Every `java.time` value is immutable: `plusDays`,
+`minusMonths`, `with(...)` and `withZoneSameInstant` return a new object and leave the one they
+were called on unchanged. Code ported from `Calendar.add`, which changes the calendar in place,
+looks correct and does nothing. The fix is `due = due.plusDays(7)`, and it prints
+`2026-04-08` while `issued` stays `2026-03-02`.
+
+The javadocs of `LocalDate`, `Instant`, `ZonedDateTime`, `Duration` and `Period` each say "This
+class is immutable and thread-safe". Because of that, a `static final LocalDate` can be shared by every thread without a lock, and a getter can return its field
+without the defensive copy a `Date` needs (unit 7.3.1).
+
+## Code That Needs the Current Time Takes a Clock
+
+`LocalDate.now()` hides two inputs, the current instant and the default zone, so a test can set
+neither; `LocalDate.now(zone)` fixes only the zone. Its javadoc: "Using this method will prevent the ability to use an
+alternate clock for testing because the clock is hard-coded." The fix is to take a `Clock` as a
+constructor argument and ask it:
+
+```java
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
+
+public final class Trials {
+    private final Clock clock;
+
+    public Trials(Clock clock) {
+        this.clock = clock;
+    }
+
+    /** True on the customer's last trial day, in the customer's own calendar. */
+    public boolean lastDay(LocalDate trialEnds, ZoneId customerZone) {
+        return LocalDate.now(clock.withZone(customerZone)).equals(trialEnds);
+    }
+}
+```
+
+`LocalDate.now(clock)` takes both inputs from the clock: its instant, dated in its zone. Production
+passes `Clock.systemUTC()`. A test fixes the moment, and moves it with
+`Clock.offset`:
+
+```java
+Clock at = Clock.fixed(Instant.parse("2026-03-31T22:30:00Z"), ZoneOffset.UTC);
+LocalDate ends = LocalDate.of(2026, 4, 1);
+
+Trials trials = new Trials(at);
+System.out.println("Sydney:   " + trials.lastDay(ends, ZoneId.of("Australia/Sydney")));
+System.out.println("New York: " + trials.lastDay(ends, ZoneId.of("America/New_York")));
+
+Trials dayLater = new Trials(Clock.offset(at, Duration.ofDays(1)));
+System.out.println("New York, a day later: " + dayLater.lastDay(ends, ZoneId.of("America/New_York")));
+```
+
+```text
+Sydney:   true
+New York: false
+New York, a day later: true
+```
+
+The output is the same under `-Duser.timezone=UTC` and `-Duser.timezone=Asia/Kolkata`. A test
+of the old `lastTrialDay` had to build its account relative to the current date, so it could only
+test today on this machine, never the moment the Sydney bug needs.
+
+Code that needs only the moment, never a date, can take an `InstantSource` (Java 17), which
+`Clock` implements.
+
+A test that needs time to move during a call writes a settable clock: `Clock` is an abstract class with three abstract methods, `instant()`, `getZone()` and
+`withZone(ZoneId)`.
+
+<!-- practice 2 -->
+
+## Summary
+
+- **Each type answers one question, and only `Instant` is a moment.** A `LocalDateTime` stored
+  for "when it happened" turns back into a moment only with a zone someone has to guess.
+- **Between a moment and a date there is always a zone.** A call without one uses the JVM's
+  default, so the server's setting decides the customer's date.
+- **Values never change.** `plusDays` and `with` return the answer; a dropped result is a silent
+  no-op, and immutability is what makes the types safe to share.
+- **Code that needs the current time takes a `Clock`.** Tests then choose the moment and the
+  zone instead of depending on when and where they run.
+
+## Reference
+
+| Package | Holds |
+|---|---|
+| `java.time` | the value types above, `Clock`, `InstantSource` |
+| `java.time.format` | `DateTimeFormatter` (7.3.2.4) |
+| `java.time.temporal` | `ChronoUnit`, `ChronoField`, `TemporalAdjusters` |
+| `java.time.zone` | `ZoneRules`, the time-zone rules a `ZoneId` refers to |
+| `java.time.chrono` | non-ISO calendars, such as `JapaneseDate` |
+
+| Clock | Gives |
+|---|---|
+| `Clock.systemUTC()` | the system clock, zone UTC |
+| `Clock.systemDefaultZone()` | the system clock in the default zone, what the zone-dependent `now()` methods use |
+| `Clock.fixed(instant, zone)` | always the same instant |
+| `Clock.offset(clock, duration)` | another clock shifted by a duration |
+| `clock.withZone(zone)` | the same instant source, another zone |
+
+## Challenges
+
+1. The trial service also stores `cancelledAt`. Which type would you choose, and what does each
+   wrong choice cost when the company moves its servers from Amsterdam to Dublin?
+2. A codebase has 400 calls to `LocalDate.now()`. Plan the move to an injected `Clock`: what do you
+   change first, and how do you stop new calls from appearing?
+3. A report must show "orders of 2026-03-29" for a shop in Amsterdam. Write the range of instants
+   that query should select, and check whether it is 24 hours long.
+
+## Design Note: Why the Zone Is an Argument
+
+`java.time` could have kept `Date`'s approach and filled in the default zone wherever one was
+missing. It does that only in the `now()` methods, `Clock.systemDefaultZone()` and
+`ZoneId.systemDefault()`. Everywhere else the zone is a parameter, so the code says whose date it
+is asking for, and a change to a server's default zone can't silently change those results. The
+cost is longer calls and one more argument to pass through every layer that needs a date.
 
 ## Code Examples
 

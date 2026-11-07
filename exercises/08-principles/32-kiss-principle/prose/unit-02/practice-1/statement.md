@@ -1,29 +1,19 @@
-The page's fourth pitfall is a cache guarded by double-checked locking or custom read-write
-locks. Its KISS fix is one call:
+A game keeps its players' credits in `Wallets`. One owner thread applies every transfer, in the
+order they are requested. The leaderboard and the support console read balances from their own
+threads, many times a second, and support agents have complained twice: once about a balance
+sheet that added up to less than the credits in circulation, and once about a console that froze
+for as long as a large transfer took.
 
-```java
-// KISS: Use ConcurrentHashMap.computeIfAbsent
-private final ConcurrentHashMap<String, Data> cache = new ConcurrentHashMap<>();
+Finish the two `TODO`s in `src/main/java/practice/Wallets.java`:
 
-public Data getData(String key) {
-    return cache.computeIfAbsent(key, this::loadFromDatabase);
-}
-```
+- `publish()`, which the owner thread already calls once the opening balances are in place and
+  after every transfer that changed them;
+- `balances()`, which any thread may call.
 
-Write the generic `LoadingCache<K, V>`:
+When you're done, a reader always gets balances as they stand between two transfers, never in the
+middle of one, and gets them without waiting for a transfer in progress. Balances a reader already
+holds don't change afterwards, and nothing one reader does to its copy reaches another reader.
+About two lines in total.
 
-- `get(K key, Function<K, V> loader)` returns the key's value. When the key is absent it
-  calls `loader` to load it and keeps the result; later calls return the kept value
-  without loading again.
-- **Check and load are one atomic step.** When two threads call `get` for the same absent
-  key at the same time, the loader runs once, and both callers receive its value. A
-  `get` followed by a `put`, the check-then-act the page warns about, lets both threads load.
-- **Loads of different keys do not wait for each other**: while one key's loader is still
-  running, `get` for another absent key loads that key at once. A `synchronized` method or
-  one lock around every load would make it wait, which is why the page reaches for the map's
-  own `computeIfAbsent` rather than a lock of your own.
-- `invalidate(K key)` forgets that key alone, so the next `get` of it loads it again, while
-  every other key stays cached.
-
-Example: with a loader returning `key.length() * 1000`, `get("answer", loader)` is `6000`,
-and asking again does not call the loader a second time.
+The tests pause a transfer half-way through `Seam.midTransfer()` and read from another thread
+while it is paused.

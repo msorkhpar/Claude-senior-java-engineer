@@ -1,16 +1,12 @@
-Intermediate operations are **lazy**: nothing runs until a terminal operation asks
-for elements, and a **short-circuiting** terminal operation such as `findFirst()`
-stops asking as soon as it has its answer.
+The billing page has an "unpaid" panel. It is created when an accountant opens the page, and
+every refresh asks it for the number of unpaid invoices, their total and their ids. The ledger
+it is given is the billing service's live list, and new invoices are appended to it while the
+page is open.
 
-Write `FirstMatch.firstMatch(List<String> names, Predicate<String> test, List<String> examined)`.
-It returns the first name that `test` accepts, as an `Optional<String>`. Every name
-your pipeline actually hands to `test` must also be appended to `examined`, in the
-order it was examined, after whatever the list already holds, so the caller can see how far the stream went.
+`UnpaidInvoices` already answers all three questions from one place. Finish the `TODO` in
+`src/main/java/practice/UnpaidInvoices.java`: `unpaidOf(ledger)`, where those answers get the
+unpaid invoices from.
 
-| names | test | answer | examined |
-|---|---|---|---|
-| `["Alice", "Bob", "Charlie", "David", "Eve"]` | starts with `"C"` | `Optional[Charlie]` | `["Alice", "Bob", "Charlie"]` |
-| `["Bob", "Eve"]` | starts with `"Z"` | `Optional.empty` | `["Bob", "Eve"]` |
-
-A pipeline that gathers every match before choosing one gives the right name but
-examines too much; and "no match" is an answer too.
+When you're done, a panel answers every question on every refresh for as long as it is open, and
+an invoice appended to the ledger after the panel was created shows up on the next refresh.
+About two lines.

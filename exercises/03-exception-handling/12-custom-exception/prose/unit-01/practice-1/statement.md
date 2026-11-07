@@ -1,21 +1,15 @@
-The page's first custom exception is an unchecked `InvalidUserException` that
-carries the id of the user whose data was wrong. Write it, and use it.
+The checkout service reserves stock for each line of an order before it takes payment. On Black
+Friday the reservations started failing, and the alert channel filled with
+`ReservationFailedException` lines that nobody could act on: the on-call engineer couldn't tell
+which product had failed, or whether the stock database had rejected a lock, timed out or run out
+of connections. The checkout service itself only needs the SKU and the quantity, to tell the
+customer which line couldn't be reserved.
 
-1. Complete `InvalidUserException` (it extends `RuntimeException`): the
-   constructor `InvalidUserException(String message, String userId)` and the
-   getter `getUserId()`. The id is a `final` field.
-2. Write `UserValidator.validateUsername(String userId, String username)`. It
-   returns normally for a usable username and otherwise throws
-   `InvalidUserException` with the message `Username cannot be null or empty`
-   and the given `userId`.
+Finish the two `TODO`s in `src/main/java/practice/Reservations.java`:
 
-| call | result |
-|---|---|
-| `validateUsername("u1", "alice")` | returns normally |
-| `validateUsername("u7", "")` | throws `InvalidUserException`, message `Username cannot be null or empty`, `getUserId()` is `"u7"` |
+- the constructor of `ReservationFailedException`;
+- `reserve(...)`, which takes the stock from the store.
 
-A handler may read the message through `getMessage()` or print the exception,
-so decide where the message has to live. A username is unusable when it is
-`null`, empty, or only whitespace, where whitespace means what
-`String.isBlank()` means (Unicode whitespace, not only the ASCII characters
-`trim()` removes).
+When you're done, a failed reservation tells the checkout service which line failed, and the log
+line and stack trace of the exception tell the on-call engineer the same, plus everything the
+database said. About eight lines in total.

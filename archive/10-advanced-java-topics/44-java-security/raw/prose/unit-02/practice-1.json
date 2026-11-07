@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Sort by a column the user picks, safely",
+  "title": "Let the ticket list sort only the way the API says",
   "blocks": [
     {
       "type": "heading",
@@ -19,55 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Parameters carry **values**. The page's first best practice warns that they cannot carry identifiers or keywords: a user-chosen `ORDER BY` column or sort direction cannot be a `?`. Those parts must be **chosen from an allow-list of known names**, and anything else refused, never pasted into the SQL."
+      "text": "The helpdesk's ticket list takes its order from the request: `GET /tickets?sort=opened&dir=desc`. The API documents three sort keys, `priority`, `opened` and `title`, and two directions, `asc` and `desc`. The `ticket` table has more columns than that, among them `customer_tier`, which agents must never be able to rank tickets by."
     },
     {
       "type": "para",
-      "text": "Write `SortedQuery.sql(column, direction)` that returns"
+      "text": "`TicketList.titles(sort, dir)` already builds and runs the query. Write `orderBy(sort, dir)` in `src/main/java/practice/TicketList.java`: the text that goes after `ORDER BY`. A documented request sorts the list; any other request is refused with an `IllegalArgumentException`, and nothing it contains reaches the database. The key `opened` sorts by the column `opened_at`."
     },
     {
-      "type": "code",
-      "lang": "java",
-      "text": "SELECT id, name, email FROM users ORDER BY <column> <DIRECTION>"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`column` must be **exactly** one of `name`, `email`, `created_at`;",
-        "`direction` is `asc` or `desc` in any case, written in upper case;",
-        "anything else, `null` included, throws `IllegalArgumentException`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "column",
-        "direction",
-        "result"
-      ],
-      "rows": [
-        [
-          "`name`",
-          "`asc`",
-          "`... ORDER BY name ASC`"
-        ],
-        [
-          "`created_at`",
-          "`DESC`",
-          "`... ORDER BY created_at DESC`"
-        ],
-        [
-          "`name; DROP TABLE users`",
-          "`asc`",
-          "`IllegalArgumentException`"
-        ],
-        [
-          "`email`",
-          "`desc, (SELECT 1)`",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "type": "para",
+      "text": "About eight lines in total. The tests run against an H2 in-memory database."
     },
     {
       "type": "heading",
@@ -82,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Locale;\nimport java.util.Set;\n\npublic final class SortedQuery {\n\n    private static final Set<String> COLUMNS = Set.of(\"name\", \"email\", \"created_at\");\n    private static final Set<String> DIRECTIONS = Set.of(\"ASC\", \"DESC\");\n\n    private SortedQuery() {\n    }\n\n    /** The users query sorted by an allow-listed column and direction. */\n    public static String sql(String column, String direction) {\n        if (column == null || !COLUMNS.contains(column)) {\n            throw new IllegalArgumentException(\"Unknown sort column: \" + column);\n        }\n        String dir = direction == null ? null : direction.toUpperCase(Locale.ROOT);\n        if (dir == null || !DIRECTIONS.contains(dir)) {\n            throw new IllegalArgumentException(\"Unknown sort direction: \" + direction);\n        }\n        return \"SELECT id, name, email FROM users ORDER BY \" + column + \" \" + dir;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/** The helpdesk's ticket list behind GET /tickets?sort=...&dir=... */\npublic class TicketList {\n\n    private final Connection conn;\n\n    public TicketList(Connection conn) {\n        this.conn = conn;\n    }\n\n    /** Ticket titles in the order the caller asked for. */\n    public List<String> titles(String sort, String dir) throws SQLException {\n        String sql = \"SELECT title FROM ticket ORDER BY \" + orderBy(sort, dir);\n        List<String> titles = new ArrayList<>();\n        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {\n            while (rs.next()) titles.add(rs.getString(1));\n        }\n        return titles;\n    }\n\n    private static final Map<String, String> COLUMNS = Map.of(\n            \"priority\", \"priority\",\n            \"opened\", \"opened_at\",\n            \"title\", \"title\");\n    private static final Map<String, String> DIRECTIONS = Map.of(\"asc\", \"ASC\", \"desc\", \"DESC\");\n\n    /**\n     * The text after ORDER BY for the caller's sort key and direction. The API documents three\n     * sort keys: \"priority\" (column priority), \"opened\" (column opened_at) and \"title\" (column\n     * title), and two directions, \"asc\" and \"desc\". Any other request is refused with an\n     * IllegalArgumentException before a query runs.\n     */\n    static String orderBy(String sort, String dir) {\n        String column = sort == null ? null : COLUMNS.get(sort);\n        String direction = dir == null ? null : DIRECTIONS.get(dir);\n        if (column == null || direction == null) {\n            throw new IllegalArgumentException(\"unsupported sort: \" + sort + \" \" + dir);\n        }\n        return column + \" \" + direction;\n    }\n}\n"
         }
       ]
     },
@@ -94,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Locale;\nimport java.util.Set;\n\npublic final class SortedQuery {\n\n    private SortedQuery() {\n    }\n\n    /** The users query sorted by an allow-listed column and direction. */\n    public static String sql(String column, String direction) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** The helpdesk's ticket list behind GET /tickets?sort=...&dir=... */\npublic class TicketList {\n\n    private final Connection conn;\n\n    public TicketList(Connection conn) {\n        this.conn = conn;\n    }\n\n    /** Ticket titles in the order the caller asked for. */\n    public List<String> titles(String sort, String dir) throws SQLException {\n        String sql = \"SELECT title FROM ticket ORDER BY \" + orderBy(sort, dir);\n        List<String> titles = new ArrayList<>();\n        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {\n            while (rs.next()) titles.add(rs.getString(1));\n        }\n        return titles;\n    }\n\n    /**\n     * The text after ORDER BY for the caller's sort key and direction. The API documents three\n     * sort keys: \"priority\" (column priority), \"opened\" (column opened_at) and \"title\" (column\n     * title), and two directions, \"asc\" and \"desc\". Any other request is refused with an\n     * IllegalArgumentException before a query runs.\n     */\n    static String orderBy(String sort, String dir) {\n        // TODO: Both values come straight from the request's query string. Return the text that\n        //       goes after ORDER BY, so that only the documented sorts can ever reach the database.\n        throw new IllegalStateException(\"TODO: orderBy\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -102,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
-    "tables": 1,
-    "lists": 1,
+    "paras": 3,
+    "code": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -113,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6547d617e076e03ec7e5d1760bb5867e93930a68ca489e8c08b17e8a0760f7ad",
-  "starting_code": "package practice;\n\nimport java.util.Locale;\nimport java.util.Set;\n\npublic final class SortedQuery {\n\n    private SortedQuery() {\n    }\n\n    /** The users query sorted by an allow-listed column and direction. */\n    public static String sql(String column, String direction) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "4eb01bea7773ff530b1942636f6d8b2cd88e18919863e42f63cabe6d4f586659",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** The helpdesk's ticket list behind GET /tickets?sort=...&dir=... */\npublic class TicketList {\n\n    private final Connection conn;\n\n    public TicketList(Connection conn) {\n        this.conn = conn;\n    }\n\n    /** Ticket titles in the order the caller asked for. */\n    public List<String> titles(String sort, String dir) throws SQLException {\n        String sql = \"SELECT title FROM ticket ORDER BY \" + orderBy(sort, dir);\n        List<String> titles = new ArrayList<>();\n        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {\n            while (rs.next()) titles.add(rs.getString(1));\n        }\n        return titles;\n    }\n\n    /**\n     * The text after ORDER BY for the caller's sort key and direction. The API documents three\n     * sort keys: \"priority\" (column priority), \"opened\" (column opened_at) and \"title\" (column\n     * title), and two directions, \"asc\" and \"desc\". Any other request is refused with an\n     * IllegalArgumentException before a query runs.\n     */\n    static String orderBy(String sort, String dir) {\n        // TODO: Both values come straight from the request's query string. Return the text that\n        //       goes after ORDER BY, so that only the documented sorts can ever reach the database.\n        throw new IllegalStateException(\"TODO: orderBy\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-1/src/main/java/practice/SortedQuery.java",
-    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-1/src/test/java/practice/SortedQueryTest.java",
+    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-1/src/main/java/practice/TicketList.java",
+    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-1/src/test/java/practice/TicketListTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -138,19 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SortedQueryTest#sortsByAnAllowedColumn",
+        "id": "practice.TicketListTest#sortsByEveryDocumentedKeyInBothDirections",
         "kind": "main",
-        "says": "name/asc, created_at/DESC and email/Desc give the query ending in ORDER BY name ASC, created_at DESC and email DESC; the column password is refused."
+        "says": "each documented sort key orders the tickets by its column, ascending or descending"
       },
       {
-        "id": "practice.SortedQueryTest#aColumnMustMatchANameExactly",
+        "id": "practice.TicketListTest#aColumnTheApiDoesNotDocumentIsRefused",
         "kind": "edge",
-        "says": "\"name; DROP TABLE users\", \"name, (SELECT password FROM users)\", \"x_name\" and \"Name\" are refused: the column must be exactly an allowed name."
+        "says": "a real column of the table that the API does not document is refused, not sorted by"
       },
       {
-        "id": "practice.SortedQueryTest#theDirectionIsAllowListedToo",
+        "id": "practice.TicketListTest#aDirectionThatIsNotAscOrDescIsRefused",
         "kind": "edge",
-        "says": "\"desc, (SELECT 1)\", \"descending\", \"asc \" and null are refused as directions."
+        "says": "a direction with anything beyond asc or desc is refused, and nothing in it runs"
       }
     ],
     "report": {
@@ -159,10 +119,10 @@
     },
     "origin": {
       "path": "44-java-security/README_10.6.2.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "A Bind Parameter Holds a Value, So a Sort Column Comes from an Allow-List"
     },
     "concepts": [
-      "Parameterized queries carry values only; identifiers and keywords such as an ORDER BY column or direction are chosen from an allow-list."
+      "A sort column or direction can't be a bind parameter, so the code maps each documented sort key to SQL text it wrote itself and refuses anything else; an identifier-shaped check still lets through real columns the API doesn't expose."
     ]
   }
 }

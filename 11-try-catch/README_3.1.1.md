@@ -1,135 +1,249 @@
 # 3.1.1. Handling Exceptions with try/catch
 
-## Concept Explanation
-
-Exception handling in Java is a mechanism to deal with runtime errors and exceptional situations that may occur during
-program execution. The `try/catch` block is the fundamental construct for handling exceptions in Java.
-
-The basic syntax of a try/catch block is as follows:
+After a front-end release, every web order shipped one item, whatever the customer had typed, and
+nothing was logged. The release had renamed a form field from `qty` to `quantity`. The code that
+read it:
 
 ```java
-try {
-    // Code that may throw an exception
-} catch (ExceptionType e) {
-    // Code to handle the exception
-}
-```
-
-## Key Points to Remember
-
-1. The `try` block contains the code that might throw an exception.
-2. The `catch` block specifies the type of exception it can handle and contains the code to handle that exception.
-3. If an exception occurs in the `try` block, the program immediately jumps to the appropriate `catch` block.
-4. If no exception occurs, the `catch` block is skipped.
-5. Multiple `catch` blocks can be used to handle different types of exceptions (covered in section 3.1.2).
-6. The `catch` block parameter (`e` in the example) can be used to get information about the exception.
-
-## Relevant Java 21 Features
-
-While the basic concept of try/catch remains the same, Java 21 continues to support and encourage the use of more
-specific exception handling introduced in earlier versions:
-
-- Pattern matching (`instanceof` since Java 16, `switch` since Java 21) can be used inside a catch block to inspect
-  the caught exception; the catch clause itself has no pattern syntax
-- Multi-catch statements (introduced in Java 7)
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Catching Exception**: Avoid catching the generic `Exception` class unless absolutely necessary. It can mask other
-   important exceptions and make debugging difficult.
-2. **Empty catch blocks**: Never leave catch blocks empty. At the very least, log the exception.
-3. **Catching and rethrowing**: Catching an exception only to rethrow it immediately adds nothing. Rethrowing the same
-   object (`throw e;`) keeps its stack trace; what loses the original trace is throwing a new exception without passing
-   the caught one as its cause.
-
-## Best Practices and Optimization Techniques
-
-1. Catch specific exceptions rather than general ones.
-2. Use logging in catch blocks to record exception details.
-3. Clean up resources properly, even in the event of an exception.
-4. Consider using try-with-resources for automatic resource management (covered in section 3.1.4).
-5. Use exception chaining when rethrowing exceptions to preserve the original cause.
-
-## Edge Cases and Their Handling
-
-1. **Nested try/catch blocks**: While possible, they should be used sparingly as they can make code harder to read and
-   maintain.
-2. **Exceptions in catch blocks**: Remember that code in catch blocks can also throw exceptions.
-
-## Interview-specific Insights
-
-Interviewers often focus on:
-
-- Your understanding of when to use exception handling
-- Your ability to write clean, effective try/catch blocks
-- Your knowledge of best practices in exception handling
-
-## Interview Q&A Section
-
-Q1: What is the purpose of exception handling in Java?
-
-```text
-A1: Exception handling in Java serves several purposes:
-1. It separates error-handling code from regular code, improving readability and maintainability.
-2. It allows for the propagation of errors up the call stack, enabling higher-level components to handle exceptions.
-3. It provides a mechanism to gracefully handle runtime errors without crashing the program.
-4. It helps in creating more robust and fault-tolerant applications by anticipating and handling potential errors.
-```
-
-Q2: Can you explain the basic structure of a try/catch block in Java?
-
-```java
-try {
-    // Code that may throw an exception
-    int result = 10 / 0; // This will throw an ArithmeticException
-} catch (ArithmeticException e) {
-    // Code to handle the ArithmeticException
-    System.out.println("Cannot divide by zero: " + e.getMessage());
-}
-```
-
-Q3: What happens if an exception occurs in a try block but there's no matching catch block?
-
-```text
-A3: If an exception occurs in a try block and there's no matching catch block, the exception will propagate up the call stack. If it's not caught anywhere in the call stack, it will eventually reach the top level of the program, causing the program to terminate and print a stack trace. This is why it's important to catch specific exceptions and have a plan for handling unexpected exceptions.
-```
-
-Q4: How would you handle multiple possible exceptions in a single try block?
-
-```java
-try {
-    // Code that may throw different types of exceptions
-    String str = null;
-    System.out.println(str.length()); // Potential NullPointerException
-    int[] arr = new int[5];
-    arr[10] = 50; // Potential ArrayIndexOutOfBoundsException
-    } catch (NullPointerException e) {
-        System.out.println("Null pointer exception: " + e.getMessage());
-    } catch (ArrayIndexOutOfBoundsException e) {
-        System.out.println("Array index out of bounds: " + e.getMessage());
+static int quantityBroad(Map<String, String> form) {
+    try {
+        return Integer.parseInt(form.get("qty").strip());
     } catch (Exception e) {
-        System.out.println("Some other exception occurred: " + e.getMessage());
+        return 1;                                   // "bad input"
+    }
 }
 ```
 
-Q5: What is exception chaining and why is it useful?
+Outputs are from Java 21.
+
+## A catch Clause Catches Its Type and Every Subtype
+
+`quantityNarrow` is the same method with `catch (NumberFormatException e)`:
 
 ```text
-A5: Exception chaining, also known as exception wrapping, is a technique where an exception is caught and then wrapped inside another exception before being rethrown. This is useful for several reasons:
-1. It allows you to add context to the original exception.
-2. It preserves the original exception's stack trace.
-3. It enables you to create your own custom exceptions while still maintaining information about the root cause.
-
-Example of exception chaining:
-
-try {
-    // Some code that may throw an IOException
-} catch (IOException e) {
-    throw new CustomException("Error processing file", e);
-}
-
-In this example, the IOException is wrapped inside a CustomException, preserving the original exception as the cause.
+broad,  qty=3:      3
+broad,  qty=three:  1
+broad,  quantity=3: 1
+narrow, qty=three:  1
+narrow, quantity=3: java.lang.NullPointerException: Cannot invoke "String.strip()" because the return value of "java.util.Map.get(Object)" is null
 ```
+
+`catch (X e)` takes an `X` or any subclass of `X`. The author meant "whatever `parseInt` throws",
+but every checked exception and every `RuntimeException` is an `Exception`, so the `NullPointerException` from
+the missing field became a valid-looking quantity. The narrow catch lets the bug through, and the
+first order fails loudly.
+
+Around a `sleep` or a `Future.get`, `catch (Exception)` catches `InterruptedException`, whose
+throw has already cleared the interrupt flag, so code further up never learns the thread was asked
+to stop unless the catch restores it (unit 6.1.3). `StackOverflowError` and `OutOfMemoryError`
+extend `Error`, not `Exception`, so `catch (Exception)` lets them pass. `catch (Throwable)` takes
+them, and the thread runs on with whatever half-finished update the error interrupted.
+
+Catch the type you can handle, and let the rest reach code that reports it.
+
+<!-- practice 1 -->
+
+## A New Exception Without the Cause Loses the Failure It Replaces
+
+Two price-file loaders wrap the `IOException`; the second passes it as the cause:
+
+```java
+} catch (IOException e) {
+    throw new IllegalStateException("could not load prices");
+}
+// versus
+} catch (IOException e) {
+    throw new IllegalStateException("could not load prices from " + file, e);
+}
+```
+
+```text
+java.lang.IllegalStateException: could not load prices
+	at Prices.loadWithoutCause(Prices.java:13)
+	at Prices.main(Prices.java:28)
+---
+java.lang.IllegalStateException: could not load prices from prices-2026-11.csv
+	at Prices.loadWithCause(Prices.java:21)
+	at Prices.main(Prices.java:34)
+Caused by: java.nio.file.NoSuchFileException: prices-2026-11.csv
+	at java.base/sun.nio.fs.UnixException.translateToIOException(UnixException.java:92)
+	at java.base/sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:106)
+	at java.base/sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:111)
+	at java.base/sun.nio.fs.UnixFileSystemProvider.newByteChannel(UnixFileSystemProvider.java:261)
+	at java.base/java.nio.file.Files.newByteChannel(Files.java:380)
+	at java.base/java.nio.file.Files.newByteChannel(Files.java:432)
+	at java.base/java.nio.file.spi.FileSystemProvider.newInputStream(FileSystemProvider.java:420)
+	at java.base/java.nio.file.Files.newInputStream(Files.java:160)
+	at java.base/java.nio.file.Files.newBufferedReader(Files.java:2910)
+	at java.base/java.nio.file.Files.readAllLines(Files.java:3405)
+	at java.base/java.nio.file.Files.readAllLines(Files.java:3446)
+	at Prices.loadWithCause(Prices.java:19)
+	... 1 more
+```
+
+Without the cause, the trace ends in our code: which file, and whether it was missing or
+unreadable, is gone. `... 1 more` means the
+cause's remaining frames are the last frames of the enclosing exception's trace.
+
+Copying `e.getMessage()` into the new message keeps neither type nor trace; an empty catch keeps
+nothing. Rethrowing the same object, `throw e;`, keeps everything. A task's exception
+reaches `Future.get` as the cause of an `ExecutionException` (unit 6.4.2).
+
+## An Exception Thrown in a catch Block Replaces the One Being Handled
+
+A rates client reads from a primary source and falls back to a mirror:
+
+```java
+static String rates(Source primary, Source mirror) throws IOException {
+    try {
+        return primary.read("eur-usd");
+    } catch (IOException e) {
+        return mirror.read("eur-usd");              // may throw too
+    }
+}
+```
+
+The primary answers `401 Unauthorized` and the mirror times out. The caller prints what reaches
+it:
+
+```text
+java.io.IOException: mirror: connect timed out, suppressed: 0, cause: null
+```
+
+Java doesn't link a new exception to the one being handled, which only the variable `e` refers
+to; when the catch block throws, `e` is dropped. On-call chases a network timeout while
+the real fault is an expired key. Attaching the first failure keeps both:
+
+```java
+} catch (IOException e) {
+    try {
+        return mirror.read("eur-usd");
+    } catch (IOException fromMirror) {
+        fromMirror.addSuppressed(e);
+        throw fromMirror;
+    }
+}
+```
+
+Suppressed, not cause: the timeout didn't happen because of the 401.
+
+```text
+java.io.IOException: mirror: connect timed out
+	at Fallback.lambda$main$1(Fallback.java:30)
+	at Fallback.ratesKeepingBoth(Fallback.java:20)
+	at Fallback.main(Fallback.java:37)
+	Suppressed: java.io.IOException: primary: 401 Unauthorized
+		at Fallback.lambda$main$0(Fallback.java:29)
+		at Fallback.ratesKeepingBoth(Fallback.java:17)
+		... 1 more
+```
+
+A throwing `finally` block replaces an exception the same way (unit 3.1.3). Try-with-resources
+attaches the other way round: an exception from `close()` is suppressed into the body's
+(unit 3.1.4).
+
+<!-- practice 2 -->
+
+## The Stack Trace Is Recorded Where the Exception Is Created, Not Where It Is Thrown
+
+To save allocations, a catalog throws one shared instance for every unknown SKU:
+
+```java
+static final IllegalArgumentException UNKNOWN_SKU = new IllegalArgumentException("unknown SKU");
+
+static long price(String sku) {
+    if (!sku.startsWith("SKU-")) throw UNKNOWN_SKU;
+    return 100;
+}
+```
+
+A caller, `checkout("BOOK-17")`, calls `price` and prints what it catches:
+
+```text
+java.lang.IllegalArgumentException: unknown SKU
+	at Shared.<clinit>(Shared.java:4)
+```
+
+`Throwable`'s constructor calls `fillInStackTrace()`, which records the creating thread's stack;
+`throw` records nothing. `<clinit>` is the static initializer; neither `checkout` nor `price`
+appears. Calling `fillInStackTrace()` on the shared object before each throw walks the stack
+anyway, and overwrites the trace of an earlier failure still queued for the log. Create a new
+exception for each failure.
+
+> **The JIT can drop traces too.** HotSpot's `OmitStackTraceInFastThrow`, on by default, lets
+> compiled code throw a preallocated exception for some exceptions the JVM raises itself. In our
+> loop, after about 2,800 `NullPointerException`s from one line, the next had `message=null` and
+> no frames; with `-XX:-OmitStackTraceInFastThrow` all 100,000 kept their traces.
+
+## Throwing Costs Microseconds, Mostly the Stack Trace; a try That Doesn't Throw Costs Nothing
+
+We timed four parsers on 200,000 inputs, median of 7 rounds after warm-up, at the caller's depth
+and 100 frames deeper (the deep rows include the 100 calls to get there):
+
+```text
+extra stack depth   0
+  valid input, parseInt                6 ns
+  bad input, catch NFE               314 ns
+  bad input, check first               5 ns
+  bad input, no-trace exception       10 ns
+extra stack depth 100
+  valid input, parseInt               80 ns
+  bad input, catch NFE              2676 ns
+  bad input, check first              83 ns
+  bad input, no-trace exception       92 ns
+```
+
+A `try` adds no instruction: `javac` writes an exception table that the JVM reads only when
+something is thrown, so valid input costs what checking first does. A throw cost about 0.3 µs, and
+over 2 µs with 100 more frames to record, because filling in the trace walks the stack. An
+exception built with `writableStackTrace` set to `false` (a protected four-argument constructor)
+cost close to checking first.
+
+> **One machine, not JMH.** A hand-written loop: across three runs the deep
+> throw ranged from 2.1 to 2.7 µs. The ratios held in every run.
+
+At 100 frames deep, a thousand bad rows a second cost under 3 ms of CPU, and a million would keep
+more than two cores busy. Use exceptions for what the caller can't expect, and a return value for
+an outcome it can.
+
+<!-- practice 3 -->
+
+<!-- practice 4 -->
+
+## Summary
+
+- **A catch clause catches its type and every subtype.** `catch (Exception)` turns bugs and
+  interrupts into defaults.
+- **A new exception without the cause loses the failure it replaces.**
+- **An exception thrown in a catch block replaces the one being handled.** Attach the first with
+  `addSuppressed`.
+- **The stack trace is recorded at construction.** A shared exception reports where it was made.
+- **A throw costs microseconds, growing with stack depth.** A try that doesn't throw costs nothing.
+
+## Reference
+
+**What a catch clause takes (Java 21):**
+
+| Clause | Takes | Lets through |
+|---|---|---|
+| `catch (NumberFormatException e)` | it and its subclasses | `NullPointerException`, every checked exception |
+| `catch (Exception e)` | every `RuntimeException`, plus checked ones such as `IOException` and `InterruptedException` | `Error`s |
+| `catch (Throwable e)` | everything, `StackOverflowError` and `OutOfMemoryError` included | nothing |
+
+## Challenges
+
+1. A batch job must skip bad records but stop on bugs. Where does each `catch` go, and how does
+   it report what it skipped?
+2. A client library throws only `RuntimeException`, with the error in the message. How do you
+   recover from one case?
+3. Profile a service that validates with exceptions. Is `fillInStackTrace` in the top ten?
+
+## Design Note: Why the Trace Is Taken at Construction
+
+Recorded when the object is built, the trace travels with the exception: through a `Future`,
+inside a cause, into a later log. The price is a stack walk for every exception, read or not. A type
+that opts out, through the four-argument constructor or an overridden `fillInStackTrace()`, is cheap
+and leaves nothing to debug.
 
 ## Code Examples
 

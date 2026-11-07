@@ -18,374 +18,506 @@
       "text": "6.3.1. Reentrant Locks"
     },
     {
+      "type": "para",
+      "text": "At 02:10 the stock service stops answering. The thread dump shows forty request threads `WAITING` for the same `ReentrantLock`, and the lock's `toString()` names its owner: `[Locked by thread pool-1-thread-1]`. That thread sits idle in its pool, in `LinkedBlockingQueue.take()`, and the log says nothing about it."
+    },
+    {
+      "type": "para",
+      "text": "With `synchronized` (unit 6.2.1) this can't happen. `ReentrantLock`, from `java.util.concurrent.locks`, guards a critical section with the same memory visibility and adds a wait you can give up on, several conditions (wait sets) per lock, an optional fair queue, and methods that report who holds it. You write the locking and unlocking yourself, as method calls. Every output on this page comes from Java 21."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Nothing Releases a ReentrantLock but unlock(), So Unlock in finally"
+    },
+    {
+      "type": "para",
+      "text": "The stock service reserves like this:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static final ReentrantLock lock = new ReentrantLock();\n\nstatic void reserve(String sku, int qty) {\n    lock.lock();\n    int left = stock.getOrDefault(sku, 0);\n    if (left < qty) throw new IllegalStateException(\"only \" + left + \" of \" + sku + \" left\");\n    stock.put(sku, left - qty);\n    lock.unlock();\n}"
+    },
+    {
+      "type": "para",
+      "text": "A task on a one-thread pool asks for 5 mugs when 3 are left; the exception goes into a `Future` that nobody reads. Then we print the lock and the pool's thread, and another thread calls `reserve` for one mug. We repeat this with the body in a `synchronized` block, and last, a thread named `nightly-import` takes a lock and ends:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "java.util.concurrent.locks.ReentrantLock@5acf9800[Locked by thread pool-1-thread-1]\npool-1-thread-1 is WAITING in LinkedBlockingQueue.take()\nanother thread gets the lock within 1 s: false\nsynchronized, after the same exception: another thread gets in within 1 s: true\nnightly-import alive: false, java.util.concurrent.locks.ReentrantLock@65b54208[Locked by thread nightly-import]"
+    },
+    {
+      "type": "para",
+      "text": "The lock stayed with the pool thread after its task ended, and every later `reserve` waits for an `unlock()` that will never run. Even the terminated `nightly-import` still owns its lock."
+    },
+    {
+      "type": "para",
+      "text": "`synchronized` releases the monitor on every way out of the block, because the compiler writes the release. A `ReentrantLock` is an ordinary object that records an owner thread and a count, and nothing calls `unlock()` for you: not when an exception passes, not when the task ends, not when the thread dies. So the release goes in a `finally`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "lock.lock();\ntry {\n    int left = stock.getOrDefault(sku, 0);\n    if (left < qty) throw new IllegalStateException(\"only \" + left + \" of \" + sku + \" left\");\n    stock.put(sku, left - qty);\n} finally {\n    lock.unlock();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "the same failure, with the finally: java.util.concurrent.locks.ReentrantLock@6b884d57[Unlocked]"
+    },
+    {
+      "type": "para",
+      "text": "`lock()` goes before the `try`, so that the `finally` runs only once the lock is held."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "The Lock Counts Holds: One unlock() per lock(), by the Thread That Holds It"
     },
     {
       "type": "para",
-      "text": "Java's `java.util.concurrent.locks` package provides a more sophisticated and flexible locking mechanism than the built-in `synchronized` keyword. At the heart of this package sits the `Lock` interface and its most commonly used implementation: `ReentrantLock`."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of a `ReentrantLock` like a hotel master key card system. A synchronized block is like a simple door lock — anyone with the key can enter, but there's no way to query whether the door is locked, no ability to give up if you've been waiting too long, and no separate \"quiet hours\" waiting rooms. A `ReentrantLock` is like an advanced access-control system: you can check whether a door is currently locked, attempt entry with a timeout, ring a buzzer to be woken up from a designated waiting area when a room becomes free, and the same person can re-enter rooms they already hold a key for (reentrancy)."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "The Lock Interface"
-    },
-    {
-      "type": "para",
-      "text": "The `java.util.concurrent.locks.Lock` interface declares the core contract:"
+      "text": "A price import locks once for the whole batch and calls `apply` for each line, which locks the same lock again:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public interface Lock {\n    void lock();                          // Acquire the lock, blocking if necessary\n    void lockInterruptibly() throws InterruptedException;  // Acquire or respond to interruption\n    boolean tryLock();                    // Non-blocking attempt\n    boolean tryLock(long time, TimeUnit unit) throws InterruptedException;  // Timed attempt\n    void unlock();                        // Release the lock\n    Condition newCondition();             // Create a Condition object for this Lock\n}"
+      "text": "static void apply(String sku, int cents) {\n    lock.lock();\n    try {\n        System.out.println(\"  apply \" + sku + \": hold count \" + lock.getHoldCount());\n        prices.put(sku, cents);\n    } finally {\n        lock.unlock();\n    }\n}\n\nstatic void applyAll(Map<String, Integer> batch) {\n    lock.lock();\n    try {\n        System.out.println(\"applyAll: hold count \" + lock.getHoldCount());\n        batch.forEach(Holds::apply);\n        System.out.println(\"applyAll again: hold count \" + lock.getHoldCount());\n    } finally {\n        lock.unlock();\n    }\n    System.out.println(\"after applyAll: hold count \" + lock.getHoldCount() + \", locked \" + lock.isLocked());\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "applyAll: hold count 1\n  apply mug-blue: hold count 2\n  apply mug-red: hold count 2\napplyAll again: hold count 1\nafter applyAll: hold count 0, locked false"
+    },
+    {
+      "type": "para",
+      "text": "The thread that holds the lock gets it again at once, and the lock counts how many times: that is what *reentrant* means. Without it, `applyAll` would wait forever for a lock it holds itself. The lock is free when the count is back to zero. `synchronized` is reentrant in the same way."
     },
     {
       "type": "heading",
       "level": 3,
-      "text": "ReentrantLock Class"
-    },
-    {
-      "type": "para",
-      "text": "`ReentrantLock` is the standard implementation of `Lock`. The name \"reentrant\" means a thread that already holds the lock can acquire it again without blocking (avoiding self-deadlock). The lock maintains a **hold count**: each successful `lock()` call increments it; each `unlock()` decrements it. The lock is fully released only when the hold count drops to zero."
+      "text": "Spot the Problem: One Path Locks Twice"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "ReentrantLock lock = new ReentrantLock();        // Non-fair by default\nReentrantLock fairLock = new ReentrantLock(true); // Fair ordering (FIFO)"
+      "text": "static void applyWithDiscount(String sku, int cents, boolean discounted) {\n    lock.lock();\n    try {\n        if (discounted) {\n            lock.lock();                 // \"make sure we hold it\" before the discount\n            cents = cents * 90 / 100;\n        }\n        prices.put(sku, cents);\n    } finally {\n        lock.unlock();\n    }\n}"
     },
     {
       "type": "para",
-      "text": "**Fair vs. Non-Fair:**"
+      "text": "After each call, the caller's hold count and whether another thread can take the lock within a second:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "plain change:      hold count 0, other thread gets it: true\ndiscounted change: hold count 1, other thread gets it: false\nsame thread again: hold count 1 (it can always relock)"
+    },
+    {
+      "type": "para",
+      "text": "The discounted path locks twice and unlocks once, so its thread keeps one hold for good and every other thread waits. A test that makes all its calls from one thread passes, because the owner can always relock. Pair each `lock()` with its own `unlock()` in a `finally` of the same method."
+    },
+    {
+      "type": "para",
+      "text": "Only the thread that holds the lock can release it:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "unlock() from another thread: java.lang.IllegalMonitorStateException\nunlock() once too often: java.lang.IllegalMonitorStateException"
+    },
+    {
+      "type": "para",
+      "text": "So a lock can't be taken on a request thread and released by a callback on another thread. A permit that one thread takes and another gives back is a semaphore (unit 6.3.2)."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "lock() Waits Until It Gets the Lock; tryLock and lockInterruptibly Can Give Up"
+    },
+    {
+      "type": "para",
+      "text": "A thread called `price-refresh` holds the lock while it waits for a slow upstream service. Three threads ask for the lock in three ways, and each is interrupted while it waits:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "waiter(\"lock()\", ReentrantLock::lock);\nwaiter(\"lockInterruptibly()\", ReentrantLock::lockInterruptibly);\nwaiter(\"tryLock(10, SECONDS)\", l -> l.tryLock(10, TimeUnit.SECONDS));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lock()                     interrupted, 500 ms later: still waiting (WAITING)\n  lockInterruptibly(): InterruptedException after 0 ms\nlockInterruptibly()        interrupted, 500 ms later: gone\n  tryLock(10, SECONDS): InterruptedException after 0 ms\ntryLock(10, SECONDS)       interrupted, 500 ms later: gone"
+    },
+    {
+      "type": "para",
+      "text": "Then the main thread tries without waiting, and with a budget of 200 ms:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "tryLock():          false after 0 ms\ntryLock(200 ms):    false after 200 ms"
+    },
+    {
+      "type": "para",
+      "text": "(\"gone\" means the thread has ended.) `lock()` waits as long as it takes, like entering `synchronized`; an interrupt only sets the flag (unit 6.1.3), so a deploy that calls `shutdownNow()` can't move a thread out of it. `lockInterruptibly()` answers an interrupt with `InterruptedException`, without taking the lock. `tryLock(time, unit)` does the same, and also returns `false` when its time is up. `tryLock()` doesn't wait at all."
+    },
+    {
+      "type": "para",
+      "text": "A request with a two-second budget uses a timed `tryLock` and answers \"busy\" when it doesn't get the lock. A worker that a shutdown must be able to stop uses `lockInterruptibly()`. `lock()` fits waits that are always short."
+    },
+    {
+      "type": "para",
+      "text": "Here the code ignores the result of `tryLock`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "lock.tryLock(200, TimeUnit.MILLISECONDS);   // result ignored\ntry {\n    stock[0]--;\n} finally {\n    lock.unlock();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "result ignored: stock changed to 4, then unlock() threw java.lang.IllegalMonitorStateException"
+    },
+    {
+      "type": "para",
+      "text": "The critical section ran without the lock, beside the thread that held it, and then `unlock()` threw in place of whatever the method was going to return. Test the result before the `try`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "if (!lock.tryLock(200, TimeUnit.MILLISECONDS)) return Answer.BUSY;\ntry {\n    // ...\n    return Answer.DONE;\n} finally {\n    lock.unlock();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "checked, while price-refresh holds the lock: BUSY"
+    },
+    {
+      "type": "para",
+      "text": "`lockInterruptibly()` also goes before the `try`. Inside it, an interrupt while waiting runs the `finally`, and `unlock()` throws `IllegalMonitorStateException` in place of the `InterruptedException`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lockInterruptibly() inside try, interrupted: the caller sees java.lang.IllegalMonitorStateException"
+    },
+    {
+      "type": "para",
+      "text": "If the thread already holds the lock from an outer call, the caller gets its `InterruptedException`, but the stray `unlock()` silently takes away the outer hold:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "same, with an outer hold: InterruptedException, and the outer hold is gone: hold count 0"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Condition Gives Up the Lock While It Waits, So Check Again After await()"
+    },
+    {
+      "type": "para",
+      "text": "A `Condition` is a wait set that belongs to a lock, like `wait()` and `notify()` on a monitor (unit 6.2.1), and one lock can have several. A print queue keeps one for printers waiting for a job and one for clerks waiting for room:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "final ReentrantLock lock = new ReentrantLock();\nfinal Condition notEmpty = lock.newCondition();\nfinal Condition notFull = lock.newCondition();\nfinal Deque<String> jobs = new ArrayDeque<>();\nfinal int capacity = 100;\n\nvoid put(String job) throws InterruptedException {\n    lock.lock();\n    try {\n        while (jobs.size() == capacity) notFull.await();\n        jobs.addLast(job);\n        notEmpty.signal();\n    } finally {\n        lock.unlock();\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "`await()` must be called with the lock held. It releases all of the thread's holds, not just one, parks the thread, and takes them all back before it returns. Here thread A awaits from a nested call while another thread tries to take the lock:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A awaits with hold count 2; another thread's tryLock(1 s): true\nA's hold count when await() returned: 2"
+    },
+    {
+      "type": "para",
+      "text": "`signal()` wakes one thread waiting on that condition, `signalAll()` all of them. All three throw `IllegalMonitorStateException` in a thread that doesn't hold the lock."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Spot the Problem: if Around await()"
+    },
+    {
+      "type": "para",
+      "text": "A printer takes the next job like this:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String takeIf() throws InterruptedException {\n    lock.lock();\n    try {\n        if (jobs.isEmpty()) notEmpty.await();\n        String job = jobs.pollFirst();\n        notFull.signal();\n        return job;\n    } finally {\n        lock.unlock();\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "`printer-2` waits on an empty queue. A clerk puts `invoice-118.pdf` and signals. Before `printer-2` has the lock back, `printer-1` arrives and takes the job. The program forces that order, with `if` and then with `while`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "if   : printer-1 took invoice-118.pdf\nif   : printer-2 got null\nwhile: printer-1 took invoice-118.pdf\nwhile: printer-2 got (still waiting)"
+    },
+    {
+      "type": "para",
+      "text": "A signal says the state changed, not that it is what you wanted. Before the woken thread holds the lock again, any thread can take the lock and change the state, whatever the lock's fairness policy. The javadoc of `Condition` also allows a thread to wake with no signal at all, a *spurious wakeup*. With `while`, the woken thread checks again and goes back to waiting. With `if`, it carries on with `null`, and a printer sends that to the device."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Signal the Condition Its Waiters Wait On"
+    },
+    {
+      "type": "para",
+      "text": "`put` signals `notEmpty` and `takeIf` signals `notFull`, so each change wakes the side that can use it. Signal the other one and the waiter isn't woken. Here a job is added and `notFull` is signalled while a printer waits on `notEmpty`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "signalled notFull: printer alive true, jobs waiting [label-7.pdf]"
+    },
+    {
+      "type": "para",
+      "text": "With a single condition for both sides, `signal()` can wake a clerk when a printer was needed; the clerk finds the queue still full and waits again, and the signal is lost. Two clerks and two printers sharing one condition, a queue of capacity one, 2,000 items per thread, twenty runs each:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "one condition, signal()   : 20 of 20 runs stalled\none condition, signalAll(): 0 of 20 runs stalled"
+    },
+    {
+      "type": "para",
+      "text": "A single condition works only with `signalAll()`, which wakes every waiter so that one of them can go on."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Non-Fair Lock Lets a Newcomer Go First; a Fair Lock Queues, and Costs Throughput"
+    },
+    {
+      "type": "para",
+      "text": "A sync job holds the lock while it syncs a row, unlocks, and locks again for the next row, while a report thread waits in `lock()`. Three runs with the default lock, then three with `new ReentrantLock(true)`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "non-fair: the sync job relocked 166 times before the waiting report thread got in\nnon-fair: the sync job relocked 2,485 times before the waiting report thread got in\nnon-fair: the sync job relocked 1,593 times before the waiting report thread got in\nfair:     the sync job relocked 1 times before the waiting report thread got in\nfair:     the sync job relocked 1 times before the waiting report thread got in\nfair:     the sync job relocked 1 times before the waiting report thread got in"
+    },
+    {
+      "type": "para",
+      "text": "Waking the parked report thread takes time, and the default, non-fair lock doesn't hold the lock for it: a thread that asks in the meantime, here the sync job, takes it at once. This *barging* is why the default is fast: the lock goes to a running thread instead of staying idle. A fair lock hands it to the thread that has waited longest, so every handover costs a wake-up; the fair count is 1 because the sync job's first relock waited for the report thread. Four threads taking the same lock in a tight loop for one second:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "non-fair:  76,157,742 acquisitions in 1 s\nfair:       7,601,130 acquisitions in 1 s"
+    },
+    {
+      "type": "para",
+      "text": "Other runs (not shown) ranged from about seven to more than thirty times fewer. With non-fair, a waiter has no bound on how many newcomers go first; behind threads that hold the lock for seconds and keep coming back, it can wait for minutes."
+    },
+    {
+      "type": "para",
+      "text": "Keep the default, and keep the time the lock is held short. Use a fair lock when the wait of the unluckiest thread is what you are measured on. Even then, the untimed `tryLock()` takes a free lock while others wait, where `tryLock(0, TimeUnit.SECONDS)` respects the queue. One thread queued on a fair lock that was just released, a hundred times:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "fair lock, lock just released, a thread still queued: tryLock() went ahead of it 83/100, tryLock(0, SECONDS) went ahead of it 0/100"
+    },
+    {
+      "type": "para",
+      "text": "In the other 17 runs, the queued thread got the lock before `tryLock()` was called."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 5 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Read-Write Lock Lets Readers Share, but a Reader Can't Upgrade"
+    },
+    {
+      "type": "para",
+      "text": "A product catalog is read thousands of times for every change. A `ReentrantReadWriteLock` holds two locks: any number of threads can hold its read lock together, and its write lock excludes all other readers and writers. Two threads read while a writer tries:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "readers holding the read lock together: 2\na writer meanwhile: tryLock(200 ms) = false after 200 ms"
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Spot the Problem: Loading on a Miss"
+    },
+    {
+      "type": "para",
+      "text": "The catalog loads a missing entry when a read misses it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "rw.readLock().lock();\ntry {\n    if (catalog.get(\"sku-5120\") == null) {\n        rw.writeLock().lock();                    // load the missing entry\n        try {\n            catalog.put(\"sku-5120\", \"Saucer, white\");\n        } finally {\n            rw.writeLock().unlock();\n        }\n    }\n} finally {\n    rw.readLock().unlock();\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "read lock held, then writeLock().lock(): 1 s later WAITING, read holds 1, write locked false\nany other writer: tryLock(200 ms) = false\na new reader: tryLock(200 ms) = false"
+    },
+    {
+      "type": "para",
+      "text": "The write lock waits until every reader has left, including the thread asking for it, so it waits forever, and nothing detects it. Other writers can't get in, and in this implementation neither can new readers that call `readLock().lock()` or a timed `tryLock`: a reader that arrives while a writer waits at the head of the queue waits behind it, so that a stream of readers can't shut a writer out. Here one miss stops the whole catalog."
+    },
+    {
+      "type": "para",
+      "text": "There is no upgrade from read to write. Release the read lock, take the write lock, and look again before loading, because another thread may have loaded the entry in the gap. The other direction works: a thread that holds the write lock can take the read lock and then release the write lock, a *downgrade* with no gap for a writer:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "downgrade: write locked false, read holds 1"
+    },
+    {
+      "type": "para",
+      "text": "A read-write lock pays off when reads are long or many and writes are rare. It does more bookkeeping than a plain lock, so for short reads, measure first."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Non-fair** (default): Threads that just arrived can \"barge in\" before waiting threads. Higher throughput but potential starvation.",
-        "**Fair**: Longest-waiting thread gets the lock next. No starvation but lower throughput due to context switching."
+        "**Nothing releases a `ReentrantLock` but `unlock()`.** Lock before the `try`, unlock in the `finally`.",
+        "**The lock counts holds per thread.** One `unlock()` per `lock()`; only the owner can unlock.",
+        "**`lock()` waits through interrupts.** A timed `tryLock`, its result checked, gives a budget; `lockInterruptibly()` lets a shutdown stop the waiter.",
+        "**A `Condition` gives up the lock while it waits.** Wait in a `while` loop, and signal the condition the right side waits on.",
+        "**A non-fair lock lets newcomers go first.** That is its throughput; a fair lock serves waiters in order at several times the cost.",
+        "**A read-write lock lets readers share, but doesn't upgrade.** Release the read lock before taking the write lock."
       ]
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Explicit Locking and Unlocking"
+      "level": 2,
+      "text": "Reference"
     },
     {
       "type": "para",
-      "text": "The golden rule: **always release in a `finally` block**."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ReentrantLock lock = new ReentrantLock();\n\nlock.lock();\ntry {\n    // critical section\n} finally {\n    lock.unlock();  // MUST be in finally — or deadlock if an exception occurs\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Condition Objects"
-    },
-    {
-      "type": "para",
-      "text": "`Condition` objects (produced by `lock.newCondition()`) replace the `Object.wait() / notify() / notifyAll()` mechanism when using explicit locks. They allow threads to wait for specific state changes, with the crucial advantage that a single `Lock` can have **multiple distinct Conditions** — unlike `synchronized`, which has only one wait-set per monitor."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ReentrantLock lock = new ReentrantLock();\nCondition notEmpty = lock.newCondition();  // \"queue has items\" condition\nCondition notFull  = lock.newCondition();  // \"queue has space\" condition"
+      "text": "**Taking a `ReentrantLock` (Java 21):**"
     },
     {
       "type": "table",
       "headers": [
-        "Operation",
-        "`synchronized` equivalent"
+        "Call",
+        "If another thread holds the lock",
+        "On interrupt while waiting"
       ],
       "rows": [
         [
-          "`condition.await()`",
-          "`object.wait()`"
+          "`lock()`",
+          "waits until it gets it",
+          "keeps waiting; returns with the flag set"
         ],
         [
-          "`condition.signal()`",
-          "`object.notify()`"
+          "`lockInterruptibly()`",
+          "waits until it gets it",
+          "throws `InterruptedException`, doesn't take the lock"
         ],
         [
-          "`condition.signalAll()`",
-          "`object.notifyAll()`"
+          "`tryLock()`",
+          "returns `false` at once",
+          "doesn't wait"
+        ],
+        [
+          "`tryLock(time, unit)`",
+          "waits up to `time`, then returns `false`",
+          "throws `InterruptedException`"
+        ],
+        [
+          "`unlock()`",
+          "from a thread that doesn't hold it: `IllegalMonitorStateException`",
+          "—"
         ]
       ]
     },
     {
       "type": "para",
-      "text": "A thread calling `condition.await()` atomically releases the lock and suspends. When another thread calls `condition.signal()`, the waiting thread is re-awakened and must re-acquire the lock before returning from `await()`."
+      "text": "**What the lock reports:**"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Always unlock in `finally`**: Failure to unlock causes deadlock for every thread that tries to acquire afterwards.",
-        "**Reentrancy**: The owning thread can `lock()` multiple times; it must `unlock()` the same number of times.",
-        "**`tryLock()`** is non-blocking — use it to implement lock-ordering protocols or avoid deadlock.",
-        "**`lockInterruptibly()`** lets threads respond to `Thread.interrupt()` while waiting, unlike `synchronized`.",
-        "**Multiple Conditions per Lock**: Enables more fine-grained thread coordination than `synchronized`.",
-        "**Fairness is a trade-off**: Fair locks prevent starvation but reduce throughput; non-fair locks are faster but may starve low-priority threads.",
-        "**`getHoldCount()`** returns how many times the current thread has locked; useful for debugging.",
-        "**`isHeldByCurrentThread()`** and **`isLocked()`** provide diagnostic capabilities not possible with `synchronized`."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Virtual Threads (Project Loom, JEP 444)**: Virtual threads park efficiently when waiting on `ReentrantLock`, just like platform threads. The JVM ensures that a virtual thread blocked on a lock does not block its carrier (platform) thread. This makes `ReentrantLock` a better choice than `synchronized` for high-concurrency virtual thread scenarios in Java 21 (though from Java 24 `synchronized` is also non-pinning).",
-        "**Structured Concurrency (JEP 453, a preview API in Java 21)**: While structured concurrency uses `StructuredTaskScope`, locks can still be used inside scoped tasks to protect shared resources.",
-        "**`LockSupport.park`/`unpark`**: The underlying primitive that `ReentrantLock` and `Condition` use internally; understanding it helps with debugging thread dumps."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Method",
+        "Answers"
+      ],
+      "rows": [
         [
-          "**Forgetting to unlock (Deadlock)**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG — exception causes permanent deadlock\nlock.lock();\ndoSomethingThatMightThrow();\nlock.unlock(); // never reached if exception thrown\n\n// CORRECT\nlock.lock();\ntry {\n    doSomethingThatMightThrow();\n} finally {\n    lock.unlock();\n}"
-          }
+          "`getHoldCount()`",
+          "holds of the **current** thread (0 if it doesn't hold the lock)"
         ],
         [
-          "**Unlocking without locking (IllegalMonitorStateException)**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG — unlock called before lock\nReentrantLock lock = new ReentrantLock();\nlock.unlock(); // throws IllegalMonitorStateException\n\n// CORRECT — always pair lock() with unlock() in the same method/thread\nlock.lock();\ntry { /* ... */ } finally { lock.unlock(); }"
-          }
+          "`isLocked()`",
+          "whether any thread holds it"
         ],
         [
-          "**Using `tryLock()` but forgetting to check return value**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG — enters critical section even if lock not acquired\nlock.tryLock();\ntry { /* critical section */ } finally { lock.unlock(); }\n\n// CORRECT\nif (lock.tryLock()) {\n    try { /* critical section */ } finally { lock.unlock(); }\n} else {\n    // handle failed acquisition\n}"
-          }
-        ],
-        [
-          "**Calling `await()` without holding the lock**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG — will throw IllegalMonitorStateException\nCondition cond = lock.newCondition();\ncond.await(); // IllegalMonitorStateException\n\n// CORRECT — must hold the lock before calling await()\nlock.lock();\ntry {\n    while (!conditionMet()) {\n        cond.await();\n    }\n} finally {\n    lock.unlock();\n}"
-          }
-        ],
-        [
-          "**Spurious wakeups — not re-checking condition after `await()`**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG — using if instead of while\nlock.lock();\ntry {\n    if (queue.isEmpty()) condition.await(); // spurious wakeup: queue still empty\n    process(queue.take()); // NPE or wrong state\n} finally { lock.unlock(); }\n\n// CORRECT — always loop around await()\nlock.lock();\ntry {\n    while (queue.isEmpty()) condition.await();\n    process(queue.take());\n} finally { lock.unlock(); }"
-          }
-        ],
-        [
-          "**Using wrong condition's signal**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG — signaling \"notFull\" when you should signal \"notEmpty\"\nproducerCondition.signal(); // when you want to wake consumers\n\n// CORRECT — signal the condition whose waiting threads can now proceed\nconsumerCondition.signal(); // wake exactly one consumer"
-          }
+          "`toString()`",
+          "`[Unlocked]` or `[Locked by thread <name>]`"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
+    },
+    {
+      "type": "para",
+      "text": "These have no single answer."
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Prefer `synchronized` for simple, uncontended, short critical sections**: Simpler to read and the JVM can optimize it (lock elision, lock coarsening). Biased locking no longer applies: it was disabled by default in JDK 15 and removed in JDK 18.",
-        "**Choose `ReentrantLock` when you need**: timed or interruptible locking, `tryLock()`, multiple conditions, or fair ordering.",
-        "**Keep critical sections short**: Holding a lock for long increases contention.",
-        "**Use `tryLock(timeout)` to detect potential deadlock early** in production code.",
-        "**Prefer `signalAll()` over `signal()` when in doubt**: `signal()` is an optimization that requires careful reasoning; `signalAll()` is always safe.",
-        "**Use `ReadWriteLock` (specifically `ReentrantReadWriteLock`) when reads dominate writes**: Multiple readers can hold concurrently; a writer gets exclusive access.",
-        "**Document lock usage** in Javadoc: which methods acquire/release which locks."
+        "A cache refresh holds the lock for 800 ms every minute, and requests hold it for a few microseconds. Which acquisition method does each side use, and what does a request answer when it can't get the lock in time?",
+        "`applyAll` holds the lock for a whole batch so that readers never see half a batch. A batch of 50,000 lines takes two seconds. What do readers see during those two seconds, and how would you keep both the consistency and the response times?",
+        "Measure the print queue with one condition and `signalAll()` against two conditions and `signal()`: how many threads wake up per job with 50 printers and 2 clerks?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Reentrant lock count overflow**: The hold count is stored in an `int`; if a thread tries to enter more than `Integer.MAX_VALUE` times (pathologically recursive code), `lock()` throws `java.lang.Error(\"Maximum lock count exceeded\")` instead of silently overflowing. This is an error in design.",
-        "**Thread interruption during `lockInterruptibly()`**: The interrupted thread receives `InterruptedException` and does not acquire the lock — the lock state is clean.",
-        "**Condition `await()` with timeout**: Returns `false` if the timeout elapsed without signal; always check the return value.",
-        "**Condition `awaitUntil(Date)` and `awaitNanos(long)`**: More precise timing control; the current state of the condition still needs re-checking after return.",
-        "**Owner thread termination**: If a thread holding a `ReentrantLock` terminates without unlocking, the lock is **never released** (unlike `synchronized` which releases locks when a thread dies). This is a critical difference — `synchronized` cleanup is JVM-managed."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why Java Kept synchronized"
     },
     {
       "type": "para",
-      "text": "Interviewers focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Ability to compare `ReentrantLock` vs. `synchronized` — when to use each.",
-        "Understanding of what \"reentrant\" means and why it matters.",
-        "Correct lock-unlock pattern (always `finally`).",
-        "Understanding `Condition` objects and the spurious-wakeup problem.",
-        "Knowledge of fair vs. non-fair locks and the performance trade-off.",
-        "Impact of virtual threads (Java 21) on locking strategies."
-      ]
+      "text": "Java 5 added `ReentrantLock` beside `synchronized`, because a block of the language can't offer a lock wait with a timeout, a lock wait that answers an interrupt, an unlock in a different method from the lock, several conditions per lock, or a choice of fairness. Each of those is a method call, and a forgotten call is a bug the compiler doesn't see; `synchronized` can't leak a monitor, unlock twice or be released by the wrong thread."
     },
     {
       "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What happens if a thread holding a `ReentrantLock` throws an exception?\"",
-        "\"Why does `await()` require holding the lock?\"",
-        "\"When would you use `signal()` vs. `signalAll()`?\"",
-        "\"What is a spurious wakeup and how do you handle it?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the difference between `synchronized` and `ReentrantLock`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Both provide mutual exclusion, but ReentrantLock offers significantly more flexibility:\n\nFeature Comparison:\n1. Interruptibility: lockInterruptibly() can be interrupted while waiting; synchronized cannot.\n2. Timeout: tryLock(time, unit) gives up after a timeout; synchronized blocks indefinitely.\n3. Non-blocking try: tryLock() returns immediately with false if locked; no equivalent in synchronized.\n4. Multiple Conditions: One ReentrantLock can have many named Condition objects; synchronized has one wait-set.\n5. Fairness: ReentrantLock(true) ensures FIFO ordering; synchronized has no fairness guarantee.\n6. Diagnostics: isLocked(), isHeldByCurrentThread(), getQueueLength() aid debugging; synchronized has no such API.\n7. Scope: synchronized auto-releases on scope exit; ReentrantLock requires explicit unlock (risk and flexibility).\n\nWhen to choose synchronized:\n- Simple short critical sections\n- Readability is paramount\n- Virtual threads on Java 24+ (JEP 491: synchronized no longer pins carrier threads there; on Java 21 it can pin)\n- No need for Condition variables or timeouts\n\nWhen to choose ReentrantLock:\n- Need timed lock acquisition to avoid deadlocks\n- Need interruptible lock waiting\n- Need multiple Condition variables (e.g., producer/consumer queue)\n- Need tryLock() for lock-ordering protocols\n- Need fair scheduling to prevent starvation"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// synchronized version\npublic synchronized void incrementSync() {\n    count++;\n}\n\n// ReentrantLock version — equivalent but more powerful options available\nprivate final ReentrantLock lock = new ReentrantLock();\n\npublic void incrementLock() {\n    lock.lock();\n    try {\n        count++;\n    } finally {\n        lock.unlock();\n    }\n}\n\n// tryLock() — impossible with synchronized\npublic boolean tryIncrement() {\n    if (lock.tryLock()) {\n        try {\n            count++;\n            return true;\n        } finally {\n            lock.unlock();\n        }\n    }\n    return false; // lock was not available\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What does \"reentrant\" mean and why is it important?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: \"Reentrant\" (also called \"recursive\") means that a thread which already holds the lock can acquire it again\nwithout blocking itself. The lock maintains a hold count:\n- Each lock() call by the owning thread increments the count.\n- Each unlock() decrements the count.\n- The lock is fully released only when the count reaches zero.\n\nWhy it matters:\n1. Avoids self-deadlock in recursive algorithms or methods calling other synchronized methods.\n2. Allows refactoring: you can safely call synchronized methods from within other synchronized methods on the same lock.\n3. Simplifies implementation of complex data structures where helper methods also need the lock.\n\nNote: synchronized in Java is also reentrant — the same thread can enter nested synchronized(sameObject) blocks."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class ReentrantExample {\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public void outer() {\n        lock.lock();\n        try {\n            System.out.println(\"Hold count in outer: \" + lock.getHoldCount()); // 1\n            inner(); // safe — same thread re-acquires\n            System.out.println(\"Hold count back in outer: \" + lock.getHoldCount()); // 1\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    public void inner() {\n        lock.lock(); // NOT a deadlock — same thread re-enters\n        try {\n            System.out.println(\"Hold count in inner: \" + lock.getHoldCount()); // 2\n        } finally {\n            lock.unlock(); // hold count goes back to 1\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How do Condition objects work and how do they compare to wait/notify?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Condition objects are produced by Lock.newCondition(). They provide per-lock wait-sets analogous to\nObject.wait()/notify(), but with two major advantages:\n\n1. Multiple conditions per lock: A single lock can have N Condition objects, each with its own wait queue.\n   This allows precise thread notification (e.g., wake only consumers, not producers).\n2. More API options: awaitUntil(), awaitNanos(), await(time, unit), awaitUninterruptibly().\n\nCorrespondences:\n  Object.wait()       → condition.await()\n  Object.notify()     → condition.signal()\n  Object.notifyAll()  → condition.signalAll()\n\nProtocol (identical to wait/notify):\n1. Acquire the lock before calling await()/signal().\n2. Check the predicate in a loop (spurious wakeups can occur).\n3. Call signal() or signalAll() when the predicate may have changed.\n4. Release the lock (await() does this atomically; finally block for the rest).\n\nSpurious wakeups: A thread may return from await() without signal() being called.\nAlways guard with while(!condition) { await(); }, never if(!condition) { await(); }."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class BoundedQueue<T> {\n    private final Queue<T> queue = new LinkedList<>();\n    private final int capacity;\n    private final ReentrantLock lock = new ReentrantLock();\n    private final Condition notFull  = lock.newCondition();\n    private final Condition notEmpty = lock.newCondition();\n\n    public BoundedQueue(int capacity) { this.capacity = capacity; }\n\n    public void put(T item) throws InterruptedException {\n        lock.lock();\n        try {\n            while (queue.size() == capacity) {\n                notFull.await(); // wait until space available (loop handles spurious wakeups)\n            }\n            queue.offer(item);\n            notEmpty.signal(); // wake one consumer\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    public T take() throws InterruptedException {\n        lock.lock();\n        try {\n            while (queue.isEmpty()) {\n                notEmpty.await(); // wait until item available\n            }\n            T item = queue.poll();\n            notFull.signal(); // wake one producer\n            return item;\n        } finally {\n            lock.unlock();\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: When would you choose a fair ReentrantLock over a non-fair one?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Fairness controls the lock acquisition order when multiple threads are waiting.\n\nNon-fair (default):\n- A thread that just called lock() may acquire it before threads that have been waiting longer (\"barging\").\n- Higher overall throughput because the JVM avoids expensive context switches to specific waiting threads.\n- Risk of starvation: a low-priority thread could wait indefinitely if high-throughput threads keep barging.\n\nFair:\n- Threads acquire the lock in FIFO order of their wait start times.\n- No starvation — every thread is guaranteed to eventually acquire the lock.\n- Lower throughput due to mandatory context-switching overhead.\n\nWhen to use fair locking:\n- Long-running tasks where starvation is unacceptable (e.g., request processing with SLA requirements).\n- Systems where equitable distribution of lock access matters more than raw throughput.\n- Rate-limiting or time-sensitive scenarios.\n\nBenchmark note: Non-fair can outperform fair by 5-10x in high-contention benchmarks.\nThe difference diminishes in low-contention scenarios."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Non-fair (default) — optimal for high-throughput scenarios\nReentrantLock highThroughputLock = new ReentrantLock();\n\n// Fair — guarantees FIFO acquisition, prevents starvation\nReentrantLock fairLock = new ReentrantLock(true);\n\n// Checking fairness\nSystem.out.println(\"Is fair: \" + fairLock.isFair()); // true\nSystem.out.println(\"Queue length: \" + fairLock.getQueueLength()); // threads waiting"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is the difference between `lock()`, `tryLock()`, and `lockInterruptibly()`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: The three acquisition methods differ in how they handle unavailability of the lock:\n\nlock():\n- Blocks indefinitely until the lock is acquired.\n- Ignores thread interruption (thread.interrupt() has no effect while waiting).\n- Use when: lock must always be acquired, and waiting indefinitely is acceptable.\n\ntryLock():\n- Returns immediately — true if acquired, false if not.\n- Timed variant: tryLock(time, unit) waits up to the specified time, then returns false.\n- Can respond to interruption if using timed form.\n- Use when: you want to avoid blocking, or need to implement lock-ordering to prevent deadlocks.\n\nlockInterruptibly():\n- Blocks like lock(), but can be interrupted via Thread.interrupt().\n- Throws InterruptedException if the thread is interrupted while waiting.\n- Use when: threads should be able to cancel lock-waiting operations (e.g., in response to shutdown).\n\nOrder of preference based on scenario:\n- Simple mutual exclusion: lock() in try-finally\n- Deadlock avoidance: tryLock() with backoff\n- Cancellable operations: lockInterruptibly()"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class LockAcquisitionStrategies {\n    private final ReentrantLock lock = new ReentrantLock();\n\n    // Strategy 1: Always acquire (blocking)\n    public void alwaysAcquire() {\n        lock.lock();\n        try { /* critical section */ }\n        finally { lock.unlock(); }\n    }\n\n    // Strategy 2: Non-blocking try\n    public boolean tryAcquire() {\n        if (lock.tryLock()) {\n            try { /* critical section */ return true; }\n            finally { lock.unlock(); }\n        }\n        return false; // couldn't acquire\n    }\n\n    // Strategy 3: Timed try — deadlock prevention\n    public boolean timedAcquire(long ms) throws InterruptedException {\n        if (lock.tryLock(ms, TimeUnit.MILLISECONDS)) {\n            try { /* critical section */ return true; }\n            finally { lock.unlock(); }\n        }\n        return false; // timed out\n    }\n\n    // Strategy 4: Interruptible — supports cancellation\n    public void interruptibleAcquire() throws InterruptedException {\n        lock.lockInterruptibly();\n        try { /* critical section */ }\n        finally { lock.unlock(); }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How does ReentrantLock interact with virtual threads in Java 21?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Virtual threads (Project Loom, Java 21) are lightweight threads managed by the JVM. They are mounted on\ncarrier (platform OS) threads when running and unmounted (parked) when blocking.\n\nKey point for Java 21: When a virtual thread blocks on ReentrantLock.lock(), it unmounts from its carrier\nthread. The carrier thread is free to run other virtual threads. This is exactly what makes virtual threads\nscale to millions — blocking I/O and locking don't consume carrier threads.\n\nJava 21 vs. synchronized:\n- In Java 21, synchronized blocks can cause virtual thread \"pinning\": the virtual thread stays mounted on\n  its carrier thread while blocked, tying up that carrier. This is a temporary JVM limitation being addressed.\n- In Java 24 (JEP 491), synchronized no longer pins — but for Java 21 production code, ReentrantLock is\n  recommended when lock contention is expected in virtual thread contexts.\n\nImplication: Library code and frameworks using synchronized may prevent the scalability benefits of virtual\nthreads. Lock-based code (ReentrantLock) works correctly with virtual threads immediately."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Java 21 — virtual thread + ReentrantLock (correct, no pinning)\nReentrantLock lock = new ReentrantLock();\n\nThread.ofVirtual().start(() -> {\n    lock.lock(); // virtual thread unmounts, carrier is freed for others\n    try {\n        Thread.sleep(Duration.ofMillis(100)); // IO-like wait\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    } finally {\n        lock.unlock();\n    }\n});\n\n// Java 21 — synchronized (may pin virtual thread to carrier)\nsynchronized (this) { // potential pinning in Java 21\n    Thread.sleep(100); // blocks carrier thread\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q7: How do you implement a thread-safe counter with optional timeout using ReentrantLock?**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class TimedCounter {\n    private long count = 0;\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public boolean increment(long timeoutMs) throws InterruptedException {\n        if (lock.tryLock(timeoutMs, TimeUnit.MILLISECONDS)) {\n            try {\n                count++;\n                return true;\n            } finally {\n                lock.unlock();\n            }\n        }\n        return false; // could not acquire within timeout\n    }\n\n    public long getCount() {\n        lock.lock();\n        try {\n            return count;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    // Diagnostic methods\n    public boolean isContended() {\n        return lock.hasQueuedThreads();\n    }\n\n    public int getWaiterCount() {\n        return lock.getQueueLength();\n    }\n}"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A7: The pattern above demonstrates:\n1. tryLock(timeout) for bounded waiting — prevents indefinite blocking.\n2. Always unlock in finally — ensures lock is released even on exception.\n3. Diagnostic methods (hasQueuedThreads, getQueueLength) — available only with ReentrantLock.\n4. Timed operations integrate well with SLA-driven systems where hard timeouts are required.\n\nWhen increment() returns false, the caller knows the counter is under high contention and can decide\nwhether to retry, log, or fail gracefully — a design choice impossible with synchronized."
+      "text": "For a short critical section with none of those needs, `synchronized` is the safer choice and reads better. When you need one of them, use `ReentrantLock`, and write the release yourself in every method that locks."
     },
     {
       "type": "heading",
@@ -409,17 +541,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 14,
-    "paras": 17,
-    "code": 18,
-    "tables": 1,
-    "lists": 9,
+    "headings": 16,
+    "paras": 45,
+    "code": 31,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 5,
     "disclosures": 0
   },
-  "content_sha256": "1acf3348d5a6dc55fc779758f91940ce827889f9b7d0167d392c4753768aa3d4"
+  "content_sha256": "200844c5bf07c65d2bcb3cb29610cab55f2194f4fd1077de32362f6819668910"
 }

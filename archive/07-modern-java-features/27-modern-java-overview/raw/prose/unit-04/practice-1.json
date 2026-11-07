@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Roll dice with any RandomGenerator",
+  "title": "Keep the debug dump working on Java 17",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Java 17's `RandomGenerator` (JEP 356) is the common interface of every random number generator: `Random`, `SecureRandom`, `SplittableRandom`, `ThreadLocalRandom` and the new algorithms from `RandomGeneratorFactory`. The page's advice: **take a `RandomGenerator` as the parameter type**, so callers choose the algorithm, and a seeded one in tests. Its `ints(count, origin, bound)` streams `count` values from `origin` (inclusive) to `bound` (**exclusive**), and the page's edge cases say a **negative count** throws `IllegalArgumentException`."
+      "text": "The support team's `/debug/dump` endpoint shows the instance fields of whatever object an engineer points it at. Since the service moved to Java 17, pointing it at a JDK object, such as the `ArrayBlockingQueue` behind the job scheduler, makes the endpoint answer 500, and the engineer gets nothing at all."
     },
     {
       "type": "para",
-      "text": "Write `Dice.roll(RandomGenerator rng, int count, int sides)`. It returns `count` rolls of a die with faces `1` to `sides` (inclusive), drawn from **`rng`**."
+      "text": "`FieldDump.dump(...)` already walks the fields. Finish the `TODO` in `src/main/java/practice/FieldDump.java`: `read(field, target)` returns the field's value as text, or `FieldDump.HIDDEN` when the JVM won't let the dump read it."
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`roll(new Random(7), 3, 6)`",
-          "three values, each from 1 to 6"
-        ],
-        [
-          "`roll(RandomGeneratorFactory.of(\"L64X128MixRandom\").create(42), 1000, 6)`",
-          "1000 values, among which both 1 and 6 appear"
-        ],
-        [
-          "`roll(new SplittableRandom(1), 0, 6)`",
-          "`[]`"
-        ],
-        [
-          "`roll(new Random(7), -1, 6)`",
-          "throws `IllegalArgumentException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, the service's own objects show every field, private ones included; a JDK object shows whatever the JVM lets it read and `<hidden>` for the rest; and no object makes the dump fail. The tests run without any `--add-opens` option. About five lines."
     },
     {
       "type": "heading",
@@ -63,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.random.RandomGenerator;\n\npublic final class Dice {\n\n    private Dice() {\n    }\n\n    /** {@code count} rolls from 1 to {@code sides}, drawn from {@code rng}. */\n    public static List<Integer> roll(RandomGenerator rng, int count, int sides) {\n        return rng.ints(count, 1, sides + 1).boxed().toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Backs the support team's /debug/dump endpoint: it shows the instance fields of whatever object\n * the support engineer points it at, the service's own objects and the JDK objects they hold.\n */\npublic class FieldDump {\n\n    /** What the dump shows for a field the JVM won't let it read. */\n    public static final String HIDDEN = \"<hidden>\";\n\n    /** Every instance field declared by the object's class, by name, with its value as text. */\n    public static Map<String, String> dump(Object target) {\n        Map<String, String> fields = new TreeMap<>();\n        for (Field field : target.getClass().getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) continue;\n            fields.put(field.getName(), read(field, target));\n        }\n        return fields;\n    }\n\n    /** The field's value in target as text, or HIDDEN when the JVM won't let the dump read it. */\n    static String read(Field field, Object target) {\n        if (!field.trySetAccessible()) return HIDDEN;\n        try {\n            return String.valueOf(field.get(target));\n        } catch (IllegalAccessException e) {\n            return HIDDEN;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.random.RandomGenerator;\n\npublic final class Dice {\n\n    private Dice() {\n    }\n\n    /** {@code count} rolls from 1 to {@code sides}, drawn from {@code rng}. */\n    public static List<Integer> roll(RandomGenerator rng, int count, int sides) {\n        throw new UnsupportedOperationException(\"write roll\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Backs the support team's /debug/dump endpoint: it shows the instance fields of whatever object\n * the support engineer points it at, the service's own objects and the JDK objects they hold.\n */\npublic class FieldDump {\n\n    /** What the dump shows for a field the JVM won't let it read. */\n    public static final String HIDDEN = \"<hidden>\";\n\n    /** Every instance field declared by the object's class, by name, with its value as text. */\n    public static Map<String, String> dump(Object target) {\n        Map<String, String> fields = new TreeMap<>();\n        for (Field field : target.getClass().getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) continue;\n            fields.put(field.getName(), read(field, target));\n        }\n        return fields;\n    }\n\n    /**\n     * The field's value in target as text, or HIDDEN when the JVM won't let the dump read it.\n     * TODO: read the field, private ones included, without letting a refusal reach the caller.\n     */\n    static String read(Field field, Object target) {\n        throw new IllegalStateException(\"TODO: read the field, or return HIDDEN\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -83,9 +62,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -94,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5b733f4942be5d200c83683895954f9895be4b958eca7c8e5dba09b6ae96edec",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.random.RandomGenerator;\n\npublic final class Dice {\n\n    private Dice() {\n    }\n\n    /** {@code count} rolls from 1 to {@code sides}, drawn from {@code rng}. */\n    public static List<Integer> roll(RandomGenerator rng, int count, int sides) {\n        throw new UnsupportedOperationException(\"write roll\");\n    }\n}\n",
+  "content_sha256": "16cff0c06d52f4467e30c5490a6b5f678e829d21e22d762611f73041fab7c5cc",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Backs the support team's /debug/dump endpoint: it shows the instance fields of whatever object\n * the support engineer points it at, the service's own objects and the JDK objects they hold.\n */\npublic class FieldDump {\n\n    /** What the dump shows for a field the JVM won't let it read. */\n    public static final String HIDDEN = \"<hidden>\";\n\n    /** Every instance field declared by the object's class, by name, with its value as text. */\n    public static Map<String, String> dump(Object target) {\n        Map<String, String> fields = new TreeMap<>();\n        for (Field field : target.getClass().getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) continue;\n            fields.put(field.getName(), read(field, target));\n        }\n        return fields;\n    }\n\n    /**\n     * The field's value in target as text, or HIDDEN when the JVM won't let the dump read it.\n     * TODO: read the field, private ones included, without letting a refusal reach the caller.\n     */\n    static String read(Field field, Object target) {\n        throw new IllegalStateException(\"TODO: read the field, or return HIDDEN\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-04/practice-1/src/main/java/practice/Dice.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-04/practice-1/src/test/java/practice/DiceTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-04/practice-1/src/main/java/practice/FieldDump.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-04/practice-1/src/test/java/practice/FieldDumpTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,24 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DiceTest#rollsWithEveryKindOfGenerator",
+        "id": "practice.FieldDumpTest#dumpsThePrivateFieldsOfTheServicesOwnObjects",
         "kind": "main",
-        "says": "Random, SplittableRandom and a factory-made generator all give the requested number of rolls, each between 1 and sides."
+        "says": "the service's own objects are dumped with every instance field, private ones included"
       },
       {
-        "id": "practice.DiceTest#usesTheGivenGenerator",
+        "id": "practice.FieldDumpTest#aJdkObjectsPrivateFieldsShowAsHiddenInsteadOfFailingTheDump",
         "kind": "edge",
-        "says": "Two generators with the same seed give the same rolls, the ones that generator's own ints() would give."
+        "says": "a JDK object whose private fields the JVM won't open is dumped with every field hidden, and the dump doesn't fail"
       },
       {
-        "id": "practice.DiceTest#topFaceComesUp",
+        "id": "practice.FieldDumpTest#aJdkObjectsPublicFieldsAreStillRead",
         "kind": "edge",
-        "says": "Over many rolls both 1 and the top face come up."
-      },
-      {
-        "id": "practice.DiceTest#negativeCountIsRefused",
-        "kind": "edge",
-        "says": "A negative number of rolls throws IllegalArgumentException."
+        "says": "the public fields of a JDK class are read and shown; only its non-public ones are hidden"
       }
     ],
     "report": {
@@ -145,11 +119,12 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.4.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "Open One Package by Name, or Stop Reaching Inside"
     },
     "concepts": [
-      "ints(count, origin, bound) streams count values from origin inclusive to bound exclusive, and a negative count throws IllegalArgumentException.",
-      "RandomGenerator is the common interface of Random, SecureRandom, SplittableRandom, ThreadLocalRandom and the new algorithms, so an API takes it as its parameter type."
+      "From Java 17, setAccessible(true) on a private member of a JDK package that is not opened throws InaccessibleObjectException, and trySetAccessible() returns false instead.",
+      "InaccessibleObjectException is unchecked and not a SecurityException, so reflective code that catches SecurityException and IllegalAccessException lets it through.",
+      "Strong encapsulation closes the private members of JDK packages; public members of exported packages stay reachable by reflection."
     ]
   }
 }

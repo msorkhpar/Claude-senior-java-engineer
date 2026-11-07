@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Find the methods javac added to a class",
+  "title": "Route chat commands through a table filed by hash code",
   "blocks": [
     {
       "type": "heading",
@@ -19,49 +19,27 @@
     },
     {
       "type": "para",
-      "text": "javac adds methods the source never shows. A **bridge method** keeps overriding working after type erasure or a covariant return: for `class Upper implements Transformer<String>` it adds `Object transform(Object)`, which casts and calls `String transform(String)`. A bridge is flagged both *bridge* and *synthetic*. A lambda body becomes a private method such as `lambda$greeting$0`, which is **synthetic but not a bridge**."
+      "text": "The team's chat-ops bot reads a command from each message and runs it. Its `CommandTable` turns the typed name into the command's position, which `reply` switches on. The table files commands by `hashCode()` when it is built, and the admin page that lists those groups has to keep working, so `byHash` stays."
     },
     {
       "type": "para",
-      "text": "Write `Bridges` with two methods over a class's **declared** methods, each method written as `ReturnType name(Param1, Param2)` with simple type names, in any order:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/CommandTable.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`bridgesOf(type)`: the bridge methods only.",
-        "`sourceMethodsOf(type)`: the methods the source declares, leaving out **every synthetic method**."
+        "`file(command)`: put a command into `byHash` while the table is built;",
+        "`indexOf(name)`: the typed name's position in the command list, or `-1` when it is no command."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "class",
-        "`bridgesOf`",
-        "`sourceMethodsOf`"
-      ],
-      "rows": [
-        [
-          "`Upper implements Transformer<String>`",
-          "`Object transform(Object)`",
-          "`String transform(String)`"
-        ],
-        [
-          "`Word implements Comparable<Word>`",
-          "`int compareTo(Object)`",
-          "`int compareTo(Word)`"
-        ],
-        [
-          "`Circle extends Shape`, overriding `Shape copy()` as `Circle copy()`",
-          "`Shape copy()`",
-          "`Circle copy()`"
-        ],
-        [
-          "`Greeter` with `Supplier<String> greeting()` returning a lambda",
-          "none",
-          "`Supplier greeting()`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, every command the table was built with is found at its own position, any other name is unknown, and a message with no command text (`indexOf(null)`) is unknown too, not an error. About twelve lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests build their tables from their own command names, and type each name as a new `String`."
     },
     {
       "type": "heading",
@@ -76,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.Arrays;\nimport java.util.List;\nimport java.util.function.Predicate;\nimport java.util.stream.Collectors;\n\npublic final class Bridges {\n\n    private Bridges() {\n    }\n\n    /** The bridge methods {@code type} declares, as \"ReturnType name(Param, ...)\", in any order. */\n    public static List<String> bridgesOf(Class<?> type) {\n        return describe(type, Method::isBridge);\n    }\n\n    /** The methods the source of {@code type} declares (no synthetic ones), in the same form. */\n    public static List<String> sourceMethodsOf(Class<?> type) {\n        return describe(type, m -> !m.isSynthetic());\n    }\n\n    private static List<String> describe(Class<?> type, Predicate<Method> keep) {\n        return Arrays.stream(type.getDeclaredMethods())\n                .filter(keep)\n                .map(m -> m.getReturnType().getSimpleName() + \" \" + m.getName() + \"(\"\n                        + Arrays.stream(m.getParameterTypes()).map(Class::getSimpleName)\n                                .collect(Collectors.joining(\", \")) + \")\")\n                .toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The chat-ops bot's command table. Commands are filed by their hashCode() when the table is\n * built, and indexOf turns a typed name into the command's position, which the bot switches on.\n */\npublic final class CommandTable {\n\n    private final List<String> commands;\n    private final Map<Integer, List<String>> byHash = new HashMap<>();\n\n    public CommandTable(String... commands) {\n        this.commands = List.of(commands);\n        for (String command : commands) {\n            file(command);\n        }\n    }\n\n    // Files one command in byHash, under its hashCode(), so indexOf can find it.\n    void file(String command) {\n        byHash.computeIfAbsent(command.hashCode(), h -> new ArrayList<>()).add(command);\n    }\n\n    // The command's position in the list given to the constructor, or -1 when the typed name\n    // is not a command. Looks the name up in byHash.\n    public int indexOf(String name) {\n        if (name == null) {\n            return -1;\n        }\n        List<String> filed = byHash.get(name.hashCode());\n        if (filed == null) {\n            return -1;\n        }\n        for (String command : filed) {\n            if (command.equals(name)) {\n                return commands.indexOf(command);\n            }\n        }\n        return -1;\n    }\n\n    /** What the bot replies to a typed command. */\n    public String reply(String typed) {\n        return switch (indexOf(typed)) {\n            case -1 -> \"unknown command: \" + typed;\n            default -> \"running \" + commands.get(indexOf(typed));\n        };\n    }\n}\n"
         }
       ]
     },
@@ -88,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Bridges {\n\n    private Bridges() {\n    }\n\n    /** The bridge methods {@code type} declares, as \"ReturnType name(Param, ...)\", in any order. */\n    public static List<String> bridgesOf(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The methods the source of {@code type} declares (no synthetic ones), in the same form. */\n    public static List<String> sourceMethodsOf(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The chat-ops bot's command table. Commands are filed by their hashCode() when the table is\n * built, and indexOf turns a typed name into the command's position, which the bot switches on.\n */\npublic final class CommandTable {\n\n    private final List<String> commands;\n    private final Map<Integer, List<String>> byHash = new HashMap<>();\n\n    public CommandTable(String... commands) {\n        this.commands = List.of(commands);\n        for (String command : commands) {\n            file(command);\n        }\n    }\n\n    // TODO: file one command in byHash, under its hashCode(), so indexOf can find it.\n    void file(String command) {\n        throw new IllegalStateException(\"TODO: file\");\n    }\n\n    // TODO: the command's position in the list given to the constructor, or -1 when the typed name\n    // is not a command. Looks the name up in byHash.\n    public int indexOf(String name) {\n        throw new IllegalStateException(\"TODO: indexOf\");\n    }\n\n    /** What the bot replies to a typed command. */\n    public String reply(String typed) {\n        return switch (indexOf(typed)) {\n            case -1 -> \"unknown command: \" + typed;\n            default -> \"running \" + commands.get(indexOf(typed));\n        };\n    }\n}\n"
     }
   ],
   "video": null,
@@ -96,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -107,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e583e53d634dfe92de05938f2a1bef9cd072ab330a405e8d4b51b2153936c251",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Bridges {\n\n    private Bridges() {\n    }\n\n    /** The bridge methods {@code type} declares, as \"ReturnType name(Param, ...)\", in any order. */\n    public static List<String> bridgesOf(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The methods the source of {@code type} declares (no synthetic ones), in the same form. */\n    public static List<String> sourceMethodsOf(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "b8d8fed743a00cfa655da09d42910526c88a04e11b98b41609b94f900bc9468b",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The chat-ops bot's command table. Commands are filed by their hashCode() when the table is\n * built, and indexOf turns a typed name into the command's position, which the bot switches on.\n */\npublic final class CommandTable {\n\n    private final List<String> commands;\n    private final Map<Integer, List<String>> byHash = new HashMap<>();\n\n    public CommandTable(String... commands) {\n        this.commands = List.of(commands);\n        for (String command : commands) {\n            file(command);\n        }\n    }\n\n    // TODO: file one command in byHash, under its hashCode(), so indexOf can find it.\n    void file(String command) {\n        throw new IllegalStateException(\"TODO: file\");\n    }\n\n    // TODO: the command's position in the list given to the constructor, or -1 when the typed name\n    // is not a command. Looks the name up in byHash.\n    public int indexOf(String name) {\n        throw new IllegalStateException(\"TODO: indexOf\");\n    }\n\n    /** What the bot replies to a typed command. */\n    public String reply(String typed) {\n        return switch (indexOf(typed)) {\n            case -1 -> \"unknown command: \" + typed;\n            default -> \"running \" + commands.get(indexOf(typed));\n        };\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-02/practice-2/src/main/java/practice/Bridges.java",
-    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-02/practice-2/src/test/java/practice/BridgesTest.java",
+    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-02/practice-2/src/main/java/practice/CommandTable.java",
+    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-02/practice-2/src/test/java/practice/CommandTableTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -132,19 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BridgesTest#findsTheBridgesErasureAndCovarianceNeed",
+        "id": "practice.CommandTableTest#findsEachCommandAndRejectsAnUnknownOne",
         "kind": "main",
-        "says": "A Transformer<String>, a Comparable<Word> and a covariant copy() each get one bridge with the erased or wider signature, next to the method written in source."
+        "says": "each command is found at its position and a name that is no command gives -1"
       },
       {
-        "id": "practice.BridgesTest#aLambdaBodyIsSyntheticButNotABridge",
+        "id": "practice.CommandTableTest#commandsWithTheSameHashCodeEachReachTheirOwnPosition",
         "kind": "edge",
-        "says": "A class whose only extra method is a desugared lambda body has no bridge, because that method is synthetic but not a bridge."
+        "says": "commands whose hash codes are equal are each found at their own position"
       },
       {
-        "id": "practice.BridgesTest#sourceMethodsLeaveOutEverySyntheticMethod",
+        "id": "practice.CommandTableTest#aNameThatOnlySharesACommandsHashCodeIsUnknown",
         "kind": "edge",
-        "says": "sourceMethodsOf() lists only what the source declares, leaving out both bridges and lambda bodies."
+        "says": "a name whose hash code equals one command's, but which is not that command, gives -1"
+      },
+      {
+        "id": "practice.CommandTableTest#aMessageWithNoCommandIsUnknown",
+        "kind": "edge",
+        "says": "a null name gives -1 instead of an exception"
       }
     ],
     "report": {
@@ -153,10 +136,11 @@
     },
     "origin": {
       "path": "43-jvm-internals/README_10.5.2.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "A switch on Strings Is a hashCode lookupswitch Followed by equals"
     },
     "concepts": [
-      "javac generates synthetic bridge methods for generic erasure and covariant returns, and they appear in reflection alongside the source methods."
+      "A switch on a String switches on hashCode() and then compares every label with that hash using equals, so colliding strings reach their own case and a string that only shares a hash falls to default.",
+      "A null selector makes a String switch without case null throw NullPointerException from its hashCode() call."
     ]
   }
 }

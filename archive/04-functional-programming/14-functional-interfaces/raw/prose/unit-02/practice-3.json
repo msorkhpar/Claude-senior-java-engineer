@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A logger that builds messages only when it is switched on",
+  "title": "Keep each region's products, and each thread's buffer, apart",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Building a log message (formatting, joining, `toString()` on big objects) costs time even when the message is then thrown away. A logger that takes a `Supplier<String>` builds the text only when it will be used. A feature switch is a natural `BooleanSupplier`: `boolean getAsBoolean()`, no boxing."
+      "text": "The outdoor-gear chain's nightly report says which products sold in which region. Several report threads share one `RegionReport`, and to save allocations each thread renders into a buffer it keeps between reports. The test data had a single region and the report looked right; the first real night, regional managers complained that their section listed products they don't stock, and one report came out with half of another report's lines in it."
     },
     {
       "type": "para",
-      "text": "Write the class `LazyLog`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`LazyLog(BooleanSupplier enabled)` remembers the switch.",
-        "`debug(Supplier<String> message)` records `message.get()` if the switch is on at that moment.",
-        "`lines()` returns the recorded messages, oldest first."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "switch",
-        "calls",
-        "`lines()`"
-      ],
-      "rows": [
-        [
-          "on",
-          "`debug(() -> \"a\")`, `debug(() -> \"b\")`",
-          "`[\"a\", \"b\"]`"
-        ],
-        [
-          "off",
-          "`debug(() -> \"a\")`",
-          "`[]`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "The switch may change while the program runs. Each enabled `debug` builds its message exactly once and records it as it is, repeats and `null` included. `lines()` returns a snapshot: later `debug` calls do not change a list it returned earlier."
+      "text": "Finish `skusByRegion` and `newScratch` in `src/main/java/practice/RegionReport.java`. Each region lists only its own SKUs, sorted and without repeats, and each rendering thread has a buffer that no other thread touches and that it reuses from one report to the next. About three lines in total."
     },
     {
       "type": "heading",
@@ -71,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.function.BooleanSupplier;\nimport java.util.function.Supplier;\n\npublic final class LazyLog {\n\n    private final BooleanSupplier enabled;\n    private final List<String> lines = new ArrayList<>();\n\n    /** Creates a log that records messages only while {@code enabled} answers true. */\n    public LazyLog(BooleanSupplier enabled) {\n        this.enabled = enabled;\n    }\n\n    /** Records {@code message.get()} if the switch is on right now; otherwise leaves the Supplier untouched. */\n    public void debug(Supplier<String> message) {\n        if (enabled.getAsBoolean()) {\n            lines.add(message.get());\n        }\n    }\n\n    /** Returns the recorded messages, oldest first. */\n    public List<String> lines() {\n        return Collections.unmodifiableList(new ArrayList<>(lines));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.stream.Collectors;\n\n/** The nightly report of which products sold in which region. Several report threads share one instance. */\npublic class RegionReport {\n\n    public record Sale(String region, String sku) {}\n\n    /** Each rendering thread reuses its own buffer instead of allocating one per report. */\n    final ThreadLocal<StringBuilder> scratch = newScratch();\n\n    /** For each region, the SKUs sold there, sorted and without repeats. */\n    public Map<String, SortedSet<String>> skusByRegion(List<Sale> sales) {\n        return sales.stream().collect(Collectors.groupingBy(Sale::region,\n                Collectors.mapping(Sale::sku, Collectors.toCollection(TreeSet::new))));\n    }\n\n    /** The buffers behind {@link #scratch}. */\n    ThreadLocal<StringBuilder> newScratch() {\n        return ThreadLocal.withInitial(StringBuilder::new);\n    }\n\n    /** One line per region: \"region: sku, sku\". */\n    public String render(Map<String, SortedSet<String>> byRegion) {\n        StringBuilder out = scratch.get();\n        out.setLength(0);\n        byRegion.forEach((region, skus) ->\n                out.append(region).append(\": \").append(String.join(\", \", skus)).append('\\n'));\n        return out.toString();\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.BooleanSupplier;\nimport java.util.function.Supplier;\n\npublic final class LazyLog {\n\n    /** Creates a log that records messages only while {@code enabled} answers true. */\n    public LazyLog(BooleanSupplier enabled) {\n        throw new UnsupportedOperationException(\"write LazyLog\");\n    }\n\n    /** Records {@code message.get()} if the switch is on right now; otherwise leaves the Supplier untouched. */\n    public void debug(Supplier<String> message) {\n        throw new UnsupportedOperationException(\"write debug\");\n    }\n\n    /** Returns the recorded messages, oldest first. */\n    public List<String> lines() {\n        throw new UnsupportedOperationException(\"write lines\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.stream.Collectors;\n\n/** The nightly report of which products sold in which region. Several report threads share one instance. */\npublic class RegionReport {\n\n    public record Sale(String region, String sku) {}\n\n    /** Each rendering thread reuses its own buffer instead of allocating one per report. */\n    final ThreadLocal<StringBuilder> scratch = newScratch();\n\n    /** For each region, the SKUs sold there, sorted and without repeats. */\n    public Map<String, SortedSet<String>> skusByRegion(List<Sale> sales) {\n        // TODO: Group the SKUs by region, each region's sorted and without repeats.\n        throw new IllegalStateException(\"TODO: skusByRegion\");\n    }\n\n    /** The buffers behind {@link #scratch}. */\n    ThreadLocal<StringBuilder> newScratch() {\n        // TODO: Give each thread that renders a buffer of its own, made the first time it renders,\n        //       and the same buffer on every later render on that thread.\n        throw new IllegalStateException(\"TODO: newScratch\");\n    }\n\n    /** One line per region: \"region: sku, sku\". */\n    public String render(Map<String, SortedSet<String>> byRegion) {\n        StringBuilder out = scratch.get();\n        out.setLength(0);\n        byRegion.forEach((region, skus) ->\n                out.append(region).append(\": \").append(String.join(\", \", skus)).append('\\n'));\n        return out.toString();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3e22ce6b2faa09825d5efece6ae206a313b5366ad1b05eb41d525ca77593cf00",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.BooleanSupplier;\nimport java.util.function.Supplier;\n\npublic final class LazyLog {\n\n    /** Creates a log that records messages only while {@code enabled} answers true. */\n    public LazyLog(BooleanSupplier enabled) {\n        throw new UnsupportedOperationException(\"write LazyLog\");\n    }\n\n    /** Records {@code message.get()} if the switch is on right now; otherwise leaves the Supplier untouched. */\n    public void debug(Supplier<String> message) {\n        throw new UnsupportedOperationException(\"write debug\");\n    }\n\n    /** Returns the recorded messages, oldest first. */\n    public List<String> lines() {\n        throw new UnsupportedOperationException(\"write lines\");\n    }\n}\n",
+  "content_sha256": "5d57f46fd0468a67843e3bd2bc3c8e990a047b7ae688988b147e19267a29bf46",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.stream.Collectors;\n\n/** The nightly report of which products sold in which region. Several report threads share one instance. */\npublic class RegionReport {\n\n    public record Sale(String region, String sku) {}\n\n    /** Each rendering thread reuses its own buffer instead of allocating one per report. */\n    final ThreadLocal<StringBuilder> scratch = newScratch();\n\n    /** For each region, the SKUs sold there, sorted and without repeats. */\n    public Map<String, SortedSet<String>> skusByRegion(List<Sale> sales) {\n        // TODO: Group the SKUs by region, each region's sorted and without repeats.\n        throw new IllegalStateException(\"TODO: skusByRegion\");\n    }\n\n    /** The buffers behind {@link #scratch}. */\n    ThreadLocal<StringBuilder> newScratch() {\n        // TODO: Give each thread that renders a buffer of its own, made the first time it renders,\n        //       and the same buffer on every later render on that thread.\n        throw new IllegalStateException(\"TODO: newScratch\");\n    }\n\n    /** One line per region: \"region: sku, sku\". */\n    public String render(Map<String, SortedSet<String>> byRegion) {\n        StringBuilder out = scratch.get();\n        out.setLength(0);\n        byRegion.forEach((region, skus) ->\n                out.append(region).append(\": \").append(String.join(\", \", skus)).append('\\n'));\n        return out.toString();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-3/src/main/java/practice/LazyLog.java",
-    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-3/src/test/java/practice/LazyLogTest.java",
+    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-3/src/main/java/practice/RegionReport.java",
+    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-3/src/test/java/practice/RegionReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,29 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LazyLogTest#recordsMessagesWhileOn",
+        "id": "practice.RegionReportTest#oneRegionsSkusComeOutSortedWithoutRepeats",
         "kind": "main",
-        "says": "While the switch is on, each message is built and recorded in order."
+        "says": "the SKUs of a region come out sorted, each once"
       },
       {
-        "id": "practice.LazyLogTest#anOffLogNeverBuildsTheMessage",
-        "kind": "edge",
-        "says": "While the switch is off, the message Supplier is never called."
+        "id": "practice.RegionReportTest#oneThreadRendersReportAfterReportIntoTheSameBuffer",
+        "kind": "main",
+        "says": "one thread renders correct reports one after another and reuses its buffer"
       },
       {
-        "id": "practice.LazyLogTest#theSwitchIsReadOnEveryCall",
+        "id": "practice.RegionReportTest#eachRegionListsOnlyWhatSoldThere",
         "kind": "edge",
-        "says": "The switch is asked on every debug call, so turning it on later takes effect."
+        "says": "with several regions, each lists only the SKUs sold in it"
       },
       {
-        "id": "practice.LazyLogTest#linesIsASnapshot",
+        "id": "practice.RegionReportTest#twoRenderingThreadsNeverShareABuffer",
         "kind": "edge",
-        "says": "A list returned by lines() keeps its contents when more messages are logged later."
-      },
-      {
-        "id": "practice.LazyLogTest#eachMessageIsBuiltOnceAndKeptAsIs",
-        "kind": "edge",
-        "says": "An enabled debug call builds its message exactly once and records it as it is, even when it is null."
+        "says": "every thread that renders gets a buffer no other thread has"
       }
     ],
     "report": {
@@ -158,11 +120,10 @@
     },
     "origin": {
       "path": "14-functional-interfaces/README_4.2.2.md",
-      "section": "Interview Q&A Section"
+      "section": "A Factory Supplier Must Return a New Object on Every Call"
     },
     "concepts": [
-      "BooleanSupplier answers a primitive boolean through getAsBoolean, which suits a switch read on demand.",
-      "A Supplier's work runs only when get() is called, and not at all if nobody asks."
+      "A supplier passed as a factory, as to Collectors.toCollection or ThreadLocal.withInitial, must return a new object per call; one that returns a shared object makes every group or thread share it."
     ]
   }
 }

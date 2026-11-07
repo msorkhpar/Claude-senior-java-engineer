@@ -1,19 +1,20 @@
-The page's monitoring code reads each memory pool's `MemoryUsage` and prints
-it. A `MemoryUsage` has `init`, `used`, `committed` and `max`; **`max` is -1
-when the pool has no defined maximum** (Metaspace, for one). *Committed* is
-what the JVM has reserved from the OS, *max* is the ceiling the pool may grow
-to.
+The export service collects young garbage every few hundred milliseconds, and the team has a
+Flight Recorder file from production to find out why. Nobody wants to read four thousand events
+by hand. We want a small report: for one thread, how many bytes each of our own methods allocated,
+so that the first line names code we can change.
 
-Write `MemoryReport` with:
+`AllocationReport` already reads the recording, keeps the `jdk.ObjectAllocationSample` events of
+the thread you ask for, and adds up a number per method. Finish the two `TODO`s in
+`src/main/java/practice/AllocationReport.java`:
 
-- `line(name, usage)`: `Pool [<name>]: used=<u>MB, max=<m>MB`, where sizes
-  are **whole mebibytes** (bytes / 1,048,576, rounded down) and an undefined
-  maximum prints as `max=-1MB`.
-- `usedPercent(usage)`: `100 * used / max` as an `OptionalDouble`, measured
-  **against `max`**, and empty when `max` is undefined.
+- `allocatingMethod(frames, appPackage)`: which of the application's methods a sample is charged
+  to, as `"class.method"`;
+- `bytes(sample)`: how many bytes the sample accounts for.
 
-| used | committed | max | `line("G1 Old Gen", u)` | `usedPercent(u)` |
-|---|---|---|---|---|
-| 100 MiB | 512 MiB | 512 MiB | `Pool [G1 Old Gen]: used=100MB, max=512MB` | `19.53125` |
-| 1,572,863 B | 2 MiB | 4 MiB | `...used=1MB, max=4MB` | `37.49997615814209` |
-| 30 MiB | 32 MiB | -1 | `...used=30MB, max=-1MB` | empty |
+When you're done, the numbers in the report add up to roughly what the thread allocated, and every
+entry is a method of the application that allocated, not one of the JDK's and not the method the
+thread happened to start in. About six lines in total.
+
+The tests make a real recording of a worker that builds CSV files and SVG badges, and compare the
+report with the thread's own allocation counter. The `jdk.jfr.consumer` javadoc lists what an
+event and a frame can tell you.

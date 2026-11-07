@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A score board with atomic slots",
+  "title": "Stop the points balance from losing promotions",
   "blocks": [
     {
       "type": "heading",
@@ -19,41 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page warns that `volatile int[] arr` makes only the **reference** volatile: `arr[0] = 42` is an ordinary write. For element-level guarantees it points to `AtomicIntegerArray`. And a read-modify-write such as `scores[i] += x` is a compound action that `volatile` never makes atomic."
+      "text": "The shop keeps each member's loyalty points in a `PointsAccount`. Purchases add points from the request threads, refunds take them away, and batch jobs run promotions (\"double every balance this weekend\") and expiry (\"half of it expires\") over every account, at the same time as the shop is busy. Support has a pile of tickets from members whose points went back to an old balance after a promotion, and the balance field is already `volatile`."
     },
     {
       "type": "para",
-      "text": "Write `ScoreBoard`, a board of `size` score slots that many threads update:"
+      "text": "Finish `apply(...)` in `src/main/java/practice/PointsAccount.java`. A rule computes the new balance from the current one and has no side effects; some rules take a while to compute. When you're done, no rule is lost when rules arrive together, and each rule applies to the balance as it is when the rule takes effect. You may change how the balance is stored. About three lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`int update(int slot, IntUnaryOperator change)` applies `change` to the slot's score and returns the new score. Two updates of the **same** slot never lose one another's result. `change` has no side effects, so it may be called again on a fresh value.",
-        "An update of one slot never waits for an update of a **different** slot.",
-        "`int get(int slot)` reads one score; `int[] snapshot()` copies all of them."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls, from `new ScoreBoard(3)`",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`update(0, x -> x + 5)`",
-          "`5`"
-        ],
-        [
-          "`update(2, x -> x + 1)`, then `snapshot()`",
-          "`1`, then `[5, 0, 1]`"
-        ],
-        [
-          "slot 1 is 0; one thread adds 10 while another adds 1",
-          "`get(1)` is `11`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests hold one rule in the middle of its computation while another thread applies a second rule, then let the first one finish."
     },
     {
       "type": "heading",
@@ -68,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicIntegerArray;\nimport java.util.function.IntUnaryOperator;\n\npublic final class ScoreBoard {\n\n    private final AtomicIntegerArray scores;\n\n    public ScoreBoard(int size) {\n        this.scores = new AtomicIntegerArray(size);\n    }\n\n    /** Applies change to one slot's score, atomically, and returns the new score. */\n    public int update(int slot, IntUnaryOperator change) {\n        return scores.updateAndGet(slot, change);\n    }\n\n    public int get(int slot) {\n        return scores.get(slot);\n    }\n\n    public int[] snapshot() {\n        int[] copy = new int[scores.length()];\n        for (int i = 0; i < copy.length; i++) {\n            copy[i] = scores.get(i);\n        }\n        return copy;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicLong;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * A member's loyalty points. Purchases, refunds, promotions and expiry change the balance from\n * the shop's request threads and from batch jobs, often at the same moment.\n */\npublic class PointsAccount {\n\n    private final AtomicLong points;\n\n    public PointsAccount(long opening) {\n        this.points = new AtomicLong(opening);\n    }\n\n    /**\n     * Applies one rule to the balance and returns the balance the rule produced. A rule computes\n     * the new balance from the current one (\"earn 120\", \"double it\", \"half of it expires\"); it has\n     * no side effects.\n     */\n    public long apply(LongUnaryOperator rule) {\n        return points.updateAndGet(rule);\n    }\n\n    /** The current balance. */\n    public long balance() {\n        return points.get();\n    }\n}\n"
         }
       ]
     },
@@ -80,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.IntUnaryOperator;\n\npublic final class ScoreBoard {\n\n    public ScoreBoard(int size) {\n    }\n\n    /** Applies change to one slot's score, atomically, and returns the new score. */\n    public int update(int slot, IntUnaryOperator change) {\n        throw new UnsupportedOperationException(\"write update\");\n    }\n\n    public int get(int slot) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    public int[] snapshot() {\n        throw new UnsupportedOperationException(\"write snapshot\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.function.LongUnaryOperator;\n\n/**\n * A member's loyalty points. Purchases, refunds, promotions and expiry change the balance from\n * the shop's request threads and from batch jobs, often at the same moment.\n */\npublic class PointsAccount {\n\n    private volatile long points;\n\n    public PointsAccount(long opening) {\n        this.points = opening;\n    }\n\n    /**\n     * Applies one rule to the balance and returns the balance the rule produced. A rule computes\n     * the new balance from the current one (\"earn 120\", \"double it\", \"half of it expires\"); it has\n     * no side effects.\n     */\n    public long apply(LongUnaryOperator rule) {\n        // TODO: Rules arrive from many threads at once, and a rule may take a while to compute.\n        //       No rule may be lost, and each must apply to the balance as it is when it takes\n        //       effect. You may change how the balance is stored.\n        throw new IllegalStateException(\"TODO: apply\");\n    }\n\n    /** The current balance. */\n    public long balance() {\n        return points;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -88,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -99,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a1d311fe95bd68a4beb84d411f981f5e4f8a3d873b60059a880980cd15831b85",
-  "starting_code": "package practice;\n\nimport java.util.function.IntUnaryOperator;\n\npublic final class ScoreBoard {\n\n    public ScoreBoard(int size) {\n    }\n\n    /** Applies change to one slot's score, atomically, and returns the new score. */\n    public int update(int slot, IntUnaryOperator change) {\n        throw new UnsupportedOperationException(\"write update\");\n    }\n\n    public int get(int slot) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    public int[] snapshot() {\n        throw new UnsupportedOperationException(\"write snapshot\");\n    }\n}\n",
+  "content_sha256": "933bba411f4a6f7e58e16874e4c34591212d90dec1fc5aec6dc1dffc01e1b019",
+  "starting_code": "package practice;\n\nimport java.util.function.LongUnaryOperator;\n\n/**\n * A member's loyalty points. Purchases, refunds, promotions and expiry change the balance from\n * the shop's request threads and from batch jobs, often at the same moment.\n */\npublic class PointsAccount {\n\n    private volatile long points;\n\n    public PointsAccount(long opening) {\n        this.points = opening;\n    }\n\n    /**\n     * Applies one rule to the balance and returns the balance the rule produced. A rule computes\n     * the new balance from the current one (\"earn 120\", \"double it\", \"half of it expires\"); it has\n     * no side effects.\n     */\n    public long apply(LongUnaryOperator rule) {\n        // TODO: Rules arrive from many threads at once, and a rule may take a while to compute.\n        //       No rule may be lost, and each must apply to the balance as it is when it takes\n        //       effect. You may change how the balance is stored.\n        throw new IllegalStateException(\"TODO: apply\");\n    }\n\n    /** The current balance. */\n    public long balance() {\n        return points;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-1/src/main/java/practice/ScoreBoard.java",
-    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-1/src/test/java/practice/ScoreBoardTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-1/src/main/java/practice/PointsAccount.java",
+    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-1/src/test/java/practice/PointsAccountTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -124,19 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ScoreBoardTest#updatesSlots",
+        "id": "practice.PointsAccountTest#appliesRulesInTurnAndReturnsEachNewBalance",
         "kind": "main",
-        "says": "Each update applies its change to one slot and returns that slot's new score."
+        "says": "rules applied one after another each change the balance and return the new balance"
       },
       {
-        "id": "practice.ScoreBoardTest#concurrentUpdatesOfOneSlotAreKept",
+        "id": "practice.PointsAccountTest#anEarnWhileABonusIsComputingIsNotOverwritten",
         "kind": "edge",
-        "says": "Two updates of the same slot at the same time are both kept; neither overwrites the other."
+        "says": "points earned while a bonus is being computed are still in the balance after the bonus is applied"
       },
       {
-        "id": "practice.ScoreBoardTest#slotsDoNotWaitForEachOther",
+        "id": "practice.PointsAccountTest#aPromotionAppliesToTheBalanceAsItIsWhenItTakesEffect",
         "kind": "edge",
-        "says": "An update of one slot does not wait for an update of another slot that is still running."
+        "says": "a rule that depends on the balance applies to the balance as it is when it takes effect, not as it was when it started computing"
+      },
+      {
+        "id": "practice.PointsAccountTest#aBonusThatLostTheRaceIsStillApplied",
+        "kind": "edge",
+        "says": "a bonus whose balance changed while it was computing is still applied, not dropped"
       }
     ],
     "report": {
@@ -145,11 +124,11 @@
     },
     "origin": {
       "path": "21-synchronization/README_6.2.2.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "volatile Makes Each Read and Each Write Atomic, Never a Read Followed by a Write"
     },
     "concepts": [
-      "A volatile array reference does not make its elements volatile; AtomicIntegerArray gives element-level guarantees.",
-      "An update of one element that reads and writes it must be atomic, or a concurrent update is lost."
+      "Re-checking a volatile field before writing, or applying a computed difference with addAndGet, leaves a read followed by a write and loses or misapplies updates.",
+      "volatile makes each read and each write atomic but never a read followed by a write; an update computed from the current value needs an atomic class's updateAndGet or compareAndSet, or a lock."
     ]
   }
 }

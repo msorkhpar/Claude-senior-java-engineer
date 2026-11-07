@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Find the data races in a trace",
+  "title": "Teach the replay harness which accesses the memory model orders",
   "blocks": [
     {
       "type": "heading",
@@ -19,66 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page defines a **data race**: two threads access the same variable, at least one access is a write, and there is **no happens-before** between the two accesses. The JMM does not make a racy program undefined, but it lets the reader see stale values."
+      "text": "The platform team's replay harness records every run of a concurrency test as a list of actions, in the order they ran: each thread's reads and writes of fields, its locks and unlocks, its `start()` and `join()` calls. A race report built on the recording has to flag every pair of plain accesses to one field, from two threads, at least one of them a write, that the memory model leaves unordered. Today it is a stub: it can't tell an ordered pair from an unordered one."
     },
     {
       "type": "para",
-      "text": "A trace is the list of actions one run performed, in the order they ran, as in the previous practice: each `Action` has a thread, a `Kind` (`READ`, `WRITE`, `VOLATILE_READ`, `VOLATILE_WRITE`, `LOCK`, `UNLOCK`, `START`, `JOIN`) and a target (a variable, a monitor, or the thread started or joined). Happens-before follows the page's six rules: program order, monitor lock, volatile variable, thread start, thread join, and transitivity. You may reuse your happens-before from the previous practice."
+      "text": "`RaceReport.races()` already finds the pairs worth checking. Finish the two `TODO`s in `src/main/java/practice/RaceReport.java`:"
     },
     {
-      "type": "para",
-      "text": "Write `DataRaces.find(List<Action> trace)`. It returns every data race as a pair `[i, j]` of trace indices with `i < j`, sorted by `i` then `j`. Only `READ` and `WRITE` are plain accesses; a volatile access is a synchronization action and never races."
-    },
-    {
-      "type": "para",
-      "text": "The page's broken flag, where neither `ready` nor `data` is volatile:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "#",
-        "thread",
-        "action"
-      ],
-      "rows": [
-        [
-          "0",
-          "T1",
-          "`WRITE data`"
-        ],
-        [
-          "1",
-          "T1",
-          "`WRITE ready`"
-        ],
-        [
-          "2",
-          "T2",
-          "`READ ready`"
-        ],
-        [
-          "3",
-          "T2",
-          "`READ data`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`edge(i, j)`: whether a single rule of the memory model orders action `i` before the later action `j`, with no action in between;",
+        "`happensBefore(i, j)`: whether the memory model orders action `i` before action `j` at all."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "trace",
-        "answer"
-      ],
-      "rows": [
-        [
-          "the broken flag",
-          "`[[0, 3], [1, 2]]`"
-        ],
-        [
-          "the same, with `ready` volatile",
-          "`[]`"
-        ]
-      ]
+      "type": "para",
+      "text": "A recorded `JOIN` means the join returned because the other thread had ended. When you're done, the report flags every pair the model leaves unordered and no pair it orders. About fifteen lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests build recordings by hand; nothing in them runs concurrently."
     },
     {
       "type": "heading",
@@ -93,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class DataRaces {\n\n    private DataRaces() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns every data race as a pair [i, j] with i < j, sorted. */\n    public static List<int[]> find(List<Action> trace) {\n        boolean[][] hb = happensBefore(trace);\n        List<int[]> races = new ArrayList<>();\n        for (int i = 0; i < trace.size(); i++) {\n            for (int j = i + 1; j < trace.size(); j++) {\n                if (conflict(trace.get(i), trace.get(j)) && !hb[i][j] && !hb[j][i]) {\n                    races.add(new int[] {i, j});\n                }\n            }\n        }\n        return races;\n    }\n\n    private static boolean plain(Action a) {\n        return a.kind() == Kind.READ || a.kind() == Kind.WRITE;\n    }\n\n    private static boolean conflict(Action x, Action y) {\n        return plain(x) && plain(y) && x.target().equals(y.target())\n                && (x.kind() == Kind.WRITE || y.kind() == Kind.WRITE);\n    }\n\n    private static boolean[][] happensBefore(List<Action> trace) {\n        int n = trace.size();\n        boolean[][] hb = new boolean[n][n];\n        for (int i = 0; i < n; i++) {\n            for (int j = 0; j < n; j++) {\n                hb[i][j] = i != j && edge(trace.get(i), i, trace.get(j), j);\n            }\n        }\n        for (int k = 0; k < n; k++) {\n            for (int i = 0; i < n; i++) {\n                for (int j = 0; j < n; j++) {\n                    if (hb[i][k] && hb[k][j]) {\n                        hb[i][j] = true;\n                    }\n                }\n            }\n        }\n        return hb;\n    }\n\n    private static boolean edge(Action x, int i, Action y, int j) {\n        if (x.thread().equals(y.thread())) {\n            return i < j;\n        }\n        if (x.kind() == Kind.START && x.target().equals(y.thread())) {\n            return true;\n        }\n        if (y.kind() == Kind.JOIN && y.target().equals(x.thread())) {\n            return i < j;\n        }\n        if (i > j) {\n            return false;\n        }\n        if (x.kind() == Kind.UNLOCK && y.kind() == Kind.LOCK) {\n            return x.target().equals(y.target());\n        }\n        if (x.kind() == Kind.VOLATILE_WRITE && y.kind() == Kind.VOLATILE_READ) {\n            return x.target().equals(y.target());\n        }\n        return false;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Finds the data races in one recorded run of a concurrency test. The replay harness records every\n * action of every thread in the order the actions ran.\n */\npublic class RaceReport {\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /**\n     * One recorded action. {@code target} is a field for the four access kinds, a monitor for LOCK\n     * and UNLOCK, and the other thread's name for START and JOIN. A JOIN is recorded only when the\n     * join returned because that thread had ended.\n     */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    private final List<Action> trace;\n\n    public RaceReport(List<Action> trace) {\n        this.trace = List.copyOf(trace);\n    }\n\n    /**\n     * Every pair \"i-j\" (i < j) of plain accesses to the same field from two different threads, at\n     * least one of them a write, that the memory model leaves unordered. Sorted by i, then j.\n     */\n    public List<String> races() {\n        List<String> found = new ArrayList<>();\n        for (int i = 0; i < trace.size(); i++) {\n            for (int j = i + 1; j < trace.size(); j++) {\n                Action a = trace.get(i), b = trace.get(j);\n                boolean conflicting = isPlain(a) && isPlain(b)\n                        && a.target().equals(b.target())\n                        && !a.thread().equals(b.thread())\n                        && (a.kind() == Kind.WRITE || b.kind() == Kind.WRITE);\n                if (conflicting && !happensBefore(i, j)) found.add(i + \"-\" + j);\n            }\n        }\n        return found;\n    }\n\n    private static boolean isPlain(Action a) {\n        return a.kind() == Kind.READ || a.kind() == Kind.WRITE;\n    }\n\n    /** Whether the memory model orders action i before action j (i < j) directly, with no action between. */\n    boolean edge(int i, int j) {\n        Action a = trace.get(i), b = trace.get(j);\n        if (a.thread().equals(b.thread())) return true;\n        if (a.kind() == Kind.START && a.target().equals(b.thread())) return true;\n        if (b.kind() == Kind.JOIN && b.target().equals(a.thread())) return true;\n        if (a.kind() == Kind.UNLOCK && b.kind() == Kind.LOCK) return a.target().equals(b.target());\n        if (a.kind() == Kind.VOLATILE_WRITE && b.kind() == Kind.VOLATILE_READ) return a.target().equals(b.target());\n        return false;\n    }\n\n    /** Whether action i happens-before action j (i < j). */\n    boolean happensBefore(int i, int j) {\n        boolean[] reached = new boolean[j + 1];\n        reached[i] = true;\n        for (int k = i + 1; k <= j; k++) {\n            for (int m = i; m < k && !reached[k]; m++) {\n                reached[k] = reached[m] && edge(m, k);\n            }\n        }\n        return reached[j];\n    }\n}\n"
         }
       ]
     },
@@ -105,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class DataRaces {\n\n    private DataRaces() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns every data race as a pair [i, j] with i < j, sorted. */\n    public static List<int[]> find(List<Action> trace) {\n        throw new UnsupportedOperationException(\"write find\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Finds the data races in one recorded run of a concurrency test. The replay harness records every\n * action of every thread in the order the actions ran.\n */\npublic class RaceReport {\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /**\n     * One recorded action. {@code target} is a field for the four access kinds, a monitor for LOCK\n     * and UNLOCK, and the other thread's name for START and JOIN. A JOIN is recorded only when the\n     * join returned because that thread had ended.\n     */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    private final List<Action> trace;\n\n    public RaceReport(List<Action> trace) {\n        this.trace = List.copyOf(trace);\n    }\n\n    /**\n     * Every pair \"i-j\" (i < j) of plain accesses to the same field from two different threads, at\n     * least one of them a write, that the memory model leaves unordered. Sorted by i, then j.\n     */\n    public List<String> races() {\n        List<String> found = new ArrayList<>();\n        for (int i = 0; i < trace.size(); i++) {\n            for (int j = i + 1; j < trace.size(); j++) {\n                Action a = trace.get(i), b = trace.get(j);\n                boolean conflicting = isPlain(a) && isPlain(b)\n                        && a.target().equals(b.target())\n                        && !a.thread().equals(b.thread())\n                        && (a.kind() == Kind.WRITE || b.kind() == Kind.WRITE);\n                if (conflicting && !happensBefore(i, j)) found.add(i + \"-\" + j);\n            }\n        }\n        return found;\n    }\n\n    private static boolean isPlain(Action a) {\n        return a.kind() == Kind.READ || a.kind() == Kind.WRITE;\n    }\n\n    /** Whether the memory model orders action i before action j (i < j) directly, with no action between. */\n    boolean edge(int i, int j) {\n        // TODO: Decide whether one recorded action is ordered before a later one by a single\n        //       rule of the memory model, without going through any other action.\n        throw new IllegalStateException(\"TODO: edge\");\n    }\n\n    /** Whether action i happens-before action j (i < j). */\n    boolean happensBefore(int i, int j) {\n        // TODO: Decide whether the memory model orders action i before action j.\n        throw new IllegalStateException(\"TODO: happensBefore\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -115,8 +76,8 @@
     "headings": 3,
     "paras": 4,
     "code": 1,
-    "tables": 2,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -124,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "657f5912862b1de33f6fcced84a9a6742b6bcf30b2cb73b0d000ec9d423fb39d",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class DataRaces {\n\n    private DataRaces() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns every data race as a pair [i, j] with i < j, sorted. */\n    public static List<int[]> find(List<Action> trace) {\n        throw new UnsupportedOperationException(\"write find\");\n    }\n}\n",
+  "content_sha256": "60934d96bb32d25b148adb7984704a4e9a9974e81341009079ae0748b3a22001",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Finds the data races in one recorded run of a concurrency test. The replay harness records every\n * action of every thread in the order the actions ran.\n */\npublic class RaceReport {\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /**\n     * One recorded action. {@code target} is a field for the four access kinds, a monitor for LOCK\n     * and UNLOCK, and the other thread's name for START and JOIN. A JOIN is recorded only when the\n     * join returned because that thread had ended.\n     */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    private final List<Action> trace;\n\n    public RaceReport(List<Action> trace) {\n        this.trace = List.copyOf(trace);\n    }\n\n    /**\n     * Every pair \"i-j\" (i < j) of plain accesses to the same field from two different threads, at\n     * least one of them a write, that the memory model leaves unordered. Sorted by i, then j.\n     */\n    public List<String> races() {\n        List<String> found = new ArrayList<>();\n        for (int i = 0; i < trace.size(); i++) {\n            for (int j = i + 1; j < trace.size(); j++) {\n                Action a = trace.get(i), b = trace.get(j);\n                boolean conflicting = isPlain(a) && isPlain(b)\n                        && a.target().equals(b.target())\n                        && !a.thread().equals(b.thread())\n                        && (a.kind() == Kind.WRITE || b.kind() == Kind.WRITE);\n                if (conflicting && !happensBefore(i, j)) found.add(i + \"-\" + j);\n            }\n        }\n        return found;\n    }\n\n    private static boolean isPlain(Action a) {\n        return a.kind() == Kind.READ || a.kind() == Kind.WRITE;\n    }\n\n    /** Whether the memory model orders action i before action j (i < j) directly, with no action between. */\n    boolean edge(int i, int j) {\n        // TODO: Decide whether one recorded action is ordered before a later one by a single\n        //       rule of the memory model, without going through any other action.\n        throw new IllegalStateException(\"TODO: edge\");\n    }\n\n    /** Whether action i happens-before action j (i < j). */\n    boolean happensBefore(int i, int j) {\n        // TODO: Decide whether the memory model orders action i before action j.\n        throw new IllegalStateException(\"TODO: happensBefore\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/src/main/java/practice/DataRaces.java",
-    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/src/test/java/practice/DataRacesTest.java",
+    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/src/main/java/practice/RaceReport.java",
+    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/src/test/java/practice/RaceReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -149,34 +110,44 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DataRacesTest#findsTheBrokenFlagRaces",
+        "id": "practice.RaceReportTest#aCounterUpdatedUnderOneLockHasNoRaces",
         "kind": "main",
-        "says": "It reports every pair of conflicting plain accesses that no happens-before orders, in the page's broken flag example."
+        "says": "two threads that update a counter, each under the same lock, are reported as race-free"
       },
       {
-        "id": "practice.DataRacesTest#readsNeverConflict",
-        "kind": "edge",
-        "says": "Two reads of one variable are not a conflict, so they are never a data race."
+        "id": "practice.RaceReportTest#aWorkerGivenItsInputBeforeStartAndJoinedAfterwardsHasNoRaces",
+        "kind": "main",
+        "says": "a worker given its input before it starts, and joined before its output is read, is reported as race-free"
       },
       {
-        "id": "practice.DataRacesTest#volatileAccessesAreNotDataRaces",
-        "kind": "edge",
-        "says": "Accesses to a volatile variable are synchronization actions, never data races."
+        "id": "practice.RaceReportTest#aHandoffThroughOneVolatileFieldHasNoRaces",
+        "kind": "main",
+        "says": "a plain value handed over by a volatile write that the reader reads before using the value is reported as race-free"
       },
       {
-        "id": "practice.DataRacesTest#startAndJoinOrderTheAccesses",
+        "id": "practice.RaceReportTest#aWriteEarlierInTheRunIsNotOrderedBeforeAnotherThreadsRead",
         "kind": "edge",
-        "says": "Accesses ordered by thread start or thread join are not races, though they are in different threads."
+        "says": "a plain write that ran before another thread's read, with nothing connecting the two threads, is a race"
       },
       {
-        "id": "practice.DataRacesTest#onlyTheSameMonitorOrdersTheAccesses",
+        "id": "practice.RaceReportTest#locksOnTwoDifferentMonitorsDoNotOrderTheirThreads",
         "kind": "edge",
-        "says": "An unlock orders only the later locks of the same monitor, so accesses under two different locks still race."
+        "says": "a write under one lock and a read under a different lock are a race"
       },
       {
-        "id": "practice.DataRacesTest#aVolatileWriteOrdersOnlyLaterReadsOfIt",
+        "id": "practice.RaceReportTest#aVolatileWriteDoesNotOrderAReadOfAnotherVolatileField",
         "kind": "edge",
-        "says": "A volatile write orders only the later reads of that same variable, so another flag, or a read that came first, leaves the race."
+        "says": "a volatile write to one field followed by a volatile read of another field connects nothing"
+      },
+      {
+        "id": "practice.RaceReportTest#aWriteMadeAfterStartingAThreadIsNotOrderedBeforeThatThreadsReads",
+        "kind": "edge",
+        "says": "a write the starting thread makes after start() is a race with the started thread's read"
+      },
+      {
+        "id": "practice.RaceReportTest#aWriteCarriedThroughALockAndThenAStartIsOrdered",
+        "kind": "edge",
+        "says": "a write carried to a third thread through a lock handoff and then a start() is ordered, while a later write by the first thread is not"
       }
     ],
     "report": {
@@ -185,11 +156,13 @@
     },
     "origin": {
       "path": "18-happens-before/README_5.2.1.md",
-      "section": "What Happens Without Happens-before"
+      "section": "An Edge Carries Every Write Made Before It, Only to Code After Its Other End"
     },
     "concepts": [
-      "A data race is two accesses to one variable, at least one a write, with no happens-before between them.",
-      "Volatile accesses are synchronization actions and never data races, though volatileCount++ is still a race condition in the logic."
+      "Only an unlock and a later lock of the same monitor, a volatile write and a later read of the same field, start() and the started thread, and a thread's end and a join on it connect two threads.",
+      "Plain writes made before one edge-forming write are carried by that edge, so the fields handed over need no volatile of their own.",
+      "start() orders the writes made before the call, not those the starting thread makes after it.",
+      "Happens-before is transitive, so a write reaches a thread that never took part in the first edge of a chain."
     ]
   }
 }

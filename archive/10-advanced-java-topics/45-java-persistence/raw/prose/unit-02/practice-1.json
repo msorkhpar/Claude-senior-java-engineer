@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A first-level cache: one instance per id",
+  "title": "Load the billing overview in one statement",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's fifth pitfall: `em.find(Employee.class, 1)` twice in one persistence context gives `e1 == e2`. The `EntityManager` keeps each loaded entity in its first-level cache, keyed by id, and hands back the same managed instance. Build that cache by hand."
+      "text": "The billing overview lists every invoice with its lines. It loads them with `loadAllSlowly()`, and the database team has traced one overview to 341 statements. The numbers are right; the round trips are the problem."
     },
     {
       "type": "para",
-      "text": "`ProductSession` is given an open `Connection` to `products(id INT PRIMARY KEY, name VARCHAR, price DECIMAL(10,2))`. `find(id)` returns `Optional<Product>`:"
+      "text": "Write `loadAll()` in `src/main/java/practice/InvoiceRepository.java`. It returns what `loadAllSlowly()` returns: every invoice in id order, including invoices that have no lines yet, each one once, with its lines in line-number order. It may send the database only one statement, however many invoices there are. About fifteen lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The first `find` of an id loads the row; later calls in the same session return the same instance and **run no query**.",
-        "**Ids are compared by value**, so id 1000 is cached like id 7.",
-        "**Each session has its own cache**: a new session loads its own instance.",
-        "An id with no row gives `Optional.empty()`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer",
-        "queries run"
-      ],
-      "rows": [
-        [
-          "`s.find(7)`, `s.find(7)`",
-          "the same `Product[7, Pen, 1.50]` twice",
-          "1"
-        ],
-        [
-          "`s.find(1000)`, `s.find(1000)`",
-          "the same instance twice",
-          "1"
-        ],
-        [
-          "`s1.find(7)`, `s2.find(7)`",
-          "two different instances",
-          "2"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests run the repository against H2 in memory through a connection that counts the statements it executes."
     },
     {
       "type": "heading",
@@ -73,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\n\npublic final class ProductSession {\n\n    /** A managed entity: mutable, one instance per id within a session. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    private final Connection connection;\n    private final Map<Integer, Product> managed = new HashMap<>();\n\n    public ProductSession(Connection connection) {\n        this.connection = Objects.requireNonNull(connection, \"connection\");\n    }\n\n    /** The product with this id: loaded once per session, then the same instance. */\n    public Optional<Product> find(int id) throws SQLException {\n        Product known = managed.get(id);\n        if (known != null) {\n            return Optional.of(known);\n        }\n        try (PreparedStatement statement = connection.prepareStatement(\n                \"SELECT id, name, price FROM products WHERE id = ?\")) {\n            statement.setInt(1, id);\n            try (ResultSet rows = statement.executeQuery()) {\n                if (!rows.next()) {\n                    return Optional.empty();\n                }\n                Product product = new Product(rows.getInt(\"id\"), rows.getString(\"name\"), rows.getBigDecimal(\"price\"));\n                managed.put(id, product);\n                return Optional.of(product);\n            }\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Loads invoices with their lines for the billing overview. Tables:\n * invoice(id, customer) and invoice_line(invoice_id, line_no, sku, qty).\n */\npublic class InvoiceRepository {\n\n    public record Line(String sku, int qty) {}\n\n    public static final class Invoice {\n        public final long id;\n        public final String customer;\n        public final List<Line> lines = new ArrayList<>();\n\n        public Invoice(long id, String customer) {\n            this.id = id;\n            this.customer = customer;\n        }\n    }\n\n    private final Connection connection;\n\n    public InvoiceRepository(Connection connection) {\n        this.connection = connection;\n    }\n\n    /** The overview's current loader: right answer, one statement per invoice on top of the first. */\n    public List<Invoice> loadAllSlowly() throws SQLException {\n        List<Invoice> invoices = new ArrayList<>();\n        try (PreparedStatement ps = connection.prepareStatement(\"select id, customer from invoice order by id\");\n             ResultSet rs = ps.executeQuery()) {\n            while (rs.next()) invoices.add(new Invoice(rs.getLong(1), rs.getString(2)));\n        }\n        for (Invoice invoice : invoices) {\n            try (PreparedStatement ps = connection.prepareStatement(\n                    \"select sku, qty from invoice_line where invoice_id = ? order by line_no\")) {\n                ps.setLong(1, invoice.id);\n                try (ResultSet rs = ps.executeQuery()) {\n                    while (rs.next()) invoice.lines.add(new Line(rs.getString(1), rs.getInt(2)));\n                }\n            }\n        }\n        return invoices;\n    }\n\n    /** The same result as loadAllSlowly(): every invoice in id order, each with its lines in line order. */\n    public List<Invoice> loadAll() throws SQLException {\n        List<Invoice> invoices = new ArrayList<>();\n        try (PreparedStatement ps = connection.prepareStatement(\"\"\"\n                select i.id, i.customer, l.sku, l.qty\n                from invoice i left join invoice_line l on l.invoice_id = i.id\n                order by i.id, l.line_no\"\"\");\n             ResultSet rs = ps.executeQuery()) {\n            Invoice current = null;\n            while (rs.next()) {\n                long id = rs.getLong(1);\n                if (current == null || current.id != id) {\n                    current = new Invoice(id, rs.getString(2));\n                    invoices.add(current);\n                }\n                String sku = rs.getString(3);\n                if (sku != null) current.lines.add(new Line(sku, rs.getInt(4)));\n            }\n        }\n        return invoices;\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.Optional;\n\npublic final class ProductSession {\n\n    /** A managed entity: mutable, one instance per id within a session. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    public ProductSession(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The product with this id: loaded once per session, then the same instance. */\n    public Optional<Product> find(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Loads invoices with their lines for the billing overview. Tables:\n * invoice(id, customer) and invoice_line(invoice_id, line_no, sku, qty).\n */\npublic class InvoiceRepository {\n\n    public record Line(String sku, int qty) {}\n\n    public static final class Invoice {\n        public final long id;\n        public final String customer;\n        public final List<Line> lines = new ArrayList<>();\n\n        public Invoice(long id, String customer) {\n            this.id = id;\n            this.customer = customer;\n        }\n    }\n\n    private final Connection connection;\n\n    public InvoiceRepository(Connection connection) {\n        this.connection = connection;\n    }\n\n    /** The overview's current loader: right answer, one statement per invoice on top of the first. */\n    public List<Invoice> loadAllSlowly() throws SQLException {\n        List<Invoice> invoices = new ArrayList<>();\n        try (PreparedStatement ps = connection.prepareStatement(\"select id, customer from invoice order by id\");\n             ResultSet rs = ps.executeQuery()) {\n            while (rs.next()) invoices.add(new Invoice(rs.getLong(1), rs.getString(2)));\n        }\n        for (Invoice invoice : invoices) {\n            try (PreparedStatement ps = connection.prepareStatement(\n                    \"select sku, qty from invoice_line where invoice_id = ? order by line_no\")) {\n                ps.setLong(1, invoice.id);\n                try (ResultSet rs = ps.executeQuery()) {\n                    while (rs.next()) invoice.lines.add(new Line(rs.getString(1), rs.getInt(2)));\n                }\n            }\n        }\n        return invoices;\n    }\n\n    /** The same result as loadAllSlowly(): every invoice in id order, each with its lines in line order. */\n    public List<Invoice> loadAll() throws SQLException {\n        // TODO: The billing overview shows a few hundred invoices, and loadAllSlowly() sends one\n        //       statement for the invoices plus one more for each of them. Return the same list,\n        //       in the same order, with every invoice the slow loader returns, from a single\n        //       statement.\n        throw new IllegalStateException(\"TODO: loadAll\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -104,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2bbc432d73e25b2b834b016d18717527865c1c26431b3ec5ad647a09cd8e3e93",
-  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.Optional;\n\npublic final class ProductSession {\n\n    /** A managed entity: mutable, one instance per id within a session. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    public ProductSession(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The product with this id: loaded once per session, then the same instance. */\n    public Optional<Product> find(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "a282f958e60d12a4e7457ae3ada6caaeed208baa63f9e2170734f8f9b582e759",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Loads invoices with their lines for the billing overview. Tables:\n * invoice(id, customer) and invoice_line(invoice_id, line_no, sku, qty).\n */\npublic class InvoiceRepository {\n\n    public record Line(String sku, int qty) {}\n\n    public static final class Invoice {\n        public final long id;\n        public final String customer;\n        public final List<Line> lines = new ArrayList<>();\n\n        public Invoice(long id, String customer) {\n            this.id = id;\n            this.customer = customer;\n        }\n    }\n\n    private final Connection connection;\n\n    public InvoiceRepository(Connection connection) {\n        this.connection = connection;\n    }\n\n    /** The overview's current loader: right answer, one statement per invoice on top of the first. */\n    public List<Invoice> loadAllSlowly() throws SQLException {\n        List<Invoice> invoices = new ArrayList<>();\n        try (PreparedStatement ps = connection.prepareStatement(\"select id, customer from invoice order by id\");\n             ResultSet rs = ps.executeQuery()) {\n            while (rs.next()) invoices.add(new Invoice(rs.getLong(1), rs.getString(2)));\n        }\n        for (Invoice invoice : invoices) {\n            try (PreparedStatement ps = connection.prepareStatement(\n                    \"select sku, qty from invoice_line where invoice_id = ? order by line_no\")) {\n                ps.setLong(1, invoice.id);\n                try (ResultSet rs = ps.executeQuery()) {\n                    while (rs.next()) invoice.lines.add(new Line(rs.getString(1), rs.getInt(2)));\n                }\n            }\n        }\n        return invoices;\n    }\n\n    /** The same result as loadAllSlowly(): every invoice in id order, each with its lines in line order. */\n    public List<Invoice> loadAll() throws SQLException {\n        // TODO: The billing overview shows a few hundred invoices, and loadAllSlowly() sends one\n        //       statement for the invoices plus one more for each of them. Return the same list,\n        //       in the same order, with every invoice the slow loader returns, from a single\n        //       statement.\n        throw new IllegalStateException(\"TODO: loadAll\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/src/main/java/practice/ProductSession.java",
-    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/src/test/java/practice/ProductSessionTest.java",
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/src/main/java/practice/InvoiceRepository.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/src/test/java/practice/InvoiceRepositoryTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ProductSessionTest#findingAnIdTwiceGivesTheSameInstance",
+        "id": "practice.InvoiceRepositoryTest#loadsEachInvoiceWithItsLine",
         "kind": "main",
-        "says": "find(7) twice in one session returns the very same Product instance, mapped from the row."
+        "says": "every invoice comes back in id order with its customer and its line"
       },
       {
-        "id": "practice.ProductSessionTest#theSecondFindRunsNoQuery",
+        "id": "practice.InvoiceRepositoryTest#sendsOneStatementForTheWholeOverview",
         "kind": "edge",
-        "says": "find(7) twice in one session runs exactly one query: the second call is answered from the session."
+        "says": "the whole overview, whatever the number of invoices, is loaded by one executed statement"
       },
       {
-        "id": "practice.ProductSessionTest#largeIdsAreCachedByValue",
+        "id": "practice.InvoiceRepositoryTest#keepsAnInvoiceThatHasNoLinesYet",
         "kind": "edge",
-        "says": "find(1000) twice returns the same instance too: ids are compared by value, not by the identity of a boxed Integer."
+        "says": "an invoice that has no lines yet is still in the overview"
       },
       {
-        "id": "practice.ProductSessionTest#twoSessionsDoNotShareInstances",
+        "id": "practice.InvoiceRepositoryTest#listsAnInvoiceOnceWithAllItsLinesInOrder",
         "kind": "edge",
-        "says": "Two sessions each return their own instance for id 7, and each runs its own query."
+        "says": "an invoice with several lines appears once, holding all of them in line order"
+      },
+      {
+        "id": "practice.InvoiceRepositoryTest#anInvoiceWithoutLinesHasNoLines",
+        "kind": "edge",
+        "says": "an invoice without lines has an empty list, not a line made of the join's empty columns"
       }
     ],
     "report": {
@@ -155,11 +129,11 @@
     },
     "origin": {
       "path": "45-java-persistence/README_10.7.2.md",
-      "section": "5. Ignoring the First-Level Cache"
+      "section": "A Lazy Association Costs One Query per Parent Unless the Query Fetches It"
     },
     "concepts": [
-      "The persistence context is a first-level cache: finding the same id twice in one EntityManager returns the same managed instance.",
-      "Objects have identity through == and equals() while rows have it through the primary key, which an ORM reconciles."
+      "join fetch is an inner join, so a parent with no children is not returned; left join fetch keeps it.",
+      "Reading a lazy collection on each parent a query returned runs one more statement per parent; a fetch join loads parents and children in one statement."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Handle each family of failures in its own catch",
+  "title": "Keep a carrier outage from failing a label booking",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,30 @@
     },
     {
       "type": "para",
-      "text": "Several catch blocks can follow one `try`, and a multi-catch (`catch (A | B e)`) lets two unrelated types share one handler instead of duplicating it."
+      "text": "The warehouse books a shipping label for every parcel through the carrier's API. Addresses come from customers' typing, so the carrier sometimes rejects one, and `ship(...)` then hands the parcel to `bookNormalized(...)`, which tries once more with the address cleaned up."
     },
     {
       "type": "para",
-      "text": "Write `InputHandler.handle(Backend backend, String input)`. It returns one line:"
+      "text": "During last week's carrier incident, the packing stations showed a stack trace instead of the usual \"retry later\" for every parcel that had needed a second attempt. And a parcel whose address was wrong in both forms must go to the address-review queue, where a person fixes it; it must not come back every ten minutes."
     },
     {
-      "type": "table",
-      "headers": [
-        "situation",
-        "returns"
-      ],
-      "rows": [
-        [
-          "`input` is `null`",
-          "`\"Invalid input: Input is null\"`"
-        ],
-        [
-          "`input` is empty",
-          "`\"Invalid input: Input is empty\"`"
-        ],
-        [
-          "`backend.process(input)` returns `r`",
-          "`\"Input processed successfully: \" + r`"
-        ],
-        [
-          "it throws an `IOException` or a `SQLException`",
-          "`\"Database or I/O error: \" + message`"
-        ],
-        [
-          "it throws any other `Exception`",
-          "`\"Unexpected error: \" + message`"
-        ]
+      "type": "para",
+      "text": "`ship(...)` already books, and already answers a carrier failure on the first attempt. Finish the `TODO` in `src/main/java/practice/LabelBooking.java`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`bookNormalized(...)`: book the parcel with `normalize(address)` and return what `ship(...)` returns: `\"booked: \"` and the tracking number, `\"review: \"` and the carrier's reason when the address is rejected again, or `\"retry later: \"` and the message when the carrier fails."
       ]
     },
     {
       "type": "para",
-      "text": "Here `message` is the thrown exception's own `getMessage()`. \"Empty\" means `isEmpty()`: blank input such as `\"  \"` is valid and goes to the backend exactly as given. Invalid input never reaches the backend, and an `Error` is not reported: it reaches the caller. For instance, with a backend that throws `new SQLException(\"Simulated SQLException\")`, `handle(backend, \"x\")` returns `\"Database or I/O error: Simulated SQLException\"`."
+      "text": "`ship(...)` never throws a carrier failure at its caller. About six lines in total."
     },
     {
       "type": "para",
-      "text": "Every row of the table is checked, the unlikely ones included."
+      "text": "The tests use a scripted carrier, with addresses and failures of their own."
     },
     {
       "type": "heading",
@@ -75,7 +57,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.io.IOException;\nimport java.sql.SQLException;\n\npublic final class InputHandler {\n\n    private InputHandler() {\n    }\n\n    /** Processes an input; may fail on I/O or on the database. */\n    public interface Backend {\n        String process(String input) throws IOException, SQLException;\n    }\n\n    /** Returns a one-line report of handling {@code input} with {@code backend}. */\n    public static String handle(Backend backend, String input) {\n        if (input == null) {\n            return \"Invalid input: Input is null\";\n        }\n        if (input.isEmpty()) {\n            return \"Invalid input: Input is empty\";\n        }\n        try {\n            return \"Input processed successfully: \" + backend.process(input);\n        } catch (IOException | SQLException e) {\n            return \"Database or I/O error: \" + e.getMessage();\n        } catch (RuntimeException e) {\n            return \"Unexpected error: \" + e.getMessage();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Locale;\n\n/** Books shipping labels with a carrier, and fixes up an address the carrier rejects. */\npublic class LabelBooking {\n\n    /** Anything the carrier's API reports. Unchecked, as in most HTTP client libraries. */\n    public static class CarrierException extends RuntimeException {\n        public CarrierException(String message) {\n            super(message);\n        }\n    }\n\n    /** The carrier could not match the address to a delivery point. */\n    public static class AddressRejected extends CarrierException {\n        public AddressRejected(String reason) {\n            super(reason);\n        }\n    }\n\n    /** The carrier's booking API. */\n    public interface Carrier {\n        /** Books a label for the parcel and returns its tracking number. */\n        String book(String parcel, String address);\n    }\n\n    private final Carrier carrier;\n\n    public LabelBooking(Carrier carrier) {\n        this.carrier = carrier;\n    }\n\n    /**\n     * Books a label. Returns {@code \"booked: <tracking number>\"}, {@code \"review: <reason>\"} when the\n     * address must be fixed by a person, or {@code \"retry later: <message>\"} when the carrier failed.\n     */\n    public String ship(String parcel, String address) {\n        try {\n            return \"booked: \" + carrier.book(parcel, address);\n        } catch (AddressRejected e) {\n            return bookNormalized(parcel, address);\n        } catch (CarrierException e) {\n            return \"retry later: \" + e.getMessage();\n        }\n    }\n\n    /**\n     * The carrier rejected the address as typed. Books the parcel once more with the address\n     * normalized, and returns what ship() returns.\n     */\n    String bookNormalized(String parcel, String address) {\n        try {\n            return \"booked: \" + carrier.book(parcel, normalize(address));\n        } catch (AddressRejected again) {\n            return \"review: \" + again.getMessage();\n        } catch (CarrierException e) {\n            return \"retry later: \" + e.getMessage();\n        }\n    }\n\n    /** Collapses runs of spaces and upper-cases the address, as the carrier's own form does. */\n    static String normalize(String address) {\n        return address.strip().replaceAll(\"\\\\s+\", \" \").toUpperCase(Locale.ROOT);\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +69,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.io.IOException;\nimport java.sql.SQLException;\n\npublic final class InputHandler {\n\n    private InputHandler() {\n    }\n\n    /** Processes an input; may fail on I/O or on the database. */\n    public interface Backend {\n        String process(String input) throws IOException, SQLException;\n    }\n\n    /** Returns a one-line report of handling {@code input} with {@code backend}. */\n    public static String handle(Backend backend, String input) {\n        throw new UnsupportedOperationException(\"write handle\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Locale;\n\n/** Books shipping labels with a carrier, and fixes up an address the carrier rejects. */\npublic class LabelBooking {\n\n    /** Anything the carrier's API reports. Unchecked, as in most HTTP client libraries. */\n    public static class CarrierException extends RuntimeException {\n        public CarrierException(String message) {\n            super(message);\n        }\n    }\n\n    /** The carrier could not match the address to a delivery point. */\n    public static class AddressRejected extends CarrierException {\n        public AddressRejected(String reason) {\n            super(reason);\n        }\n    }\n\n    /** The carrier's booking API. */\n    public interface Carrier {\n        /** Books a label for the parcel and returns its tracking number. */\n        String book(String parcel, String address);\n    }\n\n    private final Carrier carrier;\n\n    public LabelBooking(Carrier carrier) {\n        this.carrier = carrier;\n    }\n\n    /**\n     * Books a label. Returns {@code \"booked: <tracking number>\"}, {@code \"review: <reason>\"} when the\n     * address must be fixed by a person, or {@code \"retry later: <message>\"} when the carrier failed.\n     */\n    public String ship(String parcel, String address) {\n        try {\n            return \"booked: \" + carrier.book(parcel, address);\n        } catch (AddressRejected e) {\n            return bookNormalized(parcel, address);\n        } catch (CarrierException e) {\n            return \"retry later: \" + e.getMessage();\n        }\n    }\n\n    /**\n     * The carrier rejected the address as typed. Books the parcel once more with the address\n     * normalized, and returns what ship() returns.\n     */\n    String bookNormalized(String parcel, String address) {\n        // TODO: the parcel still has to be booked; decide what each outcome of the second attempt\n        // means for ship()'s caller.\n        throw new IllegalStateException(\"TODO: book the parcel with the normalized address\");\n    }\n\n    /** Collapses runs of spaces and upper-cases the address, as the carrier's own form does. */\n    static String normalize(String address) {\n        return address.strip().replaceAll(\"\\\\s+\", \" \").toUpperCase(Locale.ROOT);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,10 +77,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 5,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +88,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "12936cd7e5033113b5d31aea2745952ee1e02256880032722116326f103e960e",
-  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.sql.SQLException;\n\npublic final class InputHandler {\n\n    private InputHandler() {\n    }\n\n    /** Processes an input; may fail on I/O or on the database. */\n    public interface Backend {\n        String process(String input) throws IOException, SQLException;\n    }\n\n    /** Returns a one-line report of handling {@code input} with {@code backend}. */\n    public static String handle(Backend backend, String input) {\n        throw new UnsupportedOperationException(\"write handle\");\n    }\n}\n",
+  "content_sha256": "eca7cda272447df795a10541123917663377d6018c5936b9a16898773611ed79",
+  "starting_code": "package practice;\n\nimport java.util.Locale;\n\n/** Books shipping labels with a carrier, and fixes up an address the carrier rejects. */\npublic class LabelBooking {\n\n    /** Anything the carrier's API reports. Unchecked, as in most HTTP client libraries. */\n    public static class CarrierException extends RuntimeException {\n        public CarrierException(String message) {\n            super(message);\n        }\n    }\n\n    /** The carrier could not match the address to a delivery point. */\n    public static class AddressRejected extends CarrierException {\n        public AddressRejected(String reason) {\n            super(reason);\n        }\n    }\n\n    /** The carrier's booking API. */\n    public interface Carrier {\n        /** Books a label for the parcel and returns its tracking number. */\n        String book(String parcel, String address);\n    }\n\n    private final Carrier carrier;\n\n    public LabelBooking(Carrier carrier) {\n        this.carrier = carrier;\n    }\n\n    /**\n     * Books a label. Returns {@code \"booked: <tracking number>\"}, {@code \"review: <reason>\"} when the\n     * address must be fixed by a person, or {@code \"retry later: <message>\"} when the carrier failed.\n     */\n    public String ship(String parcel, String address) {\n        try {\n            return \"booked: \" + carrier.book(parcel, address);\n        } catch (AddressRejected e) {\n            return bookNormalized(parcel, address);\n        } catch (CarrierException e) {\n            return \"retry later: \" + e.getMessage();\n        }\n    }\n\n    /**\n     * The carrier rejected the address as typed. Books the parcel once more with the address\n     * normalized, and returns what ship() returns.\n     */\n    String bookNormalized(String parcel, String address) {\n        // TODO: the parcel still has to be booked; decide what each outcome of the second attempt\n        // means for ship()'s caller.\n        throw new IllegalStateException(\"TODO: book the parcel with the normalized address\");\n    }\n\n    /** Collapses runs of spaces and upper-cases the address, as the carrier's own form does. */\n    static String normalize(String address) {\n        return address.strip().replaceAll(\"\\\\s+\", \" \").toUpperCase(Locale.ROOT);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-02/practice-1/src/main/java/practice/InputHandler.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-02/practice-1/src/test/java/practice/InputHandlerTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-02/practice-1/src/main/java/practice/LabelBooking.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-02/practice-1/src/test/java/practice/LabelBookingTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,44 +113,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.InputHandlerTest#processesValidInput",
+        "id": "practice.LabelBookingTest#aRejectedAddressIsBookedAgainInItsNormalizedForm",
         "kind": "main",
-        "says": "Valid input is processed by the backend and reported as a success."
+        "says": "a rejected address is booked again in its normalized form, and the booking's tracking number is returned"
       },
       {
-        "id": "practice.InputHandlerTest#rejectsEmptyInput",
-        "kind": "main",
-        "says": "Empty input is invalid and never reaches the backend."
-      },
-      {
-        "id": "practice.InputHandlerTest#reportsAnIoFailure",
-        "kind": "main",
-        "says": "An IOException from the backend is a database or I/O error."
-      },
-      {
-        "id": "practice.InputHandlerTest#aNullInputIsInvalidNotACrash",
+        "id": "practice.LabelBookingTest#aSecondRejectionGoesToReview",
         "kind": "edge",
-        "says": "A null input is reported as invalid, with the message \"Input is null\"."
+        "says": "when the normalized address is rejected too, the parcel goes to review with the carrier's second reason"
       },
       {
-        "id": "practice.InputHandlerTest#aSqlFailureIsADatabaseError",
+        "id": "practice.LabelBookingTest#aCarrierOutageDuringTheSecondAttemptIsRetriedLater",
         "kind": "edge",
-        "says": "A SQLException belongs in the same catch as an IOException, not the unexpected one."
-      },
-      {
-        "id": "practice.InputHandlerTest#anUncheckedFailureIsUnexpected",
-        "kind": "edge",
-        "says": "Any other failure of the backend is reported as unexpected instead of escaping."
-      },
-      {
-        "id": "practice.InputHandlerTest#invalidInputNeverReachesTheBackend",
-        "kind": "edge",
-        "says": "Null or empty input is rejected before the backend is called, not after."
-      },
-      {
-        "id": "practice.InputHandlerTest#anErrorFromTheBackendIsNotReported",
-        "kind": "edge",
-        "says": "An Error is not an exception to report: it reaches the caller."
+        "says": "when the carrier fails during the second attempt, ship() returns retry later instead of throwing"
       }
     ],
     "report": {
@@ -177,10 +134,10 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.2.md",
-      "section": "Implementation"
+      "section": "An Exception Thrown in a Catch Block Leaves the Whole try Statement"
     },
     "concepts": [
-      "A multi-catch lets several exception types share one handler instead of duplicated catch blocks."
+      "An exception thrown inside a catch block leaves the whole try statement; the catch clauses below it never see it."
     ]
   }
 }

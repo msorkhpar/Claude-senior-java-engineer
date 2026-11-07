@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Read and write any field",
+  "title": "Let the debug endpoint write objects it can't open",
   "blocks": [
     {
       "type": "heading",
@@ -19,50 +19,22 @@
     },
     {
       "type": "para",
-      "text": "To reach a private field: find it with **`getDeclaredField`** (`getField` sees public fields only), call **`setAccessible(true)`**, then `get` or `set`. For a static field pass `null` as the instance. `getDeclaredField` does not look in superclasses, so an inherited field needs a **walk up the hierarchy**."
+      "text": "The shipping service has a debug endpoint that prints whatever object a request handler holds, for support engineers chasing a bad order. It writes the service's own objects field by field, private and inherited fields included, which is what support needs. Since the service moved to Java 21, the endpoint answers 500 for most orders: the objects hold JDK collections, charsets and other library objects, and the service runs without any `--add-opens`."
     },
     {
       "type": "para",
-      "text": "Write `FieldAccess`:"
+      "text": "`Snapshot.render(...)` already writes text, numbers and enum constants as they are, sorts the fields and recurses. Finish the `TODO` in `src/main/java/practice/Snapshot.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`read(target, name)`: the value of the field `name` of `target`, declared on its class or **any superclass**, at any access level. Primitives come back boxed.",
-        "`write(target, name, value)`: sets that field.",
-        "`readStatic(type, name)`: the value of a static field of `type`.",
-        "A field that exists on no class of the hierarchy is a **`NoSuchFieldException`**."
+        "`openFields(type)`: the instance fields of `type` and of all its superclasses, each made readable, or empty when the object should be written through its own `toString()` instead."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`read(point, \"x\")` with `x = 3`",
-          "`3`"
-        ],
-        [
-          "`read(account, \"owner\")`, `owner` private",
-          "`\"ann\"`"
-        ],
-        [
-          "`write(account, \"balance\", 2500)`",
-          "the private balance is `2500`"
-        ],
-        [
-          "`read(savings, \"owner\")`, `owner` declared on the parent",
-          "`\"bo\"`"
-        ],
-        [
-          "`read(point, \"z\")`",
-          "`NoSuchFieldException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, an object of the service's own classes is still written field by field, and any object whose fields can't all be read is written whole through its `toString()`, without an exception and without leaving fields out. About eight lines in total."
     },
     {
       "type": "heading",
@@ -77,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Field;\n\npublic final class FieldAccess {\n\n    private FieldAccess() {\n    }\n\n    /** The value of the named field of target, declared on its class or any superclass. */\n    public static Object read(Object target, String name) throws ReflectiveOperationException {\n        return find(target.getClass(), name).get(target);\n    }\n\n    /** Sets the named field of target, declared on its class or any superclass. */\n    public static void write(Object target, String name, Object value) throws ReflectiveOperationException {\n        find(target.getClass(), name).set(target, value);\n    }\n\n    /** The value of a static field of type. */\n    public static Object readStatic(Class<?> type, String name) throws ReflectiveOperationException {\n        return find(type, name).get(null);\n    }\n\n    private static Field find(Class<?> type, String name) throws NoSuchFieldException {\n        Class<?> current = type;\n        while (current != null) {\n            try {\n                Field field = current.getDeclaredField(name);\n                field.setAccessible(true);\n                return field;\n            } catch (NoSuchFieldException e) {\n                current = current.getSuperclass();\n            }\n        }\n        throw new NoSuchFieldException(name);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.StringJoiner;\n\n/** Writes any object the debug endpoint is asked about, field by field. */\npublic final class Snapshot {\n\n    private Snapshot() {\n    }\n\n    /**\n     * Text, numbers, booleans, characters and enum constants as themselves; any other object as\n     * {@code Type{field=value, ...}} with its instance fields sorted by name, or as its own\n     * {@code toString()} when its fields can't be read.\n     */\n    public static String render(Object value) {\n        if (value == null || value instanceof CharSequence || value instanceof Number\n                || value instanceof Boolean || value instanceof Character || value instanceof Enum<?>) {\n            return String.valueOf(value);\n        }\n        Optional<List<Field>> fields = openFields(value.getClass());\n        if (fields.isEmpty()) {\n            return value.toString();\n        }\n        List<Field> sorted = new ArrayList<>(fields.get());\n        sorted.sort(Comparator.comparing(Field::getName));\n        StringJoiner out = new StringJoiner(\", \", value.getClass().getSimpleName() + \"{\", \"}\");\n        for (Field field : sorted) {\n            try {\n                out.add(field.getName() + \"=\" + render(field.get(value)));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(e);\n            }\n        }\n        return out.toString();\n    }\n\n    /**\n     * The instance fields of {@code type} and of all its superclasses, each ready to be read with\n     * {@code get}. Empty when any one of them can't be made readable: the object is then written\n     * through its own {@code toString()}.\n     */\n    static Optional<List<Field>> openFields(Class<?> type) {\n        List<Field> open = new ArrayList<>();\n        for (Class<?> c = type; c != null; c = c.getSuperclass()) {\n            for (Field field : c.getDeclaredFields()) {\n                if (Modifier.isStatic(field.getModifiers())) continue;\n                if (!field.trySetAccessible()) return Optional.empty();\n                open.add(field);\n            }\n        }\n        return Optional.of(open);\n    }\n}\n"
         }
       ]
     },
@@ -89,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class FieldAccess {\n\n    private FieldAccess() {\n    }\n\n    /** The value of the named field of target, declared on its class or any superclass. */\n    public static Object read(Object target, String name) throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Sets the named field of target, declared on its class or any superclass. */\n    public static void write(Object target, String name, Object value) throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The value of a static field of type. */\n    public static Object readStatic(Class<?> type, String name) throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.StringJoiner;\n\n/** Writes any object the debug endpoint is asked about, field by field. */\npublic final class Snapshot {\n\n    private Snapshot() {\n    }\n\n    /**\n     * Text, numbers, booleans, characters and enum constants as themselves; any other object as\n     * {@code Type{field=value, ...}} with its instance fields sorted by name, or as its own\n     * {@code toString()} when its fields can't be read.\n     */\n    public static String render(Object value) {\n        if (value == null || value instanceof CharSequence || value instanceof Number\n                || value instanceof Boolean || value instanceof Character || value instanceof Enum<?>) {\n            return String.valueOf(value);\n        }\n        Optional<List<Field>> fields = openFields(value.getClass());\n        if (fields.isEmpty()) {\n            return value.toString();\n        }\n        List<Field> sorted = new ArrayList<>(fields.get());\n        sorted.sort(Comparator.comparing(Field::getName));\n        StringJoiner out = new StringJoiner(\", \", value.getClass().getSimpleName() + \"{\", \"}\");\n        for (Field field : sorted) {\n            try {\n                out.add(field.getName() + \"=\" + render(field.get(value)));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(e);\n            }\n        }\n        return out.toString();\n    }\n\n    /**\n     * The instance fields of {@code type} and of all its superclasses, each ready to be read with\n     * {@code get}. Empty when any one of them can't be made readable: the object is then written\n     * through its own {@code toString()}.\n     */\n    static Optional<List<Field>> openFields(Class<?> type) {\n        // TODO: collect the instance fields of type and of its superclasses, each made readable.\n        //  When one of them can't be made readable, the object is written whole instead: return empty.\n        throw new IllegalStateException(\"TODO: open the fields of \" + type.getName());\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,9 +69,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -108,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5d4837c9a8ab56142c7c471f59177831244a0e50dc72e0050874b2f967a724c7",
-  "starting_code": "package practice;\n\npublic final class FieldAccess {\n\n    private FieldAccess() {\n    }\n\n    /** The value of the named field of target, declared on its class or any superclass. */\n    public static Object read(Object target, String name) throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Sets the named field of target, declared on its class or any superclass. */\n    public static void write(Object target, String name, Object value) throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The value of a static field of type. */\n    public static Object readStatic(Class<?> type, String name) throws ReflectiveOperationException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "e03f8e13671ac641a71e273cf7d1d1b5d2a62396baffd6b87a06ca09ebc07602",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.StringJoiner;\n\n/** Writes any object the debug endpoint is asked about, field by field. */\npublic final class Snapshot {\n\n    private Snapshot() {\n    }\n\n    /**\n     * Text, numbers, booleans, characters and enum constants as themselves; any other object as\n     * {@code Type{field=value, ...}} with its instance fields sorted by name, or as its own\n     * {@code toString()} when its fields can't be read.\n     */\n    public static String render(Object value) {\n        if (value == null || value instanceof CharSequence || value instanceof Number\n                || value instanceof Boolean || value instanceof Character || value instanceof Enum<?>) {\n            return String.valueOf(value);\n        }\n        Optional<List<Field>> fields = openFields(value.getClass());\n        if (fields.isEmpty()) {\n            return value.toString();\n        }\n        List<Field> sorted = new ArrayList<>(fields.get());\n        sorted.sort(Comparator.comparing(Field::getName));\n        StringJoiner out = new StringJoiner(\", \", value.getClass().getSimpleName() + \"{\", \"}\");\n        for (Field field : sorted) {\n            try {\n                out.add(field.getName() + \"=\" + render(field.get(value)));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(e);\n            }\n        }\n        return out.toString();\n    }\n\n    /**\n     * The instance fields of {@code type} and of all its superclasses, each ready to be read with\n     * {@code get}. Empty when any one of them can't be made readable: the object is then written\n     * through its own {@code toString()}.\n     */\n    static Optional<List<Field>> openFields(Class<?> type) {\n        // TODO: collect the instance fields of type and of its superclasses, each made readable.\n        //  When one of them can't be made readable, the object is written whole instead: return empty.\n        throw new IllegalStateException(\"TODO: open the fields of \" + type.getName());\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-1/src/main/java/practice/FieldAccess.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-1/src/test/java/practice/FieldAccessTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-1/src/main/java/practice/Snapshot.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-1/src/test/java/practice/SnapshotTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -133,29 +105,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FieldAccessTest#readsAndWritesPublicFields",
+        "id": "practice.SnapshotTest#writesTheFieldsOfOwnClassesWithTheInheritedOnes",
         "kind": "main",
-        "says": "On a class with public fields: read gives a field's value (boxed for int, null for an unset reference), write changes it, readStatic reads a static field."
+        "says": "an object of the application's own classes is written field by field, private and inherited fields included, static fields left out"
       },
       {
-        "id": "practice.FieldAccessTest#readsAPrivateField",
+        "id": "practice.SnapshotTest#aJdkCollectionHeldInAFieldIsWrittenThroughItsToString",
         "kind": "edge",
-        "says": "read finds and reads the private fields of an Account."
+        "says": "a JDK collection in a field is written through its toString instead of failing the whole snapshot"
       },
       {
-        "id": "practice.FieldAccessTest#writesAPrivateField",
+        "id": "practice.SnapshotTest#aJdkObjectWhoseClassLivesOutsideTheJavaPackagesIsWrittenThroughItsToString",
         "kind": "edge",
-        "says": "write changes an Account's private balance."
+        "says": "a JDK object whose class is outside the java.* packages is written through its toString too"
       },
       {
-        "id": "practice.FieldAccessTest#findsAFieldDeclaredOnASuperclass",
+        "id": "practice.SnapshotTest#anObjectWithOneUnreadableFieldIsWrittenWhole",
         "kind": "edge",
-        "says": "read(savings, \"owner\") finds the private owner field that Savings inherits from Account."
-      },
-      {
-        "id": "practice.FieldAccessTest#aMissingFieldIsReported",
-        "kind": "edge",
-        "says": "A field that exists nowhere in the hierarchy is a NoSuchFieldException."
+        "says": "an object of the application's own class that inherits fields from a JDK class is written through its toString, not with the unreadable fields left out"
       }
     ],
     "report": {
@@ -164,12 +131,10 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.2.md",
-      "section": "Interview Q&A Section"
+      "section": "setAccessible Opens Your Own Classes, and java.base Only One Granted Package at a Time"
     },
     "concepts": [
-      "getDeclaredField does not search superclasses, so an inherited field is found by walking the hierarchy.",
-      "A private field is read or written by finding it with getDeclaredField, calling setAccessible(true), then get or set.",
-      "A static field or method is used through reflection with null as the instance."
+      "setAccessible succeeds on class-path code but throws InaccessibleObjectException, an unchecked exception, on a private member of a JDK class; trySetAccessible returns false instead, so a walker can fall back to the object's public API."
     ]
   }
 }

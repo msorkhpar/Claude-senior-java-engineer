@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Compute each key once, even when callers race",
+  "title": "Keep each customer within their export limit under load",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,35 @@
     },
     {
       "type": "para",
-      "text": "The page's `RaceOnCheckThenAct.getOrCompute` checks `containsKey` and then calls `put`: two threads can both see the key absent, and both compute and insert it. Its fix makes the check and the act one atomic step with `ConcurrentHashMap.computeIfAbsent`."
+      "text": "Customer exports are heavy, so each customer may run only a few at a time. The counts live in a `ConcurrentHashMap` from customer to the number of exports running, which the operations dashboard reads too, and every request thread goes through `ExportLimiter`. After a load test, operations reported two things:"
     },
     {
-      "type": "para",
-      "text": "Write `ComputeCache`. Its constructor takes the (possibly expensive) function that computes a value from a key. `get(key)` returns the key's value, computing it only the first time; `size()` says how many keys are cached."
-    },
-    {
-      "type": "para",
-      "text": "Keys are compared by their text (`equals`), as in any map."
-    },
-    {
-      "type": "para",
-      "text": "**The rule:** each key's function runs **at most once**, even when several threads ask for the same missing key at the same moment."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer",
-        "function runs"
-      ],
-      "rows": [
-        [
-          "`get(\"a\")` on a new cache",
-          "`\"A\"` (for `String::toUpperCase`)",
-          "once"
-        ],
-        [
-          "`get(\"a\")` again",
-          "`\"A\"`",
-          "not again"
-        ],
-        [
-          "`get(\"b\")`, then `size()`",
-          "`2`",
-          "once for `\"b\"`"
-        ],
-        [
-          "`get(\"ab\")`, then `get(new String(\"ab\"))`",
-          "`\"AB\"` both times",
-          "once"
-        ],
-        [
-          "two threads call `get(\"x\")` together",
-          "both get `\"X\"`",
-          "once"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "the dashboard showed a customer with five exports running at a limit of three;",
+        "another customer was told \"too many exports running\" for an hour while none of theirs ran."
       ]
+    },
+    {
+      "type": "para",
+      "text": "`running(...)` already works. Finish the two `TODO`s in `src/main/java/practice/ExportLimiter.java`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`tryStart(customer)`: true when one more export of this customer may start now;",
+        "`finish(customer)`: called once when an export that `tryStart` let through has ended."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, no more exports run than the limit allows, even when several starts arrive at once; every export that ends frees its slot, even when several end at once; and a refused start leaves the count as it was. About eight lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests use a map that pauses one call right after it reads, while another call runs."
     },
     {
       "type": "heading",
@@ -81,7 +62,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\npublic final class ComputeCache {\n\n    private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();\n    private final Function<String, String> compute;\n\n    public ComputeCache(Function<String, String> compute) {\n        this.compute = compute;\n    }\n\n    /** Returns the key's value, computing it at most once per key. */\n    public String get(String key) {\n        return cache.computeIfAbsent(key, compute);\n    }\n\n    /** Returns how many keys are cached. */\n    public int size() {\n        return cache.size();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentMap;\n\n/**\n * Lets each customer run at most a fixed number of exports at a time. The map (customer to the\n * number of exports running) is shared with the operations dashboard, and request threads of the\n * same customer call tryStart and finish at the same moment.\n */\npublic class ExportLimiter {\n\n    private final int limit;\n    private final ConcurrentMap<String, Integer> running;\n\n    public ExportLimiter(int limit, ConcurrentMap<String, Integer> running) {\n        this.limit = limit;\n        this.running = running;\n    }\n\n    /** How many of the customer's exports are running now. */\n    public int running(String customer) {\n        return running.getOrDefault(customer, 0);\n    }\n\n    /** True when one more export of the customer may start now; the caller then calls finish when it ends. */\n    public boolean tryStart(String customer) {\n        boolean[] started = {false};\n        running.compute(customer, (c, n) -> {\n            int now = n == null ? 0 : n;\n            if (now >= limit) return n;\n            started[0] = true;\n            return now + 1;\n        });\n        return started[0];\n    }\n\n    /** Called once when an export that tryStart let through has ended. */\n    public void finish(String customer) {\n        running.computeIfPresent(customer, (c, n) -> n > 1 ? n - 1 : null);\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +74,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.Function;\n\npublic final class ComputeCache {\n\n    public ComputeCache(Function<String, String> compute) {\n    }\n\n    /** Returns the key's value, computing it at most once per key. */\n    public String get(String key) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    /** Returns how many keys are cached. */\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ConcurrentMap;\n\n/**\n * Lets each customer run at most a fixed number of exports at a time. The map (customer to the\n * number of exports running) is shared with the operations dashboard, and request threads of the\n * same customer call tryStart and finish at the same moment.\n */\npublic class ExportLimiter {\n\n    private final int limit;\n    private final ConcurrentMap<String, Integer> running;\n\n    public ExportLimiter(int limit, ConcurrentMap<String, Integer> running) {\n        this.limit = limit;\n        this.running = running;\n    }\n\n    /** How many of the customer's exports are running now. */\n    public int running(String customer) {\n        return running.getOrDefault(customer, 0);\n    }\n\n    /** True when one more export of the customer may start now; the caller then calls finish when it ends. */\n    public boolean tryStart(String customer) {\n        // TODO: Several requests of one customer may ask at the same moment while only one slot is\n        //       left. The count in the map must never pass the limit.\n        throw new IllegalStateException(\"TODO: tryStart\");\n    }\n\n    /** Called once when an export that tryStart let through has ended. */\n    public void finish(String customer) {\n        // TODO: Exports of one customer often end at the same moment. Each one that ends frees\n        //       its slot for the next.\n        throw new IllegalStateException(\"TODO: finish\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -103,8 +84,8 @@
     "headings": 3,
     "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 2,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -112,11 +93,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e5e26eb17bbb0ff04e4c1764294875b13493d637e39de1e271f1d7836c1a62b8",
-  "starting_code": "package practice;\n\nimport java.util.function.Function;\n\npublic final class ComputeCache {\n\n    public ComputeCache(Function<String, String> compute) {\n    }\n\n    /** Returns the key's value, computing it at most once per key. */\n    public String get(String key) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    /** Returns how many keys are cached. */\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n",
+  "content_sha256": "f53e6f06eefb6e5cefe99c5b5d36fd7f444789c5d92e2955b385bd8b9d3c1575",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ConcurrentMap;\n\n/**\n * Lets each customer run at most a fixed number of exports at a time. The map (customer to the\n * number of exports running) is shared with the operations dashboard, and request threads of the\n * same customer call tryStart and finish at the same moment.\n */\npublic class ExportLimiter {\n\n    private final int limit;\n    private final ConcurrentMap<String, Integer> running;\n\n    public ExportLimiter(int limit, ConcurrentMap<String, Integer> running) {\n        this.limit = limit;\n        this.running = running;\n    }\n\n    /** How many of the customer's exports are running now. */\n    public int running(String customer) {\n        return running.getOrDefault(customer, 0);\n    }\n\n    /** True when one more export of the customer may start now; the caller then calls finish when it ends. */\n    public boolean tryStart(String customer) {\n        // TODO: Several requests of one customer may ask at the same moment while only one slot is\n        //       left. The count in the map must never pass the limit.\n        throw new IllegalStateException(\"TODO: tryStart\");\n    }\n\n    /** Called once when an export that tryStart let through has ended. */\n    public void finish(String customer) {\n        // TODO: Exports of one customer often end at the same moment. Each one that ends frees\n        //       its slot for the next.\n        throw new IllegalStateException(\"TODO: finish\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-01/practice-2/src/main/java/practice/ComputeCache.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-01/practice-2/src/test/java/practice/ComputeCacheTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-01/practice-2/src/main/java/practice/ExportLimiter.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-01/practice-2/src/test/java/practice/ExportLimiterTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,19 +118,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ComputeCacheTest#computesAndCaches",
+        "id": "practice.ExportLimiterTest#startsUpToTheLimitPerCustomer",
         "kind": "main",
-        "says": "It computes a missing key's value, caches it, and returns the cached value afterwards."
+        "says": "a customer's exports start until the limit is reached, and each customer has a limit of their own"
       },
       {
-        "id": "practice.ComputeCacheTest#racingCallersShareOneComputation",
-        "kind": "edge",
-        "says": "Two threads asking for the same missing key at once run the computation once, not twice."
+        "id": "practice.ExportLimiterTest#anExportThatEndsFreesItsSlot",
+        "kind": "main",
+        "says": "an export that ends lets the next one of that customer start"
       },
       {
-        "id": "practice.ComputeCacheTest#equalKeysShareOneEntry",
+        "id": "practice.ExportLimiterTest#twoStartsForTheLastSlotLetOneThrough",
         "kind": "edge",
-        "says": "Two different String objects with the same text are one key: the value is computed once for both."
+        "says": "when two starts meet over the last free slot, exactly one gets it and the count stays at the limit"
+      },
+      {
+        "id": "practice.ExportLimiterTest#twoExportsEndingTogetherFreeTwoSlots",
+        "kind": "edge",
+        "says": "two exports that end at the same moment free two slots, not one"
+      },
+      {
+        "id": "practice.ExportLimiterTest#aRefusedStartTakesNoSlot",
+        "kind": "edge",
+        "says": "a start that was refused leaves the count as it was"
       }
     ],
     "report": {
@@ -158,10 +149,10 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.1.md",
-      "section": "2. Race on check-then-act"
+      "section": "Code With No Data Race Can Still Race: a Check and an Act Are Two Steps"
     },
     "concepts": [
-      "A check followed by an act on a shared map races; computeIfAbsent makes the pair one atomic step."
+      "Code whose every access is atomic or volatile has no data race and can still race: a check and an act are two steps another thread can run between."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A lazy collection and its LazyInitializationException",
+  "title": "Write back only the customers a request changed",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,28 @@
     },
     {
       "type": "para",
-      "text": "`@OneToMany` is LAZY by default: the collection is fetched the first time it is used. The page's third pitfall touches it after the `EntityManager` is closed, which throws `LazyInitializationException`. Build that behaviour by hand."
+      "text": "This practice builds on the previous one: `CustomerSession` now gives each request one object per customer. Requests change those objects, and the changes have to reach the database without every caller remembering to save. The first attempt wrote every customer the request had read, and the database team counts four `UPDATE`s for a request that changed one tier."
     },
     {
       "type": "para",
-      "text": "`Catalog` is given an open `Connection` to `categories(id, name)` and `products(id, name, category_id)`:"
+      "text": "Finish the three `TODO`s in `src/main/java/practice/CustomerSession.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`category(id)` returns `Optional<Category>` with its id and name. **The products are not loaded until `products()` is first called.**",
-        "`Category.products()` returns the product names, ordered by id. **They are queried once, then kept.**",
-        "`close()` closes the catalog (not the connection, which is the caller's). **Loading after close throws `Catalog.LazyInitializationException`**, but **products loaded before close stay readable after it**."
+        "`remember(customer)`: keep what the session will compare against; `find` calls it after each load;",
+        "`isDirty(customer)`: whether the customer now differs from that;",
+        "`flush()`: write every changed customer with `writeRow`, and return how many it wrote."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "steps",
-        "result"
-      ],
-      "rows": [
-        [
-          "`category(1)`",
-          "`Books`, 1 query so far"
-        ],
-        [
-          "`products()`, `products()`",
-          "`[Dune, Emma]` both times, 2 queries in all"
-        ],
-        [
-          "`category(1)`, `close()`, `products()`",
-          "`LazyInitializationException`"
-        ],
-        [
-          "`category(1)`, `products()`, `close()`, `products()`",
-          "`[Dune, Emma]`"
-        ]
-      ]
+      "type": "para",
+      "text": "A request changes customers through their fields and through their tag lists, may set a field to the value it already has, and may flush more than once. About ten lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run against H2 in memory through a connection that counts the `UPDATE` statements it executes."
     },
     {
       "type": "heading",
@@ -72,7 +55,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.Optional;\n\npublic final class Catalog implements AutoCloseable {\n\n    /** Thrown when a lazy collection is first read after its catalog was closed. */\n    public static final class LazyInitializationException extends RuntimeException {\n        public LazyInitializationException(String message) {\n            super(message);\n        }\n    }\n\n    private final Connection connection;\n    private boolean closed;\n\n    public Catalog(Connection connection) {\n        this.connection = Objects.requireNonNull(connection, \"connection\");\n    }\n\n    /** The category, with its products not yet loaded. */\n    public Optional<Category> category(int id) throws SQLException {\n        try (PreparedStatement statement = connection.prepareStatement(\"SELECT id, name FROM categories WHERE id = ?\")) {\n            statement.setInt(1, id);\n            try (ResultSet rows = statement.executeQuery()) {\n                return rows.next()\n                        ? Optional.of(new Category(rows.getInt(\"id\"), rows.getString(\"name\")))\n                        : Optional.empty();\n            }\n        }\n    }\n\n    /** Closes the catalog; the connection stays open. */\n    @Override\n    public void close() {\n        closed = true;\n    }\n\n    public final class Category {\n        private final int id;\n        private final String name;\n        private List<String> products;\n\n        private Category(int id, String name) {\n            this.id = id;\n            this.name = name;\n        }\n\n        public int id() {\n            return id;\n        }\n\n        public String name() {\n            return name;\n        }\n\n        /** The product names, ordered by id: loaded on first call, then kept. */\n        public List<String> products() throws SQLException {\n            if (products == null) {\n                if (closed) {\n                    throw new LazyInitializationException(\"category \" + id + \": catalog is closed\");\n                }\n                products = load();\n            }\n            return products;\n        }\n\n        private List<String> load() throws SQLException {\n            List<String> names = new ArrayList<>();\n            try (PreparedStatement statement = connection.prepareStatement(\n                    \"SELECT name FROM products WHERE category_id = ? ORDER BY id\")) {\n                statement.setInt(1, id);\n                try (ResultSet rows = statement.executeQuery()) {\n                    while (rows.next()) {\n                        names.add(rows.getString(\"name\"));\n                    }\n                }\n            }\n            return List.copyOf(names);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.Arrays;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * One unit of work of the account service: it is opened for one request, flushed, and dropped.\n * Table: customer(id, name, tier, tags), tags stored comma-separated.\n */\npublic class CustomerSession {\n\n    public static final class Customer {\n        public final long id;\n        public String name;\n        public String tier;\n        public final List<String> tags;\n\n        Customer(long id, String name, String tier, List<String> tags) {\n            this.id = id;\n            this.name = name;\n            this.tier = tier;\n            this.tags = tags;\n        }\n    }\n\n    private final Connection connection;\n    private final Map<Long, Customer> loaded = new HashMap<>();\n\n    /** A customer's values as they were read, or as they were last written. */\n    private record State(String name, String tier, List<String> tags) {}\n\n    private final Map<Long, State> snapshots = new HashMap<>();\n\n    public CustomerSession(Connection connection) {\n        this.connection = connection;\n    }\n\n    /** The customer with this id, or null if there is none. */\n    public Customer find(long id) throws SQLException {\n        Customer customer = loaded.get(id);\n        if (customer == null) {\n            customer = load(id);\n            if (customer != null) {\n                loaded.put(id, customer);\n                remember(customer);\n            }\n        }\n        return customer;\n    }\n\n    /** Records the customer's current values as the state the database holds. */\n    void remember(Customer customer) {\n        snapshots.put(customer.id, new State(customer.name, customer.tier, List.copyOf(customer.tags)));\n    }\n\n    /** Whether the customer's values differ from the state the database holds. */\n    boolean isDirty(Customer customer) {\n        return !snapshots.get(customer.id).equals(new State(customer.name, customer.tier, customer.tags));\n    }\n\n    /**\n     * Writes to the database every change made to this session's customers since they were\n     * read or last written, and returns how many rows it wrote.\n     */\n    public int flush() throws SQLException {\n        int written = 0;\n        for (Customer customer : loaded.values()) {\n            if (isDirty(customer)) {\n                writeRow(customer);\n                remember(customer);\n                written++;\n            }\n        }\n        return written;\n    }\n\n    /** Writes the customer's current values to its row. */\n    void writeRow(Customer customer) throws SQLException {\n        try (PreparedStatement ps = connection.prepareStatement(\n                \"update customer set name = ?, tier = ?, tags = ? where id = ?\")) {\n            ps.setString(1, customer.name);\n            ps.setString(2, customer.tier);\n            ps.setString(3, String.join(\",\", customer.tags));\n            ps.setLong(4, customer.id);\n            ps.executeUpdate();\n        }\n    }\n\n    /** Reads the row into a new Customer, or returns null if there is no such row. */\n    Customer load(long id) throws SQLException {\n        try (PreparedStatement ps = connection.prepareStatement(\"select name, tier, tags from customer where id = ?\")) {\n            ps.setLong(1, id);\n            try (ResultSet rs = ps.executeQuery()) {\n                if (!rs.next()) return null;\n                String tags = rs.getString(3);\n                List<String> list = new ArrayList<>(tags.isEmpty() ? List.of() : Arrays.asList(tags.split(\",\")));\n                return new Customer(id, rs.getString(1), rs.getString(2), list);\n            }\n        }\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +67,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Catalog implements AutoCloseable {\n\n    /** Thrown when a lazy collection is first read after its catalog was closed. */\n    public static final class LazyInitializationException extends RuntimeException {\n        public LazyInitializationException(String message) {\n            super(message);\n        }\n    }\n\n    public Catalog(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The category, with its products not yet loaded. */\n    public Optional<Category> category(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Closes the catalog; the connection stays open. */\n    @Override\n    public void close() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public final class Category {\n\n        public int id() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        /** The product names, ordered by id: loaded on first call, then kept. */\n        public List<String> products() throws SQLException {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.Arrays;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * One unit of work of the account service: it is opened for one request, flushed, and dropped.\n * Table: customer(id, name, tier, tags), tags stored comma-separated.\n */\npublic class CustomerSession {\n\n    public static final class Customer {\n        public final long id;\n        public String name;\n        public String tier;\n        public final List<String> tags;\n\n        Customer(long id, String name, String tier, List<String> tags) {\n            this.id = id;\n            this.name = name;\n            this.tier = tier;\n            this.tags = tags;\n        }\n    }\n\n    private final Connection connection;\n    private final Map<Long, Customer> loaded = new HashMap<>();\n\n    /** A customer's values as they were read, or as they were last written. */\n    private record State(String name, String tier, List<String> tags) {}\n\n    private final Map<Long, State> snapshots = new HashMap<>();\n\n    public CustomerSession(Connection connection) {\n        this.connection = connection;\n    }\n\n    /** The customer with this id, or null if there is none. */\n    public Customer find(long id) throws SQLException {\n        Customer customer = loaded.get(id);\n        if (customer == null) {\n            customer = load(id);\n            if (customer != null) {\n                loaded.put(id, customer);\n                remember(customer);\n            }\n        }\n        return customer;\n    }\n\n    /** Records the customer's current values as the state the database holds. */\n    void remember(Customer customer) {\n        // TODO: Keep what flush() will compare against later. The request goes on changing this\n        //       customer after this call, through its fields and through its tag list.\n        throw new IllegalStateException(\"TODO: remember\");\n    }\n\n    /** Whether the customer's values differ from the state the database holds. */\n    boolean isDirty(Customer customer) {\n        // TODO: Answer whether this customer now holds anything the database doesn't.\n        throw new IllegalStateException(\"TODO: isDirty\");\n    }\n\n    /**\n     * Writes to the database every change made to this session's customers since they were\n     * read or last written, and returns how many rows it wrote.\n     */\n    public int flush() throws SQLException {\n        // TODO: The request has edited some of the customers it read; write those, and only\n        //       those, with writeRow(customer). A session may be flushed more than once.\n        throw new IllegalStateException(\"TODO: flush\");\n    }\n\n    /** Writes the customer's current values to its row. */\n    void writeRow(Customer customer) throws SQLException {\n        try (PreparedStatement ps = connection.prepareStatement(\n                \"update customer set name = ?, tier = ?, tags = ? where id = ?\")) {\n            ps.setString(1, customer.name);\n            ps.setString(2, customer.tier);\n            ps.setString(3, String.join(\",\", customer.tags));\n            ps.setLong(4, customer.id);\n            ps.executeUpdate();\n        }\n    }\n\n    /** Reads the row into a new Customer, or returns null if there is no such row. */\n    Customer load(long id) throws SQLException {\n        try (PreparedStatement ps = connection.prepareStatement(\"select name, tier, tags from customer where id = ?\")) {\n            ps.setLong(1, id);\n            try (ResultSet rs = ps.executeQuery()) {\n                if (!rs.next()) return null;\n                String tags = rs.getString(3);\n                List<String> list = new ArrayList<>(tags.isEmpty() ? List.of() : Arrays.asList(tags.split(\",\")));\n                return new Customer(id, rs.getString(1), rs.getString(2), list);\n            }\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -92,9 +75,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -103,11 +86,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9dc46775486eab4e9a25831e5aae9aa377dd6a9e93c9f4cb7c753e0ae16b10ca",
-  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Catalog implements AutoCloseable {\n\n    /** Thrown when a lazy collection is first read after its catalog was closed. */\n    public static final class LazyInitializationException extends RuntimeException {\n        public LazyInitializationException(String message) {\n            super(message);\n        }\n    }\n\n    public Catalog(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The category, with its products not yet loaded. */\n    public Optional<Category> category(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Closes the catalog; the connection stays open. */\n    @Override\n    public void close() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public final class Category {\n\n        public int id() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        /** The product names, ordered by id: loaded on first call, then kept. */\n        public List<String> products() throws SQLException {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n}\n",
+  "content_sha256": "144dad93a28b1fcc700d816003b44f859f1fee4416b0d64595e8864a117f068d",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.Arrays;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * One unit of work of the account service: it is opened for one request, flushed, and dropped.\n * Table: customer(id, name, tier, tags), tags stored comma-separated.\n */\npublic class CustomerSession {\n\n    public static final class Customer {\n        public final long id;\n        public String name;\n        public String tier;\n        public final List<String> tags;\n\n        Customer(long id, String name, String tier, List<String> tags) {\n            this.id = id;\n            this.name = name;\n            this.tier = tier;\n            this.tags = tags;\n        }\n    }\n\n    private final Connection connection;\n    private final Map<Long, Customer> loaded = new HashMap<>();\n\n    /** A customer's values as they were read, or as they were last written. */\n    private record State(String name, String tier, List<String> tags) {}\n\n    private final Map<Long, State> snapshots = new HashMap<>();\n\n    public CustomerSession(Connection connection) {\n        this.connection = connection;\n    }\n\n    /** The customer with this id, or null if there is none. */\n    public Customer find(long id) throws SQLException {\n        Customer customer = loaded.get(id);\n        if (customer == null) {\n            customer = load(id);\n            if (customer != null) {\n                loaded.put(id, customer);\n                remember(customer);\n            }\n        }\n        return customer;\n    }\n\n    /** Records the customer's current values as the state the database holds. */\n    void remember(Customer customer) {\n        // TODO: Keep what flush() will compare against later. The request goes on changing this\n        //       customer after this call, through its fields and through its tag list.\n        throw new IllegalStateException(\"TODO: remember\");\n    }\n\n    /** Whether the customer's values differ from the state the database holds. */\n    boolean isDirty(Customer customer) {\n        // TODO: Answer whether this customer now holds anything the database doesn't.\n        throw new IllegalStateException(\"TODO: isDirty\");\n    }\n\n    /**\n     * Writes to the database every change made to this session's customers since they were\n     * read or last written, and returns how many rows it wrote.\n     */\n    public int flush() throws SQLException {\n        // TODO: The request has edited some of the customers it read; write those, and only\n        //       those, with writeRow(customer). A session may be flushed more than once.\n        throw new IllegalStateException(\"TODO: flush\");\n    }\n\n    /** Writes the customer's current values to its row. */\n    void writeRow(Customer customer) throws SQLException {\n        try (PreparedStatement ps = connection.prepareStatement(\n                \"update customer set name = ?, tier = ?, tags = ? where id = ?\")) {\n            ps.setString(1, customer.name);\n            ps.setString(2, customer.tier);\n            ps.setString(3, String.join(\",\", customer.tags));\n            ps.setLong(4, customer.id);\n            ps.executeUpdate();\n        }\n    }\n\n    /** Reads the row into a new Customer, or returns null if there is no such row. */\n    Customer load(long id) throws SQLException {\n        try (PreparedStatement ps = connection.prepareStatement(\"select name, tier, tags from customer where id = ?\")) {\n            ps.setLong(1, id);\n            try (ResultSet rs = ps.executeQuery()) {\n                if (!rs.next()) return null;\n                String tags = rs.getString(3);\n                List<String> list = new ArrayList<>(tags.isEmpty() ? List.of() : Arrays.asList(tags.split(\",\")));\n                return new Customer(id, rs.getString(1), rs.getString(2), list);\n            }\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/src/main/java/practice/Catalog.java",
-    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/src/test/java/practice/CatalogTest.java",
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/src/main/java/practice/CustomerSession.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/src/test/java/practice/CustomerSessionTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,29 +111,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CatalogTest#loadsACategoryAndItsProducts",
+        "id": "practice.CustomerSessionTest#writesARenamedCustomer",
         "kind": "main",
-        "says": "category(1) gives Books, and its products() are the product names ordered by id."
+        "says": "a customer renamed during the session has the new name in its row after flush, and the others keep theirs"
       },
       {
-        "id": "practice.CatalogTest#productsAreNotQueriedUntilAsked",
-        "kind": "edge",
-        "says": "category(1) alone runs one query: the products are not loaded until products() is called."
+        "id": "practice.CustomerSessionTest#leavesEveryRowAsItWasWhenNothingChanged",
+        "kind": "main",
+        "says": "a flush after reads only leaves every row as it was"
       },
       {
-        "id": "practice.CatalogTest#productsAreQueriedOnlyOnce",
+        "id": "practice.CustomerSessionTest#writesATagAddedToTheList",
         "kind": "edge",
-        "says": "Calling products() twice runs the product query once."
+        "says": "a tag added to a customer's tag list is a change, and flush writes it"
       },
       {
-        "id": "practice.CatalogTest#firstAccessAfterCloseThrows",
+        "id": "practice.CustomerSessionTest#writesOnlyTheCustomerThatChanged",
         "kind": "edge",
-        "says": "After the catalog is closed, a first call to products() throws LazyInitializationException."
+        "says": "flush sends one UPDATE per changed customer and none for customers that were only read"
       },
       {
-        "id": "practice.CatalogTest#productsLoadedBeforeCloseStayReadable",
+        "id": "practice.CustomerSessionTest#anEqualValueIsNotAChange",
         "kind": "edge",
-        "says": "products() read before close() can still be read after it, with no query."
+        "says": "a field set to a new object with the same value is not a change and is not written"
+      },
+      {
+        "id": "practice.CustomerSessionTest#aSecondFlushWritesOnlyWhatChangedSinceTheFirst",
+        "kind": "edge",
+        "says": "after a flush, the written values are the new baseline: a second flush writes nothing until something changes again"
       }
     ],
     "report": {
@@ -159,11 +147,10 @@
     },
     "origin": {
       "path": "45-java-persistence/README_10.7.2.md",
-      "section": "3. LazyInitializationException"
+      "section": "Flush Writes What Differs From the Snapshot Taken at Load"
     },
     "concepts": [
-      "Touching a lazy collection that was never loaded after its EntityManager closed throws LazyInitializationException.",
-      "A lazy association is fetched on first access; @OneToMany is LAZY and @ManyToOne EAGER by default."
+      "At flush each managed entity is compared by value with the snapshot taken at load; only entities that differ get an UPDATE, and a field set to an equal value is not a change."
     ]
   }
 }

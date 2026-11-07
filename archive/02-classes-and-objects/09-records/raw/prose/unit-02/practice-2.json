@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "An Employee record that checks itself",
+  "title": "Let the importer bind records",
   "blocks": [
     {
       "type": "heading",
@@ -19,30 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A record may customise what it generates: validate in a compact constructor, override `toString`, and add methods of its own."
+      "text": "The nightly import reads CSV rows into DTOs through `RowBinder`, which was written when every DTO was a JavaBean. This sprint the team turned the DTOs into records, and the first import after the release failed on its first row with `NoSuchMethodException: ...<init>()`."
     },
     {
       "type": "para",
-      "text": "Complete `record Employee(String name, int id, LocalDate hireDate)`:"
+      "text": "`RowBinder.bind` already sends records to `bindRecord`. Finish the `TODO` in `src/main/java/practice/RowBinder.java` so that `bindRecord` builds the record from the row. The row is a map from column name to value, as the CSV reader produced it: numbers arrive boxed, and the columns come in the file's order, which is not always the order of the record's components. When a record refuses a value, the import reports the record's own exception, the one its author wrote the message for."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**compact constructor**: a `null` name is refused with a `NullPointerException` whose message is `Name cannot be null`; a `null` hire date with a `NullPointerException` whose message is `Hire date cannot be null`; an `id` of 0 or less with an `IllegalArgumentException` whose message is `ID must be positive` (`Objects.requireNonNull(value, message)` helps);",
-        "**`toString()`**: `Employee(name=<name>, id=<id>, hired on <hireDate>)`;",
-        "**`boolean isNewHire(LocalDate today)`**: `true` when the hire date is strictly after the date six months before `today`."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new Employee(\"Alice Smith\", 4, LocalDate.of(2023, 4, 1)).toString()\n        -> \"Employee(name=Alice Smith, id=4, hired on 2023-04-01)\"\nnew Employee(null, 1, date)       -> NullPointerException: Name cannot be null\nnew Employee(\"Test\", 0, date)     -> IllegalArgumentException: ID must be positive\nnew Employee(\"Test\", 1, null)     -> NullPointerException: Hire date cannot be null\n\ntoday = 2023-08-22\nhired 2023-05-01 -> isNewHire(today) = true\nhired 2022-01-01 -> isNewHire(today) = false\nhired 2023-02-22 -> isNewHire(today) = false   (exactly six months)"
+      "type": "para",
+      "text": "About twelve lines in total."
     },
     {
       "type": "heading",
@@ -57,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.Objects;\n\npublic record Employee(String name, int id, LocalDate hireDate) {\n\n    /** Refuse a null name or hire date (NullPointerException) and an id of 0 or less. */\n    public Employee {\n        Objects.requireNonNull(name, \"Name cannot be null\");\n        Objects.requireNonNull(hireDate, \"Hire date cannot be null\");\n        if (id <= 0) {\n            throw new IllegalArgumentException(\"ID must be positive\");\n        }\n    }\n\n    /** True when the hire date is strictly after the date six months before today. */\n    public boolean isNewHire(LocalDate today) {\n        return today.minusMonths(6).isBefore(hireDate);\n    }\n\n    /** \"Employee(name=<name>, id=<id>, hired on <hireDate>)\". */\n    @Override\n    public String toString() {\n        return String.format(\"Employee(name=%s, id=%d, hired on %s)\", name, id, hireDate);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.lang.reflect.RecordComponent;\nimport java.util.Map;\n\n/** Turns one imported row, a map from column name to value, into a DTO. */\npublic final class RowBinder {\n\n    private RowBinder() {}\n\n    public static <T> T bind(Class<T> type, Map<String, Object> row) throws ReflectiveOperationException {\n        if (type.isRecord()) {\n            return bindRecord(type, row);\n        }\n        // A JavaBean: no-arg constructor, then one setter per column.\n        T bean = type.getDeclaredConstructor().newInstance();\n        for (Map.Entry<String, Object> column : row.entrySet()) {\n            String setter = \"set\" + Character.toUpperCase(column.getKey().charAt(0)) + column.getKey().substring(1);\n            for (Method m : type.getMethods()) {\n                if (m.getName().equals(setter) && m.getParameterCount() == 1) {\n                    m.invoke(bean, column.getValue());\n                    break;\n                }\n            }\n        }\n        return bean;\n    }\n\n    static <T> T bindRecord(Class<T> type, Map<String, Object> row) throws ReflectiveOperationException {\n        RecordComponent[] components = type.getRecordComponents();\n        Class<?>[] types = new Class<?>[components.length];\n        Object[] args = new Object[components.length];\n        for (int i = 0; i < components.length; i++) {\n            types[i] = components[i].getType();\n            args[i] = row.get(components[i].getName());\n        }\n        try {\n            return type.getDeclaredConstructor(types).newInstance(args);\n        } catch (InvocationTargetException e) {\n            if (e.getCause() instanceof RuntimeException refused) {\n                throw refused;\n            }\n            throw e;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -69,18 +54,18 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.Objects;\n\npublic record Employee(String name, int id, LocalDate hireDate) {\n\n    /** Refuse a null name or hire date (NullPointerException) and an id of 0 or less. */\n    public Employee {\n        throw new UnsupportedOperationException(\"write the compact constructor\");\n    }\n\n    /** True when the hire date is strictly after the date six months before today. */\n    public boolean isNewHire(LocalDate today) {\n        throw new UnsupportedOperationException(\"write isNewHire\");\n    }\n\n    /** \"Employee(name=<name>, id=<id>, hired on <hireDate>)\". */\n    @Override\n    public String toString() {\n        throw new UnsupportedOperationException(\"write toString\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.Map;\n\n/** Turns one imported row, a map from column name to value, into a DTO. */\npublic final class RowBinder {\n\n    private RowBinder() {}\n\n    public static <T> T bind(Class<T> type, Map<String, Object> row) throws ReflectiveOperationException {\n        if (type.isRecord()) {\n            return bindRecord(type, row);\n        }\n        // A JavaBean: no-arg constructor, then one setter per column.\n        T bean = type.getDeclaredConstructor().newInstance();\n        for (Map.Entry<String, Object> column : row.entrySet()) {\n            String setter = \"set\" + Character.toUpperCase(column.getKey().charAt(0)) + column.getKey().substring(1);\n            for (Method m : type.getMethods()) {\n                if (m.getName().equals(setter) && m.getParameterCount() == 1) {\n                    m.invoke(bean, column.getValue());\n                    break;\n                }\n            }\n        }\n        return bean;\n    }\n\n    static <T> T bindRecord(Class<T> type, Map<String, Object> row) throws ReflectiveOperationException {\n        // TODO: build the record from the row: each component takes the column with its name.\n        // When the record refuses a value, the caller must get the exception the record threw.\n        throw new IllegalStateException(\"TODO: bindRecord\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
-    "paras": 2,
-    "code": 2,
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -88,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2d6f69bcc881a642db989a317c59b924571c1a3c8c382b5313da1bc425eb2264",
-  "starting_code": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.Objects;\n\npublic record Employee(String name, int id, LocalDate hireDate) {\n\n    /** Refuse a null name or hire date (NullPointerException) and an id of 0 or less. */\n    public Employee {\n        throw new UnsupportedOperationException(\"write the compact constructor\");\n    }\n\n    /** True when the hire date is strictly after the date six months before today. */\n    public boolean isNewHire(LocalDate today) {\n        throw new UnsupportedOperationException(\"write isNewHire\");\n    }\n\n    /** \"Employee(name=<name>, id=<id>, hired on <hireDate>)\". */\n    @Override\n    public String toString() {\n        throw new UnsupportedOperationException(\"write toString\");\n    }\n}\n",
+  "content_sha256": "eaa411c303ee1907639429f0f3f33986354e65ef66dff6451df3ae37c0e738a5",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.Map;\n\n/** Turns one imported row, a map from column name to value, into a DTO. */\npublic final class RowBinder {\n\n    private RowBinder() {}\n\n    public static <T> T bind(Class<T> type, Map<String, Object> row) throws ReflectiveOperationException {\n        if (type.isRecord()) {\n            return bindRecord(type, row);\n        }\n        // A JavaBean: no-arg constructor, then one setter per column.\n        T bean = type.getDeclaredConstructor().newInstance();\n        for (Map.Entry<String, Object> column : row.entrySet()) {\n            String setter = \"set\" + Character.toUpperCase(column.getKey().charAt(0)) + column.getKey().substring(1);\n            for (Method m : type.getMethods()) {\n                if (m.getName().equals(setter) && m.getParameterCount() == 1) {\n                    m.invoke(bean, column.getValue());\n                    break;\n                }\n            }\n        }\n        return bean;\n    }\n\n    static <T> T bindRecord(Class<T> type, Map<String, Object> row) throws ReflectiveOperationException {\n        // TODO: build the record from the row: each component takes the column with its name.\n        // When the record refuses a value, the caller must get the exception the record threw.\n        throw new IllegalStateException(\"TODO: bindRecord\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-02/practice-2/src/main/java/practice/Employee.java",
-    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-02/practice-2/src/test/java/practice/EmployeeTest.java",
+    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-02/practice-2/src/main/java/practice/RowBinder.java",
+    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-02/practice-2/src/test/java/practice/RowBinderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EmployeeTest#aValidEmployeeReadsWell",
+        "id": "practice.RowBinderTest#bindsARecordFromItsColumns",
         "kind": "main",
-        "says": "A valid employee keeps its components and prints as Employee(name=Alice Smith, id=4, hired on 2023-04-01)."
+        "says": "a row with one column per component binds to the record with those values"
       },
       {
-        "id": "practice.EmployeeTest#missingValuesAreRefusedWithTheirOwnMessage",
-        "kind": "edge",
-        "says": "A null name or hire date is refused with NullPointerException and its own message."
+        "id": "practice.RowBinderTest#aBoundRecordWentThroughItsConstructor",
+        "kind": "main",
+        "says": "a record bound from a row has gone through its own constructor, so its normalisation applies"
       },
       {
-        "id": "practice.EmployeeTest#anIdMustBePositive",
+        "id": "practice.RowBinderTest#columnsMayComeInAnyOrder",
         "kind": "edge",
-        "says": "An id of 0 or below is refused with IllegalArgumentException('ID must be positive')."
+        "says": "each component takes the column with its own name, whatever order the row's columns come in"
       },
       {
-        "id": "practice.EmployeeTest#exactlySixMonthsIsNoLongerNew",
+        "id": "practice.RowBinderTest#aPrimitiveComponentBindsFromItsBoxedColumn",
         "kind": "edge",
-        "says": "Someone hired exactly six months before today is no longer a new hire."
+        "says": "a component of a primitive type binds from a row that holds the boxed value"
+      },
+      {
+        "id": "practice.RowBinderTest#aValueTheRecordRefusesReachesTheCallerAsTheRecordsOwnException",
+        "kind": "edge",
+        "says": "when the record's constructor refuses a value, the caller gets the exception the record threw"
       }
     ],
     "report": {
@@ -139,10 +129,10 @@
     },
     "origin": {
       "path": "09-records/README_2.4.2.md",
-      "section": "Interview Q&A"
+      "section": "A Binder Can Build a Record Only Through Its Canonical Constructor"
     },
     "concepts": [
-      "A record can still validate in a compact constructor, override toString and add methods of its own."
+      "A record has no no-arg constructor and its fields can't be written by reflection, so a binder must pass the values, matched by component name and type, to the canonical constructor, which runs the record's own checks."
     ]
   }
 }

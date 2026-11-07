@@ -1,22 +1,13 @@
-The one line `record Person(String name, int age) {}` gives you a constructor,
-accessors, `equals`, `hashCode` and `toString`. A traditional class has to write
-them by hand, and every hand-written one is a chance for a mistake.
+The quoting service caches each shipping rate under the `Shipment` it was quoted for. Since a
+new client went live, the cache keeps growing while its hit rate falls, and support has a ticket
+about a shipment that was quoted twice at different prices. The new client builds each shipment
+from one `HashMap` of parcels, which it keeps filling for the next request.
 
-`PersonBean` is the traditional-class version of that record: its fields,
-constructor and accessors are written. Write the other three so that a
-`PersonBean` behaves exactly like the record would:
+Finish the two `TODO`s in `src/main/java/practice/RateCache.java`:
 
-- `equals(Object)`: `true` for another `PersonBean` with an equal `name` (which
-  may be `null`, and which may be a different `String` object with the same text) and the same `age`; `false` for `null` and for any other type;
-- `hashCode()`: equal beans have equal hash codes (`Objects.hash` helps);
-- `toString()`: `PersonBean[name=<name>, age=<age>]`, the record's format.
+- the compact constructor of `Shipment`: once built, a shipment keeps the parcels it was given,
+  whatever later happens to the caller's map or to the map `parcels()` returns;
+- `withParcel(id, grams)`: a new shipment with one more parcel, leaving this one as it is.
 
-## Examples
-
-```
-new PersonBean("Alice", 30).equals(new PersonBean("Alice", 30))   -> true
-new PersonBean("Alice", 30).equals(new PersonBean("Alice", 31))   -> false
-new PersonBean(null, 5).equals(new PersonBean(null, 5))           -> true
-new PersonBean("Alice", 30).equals("Alice")                       -> false
-new PersonBean("Alice", 30).toString()                            -> "PersonBean[name=Alice, age=30]"
-```
+When you're done, a cached shipment is found again however the code around it treats its maps.
+About four lines in total.

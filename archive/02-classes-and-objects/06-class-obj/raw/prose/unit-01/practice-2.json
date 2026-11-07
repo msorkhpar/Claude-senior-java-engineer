@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "State and behaviour that keep an invariant",
+  "title": "Keep report rows in the session without their reports",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,11 @@
     },
     {
       "type": "para",
-      "text": "An object's **fields** hold its state and its **methods** are its behaviour. The methods are what keep the state valid: here, no quantity is ever negative. The page also warns against **forgetting to initialise fields**: a field must hold a usable value from the moment the object exists, set at its declaration or in the constructor."
+      "text": "The sales dashboard keeps the report rows a user looked at in the user's HTTP session, for up to an hour. Each row came from a `Report` that also holds the rendered PDF, often several megabytes. Since rows went into the session, the servlet container logs `NotSerializableException: practice.Report` whenever it persists sessions, and the heap after a full collection grows with the number of active users."
     },
     {
       "type": "para",
-      "text": "Write `Inventory`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Inventory()` creates an empty inventory;",
-        "items are identified by their name's **text**: two `String` objects with the same characters are the same item;",
-        "`add(String item, int quantity)` adds stock (`quantity` is positive);",
-        "`remove(String item, int quantity)` takes stock away. Removing more than is held throws `IllegalArgumentException`, and then nothing changes;",
-        "`quantityOf(String item)` returns the quantity held, `0` for an unknown item;",
-        "`items()` returns the names of the items held, sorted alphabetically. An item whose quantity reached `0` is not listed."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "inv = new Inventory()\ninv.quantityOf(\"bolt\")      -> 0\ninv.add(\"bolt\", 5); inv.remove(\"bolt\", 2)\ninv.quantityOf(\"bolt\")      -> 3\ninv.remove(\"bolt\", 4)       -> IllegalArgumentException, still 3\ninv.remove(\"bolt\", 3); inv.items() -> []"
+      "text": "Finish `row(...)` in `src/main/java/practice/Report.java`, and change `Report.Row` as you need to. When you're done, a row still shows its sku and its price in its report's currency, it can be serialized and read back on its own, and it keeps nothing of the report it came from. `Report` itself stays out of sessions. About six lines in total."
     },
     {
       "type": "heading",
@@ -59,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\npublic class Inventory {\n    private final Map<String, Integer> stock = new TreeMap<>();\n\n    public Inventory() {\n    }\n\n    public void add(String item, int quantity) {\n        stock.merge(item, quantity, Integer::sum);\n    }\n\n    public void remove(String item, int quantity) {\n        int held = quantityOf(item);\n        if (quantity > held) {\n            throw new IllegalArgumentException(\"Only \" + held + \" of \" + item + \" held\");\n        }\n        if (held == quantity) {\n            stock.remove(item);\n        } else {\n            stock.put(item, held - quantity);\n        }\n    }\n\n    public int quantityOf(String item) {\n        return stock.getOrDefault(item, 0);\n    }\n\n    public List<String> items() {\n        return new ArrayList<>(stock.keySet());\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.Serializable;\nimport java.util.Locale;\n\n/**\n * A generated sales report and its rendered PDF, which can run to several megabytes. A report is\n * not serializable: it lives only while the request that built it runs.\n */\npublic class Report {\n\n    private final String currency;\n    private final byte[] pdf;\n\n    public Report(String currency, byte[] pdf) {\n        this.currency = currency;\n        this.pdf = pdf;\n    }\n\n    public int pdfSize() {\n        return pdf.length;\n    }\n\n    /**\n     * One line of the report as the UI shows it. The UI keeps the rows a user looked at in their\n     * HTTP session, for up to an hour, and the servlet container serializes sessions.\n     */\n    public static class Row implements Serializable {\n        private final String sku;\n        private final long cents;\n        private final String currency;\n\n        Row(String sku, long cents, String currency) {\n            this.sku = sku;\n            this.cents = cents;\n            this.currency = currency;\n        }\n\n        public String sku() {\n            return sku;\n        }\n\n        public String price() {\n            return String.format(Locale.ROOT, \"%d.%02d %s\", cents / 100, cents % 100, currency);\n        }\n    }\n\n    /** A row of this report, priced in the report's currency. */\n    public Row row(String sku, long cents) {\n        return new Row(sku, cents, currency);\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic class Inventory {\n\n    public Inventory() {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public void add(String item, int quantity) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    public void remove(String item, int quantity) {\n        throw new UnsupportedOperationException(\"write remove\");\n    }\n\n    public int quantityOf(String item) {\n        throw new UnsupportedOperationException(\"write quantityOf\");\n    }\n\n    public List<String> items() {\n        throw new UnsupportedOperationException(\"write items\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.Serializable;\nimport java.util.Locale;\n\n/**\n * A generated sales report and its rendered PDF, which can run to several megabytes. A report is\n * not serializable: it lives only while the request that built it runs.\n */\npublic class Report {\n\n    private final String currency;\n    private final byte[] pdf;\n\n    public Report(String currency, byte[] pdf) {\n        this.currency = currency;\n        this.pdf = pdf;\n    }\n\n    public int pdfSize() {\n        return pdf.length;\n    }\n\n    /**\n     * One line of the report as the UI shows it. The UI keeps the rows a user looked at in their\n     * HTTP session, for up to an hour, and the servlet container serializes sessions.\n     */\n    public class Row implements Serializable {\n        private final String sku;\n        private final long cents;\n\n        Row(String sku, long cents) {\n            this.sku = sku;\n            this.cents = cents;\n        }\n\n        public String sku() {\n            return sku;\n        }\n\n        public String price() {\n            return String.format(Locale.ROOT, \"%d.%02d %s\", cents / 100, cents % 100, currency);\n        }\n    }\n\n    /** A row of this report, priced in the report's currency. */\n    public Row row(String sku, long cents) {\n        // TODO: Rows end up in the session store, which serializes them, and must not keep the\n        //       report (and its PDF) in memory for as long as the session lives. Change Row as\n        //       needed, and return a row that prices in this report's currency.\n        throw new IllegalStateException(\"TODO: row\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -90,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "866cdbe062196ad289a60522edcd8ba381bfbbcfd019f821ec26eeac1a51b937",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic class Inventory {\n\n    public Inventory() {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public void add(String item, int quantity) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    public void remove(String item, int quantity) {\n        throw new UnsupportedOperationException(\"write remove\");\n    }\n\n    public int quantityOf(String item) {\n        throw new UnsupportedOperationException(\"write quantityOf\");\n    }\n\n    public List<String> items() {\n        throw new UnsupportedOperationException(\"write items\");\n    }\n}\n",
+  "content_sha256": "f4f9ff3e4c415891ea215448419e9b96233d4e614a393b81fbd4d9edc48c9ac0",
+  "starting_code": "package practice;\n\nimport java.io.Serializable;\nimport java.util.Locale;\n\n/**\n * A generated sales report and its rendered PDF, which can run to several megabytes. A report is\n * not serializable: it lives only while the request that built it runs.\n */\npublic class Report {\n\n    private final String currency;\n    private final byte[] pdf;\n\n    public Report(String currency, byte[] pdf) {\n        this.currency = currency;\n        this.pdf = pdf;\n    }\n\n    public int pdfSize() {\n        return pdf.length;\n    }\n\n    /**\n     * One line of the report as the UI shows it. The UI keeps the rows a user looked at in their\n     * HTTP session, for up to an hour, and the servlet container serializes sessions.\n     */\n    public class Row implements Serializable {\n        private final String sku;\n        private final long cents;\n\n        Row(String sku, long cents) {\n            this.sku = sku;\n            this.cents = cents;\n        }\n\n        public String sku() {\n            return sku;\n        }\n\n        public String price() {\n            return String.format(Locale.ROOT, \"%d.%02d %s\", cents / 100, cents % 100, currency);\n        }\n    }\n\n    /** A row of this report, priced in the report's currency. */\n    public Row row(String sku, long cents) {\n        // TODO: Rows end up in the session store, which serializes them, and must not keep the\n        //       report (and its PDF) in memory for as long as the session lives. Change Row as\n        //       needed, and return a row that prices in this report's currency.\n        throw new IllegalStateException(\"TODO: row\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-01/practice-2/src/main/java/practice/Inventory.java",
-    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-01/practice-2/src/test/java/practice/InventoryTest.java",
+    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-01/practice-2/src/main/java/practice/Report.java",
+    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-01/practice-2/src/test/java/practice/ReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,29 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.InventoryTest#addsAndRemovesStock",
+        "id": "practice.ReportTest#aRowIsPricedInItsReportsCurrency",
         "kind": "main",
-        "says": "Adding and removing stock changes the quantities the inventory reports."
+        "says": "a row shows its sku and its price in the currency of the report it came from"
       },
       {
-        "id": "practice.InventoryTest#aNewInventoryIsEmptyAndUsable",
+        "id": "practice.ReportTest#aRowSurvivesTheSessionStore",
         "kind": "edge",
-        "says": "A brand-new inventory answers 0 for any item and lists no items, without an exception."
+        "says": "a row can be serialized on its own and read back with the same sku and price"
       },
       {
-        "id": "practice.InventoryTest#removingMoreThanHeldIsRefusedAndChangesNothing",
+        "id": "practice.ReportTest#aStoredRowCarriesNoneOfItsReport",
         "kind": "edge",
-        "says": "Removing more than is held throws IllegalArgumentException and leaves the quantity as it was."
-      },
-      {
-        "id": "practice.InventoryTest#anItemRemovedToZeroIsNoLongerListed",
-        "kind": "edge",
-        "says": "An item whose quantity reaches 0 disappears from the listed items."
-      },
-      {
-        "id": "practice.InventoryTest#itemsAreMatchedByNameNotByObject",
-        "kind": "edge",
-        "says": "Two different String objects with the same text name the same item."
+        "says": "a serialized row holds only the row, not its report's PDF"
       }
     ],
     "report": {
@@ -146,10 +115,10 @@
     },
     "origin": {
       "path": "06-class-obj/README_2.1.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "An Inner Class's Instance Holds Its Outer Object; a Static Nested Class's Doesn't"
     },
     "concepts": [
-      "Every field holds a usable value from the moment the object exists, set at its declaration or in the constructor."
+      "An inner class's instance refers to its outer object through a hidden field, which keeps the outer reachable and makes serialization include it; a static nested class carries no such reference."
     ]
   }
 }

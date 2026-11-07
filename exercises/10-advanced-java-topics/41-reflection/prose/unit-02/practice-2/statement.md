@@ -1,26 +1,13 @@
-`Method.invoke(target, args...)` calls a method; pass `null` as the target for
-a static method. A private method needs **`setAccessible(true)`** first. When
-the invoked method throws, `invoke` does not let the exception through: it
-wraps it in `InvocationTargetException`, and callers catching
-`RuntimeException` miss it. **Unwrap it** with `getCause()`.
+The billing team's tests use a small helper, `Overrides.apply(target, values)`, to replace fields
+of the object under test before they run it. A flaky test led to a bad discovery: when one of
+the fields a test names can't be written, the helper fails half-way, after it has already
+replaced the fields before it, and the next test in the class runs against an object that is
+half overridden.
 
-Write `Invoker`:
+`apply` already looks the fields up, checks each one before writing any, and then writes them.
+Finish the `TODO` in `src/main/java/practice/Overrides.java`:
 
-- `call(target, name, types, args...)`: finds the method `name` with exactly
-  those parameter types on `target`'s class (any access level) and invokes it.
-- `callStatic(type, name, types, args...)`: the same for a static method.
-- When the invoked method throws an **unchecked exception** (or an `Error`),
-  the caller gets **that exception itself**. When it throws a **checked
-  exception**, the caller gets an `IllegalStateException` whose **cause is the
-  method's exception**.
-- Lookup and access problems stay `ReflectiveOperationException`s.
+- `writable(field)`: whether `Field.set` will write this field once it has been made accessible.
 
-| call | result |
-|---|---|
-| `call(calc, "add", {int, int}, 3, 4)` | `7` |
-| `callStatic(Calculator.class, "twice", {int}, 21)` | `42` |
-| `call(calc, "reset", {})` (a `void` method) | `null` |
-| `call(calc, "secretMultiply", {int, int}, 6, 7)` (private) | `42` |
-| `call(calc, "secretDivide", {int, int}, 6, 0)` | `ArithmeticException` |
-| `call(calc, "check", {})` (throws `AssertionError`) | that `AssertionError` |
-| `call(calc, "load", {String}, "a.txt")` (throws `IOException`) | `IllegalStateException`, cause the `IOException` |
+When you're done, a call that names a field `Field.set` would refuse fails before anything is
+written, and every field it would write is still accepted. About three lines in total.

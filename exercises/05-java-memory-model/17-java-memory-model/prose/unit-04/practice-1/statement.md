@@ -1,28 +1,12 @@
-The page says the compiler, the JIT and the CPU may reorder a thread's operations, as long
-as the reordering does not change what the thread itself observes and does not break a
-happens-before edge. It spells out what that means:
+Your team reviews lock-free code by writing each suspicious interaction down as a tiny program:
+a few threads, each a list of reads and writes of shared variables. `LitmusModel` lists every
+combination of values those reads can end with. Before it models what hardware and compilers do,
+it needs the baseline: the results the threads can produce when nothing is reordered, which is
+what the Java memory model promises a program without data races.
 
-- **Within-thread semantics**: two accesses to the same variable, where at least one
-  writes it, keep their order. Accesses to different variables, or two reads, may swap.
-- **A volatile write**: no read or write that comes *before* it may move *after* it. A
-  plain access after it may move before it.
-- **A volatile read**: no read or write that comes *after* it may move *before* it. A plain
-  access before it may move after it.
-- **Two volatile accesses** never swap.
-- **synchronized**: operations inside the block cannot move out of it, but operations
-  outside may move in ("roach motel" ordering). A plain access right after `LOCK` is
-  inside; one right before `LOCK` is outside, and so on for `UNLOCK`.
+`LitmusModel.State` already performs one operation at a time and keeps memory and registers.
+Finish `explore(state, results)` in `src/main/java/practice/LitmusModel.java`: from `state`, add
+the registers of every finished execution to `results`. About eight lines in total.
 
-Write `Reordering.canSwap(Op first, Op second)`. `first` and `second` are adjacent
-operations of one thread, in program order. Return whether they may be executed as
-`second` then `first`. An `Op` is a `Kind` and a target: a variable for reads and writes
-(plain or volatile), a monitor for `LOCK` and `UNLOCK`. Two monitor operations never swap,
-and a volatile access never swaps with a monitor operation.
-
-| first, second | answer |
-|---|---|
-| `WRITE a`, `WRITE b` | `true` (the page's `ReorderingDemo`) |
-| `WRITE result`, `VOLATILE_WRITE ready` | `false` |
-| `VOLATILE_READ ready`, `READ result` | `false` |
-| `WRITE x`, `LOCK m` | `true` |
-| `LOCK m`, `WRITE x` | `false` |
+When you're done, a reviewer can ask whether two threads that each set their own flag and then
+check the other's can ever both find the other's flag unset, and get an answer they can trust.

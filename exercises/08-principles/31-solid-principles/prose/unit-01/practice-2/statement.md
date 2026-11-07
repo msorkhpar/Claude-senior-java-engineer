@@ -1,26 +1,12 @@
-When one class produces tasks, runs them **and** aggregates their results, each concern's
-synchronization is mixed with the others. The page's pitfall is a class that owns its own
-thread pool next to its business logic:
+A ferry operator sells tickets at a machine on the quay and, from next month, in a web shop.
+Finance owns the fares, and its rules are written as small step classes in
+`src/main/java/practice/Fares.java`: the base fare, a group discount, a peak surcharge. The ticket
+machine puts them together and has charged correctly for years.
 
-```java
-class DataProcessor {
-    private final ExecutorService pool = Executors.newFixedThreadPool(4);
-    double computeAverage(List<Integer> data) { /* ... */ }
-    void shutdown() { pool.shutdown(); }
-}
-```
+Two things are wanted before the web shop opens. The web shop must quote exactly what the machine
+will charge for the same trip, or customers dispute the difference at the quay. And finance wants
+the group discount's threshold to change with the season, through the `FarePolicy` it is
+building: a machine and a web shop given a policy must both charge that policy's fares.
 
-Its fix is to **inject the `ExecutorService`**. Write the three classes nested in `Squares`:
-
-- `TaskProducer.createTasks(count)` returns `count` tasks; task `i` (from 0) computes
-  `i * i` as a `long`. A count of 0 gives an empty list; a negative count throws
-  `IllegalArgumentException`.
-- `TaskExecutor(ExecutorService)` runs tasks on the executor it is given, never on one of
-  its own. `submitAll(tasks)` submits every task and returns their futures in order, and
-  `shutdown()` shuts that executor down in the orderly way, letting tasks already
-  submitted finish. However many tasks there are, every one goes to
-  that executor.
-- `ResultAggregator.sumResults(futures)` adds up the results.
-
-For example, the 5 tasks `0, 1, 4, 9, 16` sum to `30`, and 100 000 tasks sum to
-`333328333350000`, which needs a `long`.
+Finish the two `TODO`s, `FarePolicy.price(...)` and `WebShop.quote(...)`, and change anything else
+in the file you need to. About six lines in total.

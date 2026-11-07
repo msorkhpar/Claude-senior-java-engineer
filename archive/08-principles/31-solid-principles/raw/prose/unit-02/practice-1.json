@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Areas that take a new shape without an edit",
+  "title": "Price and date parcel kinds the manifest has never seen",
   "blocks": [
     {
       "type": "heading",
@@ -19,33 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's pitfall is an area calculation that switches on a type name, so **every new shape means editing it**:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "double calculateArea(String type, double... dims) {\n    return switch (type) {\n        case \"circle\" -> Math.PI * dims[0] * dims[0];\n        case \"rect\" -> dims[0] * dims[1];\n        default -> throw new IllegalArgumentException(\"Unknown: \" + type);\n    };\n}"
+      "text": "The shipping service prints a manifest for every van that leaves the depot: what the postage comes to and when the last parcel arrives. Today it carries `Letter`s and `Box`es. Next quarter the freight team adds crates and the courier team adds next-day envelopes, each in its own module, and they won't be editing your code to do it."
     },
     {
       "type": "para",
-      "text": "Make it open for extension and closed for modification. In `Areas`:"
+      "text": "Finish the two `TODO`s in `Manifest`, in `src/main/java/practice/Shipping.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Shape` is the extension point: `area()` and `name()`.",
-        "`Circle(radius)`, `Rectangle(width, height)` and `Triangle(base, height)` are records that compute their own area (`Math.PI * r * r`, `w * h`, `0.5 * b * h`) and name themselves `\"Circle\"`, `\"Rectangle\"` and `\"Triangle\"`.",
-        "`AreaCalculator.totalArea(shapes)` adds up the areas, and `areaByType(shapes)` sums them per `name()`. It must work, **unchanged**, for a `Shape` written after it, such as the page's `Triangle` was."
+        "`totalCents(...)`: every parcel's base postage, plus 2 % of the declared value of each insured parcel, rounded up to the next cent;",
+        "`deliveredBy(...)`: the day the last parcel is delivered when they all leave on the given day."
       ]
     },
     {
       "type": "para",
-      "text": "The page's edge cases hold: no shapes total `0.0` (and an empty map), a zero-sized shape is valid with area `0`, and a negative dimension is rejected with `IllegalArgumentException` when the shape is created (`NaN` is not among the inputs). The tests grade that a new shape needs no change to the calculator; how the calculator reaches the built-in shapes' areas is the page's lesson, not graded beyond that."
-    },
-    {
-      "type": "para",
-      "text": "For example, `Circle(1)`, `Rectangle(2, 3)` and `Triangle(4, 5)` total `PI + 16`, and a new shape written later, a `Square(3)` that names itself `\"Box\"`, next to `Rectangle(2, 3)` totals `15` and groups under `\"Box\"`. Every dimension of a shape is checked, not only the first."
+      "text": "When you're done, the manifest prices and dates a parcel kind written after it, by any team, without a change to `Manifest`. The tests bring kinds of their own. About eight lines in total."
     },
     {
       "type": "heading",
@@ -60,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\npublic final class Areas {\n\n    private Areas() {\n    }\n\n    /** The extension point: any shape computes its own area. */\n    public interface Shape {\n        double area();\n\n        String name();\n    }\n\n    public record Circle(double radius) implements Shape {\n        public Circle {\n            if (radius < 0) {\n                throw new IllegalArgumentException(\"radius must not be negative\");\n            }\n        }\n\n        public double area() {\n            return Math.PI * radius * radius;\n        }\n\n        public String name() {\n            return \"Circle\";\n        }\n    }\n\n    public record Rectangle(double width, double height) implements Shape {\n        public Rectangle {\n            if (width < 0 || height < 0) {\n                throw new IllegalArgumentException(\"dimensions must not be negative\");\n            }\n        }\n\n        public double area() {\n            return width * height;\n        }\n\n        public String name() {\n            return \"Rectangle\";\n        }\n    }\n\n    public record Triangle(double base, double height) implements Shape {\n        public Triangle {\n            if (base < 0 || height < 0) {\n                throw new IllegalArgumentException(\"dimensions must not be negative\");\n            }\n        }\n\n        public double area() {\n            return 0.5 * base * height;\n        }\n\n        public String name() {\n            return \"Triangle\";\n        }\n    }\n\n    /** Closed for modification: works with any Shape, including ones written later. */\n    public static final class AreaCalculator {\n        public double totalArea(List<? extends Shape> shapes) {\n            double total = 0.0;\n            for (Shape shape : shapes) {\n                total += shape.area();\n            }\n            return total;\n        }\n\n        public Map<String, Double> areaByType(List<? extends Shape> shapes) {\n            Map<String, Double> byType = new TreeMap<>();\n            for (Shape shape : shapes) {\n                byType.merge(shape.name(), shape.area(), Double::sum);\n            }\n            return byType;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.List;\n\npublic final class Shipping {\n\n    private Shipping() {\n    }\n\n    /** A kind of parcel. Other teams add kinds of their own, in their own modules. */\n    public interface Parcel {\n        /** Postage before any insurance, in cents. */\n        long baseCents();\n\n        /** Days from handing the parcel over to delivery. */\n        int transitDays();\n    }\n\n    /** A parcel whose declared value is insured in transit. */\n    public interface Insured extends Parcel {\n        long declaredValueCents();\n    }\n\n    /** Letters go by post: 2 days. */\n    public record Letter(int grams) implements Parcel {\n        public long baseCents() {\n            return 85 + (grams / 20) * 10L;\n        }\n\n        public int transitDays() {\n            return 2;\n        }\n    }\n\n    /** Boxes go by road: 4 days, always insured. */\n    public record Box(int grams, long declaredValueCents) implements Insured {\n        public long baseCents() {\n            return 450 + (grams / 1000) * 120L;\n        }\n\n        public int transitDays() {\n            return 4;\n        }\n    }\n\n    public static final class Manifest {\n\n        /**\n         * The postage for everything on the manifest: each parcel's base postage, plus 2 % of the\n         * declared value of each insured parcel, rounded up to the next cent.\n         */\n        long totalCents(List<? extends Parcel> parcels) {\n            long total = 0;\n            for (Parcel p : parcels) {\n                total += p.baseCents();\n                if (p instanceof Insured i) {\n                    total += (i.declaredValueCents() * 2 + 99) / 100;\n                }\n            }\n            return total;\n        }\n\n        /** The day the last parcel on the manifest is delivered, when all leave on {@code shipped}. */\n        LocalDate deliveredBy(LocalDate shipped, List<? extends Parcel> parcels) {\n            int days = 0;\n            for (Parcel p : parcels) {\n                days = Math.max(days, p.transitDays());\n            }\n            return shipped.plusDays(days);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -72,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic final class Areas {\n\n    private Areas() {\n    }\n\n    /** The extension point: any shape computes its own area. */\n    public interface Shape {\n        double area();\n\n        String name();\n    }\n\n    public record Circle(double radius) implements Shape {\n        public double area() {\n            throw new UnsupportedOperationException(\"write area\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"write name\");\n        }\n    }\n\n    public record Rectangle(double width, double height) implements Shape {\n        public double area() {\n            throw new UnsupportedOperationException(\"write area\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"write name\");\n        }\n    }\n\n    public record Triangle(double base, double height) implements Shape {\n        public double area() {\n            throw new UnsupportedOperationException(\"write area\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"write name\");\n        }\n    }\n\n    /** Closed for modification: works with any Shape, including ones written later. */\n    public static final class AreaCalculator {\n        public double totalArea(List<? extends Shape> shapes) {\n            throw new UnsupportedOperationException(\"write totalArea\");\n        }\n\n        public Map<String, Double> areaByType(List<? extends Shape> shapes) {\n            throw new UnsupportedOperationException(\"write areaByType\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.List;\n\npublic final class Shipping {\n\n    private Shipping() {\n    }\n\n    /** A kind of parcel. Other teams add kinds of their own, in their own modules. */\n    public interface Parcel {\n        /** Postage before any insurance, in cents. */\n        long baseCents();\n\n        /** Days from handing the parcel over to delivery. */\n        int transitDays();\n    }\n\n    /** A parcel whose declared value is insured in transit. */\n    public interface Insured extends Parcel {\n        long declaredValueCents();\n    }\n\n    /** Letters go by post: 2 days. */\n    public record Letter(int grams) implements Parcel {\n        public long baseCents() {\n            return 85 + (grams / 20) * 10L;\n        }\n\n        public int transitDays() {\n            return 2;\n        }\n    }\n\n    /** Boxes go by road: 4 days, always insured. */\n    public record Box(int grams, long declaredValueCents) implements Insured {\n        public long baseCents() {\n            return 450 + (grams / 1000) * 120L;\n        }\n\n        public int transitDays() {\n            return 4;\n        }\n    }\n\n    public static final class Manifest {\n\n        /**\n         * The postage for everything on the manifest: each parcel's base postage, plus 2 % of the\n         * declared value of each insured parcel, rounded up to the next cent.\n         */\n        long totalCents(List<? extends Parcel> parcels) {\n            throw new IllegalStateException(\"TODO: total postage, insurance included\");\n        }\n\n        /** The day the last parcel on the manifest is delivered, when all leave on {@code shipped}. */\n        LocalDate deliveredBy(LocalDate shipped, List<? extends Parcel> parcels) {\n            throw new IllegalStateException(\"TODO: delivery date of the last parcel\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -80,8 +70,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -91,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6b7d41758123fd7974387f6e7ea0f31c291491495d5fd528416f44fefc7204ee",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic final class Areas {\n\n    private Areas() {\n    }\n\n    /** The extension point: any shape computes its own area. */\n    public interface Shape {\n        double area();\n\n        String name();\n    }\n\n    public record Circle(double radius) implements Shape {\n        public double area() {\n            throw new UnsupportedOperationException(\"write area\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"write name\");\n        }\n    }\n\n    public record Rectangle(double width, double height) implements Shape {\n        public double area() {\n            throw new UnsupportedOperationException(\"write area\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"write name\");\n        }\n    }\n\n    public record Triangle(double base, double height) implements Shape {\n        public double area() {\n            throw new UnsupportedOperationException(\"write area\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"write name\");\n        }\n    }\n\n    /** Closed for modification: works with any Shape, including ones written later. */\n    public static final class AreaCalculator {\n        public double totalArea(List<? extends Shape> shapes) {\n            throw new UnsupportedOperationException(\"write totalArea\");\n        }\n\n        public Map<String, Double> areaByType(List<? extends Shape> shapes) {\n            throw new UnsupportedOperationException(\"write areaByType\");\n        }\n    }\n}\n",
+  "content_sha256": "2540592c0f46190e5dbebfe0a2023496254b06725d1666b8efae254519046fce",
+  "starting_code": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.List;\n\npublic final class Shipping {\n\n    private Shipping() {\n    }\n\n    /** A kind of parcel. Other teams add kinds of their own, in their own modules. */\n    public interface Parcel {\n        /** Postage before any insurance, in cents. */\n        long baseCents();\n\n        /** Days from handing the parcel over to delivery. */\n        int transitDays();\n    }\n\n    /** A parcel whose declared value is insured in transit. */\n    public interface Insured extends Parcel {\n        long declaredValueCents();\n    }\n\n    /** Letters go by post: 2 days. */\n    public record Letter(int grams) implements Parcel {\n        public long baseCents() {\n            return 85 + (grams / 20) * 10L;\n        }\n\n        public int transitDays() {\n            return 2;\n        }\n    }\n\n    /** Boxes go by road: 4 days, always insured. */\n    public record Box(int grams, long declaredValueCents) implements Insured {\n        public long baseCents() {\n            return 450 + (grams / 1000) * 120L;\n        }\n\n        public int transitDays() {\n            return 4;\n        }\n    }\n\n    public static final class Manifest {\n\n        /**\n         * The postage for everything on the manifest: each parcel's base postage, plus 2 % of the\n         * declared value of each insured parcel, rounded up to the next cent.\n         */\n        long totalCents(List<? extends Parcel> parcels) {\n            throw new IllegalStateException(\"TODO: total postage, insurance included\");\n        }\n\n        /** The day the last parcel on the manifest is delivered, when all leave on {@code shipped}. */\n        LocalDate deliveredBy(LocalDate shipped, List<? extends Parcel> parcels) {\n            throw new IllegalStateException(\"TODO: delivery date of the last parcel\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-1/src/main/java/practice/Areas.java",
-    "test_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-1/src/test/java/practice/AreasTest.java",
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-1/src/main/java/practice/Shipping.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-1/src/test/java/practice/ShippingTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -116,29 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AreasTest#totalsTheBuiltInShapes",
+        "id": "practice.ShippingTest#pricesLettersAndInsuredBoxes",
         "kind": "main",
-        "says": "Circle(1), Rectangle(2, 3) and Triangle(4, 5) total PI + 16, and the areas group by name."
+        "says": "letters and boxes cost their base postage, insured boxes add 2 % of their declared value rounded up to the cent, and an empty manifest costs nothing"
       },
       {
-        "id": "practice.AreasTest#aNewShapeNeedsNoChangeToTheCalculator",
-        "kind": "edge",
-        "says": "A Square written after the calculator is totalled and grouped with no change to it."
+        "id": "practice.ShippingTest#datesLettersAndBoxesByTheSlowestParcel",
+        "kind": "main",
+        "says": "a manifest of letters and boxes is delivered when its slowest parcel arrives, and an empty one on the day it ships"
       },
       {
-        "id": "practice.AreasTest#noShapesHaveNoArea",
-        "kind": "edge",
-        "says": "An empty list totals 0.0 and groups into an empty map."
+        "id": "practice.ShippingTest#anUninsuredKindWrittenLaterPaysItsBasePostageOnly",
+        "kind": "main",
+        "says": "a parcel kind written after the manifest, with no insurance, costs its own base postage"
       },
       {
-        "id": "practice.AreasTest#negativeDimensionsAreRejectedAtCreation",
+        "id": "practice.ShippingTest#anInsuredKindWrittenLaterPaysItsInsurance",
         "kind": "edge",
-        "says": "Circle(-1), Rectangle(2, -3) and Triangle(-4, 5) are rejected when created."
+        "says": "an insured parcel kind written after the manifest pays the insurance surcharge on its declared value"
       },
       {
-        "id": "practice.AreasTest#aZeroSizedShapeIsValid",
+        "id": "practice.ShippingTest#aKindWrittenLaterIsDatedByItsOwnTransitTime",
         "kind": "edge",
-        "says": "Circle(0) and Rectangle(0, 3) are valid shapes with area 0."
+        "says": "a parcel kind written after the manifest is dated by its own transit time, faster or slower than letters and boxes"
       }
     ],
     "report": {
@@ -147,12 +137,11 @@
     },
     "origin": {
       "path": "31-solid-principles/README_8.1.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Put the Behaviour on the Type, and a New Type Is One New Class That javac Checks"
     },
     "concepts": [
-      "Open for extension, closed for modification: a new requirement is met by adding a class, not by editing tested code.",
-      "No shapes total 0.0 rather than throwing, a zero-sized shape is valid, and negative dimensions are rejected when the shape is created.",
-      "A switch on a type name must be edited for every new type; polymorphism lets each shape compute its own area instead."
+      "With the behaviour on each type behind an interface, a new type is one new class that javac refuses until every operation is written, and callers run it from their unchanged class files.",
+      "A type check copied into several methods compiles when one copy misses a new type; a fallback branch answers wrongly without a sound and a throwing branch fails only when its path runs."
     ]
   }
 }

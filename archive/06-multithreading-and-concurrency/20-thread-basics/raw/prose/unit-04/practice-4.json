@@ -10,164 +10,180 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Read a thread dump",
+  "title": "Check yourself: thread lifecycle and states",
   "blocks": [
     {
       "type": "heading",
       "level": 2,
-      "text": "Problem statement"
+      "text": "Check yourself"
     },
     {
       "type": "para",
-      "text": "The page reads a thread dump by its states: **many threads `BLOCKED` on one monitor** means lock contention, and threads `BLOCKED` in a **circular chain**, each waiting for a lock the next one holds, means a deadlock. A thread parked on a `ReentrantLock` shows as `WAITING`, not `BLOCKED`."
-    },
-    {
-      "type": "para",
-      "text": "`Snapshot(String name, Thread.State state, String lock, String lockOwner)` is one thread of a dump: `lock` is the lock it waits for and `lockOwner` the thread holding it, both `null` when it waits for none. Write, in `DumpReader`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Map<Thread.State, Integer> countByState(List<Snapshot> dump)`: how many threads are in each state, with **all six** states as keys.",
-        "`Optional<String> hottestMonitor(List<Snapshot> dump)`: the lock that the most **`BLOCKED`** threads wait for; on a tie, the alphabetically first. Empty when no thread is `BLOCKED`.",
-        "`List<String> deadlocked(List<Snapshot> dump)`: the names, sorted, of the threads on a cycle of `BLOCKED` threads, each waiting for a lock held by the next."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "dump",
-        "`hottestMonitor`",
-        "`deadlocked`"
-      ],
-      "rows": [
-        [
-          "A `BLOCKED` on L1 held by B; B `BLOCKED` on L2 held by A; C `RUNNABLE`",
-          "`L1`",
-          "`[A, B]`"
-        ],
-        [
-          "A, B `BLOCKED` on L1 held by C; D, E, F `WAITING` on L2 held by C",
-          "`L1`",
-          "`[]`"
-        ],
-        [
-          "A on L1 held by B, B on L2 held by C, C on L3 held by A, all `BLOCKED`",
-          "`L1`",
-          "`[A, B, C]`"
-        ],
-        [
-          "the first dump plus D `BLOCKED` on L2 held by A",
-          "`L2`",
-          "`[A, B]`"
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Lesson"
-    },
-    {
-      "type": "disclosure",
-      "summary": "Show a worked solution",
-      "open": false,
-      "blocks": [
-        {
-          "type": "code",
-          "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.EnumMap;\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.TreeMap;\n\npublic final class DumpReader {\n\n    private DumpReader() {\n    }\n\n    /** One thread of a dump: the lock it waits for and who holds it, both null when it waits for none. */\n    public record Snapshot(String name, Thread.State state, String lock, String lockOwner) {\n    }\n\n    /** How many threads are in each of the six states. */\n    public static Map<Thread.State, Integer> countByState(List<Snapshot> dump) {\n        Map<Thread.State, Integer> counts = new EnumMap<>(Thread.State.class);\n        for (Thread.State state : Thread.State.values()) {\n            counts.put(state, 0);\n        }\n        for (Snapshot s : dump) {\n            counts.merge(s.state(), 1, Integer::sum);\n        }\n        return counts;\n    }\n\n    /** The lock the most BLOCKED threads wait for, alphabetically first on a tie. */\n    public static Optional<String> hottestMonitor(List<Snapshot> dump) {\n        Map<String, Integer> waiters = new TreeMap<>();\n        for (Snapshot s : dump) {\n            if (s.state() == Thread.State.BLOCKED && s.lock() != null) {\n                waiters.merge(s.lock(), 1, Integer::sum);\n            }\n        }\n        String best = null;\n        for (Map.Entry<String, Integer> e : waiters.entrySet()) {\n            if (best == null || e.getValue() > waiters.get(best)) {\n                best = e.getKey();\n            }\n        }\n        return Optional.ofNullable(best);\n    }\n\n    /** The sorted names of the threads on a cycle of BLOCKED threads, each waiting for a lock the next holds. */\n    public static List<String> deadlocked(List<Snapshot> dump) {\n        Map<String, String> waitsFor = new HashMap<>();\n        for (Snapshot s : dump) {\n            if (s.state() == Thread.State.BLOCKED && s.lockOwner() != null) {\n                waitsFor.put(s.name(), s.lockOwner());\n            }\n        }\n        Set<String> onCycle = new HashSet<>();\n        for (String start : waitsFor.keySet()) {\n            String at = waitsFor.get(start);\n            for (int steps = 0; at != null && steps < waitsFor.size(); steps++) {\n                if (at.equals(start)) {\n                    onCycle.add(start);\n                    break;\n                }\n                at = waitsFor.get(at);\n            }\n        }\n        List<String> names = new ArrayList<>(onCycle);\n        names.sort(null);\n        return names;\n    }\n}\n"
-        }
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Starting code"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Optional;\n\npublic final class DumpReader {\n\n    private DumpReader() {\n    }\n\n    /** One thread of a dump: the lock it waits for and who holds it, both null when it waits for none. */\n    public record Snapshot(String name, Thread.State state, String lock, String lockOwner) {\n    }\n\n    /** How many threads are in each of the six states. */\n    public static Map<Thread.State, Integer> countByState(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write countByState\");\n    }\n\n    /** The lock the most BLOCKED threads wait for, alphabetically first on a tie. */\n    public static Optional<String> hottestMonitor(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write hottestMonitor\");\n    }\n\n    /** The sorted names of the threads on a cycle of BLOCKED threads, each waiting for a lock the next holds. */\n    public static List<String> deadlocked(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write deadlocked\");\n    }\n}\n"
+      "text": "Questions on what this page has just taught. Choose one answer for each."
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 3,
-    "paras": 2,
-    "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "headings": 1,
+    "paras": 1,
+    "code": 0,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
     "html": 0,
-    "disclosures": 1
+    "disclosures": 0
   },
-  "content_sha256": "d7f48164eb35d1426132d88a1d77fad021a79d527242f1e5e0286e76f8ce0704",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Optional;\n\npublic final class DumpReader {\n\n    private DumpReader() {\n    }\n\n    /** One thread of a dump: the lock it waits for and who holds it, both null when it waits for none. */\n    public record Snapshot(String name, Thread.State state, String lock, String lockOwner) {\n    }\n\n    /** How many threads are in each of the six states. */\n    public static Map<Thread.State, Integer> countByState(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write countByState\");\n    }\n\n    /** The lock the most BLOCKED threads wait for, alphabetically first on a tie. */\n    public static Optional<String> hottestMonitor(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write hottestMonitor\");\n    }\n\n    /** The sorted names of the threads on a cycle of BLOCKED threads, each waiting for a lock the next holds. */\n    public static List<String> deadlocked(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write deadlocked\");\n    }\n}\n",
+  "content_sha256": "01381f530bdd3fd2ea9a42929589b34280a234f0332b7b83c66b27688cf7ac41",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/src/main/java/practice/DumpReader.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/src/test/java/practice/DumpReaderTest.java",
-    "run_command": [
-      "mvn",
-      "-o",
-      "-q",
-      "-f",
-      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/pom.xml",
-      "compile"
-    ],
-    "test_command": [
-      "mvn",
-      "-o",
-      "-q",
-      "-f",
-      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/pom.xml",
-      "test"
-    ],
     "provenance": "generated",
     "trust": "advisory",
-    "cases": [
+    "kind": "quiz",
+    "questions": [
       {
-        "id": "practice.DumpReaderTest#readsASmallDump",
-        "kind": "main",
-        "says": "It counts threads by state, names the monitor most BLOCKED threads wait for, and finds two threads blocked on each other's locks."
+        "id": "q-report-threads-runnable",
+        "stem": "A reporting service's admin page shows 64 of its 70 threads as RUNNABLE. In a thread dump, most of those 64 have `sun.nio.ch.SocketDispatcher.read0` as their top frame, called from the JDBC driver. What are they doing?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Queued for a core, since a thread is reported as RUNNABLE while it waits for a processor to run the driver",
+            "correct": false,
+            "says": "RUNNABLE covers ready threads too, but read0 at the top of the stack means the thread waits for the network, not for a core"
+          },
+          {
+            "id": "b",
+            "text": "Parsing rows, since a thread is reported as RUNNABLE while the driver decodes rows inside read0",
+            "correct": false,
+            "says": "read0 is the native socket read; a thread there waits for bytes from the database (price-call shows 0 ms of CPU in the same call)"
+          },
+          {
+            "id": "c",
+            "text": "Waiting for the reply, since a thread is reported as RUNNABLE while it is blocked in the driver's read0",
+            "correct": true,
+            "says": "the JVM doesn't see inside a system call, so a platform thread waiting in a socket read is reported RUNNABLE"
+          },
+          {
+            "id": "d",
+            "text": "Spinning, since a thread is reported as RUNNABLE while the driver repeats read0 in a loop",
+            "correct": false,
+            "says": "read0 is a native socket method, and a thread in it waits for the network rather than repeating a call"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.4.md",
+          "section": "RUNNABLE Means the JVM Isn't Holding the Thread Back, Not That It Is Using a CPU"
+        }
       },
       {
-        "id": "practice.DumpReaderTest#everyStateIsCounted",
-        "kind": "edge",
-        "says": "The counts name all six states, with 0 for a state no thread is in."
+        "id": "q-invoice-pool-parked",
+        "stem": "During the month-end run, an invoicing service's admin page reads ThreadMXBean: all 120 pool threads are WAITING, none is BLOCKED, and the lock each one waits for is the same `ReentrantLock$FairSync`. What does that say about the pool?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Idle between invoices, since a pool's queue keeps its idle workers WAITING on a ReentrantLock$FairSync",
+            "correct": false,
+            "says": "an idle worker waits on its queue's ConditionObject; threads whose lock is a ReentrantLock$FairSync wait for whoever holds that lock"
+          },
+          {
+            "id": "b",
+            "text": "Stuck behind that lock's holder, since a thread waiting for a held ReentrantLock$FairSync is parked as WAITING",
+            "correct": true,
+            "says": "a ReentrantLock parks its waiters, so they are WAITING rather than BLOCKED, and all of them wait for its holder"
+          },
+          {
+            "id": "c",
+            "text": "Waiting for that lock's timeout, since a FairSync parks each thread as WAITING until its time limit runs out",
+            "correct": false,
+            "says": "a wait with a time limit shows TIMED_WAITING; WAITING means no timeout, and these threads wait for the lock's holder to unlock"
+          },
+          {
+            "id": "d",
+            "text": "Waiting for that lock's notifyAll(), since a thread WAITING on a ReentrantLock$FairSync is inside Object.wait()",
+            "correct": false,
+            "says": "a ReentrantLock parks its waiters; they go on when the holder unlocks, not on notifyAll()"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.4.md",
+          "section": "BLOCKED Means Waiting for a synchronized Monitor; a Thread Waiting for a ReentrantLock Is WAITING"
+        }
       },
       {
-        "id": "practice.DumpReaderTest#onlyBlockedThreadsMakeAMonitorHot",
-        "kind": "edge",
-        "says": "Threads WAITING on a lock do not count toward lock contention; only BLOCKED threads do."
+        "id": "q-audit-throttle",
+        "stem": "To go easy on the database, an audit job calls `Thread.sleep(30_000)` between two batches, inside `synchronized (accounts)`. Transfer threads call methods that are also `synchronized (accounts)`. What does a thread dump taken during the 30 seconds show for the transfers?",
+        "options": [
+          {
+            "id": "a",
+            "text": "TIMED_WAITING like the audit job, since threads that share a monitor share its waiting state",
+            "correct": false,
+            "says": "each thread has its own state; threads that can't enter a monitor someone holds are BLOCKED"
+          },
+          {
+            "id": "b",
+            "text": "RUNNABLE and working, since sleep() releases the monitor until the audit job wakes up again",
+            "correct": false,
+            "says": "only Object.wait() releases the monitor while waiting; sleep keeps it"
+          },
+          {
+            "id": "c",
+            "text": "WAITING for the audit job, since a thread held up by a sleeping thread is parked until it wakes",
+            "correct": false,
+            "says": "threads waiting to enter a synchronized block are BLOCKED, not parked"
+          },
+          {
+            "id": "d",
+            "text": "BLOCKED behind the audit job, since a sleeping thread keeps the monitors that it holds",
+            "correct": true,
+            "says": "sleep gives up the processor, not the monitor, so the transfers wait to enter for the whole 30 seconds"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.4.md",
+          "section": "Spot the Problem: a Back-Off That Holds the Cache"
+        }
       },
       {
-        "id": "practice.DumpReaderTest#aCycleOfThreeIsADeadlock",
-        "kind": "edge",
-        "says": "Three threads each blocked on a lock the next one holds are deadlocked."
-      },
-      {
-        "id": "practice.DumpReaderTest#aThreadBehindADeadlockIsNotInIt",
-        "kind": "edge",
-        "says": "A thread blocked on a deadlocked thread's lock, but not on the cycle, is not reported as deadlocked."
+        "id": "q-dispatcher-notify-all",
+        "stem": "Five driver threads are in `board.wait()`. A dispatcher enters `synchronized (board)`, posts a job, calls `board.notifyAll()`, and then spends two seconds writing an audit record before it leaves the block. During those two seconds, what state do the drivers show?",
+        "options": [
+          {
+            "id": "a",
+            "text": "BLOCKED, since each driver must own the board's monitor again before its wait() can return",
+            "correct": true,
+            "says": "a notified thread goes from WAITING to BLOCKED until it gets the monitor back, and the dispatcher still holds it"
+          },
+          {
+            "id": "b",
+            "text": "WAITING, since the drivers stay inside wait() until the dispatcher leaves its synchronized block",
+            "correct": false,
+            "says": "notifyAll() takes them out of WAITING at once; while the dispatcher holds the monitor they are BLOCKED"
+          },
+          {
+            "id": "c",
+            "text": "RUNNABLE, since notifyAll() lets each driver's wait() return while the dispatcher still holds the board",
+            "correct": false,
+            "says": "wait() returns only once the thread owns the monitor again; while the dispatcher holds it, the drivers are BLOCKED"
+          },
+          {
+            "id": "d",
+            "text": "TIMED_WAITING, since a notified driver's wait() turns into a timed wait until the dispatcher leaves",
+            "correct": false,
+            "says": "the drivers called wait() with no timeout, and once notified they are BLOCKED on the monitor, not in a timed wait"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.4.md",
+          "section": "A Notified Thread Is BLOCKED Until It Gets the Monitor Back"
+        }
       }
     ],
-    "report": {
-      "format": "junit",
-      "path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/target/surefire-reports"
-    },
-    "origin": {
-      "path": "20-thread-basics/README_6.1.4.md",
-      "section": "Best Practices and Optimization Techniques"
-    },
     "concepts": [
-      "In a thread dump, many BLOCKED threads on one monitor mean contention, and a cycle of BLOCKED threads means deadlock."
+      "A notified thread goes from WAITING to BLOCKED and stays there until the notifier leaves the synchronized block, because wait() returns only once it owns the monitor again.",
+      "RUNNABLE covers a thread that runs, one that waits for a processor and one blocked in a native call such as a socket read, so it says nothing about CPU use."
     ]
   }
 }

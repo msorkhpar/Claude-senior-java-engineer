@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Deep structures without a StackOverflowError",
+  "title": "Let the upload queue let go",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Every method call pushes a **stack frame**, and each thread's stack is small (about 1 MB by default). A recursion as deep as the data, one frame per node, throws `StackOverflowError` on long inputs; the page's fix is to **convert deep recursion to iteration**."
+      "text": "The file service virus-scans every upload before storing it. Uploads wait in an `UploadQueue` that lives as long as the service; the scanner takes them one at a time, and an operator can discard everything still waiting. Each upload carries its whole body. After a busy morning the queue is empty, yet the heap stays near its limit, and the service later fails with `OutOfMemoryError: Java heap space` in the PDF thumbnailer. A heap dump taken after the morning shows the morning's upload bodies, all reachable from `UploadQueue.items`."
     },
     {
       "type": "para",
-      "text": "`Chain.Node` (given) is a record `(int value, Node next)`; `null` ends a chain. Write:"
+      "text": "`put(...)`, `size()` and the growth of the array are done. Finish the two `TODO`s in `src/main/java/practice/UploadQueue.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`sum(head)` and `length(head)`: **the chain is walked with a loop, not recursion**, so a chain of a million nodes works; **`null` is an empty chain** (sum 0, length 0).",
-        "`factorial(n)` from the page's pitfall: **a negative input is refused** with `IllegalArgumentException`, and **overflow is refused, not wrapped**: a result beyond `long` throws `ArithmeticException`."
+        "`take()`: hand out the oldest waiting upload, or `null` when none is waiting;",
+        "`clear()`: discard every waiting upload."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`sum(3 -> 4 -> 5)`, `length(...)`",
-          "12, 3"
-        ],
-        [
-          "`sum` of 1,000,000 nodes of value 1",
-          "1000000"
-        ],
-        [
-          "`sum(null)`",
-          "0"
-        ],
-        [
-          "`factorial(5)`, `factorial(0)`",
-          "120, 1"
-        ],
-        [
-          "`factorial(-1)`",
-          "`IllegalArgumentException`"
-        ],
-        [
-          "`factorial(21)`",
-          "`ArithmeticException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, the queue keeps an upload in memory only while it is waiting, whether it left the queue by being scanned or by being discarded. About eight lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests ask the garbage collector for a full collection and check, with weak references, which upload bodies are still in memory."
     },
     {
       "type": "heading",
@@ -79,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Chain {\n\n    /** One link of a chain; null ends it. */\n    public record Node(int value, Node next) {\n    }\n\n    private Chain() {\n    }\n\n    /** The sum of all values in the chain starting at head. */\n    public static long sum(Node head) {\n        long total = 0;\n        for (Node n = head; n != null; n = n.next()) {\n            total += n.value();\n        }\n        return total;\n    }\n\n    /** The number of nodes in the chain starting at head. */\n    public static int length(Node head) {\n        int count = 0;\n        for (Node n = head; n != null; n = n.next()) {\n            count++;\n        }\n        return count;\n    }\n\n    /** n! for n >= 0. */\n    public static long factorial(int n) {\n        if (n < 0) {\n            throw new IllegalArgumentException(\"negative input: \" + n);\n        }\n        long result = 1;\n        for (int i = 2; i <= n; i++) {\n            result = Math.multiplyExact(result, i);\n        }\n        return result;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Arrays;\n\n/**\n * Uploads waiting to be scanned, oldest first. The scanner thread takes them one at a time; an\n * operator can discard everything still waiting. Each upload carries its whole body, often\n * several megabytes, and the queue lives as long as the service.\n */\npublic class UploadQueue {\n\n    /** One uploaded file. */\n    public record Upload(String name, byte[] body) {}\n\n    private Upload[] items = new Upload[8];\n    private int head;      // index of the oldest upload\n    private int count;     // uploads waiting\n\n    /** Adds an upload behind the others. */\n    public void put(Upload upload) {\n        if (count == items.length) grow();\n        items[(head + count) % items.length] = upload;\n        count++;\n    }\n\n    /** How many uploads are waiting. */\n    public int size() {\n        return count;\n    }\n\n    private void grow() {\n        Upload[] bigger = new Upload[items.length * 2];\n        for (int i = 0; i < count; i++) bigger[i] = items[(head + i) % items.length];\n        items = bigger;\n        head = 0;\n    }\n\n    /** Removes and returns the oldest waiting upload, or null when none is waiting. */\n    public Upload take() {\n        if (count == 0) return null;\n        Upload oldest = items[head];\n        items[head] = null;\n        head = (head + 1) % items.length;\n        count--;\n        return oldest;\n    }\n\n    /** Discards every waiting upload. */\n    public void clear() {\n        Arrays.fill(items, null);\n        head = 0;\n        count = 0;\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Chain {\n\n    /** One link of a chain; null ends it. */\n    public record Node(int value, Node next) {\n    }\n\n    private Chain() {\n    }\n\n    /** The sum of all values in the chain starting at head. */\n    public static long sum(Node head) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The number of nodes in the chain starting at head. */\n    public static int length(Node head) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** n! for n >= 0. */\n    public static long factorial(int n) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Uploads waiting to be scanned, oldest first. The scanner thread takes them one at a time; an\n * operator can discard everything still waiting. Each upload carries its whole body, often\n * several megabytes, and the queue lives as long as the service.\n */\npublic class UploadQueue {\n\n    /** One uploaded file. */\n    public record Upload(String name, byte[] body) {}\n\n    private Upload[] items = new Upload[8];\n    private int head;      // index of the oldest upload\n    private int count;     // uploads waiting\n\n    /** Adds an upload behind the others. */\n    public void put(Upload upload) {\n        if (count == items.length) grow();\n        items[(head + count) % items.length] = upload;\n        count++;\n    }\n\n    /** How many uploads are waiting. */\n    public int size() {\n        return count;\n    }\n\n    private void grow() {\n        Upload[] bigger = new Upload[items.length * 2];\n        for (int i = 0; i < count; i++) bigger[i] = items[(head + i) % items.length];\n        items = bigger;\n        head = 0;\n    }\n\n    /** Removes and returns the oldest waiting upload, or null when none is waiting. */\n    public Upload take() {\n        // TODO: Hand out the oldest waiting upload, or null when none is waiting.\n        throw new IllegalStateException(\"TODO: take\");\n    }\n\n    /** Discards every waiting upload. */\n    public void clear() {\n        // TODO: Discard every waiting upload; the queue is then empty and takes new ones.\n        throw new IllegalStateException(\"TODO: clear\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -99,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -110,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b1cabbaba09f32787b3365740ca4ecd10f4dfda725cadb7c9a71893fbfed8770",
-  "starting_code": "package practice;\n\npublic final class Chain {\n\n    /** One link of a chain; null ends it. */\n    public record Node(int value, Node next) {\n    }\n\n    private Chain() {\n    }\n\n    /** The sum of all values in the chain starting at head. */\n    public static long sum(Node head) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The number of nodes in the chain starting at head. */\n    public static int length(Node head) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** n! for n >= 0. */\n    public static long factorial(int n) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "d7544e16b2b7ce09bfa54cf44d561e1bccc1c6f1b0610f95f5e83cf9b36cd691",
+  "starting_code": "package practice;\n\n/**\n * Uploads waiting to be scanned, oldest first. The scanner thread takes them one at a time; an\n * operator can discard everything still waiting. Each upload carries its whole body, often\n * several megabytes, and the queue lives as long as the service.\n */\npublic class UploadQueue {\n\n    /** One uploaded file. */\n    public record Upload(String name, byte[] body) {}\n\n    private Upload[] items = new Upload[8];\n    private int head;      // index of the oldest upload\n    private int count;     // uploads waiting\n\n    /** Adds an upload behind the others. */\n    public void put(Upload upload) {\n        if (count == items.length) grow();\n        items[(head + count) % items.length] = upload;\n        count++;\n    }\n\n    /** How many uploads are waiting. */\n    public int size() {\n        return count;\n    }\n\n    private void grow() {\n        Upload[] bigger = new Upload[items.length * 2];\n        for (int i = 0; i < count; i++) bigger[i] = items[(head + i) % items.length];\n        items = bigger;\n        head = 0;\n    }\n\n    /** Removes and returns the oldest waiting upload, or null when none is waiting. */\n    public Upload take() {\n        // TODO: Hand out the oldest waiting upload, or null when none is waiting.\n        throw new IllegalStateException(\"TODO: take\");\n    }\n\n    /** Discards every waiting upload. */\n    public void clear() {\n        // TODO: Discard every waiting upload; the queue is then empty and takes new ones.\n        throw new IllegalStateException(\"TODO: clear\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-01/practice-2/src/main/java/practice/Chain.java",
-    "test_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-01/practice-2/src/test/java/practice/ChainTest.java",
+    "main_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-01/practice-2/src/main/java/practice/UploadQueue.java",
+    "test_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-01/practice-2/src/test/java/practice/UploadQueueTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,29 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ChainTest#sumsAndCountsAShortChain",
+        "id": "practice.UploadQueueTest#handsOutUploadsOldestFirstAcrossGrowth",
         "kind": "main",
-        "says": "For the chain 3 -> 4 -> 5, sum is 12 and length is 3; factorial(5) is 120 and factorial(0) is 1."
+        "says": "uploads come out oldest first, also after the queue wraps around and grows"
       },
       {
-        "id": "practice.ChainTest#aMillionNodeChainIsWalkedWithALoop",
-        "kind": "edge",
-        "says": "A chain of 1,000,000 nodes is summed and counted without a StackOverflowError."
+        "id": "practice.UploadQueueTest#discardingEmptiesTheQueueAndItStillTakesNewUploads",
+        "kind": "main",
+        "says": "discarding empties the queue, and it then takes and hands out new uploads"
       },
       {
-        "id": "practice.ChainTest#nullIsAnEmptyChain",
+        "id": "practice.UploadQueueTest#anUploadThatWasScannedIsNotHeldByTheQueue",
         "kind": "edge",
-        "says": "sum(null) and length(null) are 0."
+        "says": "once every upload has been taken and scanned, the queue no longer keeps any of them in memory"
       },
       {
-        "id": "practice.ChainTest#aNegativeFactorialIsRefused",
+        "id": "practice.UploadQueueTest#discardedUploadsAreNotHeldByTheQueue",
         "kind": "edge",
-        "says": "factorial(-1) is refused with IllegalArgumentException instead of returning 1."
-      },
-      {
-        "id": "practice.ChainTest#factorialThatOverflowsIsRefused",
-        "kind": "edge",
-        "says": "factorial(20) is 2432902008176640000; factorial(21) does not fit in a long and throws ArithmeticException."
+        "says": "discarded uploads are no longer kept in memory by the queue"
       }
     ],
     "report": {
@@ -166,10 +136,10 @@
     },
     "origin": {
       "path": "40-memory-management/README_10.2.1.md",
-      "section": "Stack Memory"
+      "section": "OutOfMemoryError Is Thrown by Whichever Allocation Fails, Not by the Code That Filled the Heap"
     },
     "concepts": [
-      "Each call pushes a frame on the thread's small stack, so recursion as deep as the data throws StackOverflowError, and converting it to a loop avoids that."
+      "A collection that is empty to its users but keeps references in slots it no longer reads keeps those objects reachable, so the collector can't free them."
     ]
   }
 }

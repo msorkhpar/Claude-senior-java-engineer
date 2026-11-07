@@ -1,21 +1,13 @@
-A `filter` lambda with five `if` statements in it is a puzzle. Moving the rules into a named
-method turns the pipeline into a sentence: `filter(ItemRules::isValidItem)`.
+The exchange-rate service keeps rates in memory in front of a rates API that bills every call.
+This month's invoice from the API provider lists a call for every lookup the service made,
+including the many for pairs it already had. A profile of the same service, running with debug
+output switched off, shows it spending noticeable time copying and sorting its cache.
 
-The file declares `enum Status { ACTIVE, DELETED }`, `record Owner(String name, boolean verified)`
-and `record Item(String id, int value, boolean active, Status status, Owner owner)`. Write two
-static methods of `ItemRules`:
+Finish the two `TODO`s in `src/main/java/practice/RateService.java`:
 
-1. `boolean isValidItem(Item item)`: the item is not `null`, its value is above zero, it is
-   active, its status is not `DELETED` (a `null` status is not `DELETED`, so it passes this rule),
-   and it has an owner who is verified.
-2. `List<String> validIds(List<Item> items)`: the ids of the valid items, in order. Passing
-   `isValidItem` as a method reference reads best, though the tests check only the ids.
+- `cachedOrFetched(pair)`: the cached rate, or one fetched from the API and cached when there is
+  none. `cached` and `fetchAndCache` already exist.
+- `trace(pair, rate)`: a debug line with the pair, its rate and `cacheSnapshot()`.
 
-| item | valid? |
-|---|---|
-| `Item("a", 10, true, ACTIVE, Owner("Ann", true))` | yes |
-| `Item("b", 10, false, ACTIVE, Owner("Ann", true))` | no: inactive |
-| `Item("c", -5, true, ACTIVE, Owner("Ann", true))` | no: value not above zero |
-| `Item("d", 10, true, ACTIVE, Owner("Ben", false))` | no: owner not verified |
-
-Every rule on the page's list counts, including the ones about things that may be missing.
+When you're done, each pair costs one API call, and a service with debug output off never takes a
+snapshot. About two lines in total.

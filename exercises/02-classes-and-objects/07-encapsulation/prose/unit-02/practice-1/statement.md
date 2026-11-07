@@ -1,23 +1,13 @@
-The course's `Person` keeps its fields private and lets callers change them only
-through setters that **validate** their input, so the object can never hold a bad
-value.
+The shop's front page runs sale campaigns, and marketing moves them around the calendar. This
+morning they tried to move the autumn sale from 11–15 October to 25–29 October, and the admin
+screen refused it, although the new week is a perfectly good campaign.
 
-Write the four accessors of `Person`:
+`Campaign` keeps a first and a last day, both included, and a campaign never ends before it
+starts. Its constructor, getters and `setStartsOn` are written. Finish the two `TODO`s in
+`src/main/java/practice/Campaign.java`:
 
-- `setName(String name)` stores the name **without surrounding spaces**. A
-  `null` name, or one that is empty after trimming, is refused with
-  `IllegalArgumentException("Name cannot be null or empty")`.
-- `setAge(int age)` accepts `0` to `150`, both included. Anything else is refused
-  with `IllegalArgumentException("Age must be between 0 and 150")`.
-- `getName()` and `getAge()` return what was stored.
+- `setEndsOn(...)`: change the last day of a running campaign;
+- `moveTo(...)`: move the campaign to a new window.
 
-A refused call leaves the stored value as it was.
-
-Examples:
-
-```
-setName("  Jane Doe  ");  getName()   -> "Jane Doe"
-setAge(30);               getAge()    -> 30
-setName(null)                         -> IllegalArgumentException
-setAge(151)                           -> IllegalArgumentException
-```
+When you're done, a campaign can be moved from any valid window to any other valid window, and a
+date or a window the campaign refuses leaves it exactly as it was. About eight lines in total.

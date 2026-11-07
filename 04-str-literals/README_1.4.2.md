@@ -1,174 +1,268 @@
 # 1.4.2 String Concatenation in Java
 
-## Concept Explanation
-
-String concatenation in Java is the process of combining two or more strings to create a new string. Due to the
-immutable nature of strings in Java, concatenation always results in a new String object being created, rather than
-modifying existing ones.
-
-## Key Points to Remember
-
-1. The `+` operator is overloaded for String concatenation.
-2. Concatenation creates new String objects, which can be inefficient for multiple operations.
-3. The `concat()` method is an alternative to the `+` operator.
-4. For complex concatenations, StringBuilder or StringBuffer are more efficient.
-5. String concatenation in loops can lead to performance issues.
-
-## Relevant Java 21 Features
-
-- Text Blocks (introduced in Java 15) can be used for multi-line string literals, reducing the need for explicit
-  concatenation in some cases.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Excessive Concatenation**: Avoid concatenating strings in loops. Use StringBuilder instead.
-2. **Null Values**: Be cautious when concatenating potential null values: `+` silently inserts the text "null", while
-   `concat(null)` throws NullPointerException.
-3. **Performance Overhead**: Be aware of the performance impact when concatenating many strings.
-
-## Best Practices and Optimization Techniques
-
-1. Use StringBuilder for multiple concatenations, especially in loops.
-2. Consider using String.format() or MessageFormat for complex string formatting.
-3. Utilize the `+` operator for simple, one-time concatenations.
-4. Pre-size StringBuilder when the final string length is known or can be estimated.
-
-## Edge Cases and Their Handling
-
-1. Concatenating with null values
-2. Empty string concatenation
-3. Very large string concatenations
-
-## Interview-specific Insights
-
-- Interviewers often ask about the efficiency of different concatenation methods.
-- Understanding the internal workings of string concatenation can be crucial.
-- Be prepared to discuss alternatives to string concatenation for specific scenarios.
-
-## References to Source Code and Test Files
-
-- Refer to `StringConcatenation.java` for implementation examples.
-- See `StringConcatenationTest.java` for unit tests covering various scenarios.
-
-## Interview Q&A Section
-
-Q1: What happens internally when you use the `+` operator for string concatenation?
-A1: It depends on the operands and the Java version.
-
-If every operand is a compile-time constant, the compiler joins them itself, and no concatenation happens at run
-time:
+The nightly stock export writes one CSV line per SKU:
 
 ```java
-String result = "Hello" + " " + "World"; // compiled as the single literal "Hello World"
+String csv = "";
+for (Item it : items) {
+    csv += it.sku() + "," + it.qty() + "\n";
+}
 ```
 
-When a variable is involved, up to Java 8 `javac` translated the expression into StringBuilder operations. For example:
+With 25,000 SKUs it finished in 0.4 seconds. The catalogue has grown to 100,000, and the same
+loop now takes about 4 seconds and allocates 69 GB to produce a 1.4 MB file. In review, someone
+proposes replacing every `+` in the codebase with a `StringBuilder`. Only the `+=` on that line is
+the problem.
+
+## One `+` Expression Is One Concatenation, Compiled to a Single Call
+
+A method that builds one CSV line, and what `javap -c` shows for it:
 
 ```java
-String result = greeting + " " + name;
+static final String SEP = ",";
+
+static String line(String sku, int qty, double price) {
+    return sku + SEP + qty + SEP + price + "\n";
+}
 ```
 
-was roughly equivalent to:
+```text
+  static java.lang.String line(java.lang.String, int, double);
+    Code:
+       0: aload_0
+       1: iload_1
+       2: dload_2
+       3: invokedynamic #7,  0              // InvokeDynamic #0:makeConcatWithConstants:(Ljava/lang/String;ID)Ljava/lang/String;
+       8: areturn
+```
+
+Since Java 9 (JEP 280), `javac` compiles a whole concatenation expression that is not a constant
+to a single `invokedynamic` whose bootstrap method is `StringConcatFactory.makeConcatWithConstants`.
+The constants travel in a recipe, here `\u0001,\u0001,\u0001\n`, where each character U+0001
+stands for an argument; `SEP` is a `static final` constant, so its `,` was folded into the recipe.
+The first time the instruction runs, the JDK links a method for that recipe. In JDK 21 that method
+turns `float`, `double` and object operands into strings, computes the exact length, and copies
+each part into the result once.
+
+Rewriting one expression by hand gains nothing. We built a 40-character log line from a `String`,
+an `int` and a `long`, ten million times each way:
+
+```java
+return "user=" + user + " order=" + orderId + " total=" + cents;
+
+return new StringBuilder().append("user=").append(user).append(" order=").append(orderId)
+        .append(" total=").append(cents).toString();
+```
+
+```text
++         87 bytes,  24 ns per call
+builder  263 bytes,  44 ns per call
+```
+
+The builder starts with room for 16 characters, grows twice on the way to 40, then copies its
+content into a new `String`. The bytes come from `com.sun.management.ThreadMXBean`'s
+`getThreadAllocatedBytes` and were the same on every run; the times vary by machine and JDK.
+
+> **Old bytecode differs.** Classes compiled with `--release 8` still contain the Java 8
+> translation: `new StringBuilder()` and one `append` per operand. A library built for Java 8
+> keeps it on any JVM.
+
+## `+=` in a Loop Copies Everything Built So Far, on Every Pass
+
+The export's loop body compiles to one call per row:
+
+```text
+      29: aload_1
+      30: aload_3
+      31: invokevirtual #27                 // Method Export$Item.sku:()Ljava/lang/String;
+      34: aload_3
+      35: invokevirtual #31                 // Method Export$Item.qty:()I
+      38: invokedynamic #35,  0             // InvokeDynamic #0:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/String;
+      43: astore_1
+```
+
+`csv += ...` is `csv = csv + (...)`, so the whole line is one expression, and its first argument
+(`aload_1`) is `csv`: the file so far. Each pass creates a new `String` and copies every earlier
+row into it. For n rows of about 14 Latin-1 characters, one byte each, that is 14 × n² / 2 bytes. We ran the export three
+ways, after warm-up:
+
+```text
++=          25,000 rows    345,000 chars     408 ms    4,313 MB allocated
+builder     25,000 rows    345,000 chars       4 ms        1 MB allocated
+joining     25,000 rows    345,000 chars       3 ms        2 MB allocated
++=          50,000 rows    690,000 chars   1,026 ms   17,252 MB allocated
+builder     50,000 rows    690,000 chars       5 ms        3 MB allocated
+joining     50,000 rows    690,000 chars       2 ms        4 MB allocated
++=         100,000 rows  1,380,000 chars   4,069 ms   69,004 MB allocated
+builder    100,000 rows  1,380,000 chars       3 ms        6 MB allocated
+joining    100,000 rows  1,380,000 chars       2 ms        9 MB allocated
+```
+
+Doubling the rows multiplies the `+=` allocation by four and the time by 2.5 to 4; the JIT does
+not turn the loop into a buffer. The 69 GB is garbage the collector
+clears while the rest of the service runs, so other requests slow down too. With a hundred rows in
+the tests the loop allocates about 70 KB, which is why it ships.
+
+## Repeated Text Goes into One Buffer, and a Joiner Places the Separators
+
+The `builder` and `joining` rows above ran these, each with one buffer for the whole loop:
+
+```java
+StringBuilder csv = new StringBuilder();
+for (Item it : items) {
+    csv.append(it.sku()).append(',').append(it.qty()).append('\n');
+}
+return csv.toString();
+```
+
+```java
+return items.stream()
+        .map(it -> it.sku() + "," + it.qty() + "\n")
+        .collect(Collectors.joining());
+```
+
+The `+` inside `map` is fine: one expression per row, with no accumulated text in it. Sizing a
+`StringBuilder`, and when `StringBuffer` is the right choice, is unit 1.4.5.
+
+A loop that appends a separator after every item leaves one too many; a joiner puts them only
+between items:
 
 ```java
 StringBuilder sb = new StringBuilder();
-sb.append(greeting);
-sb.append(" ");
-sb.append(name);
-String result = sb.toString();
+for (String sku : skus) sb.append(sku).append(", ");
+System.out.println("[" + sb + "]");
+System.out.println("[" + String.join(", ", skus) + "]");
+System.out.println(skus.stream().collect(Collectors.joining(", ", "Low stock: ", ".")));
+System.out.println(none.stream().collect(Collectors.joining(", ", "Low stock: ", ".")));
+StringJoiner j = new StringJoiner(", ", "Low stock: ", ".").setEmptyValue("Stock is fine.");
+none.forEach(j::add);
+System.out.println(j);
 ```
 
-Since Java 9 (JEP 280), `javac` instead emits one `invokedynamic` call to `StringConcatFactory`, and the JVM picks the
-concatenation strategy at run time. Either way, one expression with several `+` is handled as a single operation; the
-cost appears when `+=` is repeated in a loop, because each iteration builds a new String.
+```text
+[A-1, B-7, C-3, ]
+[A-1, B-7, C-3]
+Low stock: A-1, B-7, C-3.
+Low stock: .
+Stock is fine.
+```
 
-Q2: How would you efficiently concatenate strings in a loop?
-A2: To efficiently concatenate strings in a loop, it's best to use StringBuilder. Here's an example:
+The extra separator reaches whoever reads the text: a header value ending in `", "`, or, for an
+importer that reads `\n` as a separator rather than a terminator, one more record, empty, at the
+end of the file. A prefix and suffix are
+written even when there are no items, so an empty list posts `Low stock: .` to the ops channel;
+`StringJoiner.setEmptyValue` gives the empty case its own text.
+
+<!-- practice 1 -->
+
+## `+` Turns Every Operand into Text, and null Becomes the Word "null"
 
 ```java
-StringBuilder sb = new StringBuilder();
-for (int i = 0; i < 1000; i++) {
-    sb.append("Item ").append(i).append(", ");
-}
-String result = sb.toString();
+String userId = null;
+String[] roles = {"admin", "ops"};
+char aisle = 'C', side = 'L';
+System.out.println("cart:" + userId);
+System.out.println("roles " + roles);
+System.out.println(aisle + side + "-07");
+System.out.println("" + aisle + side + "-07");
+System.out.println("odd " + new Odd());          // Odd.toString() returns null
+System.out.println("cart:".concat(userId));
 ```
 
-This approach is much more efficient than using the `+` operator in a loop, as it avoids creating multiple intermediate
-String objects.
-
-Q3: What's the difference between using `+` and the `concat()` method for string concatenation?
-A3: The main differences are:
-
-1. Syntax: `+` is an operator, while `concat()` is a method.
-2. Null handling: `+` converts null to "null", while `concat()` throws a NullPointerException if the argument is null.
-3. Performance: For simple concatenations, they are similar. For multiple concatenations, `+` might be more efficient
-   due to compiler optimizations.
-
-Example:
-
-```java
-String s1 = "Hello";
-String s2 = " World";
-
-// Using +
-String result1 = s1 + s2;
-
-// Using concat()
-String result2 = s1.concat(s2);
-
-// Null handling
-String nullStr = null;
-String withPlus = s1 + nullStr;  // Results in "Hellonull"
-String withConcat = s1.concat(nullStr);  // Throws NullPointerException
+```text
+cart:null
+roles [Ljava.lang.String;@677327b6
+143-07
+CL-07
+odd null
+Exception in thread "main" java.lang.NullPointerException: Cannot invoke "String.isEmpty()" because "str" is null
+	at java.base/java.lang.String.concat(String.java:2885)
+	at ConversionPage.main(ConversionPage.java:14)
 ```
 
-Q4: How does string concatenation affect memory usage?
-A4: String concatenation can have significant memory implications:
+Once one operand is a `String`, `+` applies string conversion to each other operand. A `null`
+reference, or a `toString()` that returns `null`, becomes the four letters `null`; any other
+object becomes its `toString()`. Arrays don't override `toString()`, so they print their type and
+a hash code. Use `Arrays.toString` or `String.join` for the elements. `+` never
+throws on `null`, which is the risk: the cache key `"cart:" + userId` is `cart:null` for every
+anonymous visitor, and they all share one cart.
 
-1. Each concatenation operation creates a new String object, which consumes additional memory.
-2. The original strings remain in memory until garbage collected, potentially leading to increased memory usage.
-3. In loops or with many concatenations, this can lead to many short-lived objects, increasing garbage collection
-   overhead.
+`aisle + side` has no `String` in it. Two `char`s are promoted to `int` and added: `'C' + 'L'` is
+67 + 76 = 143, and only then does `"-07"` turn the sum into text. `sb.append(aisle + side)`
+appends `143` the same way. Starting with `""`, or `String.valueOf(aisle)`, keeps every part text.
+Unit 1.1.4 covers the left-to-right grouping behind this.
 
-To mitigate these issues:
+`concat` is the strict alternative: `"cart:".concat(null)` throws `NullPointerException`, and so
+does calling `concat` on `null`. Use it where a missing part is a bug that should fail at once,
+and handle `null` explicitly where it is a valid value.
 
-- Use StringBuilder for multiple concatenations.
-- Properly size StringBuilder if you know the approximate final size.
-- Consider using String.join() for joining multiple strings with a delimiter.
+<!-- practice 2 -->
 
-Example of efficient concatenation:
+<!-- practice 3 -->
 
-```java
-StringBuilder sb = new StringBuilder(1000); // Pre-sized
-for (String item : items) {
-    sb.append(item).append(", ");
-}
-String result = sb.toString();
-```
+## Summary
 
-Q5: Can you explain how string concatenation works with different data types?
-A5: When concatenating strings with other data types:
+- **One `+` expression is one concatenation.** Since Java 9 it compiles to a single
+  `invokedynamic` that sizes the result exactly; the same line written as a `StringBuilder` chain
+  allocated three times as much.
+- **`+=` in a loop copies everything built so far on every pass.** Allocation grows with the
+  square of the row count: 4.3 GB for 25,000 rows, 69 GB for 100,000.
+- **Repeated text goes into one buffer, and a joiner places the separators.** `StringBuilder`,
+  `String.join`, `Collectors.joining` and `StringJoiner` are linear, and a joiner puts nothing
+  after the last item.
+- **`+` converts every other operand to text.** `null` becomes `"null"`, an array its type and
+  hash, `char + char` is still arithmetic, and `concat(null)` throws.
 
-1. Java automatically converts the non-string operands to strings.
-2. The `toString()` method is called on objects.
-3. Primitive types are converted to their string representations.
+## Reference
 
-Example:
+**Results (Java 21):**
 
-```java
-int number = 42;
-boolean flag = true;
-String text = "Answer: " + number + ", Correct: " + flag;
-// Results in: "Answer: 42, Correct: true"
+| Expression | Result |
+|---|---|
+| `"cart:" + s`, `String s = null` | `cart:null` |
+| `s + s`, `String s = null` | `nullnull` |
+| `"cart:".concat(null)` | `NullPointerException` |
+| `'C' + 'L' + "-07"` | `143-07` |
+| `"" + 'C' + 'L' + "-07"` | `CL-07` |
+| `"pin " + pin`, `char[] pin` | `pin [C@…`; `println(pin)` prints the characters |
+| `s += 1 + 2`, `s = "x"` | `x3`: the right side is evaluated first |
+| `s = s + 1 + 2`, `s = "x"` | `x12` |
+| `(a + "7") == "ORD-7"`, `final String a = "ORD-"` | `true`: `a` is a constant, so the sum is folded (unit 1.1.2) |
+| the same with `a` not `final` | `false` |
+| `s + "" == s` | `false`: a `+` that is not a constant expression creates a new `String` |
+| `s.concat("") == s` | `true`: `concat` returns `this` for an empty argument |
 
-// With objects
-Date date = new Date();
-String message = "Current date: " + date;
-// date.toString() is implicitly called
-```
+**Building text:**
 
-This automatic conversion makes string concatenation very convenient but can sometimes lead to unexpected results,
-especially with complex objects or when precision is important (e.g., with floating-point numbers).
+| Tool | Use it for | Empty input gives |
+|---|---|---|
+| `a + b + c` | one expression | n/a |
+| `StringBuilder` | a loop that appends | `""` |
+| `String.join(sep, items)` | items already in an array or `Iterable` | `""` |
+| `Collectors.joining(sep, prefix, suffix)` | the end of a stream | `prefix + suffix` |
+| `StringJoiner` | a loop that adds items | `setEmptyValue`, else `prefix + suffix` |
+| `"%s/%05d".formatted("B-7", 42)` | fixed layouts and padding: `B-7/00042` | n/a |
+
+## Challenges
+
+1. Find a `+=` on a `String` inside a loop in a codebase you know. How many iterations does it see
+   in production, and how much does it allocate at that count?
+2. `log.debug("order " + order)` builds its text even when debug is off. Measure the cost per call
+   when `Order.toString()` prints twenty fields, and compare it with your logging library's `{}`
+   placeholder form.
+3. A cache key is `tenant + ":" + userId`, and either may be `null`. Which keys can collide, and how
+   would you make a missing value impossible to confuse with the text `"null"`?
+
+## Design Note: Why `+` Compiles to a Call the JVM Links at Run Time
+
+Before Java 9, `javac` fixed the strategy in every class file: a `StringBuilder` chain, which only
+the JIT could improve by recognising its shape. Anything better meant changing the compiler and
+recompiling every library. With `invokedynamic`, the class file records only the recipe and the argument types, and
+the JDK supplies the code when the call site is linked, so a later JDK can bring a faster strategy
+to class files compiled years earlier.
+
+The price is paid once per call site: the first execution of each concatenation links a method
+for its recipe, which adds a little to startup.
 
 ## Code Examples
 

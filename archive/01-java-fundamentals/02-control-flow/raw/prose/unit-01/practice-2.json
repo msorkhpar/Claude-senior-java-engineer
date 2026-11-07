@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Fix the report card's missing braces",
+  "title": "Keep the nightly usage export running for every tenant",
   "blocks": [
     {
       "type": "heading",
@@ -19,34 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's third interview question shows this code, and asks what is wrong with it:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "if (score >= 90)\n    System.out.println(\"A\");\n    System.out.println(\"Excellent!\");\nif (score >= 80)\n    System.out.println(\"B\");\nif (score >= 70)\n    System.out.println(\"C\");\nelse\n    System.out.println(\"Needs improvement\");"
+      "text": "Every night `UsageExport` writes one line per tenant for the billing system, such as `initech;quota=2500;jobs=1234`. Two tickets are open against it. Last night the job stopped halfway with an exception, at the first contract tenant whose contract has no quota. And billing rejects lines where a count of jobs has a decimal point in it."
     },
     {
       "type": "para",
-      "text": "Without braces only the first statement belongs to an `if`, so `\"Excellent!\"` prints for every score. The three `if`s are separate, so one score can print several letters, and the `else` belongs only to the last `if`."
-    },
-    {
-      "type": "para",
-      "text": "Write `lines(int score)` in `ReportCard`. It returns, in order, the lines the corrected code prints:"
+      "text": "`line(...)` already builds the line. Finish the two `TODO` methods in `src/main/java/practice/UsageExport.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`90` and above: `[\"A\", \"Excellent!\"]`;",
-        "`80` to `89`: `[\"B\"]`;",
-        "`70` to `79`: `[\"C\"]`;",
-        "below `70`: `[\"Needs improvement\"]`."
+        "`quota(tenant)`: `100` for a tenant on the free plan, otherwise the quota in its contract, or `null` when the contract sets none;",
+        "`value(metric)`: an `Integer` for a count, a `Double` for a ratio."
       ]
     },
     {
       "type": "para",
-      "text": "Examples: `lines(95)` is `[\"A\", \"Excellent!\"]`, `lines(85)` is `[\"B\"]`, and `lines(10)` is `[\"Needs improvement\"]`."
+      "text": "Both are small choices between two values. About eight lines in total."
     },
     {
       "type": "heading",
@@ -61,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class ReportCard {\n\n    private ReportCard() {\n    }\n\n    /** Returns the lines printed for a score: exactly one grade line, and praise only for an A. */\n    public static List<String> lines(int score) {\n        List<String> out = new ArrayList<>();\n        if (score >= 90) {\n            out.add(\"A\");\n            out.add(\"Excellent!\");\n        } else if (score >= 80) {\n            out.add(\"B\");\n        } else if (score >= 70) {\n            out.add(\"C\");\n        } else {\n            out.add(\"Needs improvement\");\n        }\n        return out;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * Writes one line per tenant for the nightly usage export, which the billing system reads.\n */\npublic class UsageExport {\n\n    /** One measured value: a count of events, or a ratio between 0 and 1. */\n    public record Metric(String name, boolean isRatio, int count, double ratio) {\n        public static Metric count(String name, int count) {\n            return new Metric(name, false, count, 0);\n        }\n\n        public static Metric ratio(String name, double ratio) {\n            return new Metric(name, true, 0, ratio);\n        }\n    }\n\n    private final Set<String> freeTenants;\n    private final Map<String, Integer> contractQuotas;\n\n    public UsageExport(Set<String> freeTenants, Map<String, Integer> contractQuotas) {\n        this.freeTenants = freeTenants;\n        this.contractQuotas = contractQuotas;\n    }\n\n    /** The export line for one tenant, for example {@code globex;quota=250;jobs=12;failure-rate=0.5}. */\n    public String line(String tenant, List<Metric> metrics) {\n        List<String> fields = new ArrayList<>();\n        fields.add(tenant);\n        Integer quota = quota(tenant);\n        fields.add(\"quota=\" + (quota == null ? \"unlimited\" : quota.toString()));\n        for (Metric metric : metrics) {\n            fields.add(metric.name() + \"=\" + value(metric));\n        }\n        return String.join(\";\", fields);\n    }\n\n    /**\n     * The tenant's job quota: 100 on the free plan, otherwise the quota in its contract, or null\n     * when the contract sets none (unlimited).\n     */\n    Integer quota(String tenant) {\n        if (freeTenants.contains(tenant)) {\n            return 100;\n        } else {\n            return contractQuotas.get(tenant);\n        }\n    }\n\n    /** The value written for a metric: an Integer for a count, a Double for a ratio. */\n    Object value(Metric metric) {\n        if (metric.isRatio()) {\n            return metric.ratio();\n        } else {\n            return metric.count();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -73,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class ReportCard {\n\n    private ReportCard() {\n    }\n\n    /** Returns the lines printed for a score: exactly one grade line, and praise only for an A. */\n    public static List<String> lines(int score) {\n        throw new UnsupportedOperationException(\"write lines\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * Writes one line per tenant for the nightly usage export, which the billing system reads.\n */\npublic class UsageExport {\n\n    /** One measured value: a count of events, or a ratio between 0 and 1. */\n    public record Metric(String name, boolean isRatio, int count, double ratio) {\n        public static Metric count(String name, int count) {\n            return new Metric(name, false, count, 0);\n        }\n\n        public static Metric ratio(String name, double ratio) {\n            return new Metric(name, true, 0, ratio);\n        }\n    }\n\n    private final Set<String> freeTenants;\n    private final Map<String, Integer> contractQuotas;\n\n    public UsageExport(Set<String> freeTenants, Map<String, Integer> contractQuotas) {\n        this.freeTenants = freeTenants;\n        this.contractQuotas = contractQuotas;\n    }\n\n    /** The export line for one tenant, for example {@code globex;quota=250;jobs=12;failure-rate=0.5}. */\n    public String line(String tenant, List<Metric> metrics) {\n        List<String> fields = new ArrayList<>();\n        fields.add(tenant);\n        Integer quota = quota(tenant);\n        fields.add(\"quota=\" + (quota == null ? \"unlimited\" : quota.toString()));\n        for (Metric metric : metrics) {\n            fields.add(metric.name() + \"=\" + value(metric));\n        }\n        return String.join(\";\", fields);\n    }\n\n    /**\n     * The tenant's job quota: 100 on the free plan, otherwise the quota in its contract, or null\n     * when the contract sets none (unlimited).\n     */\n    Integer quota(String tenant) {\n        // TODO: Look up the tenant's quota as the comment above describes. Billing reads a\n        //       missing quota as \"unlimited\", so a tenant without one must not break the line.\n        throw new IllegalStateException(\"TODO: quota\");\n    }\n\n    /** The value written for a metric: an Integer for a count, a Double for a ratio. */\n    Object value(Metric metric) {\n        // TODO: Return the metric's value with the type billing expects for its kind.\n        throw new IllegalStateException(\"TODO: value\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -81,8 +70,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -92,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d0cdbfea2db704c8328ef0540595eba43eb5198a4271134f2986f08ec0796051",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class ReportCard {\n\n    private ReportCard() {\n    }\n\n    /** Returns the lines printed for a score: exactly one grade line, and praise only for an A. */\n    public static List<String> lines(int score) {\n        throw new UnsupportedOperationException(\"write lines\");\n    }\n}\n",
+  "content_sha256": "296996ed49cc8ac196392fe41d7e3fbe1e13dc5bb7b6ac263e03badac2c565cb",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * Writes one line per tenant for the nightly usage export, which the billing system reads.\n */\npublic class UsageExport {\n\n    /** One measured value: a count of events, or a ratio between 0 and 1. */\n    public record Metric(String name, boolean isRatio, int count, double ratio) {\n        public static Metric count(String name, int count) {\n            return new Metric(name, false, count, 0);\n        }\n\n        public static Metric ratio(String name, double ratio) {\n            return new Metric(name, true, 0, ratio);\n        }\n    }\n\n    private final Set<String> freeTenants;\n    private final Map<String, Integer> contractQuotas;\n\n    public UsageExport(Set<String> freeTenants, Map<String, Integer> contractQuotas) {\n        this.freeTenants = freeTenants;\n        this.contractQuotas = contractQuotas;\n    }\n\n    /** The export line for one tenant, for example {@code globex;quota=250;jobs=12;failure-rate=0.5}. */\n    public String line(String tenant, List<Metric> metrics) {\n        List<String> fields = new ArrayList<>();\n        fields.add(tenant);\n        Integer quota = quota(tenant);\n        fields.add(\"quota=\" + (quota == null ? \"unlimited\" : quota.toString()));\n        for (Metric metric : metrics) {\n            fields.add(metric.name() + \"=\" + value(metric));\n        }\n        return String.join(\";\", fields);\n    }\n\n    /**\n     * The tenant's job quota: 100 on the free plan, otherwise the quota in its contract, or null\n     * when the contract sets none (unlimited).\n     */\n    Integer quota(String tenant) {\n        // TODO: Look up the tenant's quota as the comment above describes. Billing reads a\n        //       missing quota as \"unlimited\", so a tenant without one must not break the line.\n        throw new IllegalStateException(\"TODO: quota\");\n    }\n\n    /** The value written for a metric: an Integer for a count, a Double for a ratio. */\n    Object value(Metric metric) {\n        // TODO: Return the metric's value with the type billing expects for its kind.\n        throw new IllegalStateException(\"TODO: value\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-01/practice-2/src/main/java/practice/ReportCard.java",
-    "test_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-01/practice-2/src/test/java/practice/ReportCardTest.java",
+    "main_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-01/practice-2/src/main/java/practice/UsageExport.java",
+    "test_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-01/practice-2/src/test/java/practice/UsageExportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -117,19 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ReportCardTest#printsTheLinesForEachGrade",
+        "id": "practice.UsageExportTest#freeTenantsGetTheFreeQuotaAndContractsTheirOwn",
         "kind": "main",
-        "says": "Each band starts with its own line."
+        "says": "a free tenant gets 100 and a contract tenant gets the quota its contract sets"
       },
       {
-        "id": "practice.ReportCardTest#praiseBelongsOnlyToAnA",
-        "kind": "edge",
-        "says": "\"Excellent!\" is printed for an A only, never for a B or a failing score."
+        "id": "practice.UsageExportTest#ratiosAreWrittenAsFractions",
+        "kind": "main",
+        "says": "a ratio is exported as a Double"
       },
       {
-        "id": "practice.ReportCardTest#aHighScorePrintsOneLetterOnly",
+        "id": "practice.UsageExportTest#aContractWithoutAQuotaIsExportedAsUnlimited",
         "kind": "edge",
-        "says": "90, 95 and 100 print A and the praise, and no second letter."
+        "says": "a contract tenant with no quota gets null and an 'unlimited' line, without an exception"
+      },
+      {
+        "id": "practice.UsageExportTest#countsAreWrittenAsWholeNumbers",
+        "kind": "edge",
+        "says": "a count is exported as an Integer, written without a decimal point"
       }
     ],
     "report": {
@@ -138,10 +132,11 @@
     },
     "origin": {
       "path": "02-control-flow/README_1.2.1.md",
-      "section": "Interview Q&A"
+      "section": "A Conditional Expression Takes Its Type From Both Branches, So a Primitive on One Side Unboxes the Other"
     },
     "concepts": [
-      "Without curly braces only the first statement belongs to an if, and an else binds to the nearest if."
+      "A conditional expression with an int and a double operand has type double, so an int result comes out as a Double.",
+      "A conditional expression with an int on one side and an Integer on the other has type int, so a null Integer throws NullPointerException where if/else would return null."
     ]
   }
 }

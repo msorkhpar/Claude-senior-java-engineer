@@ -1,204 +1,318 @@
 # 2.3.3 Abstraction in Java
 
-## Concept Overview
+Payments library 3.2 adds `refund` to its `PaymentGateway` interface. A merchant's plugin, built
+against 3.1, handles checkout all week and throws `AbstractMethodError` at the first refund. In the
+same release of the order service, the audit trail of orders starts listing refunds, and the
+nightly export that sums 100,000 amounts takes three seconds on one kind of list and three
+milliseconds on another.
 
-Abstraction is a fundamental principle in object-oriented programming that allows developers to hide complex
-implementation details and expose only the essential features of an object. It's about creating a simplified view of
-an object that represents its core functionality without getting bogged down in the specifics of how that functionality
-is achieved.
+An abstraction is a type that says what an object does and hides how. Each ticket here is
+something a type shared, broke or hid without its authors meaning it to.
 
-In Java, abstraction is primarily achieved through abstract classes and interfaces. These constructs allow developers
-to define a common structure and behavior for a group of related classes without specifying all the details.
+## An Interface Can't Hold an Object's State: a Field Declared There Is One Constant for Every Implementation
 
-## Focusing on Essential Features and Behavior
-
-Abstraction involves identifying the core attributes and behaviors of an object that are relevant to the problem at
-hand. This process helps in:
-
-1. Simplifying complex systems by breaking them down into manageable parts.
-2. Hiding unnecessary details from the user of the class.
-3. Focusing on what an object does rather than how it does it.
-
-Example:
-Consider a `Shape` abstraction. While different shapes (circle, square, triangle) have unique properties, they all share
-some common behavior, like calculating area or perimeter. Abstraction allows us to define these common behaviors without
-specifying how each shape implements them.
+The order and refund services both keep an audit trail, so someone writes it once, as an interface
+with default methods:
 
 ```java
-public abstract class Shape {
-    public abstract double calculateArea();
-    public abstract double calculatePerimeter();
+import java.util.ArrayList;
+import java.util.List;
+
+interface Audited {
+    List<String> events = new ArrayList<>();         // looks like a field of each object
+
+    default void audit(String event) {
+        events.add(event);
+    }
+
+    default List<String> history() {
+        return events;
+    }
 }
+
+class OrderService implements Audited { }
+class RefundService implements Audited { }
 ```
 
-## Interfaces as Contracts
+The order service audits `order 1001 placed`, the refund service `refund 77 issued`, and each
+prints its history:
 
-Interfaces in Java serve as contracts that specify what a class must do, without dictating how it should do it. They
-define a set of abstract methods that implementing classes must provide concrete implementations for.
+```text
+orders:  [order 1001 placed, refund 77 issued]
+refunds: [order 1001 placed, refund 77 issued]
+```
 
-Key points about interfaces:
+Every field of an interface is implicitly `public static final`. There is one `events` list,
+created when the interface is initialized, and every implementing object reaches the same one.
+With an `int count`, `count++` in a default method fails to compile: `cannot assign a value to
+static final variable count`. A mutable list compiles, and every implementer shares it.
 
-1. They can contain only abstract methods (prior to Java 8) and constants.
-2. From Java 8 onwards, they can also include default and static methods.
-3. A class can implement multiple interfaces, allowing for a form of multiple inheritance.
+An interface has no instance fields and no constructor, so a default method has no state of its
+own: it works through the methods it can call on `this`. Each implementing class can keep its own
+list behind an abstract `events()` method, but state that the shared code owns and initializes
+needs an abstract class, which can also have constructors and `protected` members (unit 2.2.1).
+The cost: a class extends one class, but implements any number of interfaces. The JDK often ships
+both: `List` is the type callers use, and `AbstractList` is a skeleton that implements most of it
+on top of `get` and `size`, for implementers with no other superclass.
 
-Example:
+## An Abstract Class Can't Be Instantiated, but Its Constructor Runs for Every Subclass
+
+Every account must carry an ISO currency code, whatever kind of account it is:
 
 ```java
-public interface Drawable {
-    void draw();
-    default void display() {
-        System.out.println("Displaying the drawable object");
+import java.math.BigDecimal;
+
+abstract class Account {
+    private final String currency;
+    private BigDecimal balance = BigDecimal.ZERO;
+
+    protected Account(String currency) {
+        if (!currency.matches("[A-Z]{3}")) {
+            throw new IllegalArgumentException("not an ISO currency: " + currency);
+        }
+        this.currency = currency;
+        System.out.println("Account(" + currency + ") ran for " + getClass().getSimpleName());
+    }
+
+    protected abstract BigDecimal fee(BigDecimal amount);
+
+    public final void withdraw(BigDecimal amount) {
+        balance = balance.subtract(amount).subtract(fee(amount));
+    }
+
+    @Override
+    public String toString() {
+        return balance + " " + currency;
     }
 }
 ```
 
-## Abstract Classes vs. Interfaces
-
-While both abstract classes and interfaces are used for abstraction, they have some key differences:
-
-1. **Multiple Inheritance**: A class can implement multiple interfaces but can extend only one abstract class.
-2. **State**: Abstract classes can have instance variables (state), while interfaces cannot (except for constants).
-3. **Method Implementation**: Abstract classes can have both abstract and concrete methods, while interfaces (prior to
-   Java 8) could only have abstract methods.
-4. **Constructor**: Abstract classes can have constructors, interfaces cannot.
-5. **Access Modifiers**: Abstract class methods can have any access modifier, while interface methods are implicitly
-   public (and abstract, unless they are default, static or, since Java 9, private methods).
-
-Example of an abstract class:
+`new Account("EUR")` doesn't compile (`Account is abstract; cannot be instantiated`). A
+`Checking` subclass whose fee is 0.50, and an anonymous subclass written in a test:
 
 ```java
-public abstract class Animal {
-    protected String name;
-
-    public Animal(String name) {
-        this.name = name;
+Account checking = new Checking("EUR");
+checking.withdraw(new BigDecimal("20"));
+System.out.println(checking);
+Account trial = new Account("eur") {                 // an anonymous subclass
+    @Override
+    protected BigDecimal fee(BigDecimal amount) {
+        return BigDecimal.ZERO;
     }
+};
+```
 
-    public abstract void makeSound();
+```text
+Account(EUR) ran for Checking
+-20.50 EUR
+Exception in thread "main" java.lang.IllegalArgumentException: not an ISO currency: eur
+```
 
-    public void eat() {
-        System.out.println(name + " is eating.");
+`abstract` forbids only `new Account(...)` itself. Every subclass constructor starts with
+`super(...)` or `this(...)` (unit 2.1.2), so every chain passes through `Account`'s, even the
+anonymous class's, which javac writes for you. A check in the abstract constructor holds for
+subclasses that don't exist yet. Put the check in `Checking` instead, and the next team's `Savings`
+accepts `"eur"`. Only a subclass can run an abstract class's constructor, even a `public` one;
+`protected` says so to the reader. Calling an abstract method from it runs the subclass's override
+before the subclass's fields are set (unit 2.1.1).
+
+<!-- practice 1 -->
+
+## Adding an Abstract Method to a Published Interface Breaks Every Implementer; a Default Method Doesn't
+
+The gateway from the opening, at 3.2:
+
+```java
+public interface PaymentGateway {
+    String charge(String order, long cents);
+
+    String refund(String order, long cents);         // new in 3.2
+}
+```
+
+The merchant's `AcmeGateway` implements `charge` and was compiled against 3.1. Checkout, rebuilt
+against 3.2, never names `AcmeGateway` in its source: it loads the class by name, charges an order
+and refunds it:
+
+```text
+charged A-1001 4999
+java.lang.AbstractMethodError: Receiver class AcmeGateway does not define or inherit an implementation of the resolved method 'abstract java.lang.String refund(java.lang.String, long)' of interface PaymentGateway.
+```
+
+The JVM loaded and linked `AcmeGateway` without a complaint. It looks for the implementation only
+when the method is called, so the plugin passed every checkout and failed at the first refund,
+days after the deploy. Rebuilding the plugin fails instead, at compile time: `AcmeGateway is not
+abstract and does not override abstract method refund(String,long) in PaymentGateway`. Adding an
+abstract method to an abstract class gives the same `AbstractMethodError`.
+
+A default method gives the old classes a body:
+
+```java
+public interface PaymentGateway {
+    String charge(String order, long cents);
+
+    default String refund(String order, long cents) {
+        throw new UnsupportedOperationException(getClass().getSimpleName() + " can't refund");
     }
 }
 ```
 
-## Key Points to Remember
+```text
+charged A-1001 4999
+java.lang.UnsupportedOperationException: AcmeGateway can't refund
+```
 
-1. Abstraction helps in managing complexity by hiding unnecessary details.
-2. Use interfaces when you want to define a contract for behavior without implementation.
-3. Use abstract classes when you want to provide a common base implementation for a group of related classes.
-4. From Java 8, interfaces can have default and static methods, blurring the line between interfaces and abstract
-   classes.
-5. Abstraction promotes code reusability and makes the system more maintainable.
+The old plugin still can't refund, but it fails with the library's message, and it compiles
+against 3.2 unchanged. `Iterator.remove`'s default also throws `UnsupportedOperationException`.
+A default built from the interface's existing methods, like `atLeast` below, is better still. A
+default that collides with one the class inherits from another interface breaks it too, at compile
+time or with `IncompatibleClassChangeError` (unit 2.3.1).
 
-## Common Pitfalls and How to Avoid Them
+## A Functional Interface Is the Lightest Abstraction: One Abstract Method, and Any Lambda Implements It
 
-1. **Overuse of Abstraction**: Don't create abstractions for every possible scenario. Use them when there's a clear need
-   for hiding complexity or defining a common structure.
-2. **Leaky Abstractions**: Ensure that your abstraction doesn't expose unnecessary implementation details.
-3. **Ignoring the Liskov Substitution Principle**: Ensure that derived classes can be used interchangeably with their
-   base classes without affecting the correctness of the program.
+When what varies is one operation, an interface with one abstract method replaces a class
+hierarchy, and each variant is a lambda:
 
-## Best Practices
+```java
+@FunctionalInterface
+interface FeeRule {
+    long feeCents(long amountCents);
 
-1. Design interfaces and abstract classes based on behavior, not on properties.
-2. Keep interfaces small and focused (Interface Segregation Principle).
-3. Use abstract classes to provide a common base implementation for related classes.
-4. Prefer composition over inheritance when possible to achieve better flexibility.
-5. Use interfaces for defining types and abstract classes for providing partial implementations.
+    default FeeRule atLeast(long minCents) {               // defaults don't count
+        return amount -> Math.max(minCents, feeCents(amount));
+    }
 
-## Interview Questions and Answers
+    boolean equals(Object other);                          // nor do Object's methods
+}
+```
 
-1. Q: What is abstraction in Java, and why is it important?
-   A: Abstraction in Java is a process of hiding the implementation details and showing only functionality to the user.
-   It's important because:
-   ```text
-   - It reduces complexity by hiding unnecessary details
-   - It enhances code reusability
-   - It allows focusing on what an object does rather than how it does it
-   - It provides a clear separation between the interface and implementation of a class
-   ```
+```java
+FeeRule card = amount -> amount * 29 / 1000 + 30;        // 2.9% + 30 cents
+FeeRule wire = amount -> 1500;
+FeeRule cardMin = card.atLeast(50);
+```
 
-2. Q: How do you achieve abstraction in Java?
-   A: Abstraction in Java is primarily achieved through:
-   ```text
-   1. Abstract classes: These are classes that cannot be instantiated and may contain abstract methods.
-   2. Interfaces: These define a contract of methods that implementing classes must provide.
-   Both abstract classes and interfaces allow you to define a common structure for related classes
-   without specifying all the details of implementation.
-   ```
+```text
+   500: card 44, card with minimum 50, wire 1500
+ 20000: card 610, card with minimum 610, wire 1500
+```
 
-3. Q: What's the difference between an interface and an abstract class?
-   A: The main differences are:
-   ```text
-    1. Multiple Inheritance: A class can implement multiple interfaces but extend only one abstract class.
-    2. State: Abstract classes can have instance variables, interfaces cannot (except constants).
-    3. Method Implementation: Abstract classes can have both abstract and concrete methods, while interfaces
-       (prior to Java 8) could only have abstract methods.
-    4. Constructor: Abstract classes can have constructors, interfaces cannot.
-    5. Access Modifiers: Abstract class methods can have any access modifier, while interface methods are
-       implicitly public (and abstract, unless default, static or, since Java 9, private).
-   ```
+A lambda can implement an interface that has exactly one abstract method, not counting public
+methods of `Object`: every object already has `equals`, so declaring it again asks nothing new of a
+lambda. `Comparator` declares `equals` this way and is still functional.
 
-4. Q: Can you provide an example of how abstraction might be used in a real-world application?
-   A: Certainly. Here's an example of how abstraction might be used in a payment processing system:
+An interface with one abstract method is functional with or without `@FunctionalInterface`. The
+annotation makes javac check the interface itself, so a second abstract method fails where it was
+added:
 
-   ```java
-   public interface PaymentProcessor {
-       boolean processPayment(double amount);
-       void refund(double amount);
-   }
+```text
+FeeRule.java:1: error: Unexpected @FunctionalInterface annotation
+@FunctionalInterface
+^
+  FeeRule is not a functional interface
+    multiple non-overriding abstract methods found in interface FeeRule
+```
 
-   public class CreditCardProcessor implements PaymentProcessor {
-       @Override
-       public boolean processPayment(double amount) {
-           // Implementation for credit card payment
-           return true;
-       }
+Without it, the same change compiles, and every lambda in every caller's code fails instead:
+`incompatible types: FeeRule is not a functional interface`. Before writing one, look in
+`java.util.function`: `LongUnaryOperator` has `FeeRule`'s shape. Write your own for a name from
+the domain, or for defaults such as `atLeast`.
 
-       @Override
-       public void refund(double amount) {
-           // Implementation for credit card refund
-       }
-   }
+<!-- practice 3 -->
 
-   public class PayPalProcessor implements PaymentProcessor {
-       @Override
-       public boolean processPayment(double amount) {
-           // Implementation for PayPal payment
-           return true;
-       }
+## An Abstraction Hides Its Cost Too: List.get(i) Is O(n) on a LinkedList
 
-       @Override
-       public void refund(double amount) {
-           // Implementation for PayPal refund
-       }
-   }
-   ```
+The nightly export sums 100,000 amounts, and was written against `List<Long>`:
 
-   In this example, `PaymentProcessor` is an interface that abstracts the concept of processing payments. Different
-   payment methods (credit card, PayPal) implement this interface, providing their specific implementations.
-   The rest of the application can work with the `PaymentProcessor` interface without needing to know the details of
-   how each payment method is processed.
+```java
+static long byIndex(List<Long> amounts) {
+    long total = 0;
+    for (int i = 0; i < amounts.size(); i++) total += amounts.get(i);
+    return total;
+}
 
-5. Q: How does abstraction contribute to code maintainability and scalability?
-   A: Abstraction contributes to maintainability and scalability in several ways:
-   ```text
-   1. Separation of Concerns: By hiding implementation details, abstraction allows developers to focus on
-      high-level functionality without getting bogged down in low-level details.
-   2. Easier Updates: Changes to the implementation of an abstract class or interface don't affect the
-      classes that use it, as long as the public interface remains the same.
-   3. Code Reusability: Abstract classes and interfaces promote code reuse by defining common structures
-      and behaviors that can be shared across multiple concrete classes.
-   4. Flexibility: Abstraction allows for easy addition of new implementations without affecting existing code.
-   5. Reduced Complexity: By hiding unnecessary details, abstraction makes the codebase easier to understand
-      and maintain.
-   ```
+static long byIterator(List<Long> amounts) {
+    long total = 0;
+    for (long amount : amounts) total += amount;
+    return total;
+}
+```
 
-These questions and answers cover the key aspects of abstraction in Java, including its importance, implementation,
-and practical applications. They also touch on the differences between abstract classes and interfaces, which is a
-common topic in Java interviews.
+```text
+ArrayList  RandomAccess=true  get(i) loop     3 ms, for-each  4 ms
+LinkedList RandomAccess=false get(i) loop  2784 ms, for-each  5 ms
+```
+
+`List` promises what `get(i)` returns, not what it costs. A `LinkedList` walks to index `i` from the
+nearer end, so the index loop takes about n²/4 link steps, 2.5 billion for 100,000 amounts, and
+the for-each walks the links once. Nothing in the export's code or tests says which list it gets,
+and the time grows with the square of the size: twice the amounts, four times the wait.
+
+That is a leaky abstraction: to use the type well, you have to know what is behind it. For this
+leak the JDK has a marker interface, `RandomAccess`: `ArrayList` implements it and `LinkedList`
+doesn't, and generic algorithms check it. `Collections.binarySearch` on a large list without it
+switches to an iterator-based search. Code that accepts any `List` should iterate, and use indexes
+only when the list is `RandomAccess`.
+
+<!-- practice 2 -->
+
+## Summary
+
+- **An interface field is one `static final` value for every implementation.** Per-object state
+  needs an abstract class, at the cost of the single superclass.
+- **An abstract class's constructor runs for every subclass**, anonymous ones included, so the
+  checks every subclass needs go there.
+- **A new abstract method breaks every implementer**: rebuilt ones don't compile, old binaries
+  throw `AbstractMethodError` at the first call. A default method keeps both working.
+- **One abstract method, not counting `Object`'s, makes an interface functional.**
+  `@FunctionalInterface` moves the error for a second one to the interface.
+- **`List.get(i)` costs O(n) on a `LinkedList`.** Iterate, or check `RandomAccess` before using
+  indexes.
+
+## Reference
+
+**What each can declare (javac 21):**
+
+| Member | Interface | Abstract class |
+|---|---|---|
+| instance field | no: every field is `public static final` | yes |
+| constructor | no | yes, runs for every subclass |
+| `protected` member | no: `modifier protected not allowed here` | yes |
+| `private` method | yes, since Java 9, to share code between defaults | yes |
+| `static` method | yes, called as `Iface.m()`; not inherited, so `Impl.m()` doesn't compile | yes, and inherited |
+| method with a body | `default` (public), `static`, or `private` (instance or static) | any access |
+| how many a class can have | any number | one |
+
+**Adding a method to a published type (Java 21 and 25):**
+
+| Change | Implementer rebuilt | Implementer not rebuilt |
+|---|---|---|
+| abstract method to an interface | compile error | `AbstractMethodError` at the first call |
+| abstract method to an abstract class | compile error | `AbstractMethodError` at the first call |
+| default method to an interface | compiles, unless it conflicts with another default (unit 2.3.1) | the default runs; a conflicting one throws `IncompatibleClassChangeError` |
+
+## Challenges
+
+1. Your library's interface has forty implementers in other teams' repositories, and you need an
+   operation that can't be built from the existing ones. A default that throws, a new
+   sub-interface, or a major version: what does each cost the implementers and the callers?
+2. An abstract `Repository` base class with twelve subclasses holds a connection pool in a field.
+   Could it become an interface with defaults? What would have to move, and where?
+3. Find a method in your code that takes a `List` and loops by index. Which implementations reach
+   it, and would you add a `RandomAccess` check, or change the loop?
+
+## Design Note: Why Java 8 Added Default Methods
+
+Java 8 wanted `forEach` on `Iterable`, and `stream` and `removeIf` on `Collection`. As abstract
+methods they would have broken every collection outside the JDK: a compile error for the ones
+rebuilt, `AbstractMethodError` for the ones that weren't. Default methods let an interface grow.
+
+The cost is that an interface now carries behaviour it can only build from the methods it can
+call on `this`, since it sees no state. `Collection.removeIf`'s default walks `iterator()` and
+calls `Iterator.remove`. On a collection whose iterator can't remove, it throws
+`UnsupportedOperationException` at the first element that matches. A class with a faster way, or with a lock to take first, has to
+know that the default exists and override it. Two interfaces can now bring the same method
+with two bodies, which unit 2.3.1 resolves.
 
 ## Code Examples
 

@@ -1,24 +1,17 @@
-For rate limiting the page advises `tryAcquire()` **without blocking**: reject
-the excess work instead of queueing it. Two of its pitfalls apply at once:
-release the permit in `finally`, or one exception leaks it for ever; and only
-release what you acquired, or the count inflates beyond its limit.
+The PDF render farm has a fixed number of renderers, shared by two kinds of work. Interactive
+previews come from users looking at a spinner. Batch documents come from the nightly scheduler,
+which retries anything refused a few minutes later and runs on a small thread pool of its own.
 
-Write `Bulkhead`, which lets at most `limit` tasks run at the same time:
+Last night a slow font server made every render take a minute. The scheduler's threads all ended
+up parked inside `batch(...)`, so it stopped scheduling anything, including the jobs that don't
+render at all. Users complained too: some previews spun until the browser gave up, and others
+were turned away while documents nobody was looking at were being rendered.
 
-- `<T> Optional<T> tryCall(Supplier<T> task)` runs `task` if a slot is free
-  **right now** and returns its result; if every slot is busy it returns
-  `Optional.empty()` at once, without waiting at all (not even a short timed
-  wait) and without running the task. Whatever the task throws, an exception
-  or an `Error`, reaches the caller, and the slot is given back either way.
-- `int available()` is the number of free slots.
+Finish `admitPreview()` and `admitBatch()` in `src/main/java/practice/RenderAdmission.java`.
+`preview(...)` and `batch(...)` already render and give the renderer back. When you're done, a
+preview waits for a renderer, but no longer than `previewWaitMillis`; a batch document never
+waits, and never takes a renderer that another caller is already queued for. About two lines in
+total.
 
-A caller whose interrupt flag is set is not refused for that: with a slot free, its task runs. The tests
-never race two callers for the last slot, so doing the check and the take as one atomic step, which is why
-the page uses `tryAcquire()`, is good practice they do not grade.
-
-| limit | situation | call | answer |
-|---|---|---|---|
-| 2 | idle | `tryCall(() -> "done")`, `available()` | `Optional[done]`, `2` |
-| 1 | another task is running | `tryCall(() -> "x")` | `Optional.empty` at once; the task did not run |
-| 1 | idle | `tryCall(() -> { throw new IllegalStateException(); })`, then `available()` | throws; then `1` |
-| 1 | a call was rejected while another ran; that one finished | `available()` | `1` |
+The tests hand the class its semaphore, so they can hold renderers, queue callers, and play a
+second scheduler that takes a renderer at an awkward moment.

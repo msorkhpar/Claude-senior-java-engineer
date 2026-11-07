@@ -1,19 +1,15 @@
-Java passes every argument by value. For an object, the value is a copy of the reference:
-the method and the caller point to the same object, so a change to the object is seen by
-the caller, while assigning a new object to the parameter only changes the method's copy.
+The on-call tool pages engineers through `Alert`. Its scheduler keeps the current rotation in one
+`String[]`, passes it to every alert it sends, and writes the next week's names into the same
+array each Monday. Since the last release, three things have gone wrong: last week's alerts in the
+history show this week's engineers, the rotation itself comes back in a different order after an
+alert is sent, and on a fresh install, where no rotation has been set up yet, the first alert
+crashed the scheduler.
 
-```java
-void modifyValues(int x, StringBuilder sb) {
-    x = 10;                         // the caller's int is unchanged
-    sb.append(" World");            // the caller sees this
-    sb = new StringBuilder("New");  // the caller does not see this
-}
-```
+`Alert` already renders a page. Finish the `TODO` in `src/main/java/practice/Alert.java`:
 
-Write `addAll(List<String> target, String... items)` in `Collector`. It adds every
-non-null item to the caller's own `target` list, in order, and returns how many it added:
+- `to(title, recipients...)`: the alert for those recipients, which the pager lists in
+  alphabetical order.
 
-- with `target = ["a"]`, `addAll(target, "b", "c")` returns `2`, and `target` is then
-  `["a", "b", "c"]`;
-- `null` items are skipped: `addAll(target, "x", null, "y")` returns `2`;
-- with no items, `addAll(target)` returns `0`.
+When you're done, an alert lists the people it was created for, whatever the scheduler does to its
+array afterwards, the scheduler's array is left as it was, and an alert sent before any rotation
+exists goes to nobody. About five lines in total.

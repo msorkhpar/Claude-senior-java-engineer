@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A balance guarded by a private lock",
+  "title": "Give every invoice in the chain its own number",
   "blocks": [
     {
       "type": "heading",
@@ -19,47 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's counter protects `count++` with `synchronized`, and prefers a **dedicated, private lock object** to `synchronized` methods, because a method lock is `this`, and any outside code can take `this` too. It also warns that `synchronized (new Object())` protects nothing, since every call gets its own lock."
+      "text": "A retail chain issues invoice numbers from one sequence for the whole company, and every branch's tills call `issue(...)` on their own branch's `Branch` object. The finance team has two complaints. The audit found pairs of invoices with the same number, issued seconds apart by different branches, and journal lines with their numbers out of order. And on the morning a new branch opened, every till in the chain froze for as long as the new branch took to load its settings from head office."
     },
     {
       "type": "para",
-      "text": "Write `Balance`, a balance many threads may change:"
+      "text": "Write `issue(...)` in `src/main/java/practice/Branch.java`. Each call takes the next number of the company's sequence, writes it to the journal with the branch's name and the customer, and returns it. With any number of tills in any number of branches calling it at once, no number is issued twice, the journal gets its lines one at a time and in number order, and no till waits for a branch that is being opened. About five lines in total, and you may add a field."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Balance(int initial)` starts the balance.",
-        "`int update(IntUnaryOperator change)` applies `change` to the balance and returns the new balance. Only one update runs at a time: a second update **waits** until the first has finished.",
-        "`int get()` returns the balance.",
-        "Code outside the class that does `synchronized (balance) { ... }` must not be able to stall `update`.",
-        "If `change` throws, the exception reaches the caller, the balance keeps its old value, and the next update, from any thread, still runs."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls, from `new Balance(10)`",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`update(x -> x + 5)`",
-          "`15`"
-        ],
-        [
-          "`update(x -> x * 2)`, then `get()`",
-          "`30`, `30`"
-        ],
-        [
-          "`update(x -> { throw new IllegalStateException(); })`",
-          "throws `IllegalStateException`; `get()` is still `30`"
-        ],
-        [
-          "another thread holds `synchronized (balance)`; this thread calls `update(x -> x + 1)`",
-          "returns `31` without waiting for it"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests use journals and settings loaders that hold a call open, so they can see who waits for whom."
     },
     {
       "type": "heading",
@@ -74,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.function.IntUnaryOperator;\n\npublic final class Balance {\n\n    private final Object lock = new Object();\n    private int value;\n\n    public Balance(int initial) {\n        this.value = initial;\n    }\n\n    /** Applies {@code change} to the balance, one update at a time, and returns the new balance. */\n    public int update(IntUnaryOperator change) {\n        synchronized (lock) {\n            value = change.applyAsInt(value);\n            return value;\n        }\n    }\n\n    /** Returns the balance. */\n    public int get() {\n        synchronized (lock) {\n            return value;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * One branch of a retail chain. Each branch has one Branch object, shared by the threads of its\n * tills. Invoice numbers come from one sequence for the whole company, and every number goes into\n * the company's journal, in order, together with the branch that issued it.\n */\npublic class Branch {\n\n    /** The company's invoice journal. Not thread-safe: it takes one line at a time. */\n    public interface Journal {\n        void append(long number, String branch, String customer);\n    }\n\n    /** Fetches a branch's settings from head office. Can take seconds. */\n    public interface Settings {\n        String load(String branch);\n    }\n\n    private static final Map<String, Branch> OPEN = new HashMap<>();\n    private static long lastNumber = 10_000;\n\n    private final String name;\n    private final String settings;\n    private final Journal journal;\n\n    private Branch(String name, String settings, Journal journal) {\n        this.name = name;\n        this.settings = settings;\n        this.journal = journal;\n    }\n\n    /** Opens a branch, loading its settings, or returns the branch already open under that name. */\n    public static synchronized Branch open(String name, Settings settings, Journal journal) {\n        Branch open = OPEN.get(name);\n        if (open == null) {\n            open = new Branch(name, settings.load(name), journal);\n            OPEN.put(name, open);\n        }\n        return open;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public String settings() {\n        return settings;\n    }\n\n    private static final Object SEQUENCE = new Object();\n\n    /** Issues the company's next invoice number to a customer of this branch, and journals it. */\n    public long issue(String customer) {\n        synchronized (SEQUENCE) {\n            long number = ++lastNumber;\n            journal.append(number, name, customer);\n            return number;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -86,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.IntUnaryOperator;\n\npublic final class Balance {\n\n    public Balance(int initial) {\n    }\n\n    /** Applies {@code change} to the balance, one update at a time, and returns the new balance. */\n    public int update(IntUnaryOperator change) {\n        throw new UnsupportedOperationException(\"write update\");\n    }\n\n    /** Returns the balance. */\n    public int get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * One branch of a retail chain. Each branch has one Branch object, shared by the threads of its\n * tills. Invoice numbers come from one sequence for the whole company, and every number goes into\n * the company's journal, in order, together with the branch that issued it.\n */\npublic class Branch {\n\n    /** The company's invoice journal. Not thread-safe: it takes one line at a time. */\n    public interface Journal {\n        void append(long number, String branch, String customer);\n    }\n\n    /** Fetches a branch's settings from head office. Can take seconds. */\n    public interface Settings {\n        String load(String branch);\n    }\n\n    private static final Map<String, Branch> OPEN = new HashMap<>();\n    private static long lastNumber = 10_000;\n\n    private final String name;\n    private final String settings;\n    private final Journal journal;\n\n    private Branch(String name, String settings, Journal journal) {\n        this.name = name;\n        this.settings = settings;\n        this.journal = journal;\n    }\n\n    /** Opens a branch, loading its settings, or returns the branch already open under that name. */\n    public static synchronized Branch open(String name, Settings settings, Journal journal) {\n        Branch open = OPEN.get(name);\n        if (open == null) {\n            open = new Branch(name, settings.load(name), journal);\n            OPEN.put(name, open);\n        }\n        return open;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public String settings() {\n        return settings;\n    }\n\n    /** Issues the company's next invoice number to a customer of this branch, and journals it. */\n    public long issue(String customer) {\n        // TODO: Take the next number of the company-wide sequence (lastNumber + 1), write it to the\n        //       journal with this branch's name, and return it. Every till of every branch calls\n        //       this at the same time: no number may be issued twice, the journal must get one line\n        //       at a time, in number order, and issuing must never wait for a branch being opened.\n        throw new IllegalStateException(\"TODO: issue\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -94,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -105,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7ca1565639346c128465652daaf626c462b1d20be42dd8a8548e8c813bdda8b8",
-  "starting_code": "package practice;\n\nimport java.util.function.IntUnaryOperator;\n\npublic final class Balance {\n\n    public Balance(int initial) {\n    }\n\n    /** Applies {@code change} to the balance, one update at a time, and returns the new balance. */\n    public int update(IntUnaryOperator change) {\n        throw new UnsupportedOperationException(\"write update\");\n    }\n\n    /** Returns the balance. */\n    public int get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n}\n",
+  "content_sha256": "62999e8238e5be467c6bf4ec364cd63113c3e91504a71200953b5d9d9ddc575b",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * One branch of a retail chain. Each branch has one Branch object, shared by the threads of its\n * tills. Invoice numbers come from one sequence for the whole company, and every number goes into\n * the company's journal, in order, together with the branch that issued it.\n */\npublic class Branch {\n\n    /** The company's invoice journal. Not thread-safe: it takes one line at a time. */\n    public interface Journal {\n        void append(long number, String branch, String customer);\n    }\n\n    /** Fetches a branch's settings from head office. Can take seconds. */\n    public interface Settings {\n        String load(String branch);\n    }\n\n    private static final Map<String, Branch> OPEN = new HashMap<>();\n    private static long lastNumber = 10_000;\n\n    private final String name;\n    private final String settings;\n    private final Journal journal;\n\n    private Branch(String name, String settings, Journal journal) {\n        this.name = name;\n        this.settings = settings;\n        this.journal = journal;\n    }\n\n    /** Opens a branch, loading its settings, or returns the branch already open under that name. */\n    public static synchronized Branch open(String name, Settings settings, Journal journal) {\n        Branch open = OPEN.get(name);\n        if (open == null) {\n            open = new Branch(name, settings.load(name), journal);\n            OPEN.put(name, open);\n        }\n        return open;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public String settings() {\n        return settings;\n    }\n\n    /** Issues the company's next invoice number to a customer of this branch, and journals it. */\n    public long issue(String customer) {\n        // TODO: Take the next number of the company-wide sequence (lastNumber + 1), write it to the\n        //       journal with this branch's name, and return it. Every till of every branch calls\n        //       this at the same time: no number may be issued twice, the journal must get one line\n        //       at a time, in number order, and issuing must never wait for a branch being opened.\n        throw new IllegalStateException(\"TODO: issue\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-1/src/main/java/practice/Balance.java",
-    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-1/src/test/java/practice/BalanceTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-1/src/main/java/practice/Branch.java",
+    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-1/src/test/java/practice/BranchTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -130,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BalanceTest#appliesChangesInOrder",
+        "id": "practice.BranchTest#numbersFollowOneCompanySequenceAcrossBranches",
         "kind": "main",
-        "says": "Each update applies its change to the balance and returns the new balance."
+        "says": "numbers issued by different branches follow one company-wide sequence, and the journal gets each number with its branch and customer, in order"
       },
       {
-        "id": "practice.BalanceTest#oneUpdateAtATime",
-        "kind": "edge",
-        "says": "While one update is running, a second update waits for it instead of running beside it."
+        "id": "practice.BranchTest#anOpenedBranchKeepsItsSettings",
+        "kind": "main",
+        "says": "opening a branch twice returns the same branch, which issues numbers"
       },
       {
-        "id": "practice.BalanceTest#outsidersCannotStallIt",
+        "id": "practice.BranchTest#twoBranchesNeverIssueAtTheSameTime",
         "kind": "edge",
-        "says": "Code that synchronizes on the Balance object itself does not block its updates."
+        "says": "while one branch is writing its number to the journal, another branch's till waits instead of issuing"
       },
       {
-        "id": "practice.BalanceTest#aFailedChangeReleasesTheLock",
+        "id": "practice.BranchTest#twoTillsOfOneBranchNeverIssueAtTheSameTime",
         "kind": "edge",
-        "says": "A change that throws leaves the balance as it was, and a later update from another thread still runs."
+        "says": "while one till of a branch is writing its number to the journal, another till of the same branch waits"
+      },
+      {
+        "id": "practice.BranchTest#issuingGoesOnWhileABranchIsBeingOpened",
+        "kind": "edge",
+        "says": "a till issues a number while a new branch is still loading its settings"
       }
     ],
     "report": {
@@ -156,13 +129,11 @@
     },
     "origin": {
       "path": "21-synchronization/README_6.2.1.md",
-      "section": "The `synchronized` Keyword"
+      "section": "synchronized Locks an Object, and Excludes Only Code That Locks the Same One"
     },
     "concepts": [
-      "Only one thread at a time holds an object's intrinsic lock, so a second synchronized update waits for the first.",
-      "A private final lock object keeps outside code from taking the lock, which a synchronized method on this cannot.",
-      "The intrinsic lock is released when a synchronized block exits, even by an exception.",
-      "A lock protects shared state only when every thread uses the same lock object; synchronized (new Object()) protects nothing."
+      "A monitor other code can reach, such as this, a Class object or a string literal, lets that code stall yours; a private final lock can be taken only by the class.",
+      "synchronized excludes only code that locks the same object; synchronized (new Object()) or an instance lock guarding state shared between instances excludes nothing."
     ]
   }
 }

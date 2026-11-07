@@ -1,22 +1,16 @@
-The enhanced for loop runs on an iterator, so `list.add(...)` inside it trips the fail-fast
-check, as in the course's demo:
+The build farm hands out time-limited leases on shared machines: build agents, GPUs, a plotter.
+A holder renews its lease before it runs out and releases it when done, and a sweeper thread
+frees the leases nobody renewed and tells their holders. Two incidents last month: a training
+job lost its GPU a few milliseconds after renewing it, and a CAD team that had released the
+plotter got a "your lease expired" message for it anyway.
 
-```java
-ListIterator<String> listIt = list.listIterator();
-while (listIt.hasNext()) {
-    listIt.next();
-    list.add("new"); // Throws ConcurrentModificationException
-}
-```
+`LeaseTable` already acquires, renews and releases. Write `sweep(...)` in
+`src/main/java/practice/LeaseTable.java`: free every lease that ran out at or before `now`, tell
+its holder, and return the resources it freed.
 
-A change made through the iterator itself is safe: `ListIterator.add` inserts the element just
-before the cursor, so the traversal carries on with the next original element and never visits
-what it inserted.
+When you're done, a lease renewed while the sweep runs stays with its holder, and only leases the
+sweep itself freed are reported and returned. About six lines in total.
 
-Write `expand(List<String> list, String suffix)` in `Echo`. It inserts, right after each element
-of the caller's list, a copy of that element with `suffix` appended, in place.
-
-- `["a", "b"]` with `"-x"` becomes `["a", "a-x", "b", "b-x"]`, and `[]` stays `[]`;
-- every original element gets its echo, even one that already ends with the suffix, and each
-  duplicate gets its own: `["a-x", "b"]` becomes `["a-x", "a-x-x", "b", "b-x"]`, and
-  `["a", "a-x", "a"]` becomes `["a", "a-x", "a-x", "a-x-x", "a", "a-x"]`.
+The tests force the interleaving: they make a holder renew or release its lease just before the
+sweeper changes that lease in the table, the way it happens when the holder's thread gets there
+first.

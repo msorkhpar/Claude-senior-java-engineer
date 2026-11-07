@@ -1,407 +1,317 @@
 # 10.3.1. Class and Object Introspection
 
-## Concept Explanation
+An in-house event bus calls every method annotated `@Subscribe` that it finds with
+`getDeclaredMethods()`. Someone changes `OrderHandler` to implement a new interface,
+`Handler<OrderPlaced>`, and nothing else. From the next deploy every order ships twice, and
+publishing a `PaymentFailed` event logs a `ClassCastException` from `OrderHandler`, a class that
+never mentions payments. Nobody touched the bus.
 
-Class and object introspection is the ability to examine the structure, properties, and metadata of classes and objects at runtime. Through the Java Reflection API (primarily in `java.lang.reflect`), a program can discover a class's name, superclass, interfaces, fields, methods, constructors, modifiers, and annotations without knowing any of this information at compile time.
+A `Class` object is the JVM's description of one loaded type, and `getClass()`, a class literal
+(`Circle.class`) and `Class.forName` all reach the same one. Reading and writing fields through it
+is unit 10.3.2, creating objects and calling methods is 10.3.3, what it costs is 10.3.4, and
+`java.lang.reflect.Proxy` is unit 9.2.3. Every output is from Java 21.
 
-**Real-world analogy**: Imagine you receive a sealed box with no label. Introspection is like using an X-ray machine to examine its contents, discover what compartments it has, what materials it is made of, and how those compartments are connected -- all without opening the box or knowing what was put inside at the factory.
+## getMethods and getDeclaredMethods Answer Different Questions, and Neither Lists Everything
 
-At the heart of reflection is the `java.lang.Class` object. Every loaded type in the JVM has exactly one `Class` instance. You can obtain it three ways:
-
-1. **`object.getClass()`** -- from any instance at runtime
-2. **`TypeName.class`** -- a compile-time class literal
-3. **`Class.forName("fully.qualified.Name")`** -- loading a class dynamically by name
-
-Once you have a `Class` object, you can query the full class hierarchy (superclasses, interfaces), modifiers (public, abstract, final, static), whether it is an interface, enum, record, array, or primitive, and enumerate its declared fields, methods, and constructors.
-
-## Key Points to Remember
-
-- Every type in Java (including primitives, arrays, and `void`) has a corresponding `Class` object.
-- `Class.forName()` triggers class loading and static initialization; `obj.getClass()` needs no loading (the class of an existing object is already loaded), and a `TypeName.class` literal may load the class the first time it is evaluated but never initializes it.
-- `getInterfaces()` returns only directly declared interfaces; to get all inherited interfaces you must walk the hierarchy.
-- `getDeclaredFields()`/`getDeclaredMethods()` return members declared in that class only (including private), while `getFields()`/`getMethods()` return all public members including inherited ones.
-- `getModifiers()` returns an `int` bitmask; use `java.lang.reflect.Modifier` helper methods to decode it.
-- `isInstance(obj)` is the reflective equivalent of the `instanceof` operator.
-- `getComponentType()` returns the element type of an array class, or `null` for non-array types.
-- `getSuperclass()` returns `null` for `Object`, interfaces, primitives, and `void`.
-
-## Relevant Java 21 Features
-
-- **Records** (`clazz.isRecord()`, `clazz.getRecordComponents()`): Java 16+ introduced first-class record support in the reflection API, letting you discover record component names and types.
-- **Sealed classes** (`clazz.isSealed()`, `clazz.getPermittedSubclasses()`): Java 17+ added methods to inspect sealed class hierarchies reflectively.
-- **Pattern matching for `instanceof`**: While not a reflection feature per se, it works alongside reflection when you need runtime type narrowing combined with compile-time pattern matching.
-- **Module system** (`clazz.getModule()`): Since Java 9, the module system gates reflective access; `--add-opens` may be needed for deep reflection into JDK internals.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Confusing `getDeclaredFields()` with `getFields()`**
-
-   `getFields()` only returns **public** fields (including inherited ones). `getDeclaredFields()` returns all fields declared in the class itself, regardless of access modifier, but does **not** include inherited fields.
-
-   ```java
-   // WRONG: Expecting to see private fields
-   Field[] fields = clazz.getFields(); // Only public!
-
-   // CORRECT: To see all fields of a class including private
-   Field[] fields = clazz.getDeclaredFields();
-   ```
-
-2. **Forgetting that `Class.forName()` throws a checked exception**
-
-   ```java
-   // WRONG: Uncaught checked exception
-   Class<?> c = Class.forName("com.example.MyClass");
-
-   // CORRECT: Handle ClassNotFoundException
-   try {
-       Class<?> c = Class.forName("com.example.MyClass");
-   } catch (ClassNotFoundException e) {
-       // handle gracefully
-   }
-   ```
-
-3. **Assuming `getSuperclass()` always returns a class**
-
-   For interfaces, primitives, and `Object` itself, `getSuperclass()` returns `null`.
-
-   ```java
-   Class<?> superclass = Serializable.class.getSuperclass(); // null!
-   Class<?> primSuper = int.class.getSuperclass();            // null!
-   ```
-
-4. **Not walking the full hierarchy for interface discovery**
-
-   `getInterfaces()` only returns directly declared interfaces. To find all interfaces (including those inherited from superclasses), you must traverse the class hierarchy recursively.
-
-5. **Module access restrictions in Java 9+**
-
-   Reflectively using a member your code cannot access throws `IllegalAccessException`, and `setAccessible(true)` on a member of a package in a named module that is not opened to your module throws `InaccessibleObjectException` (a `RuntimeException`). Use `--add-opens` JVM flags or `opens` directives in module declarations to grant access.
-
-## Best Practices and Optimization Techniques
-
-1. **Cache `Class` objects** -- they are singletons per classloader and safe to cache.
-2. **Prefer `instanceof` / pattern matching over reflective type checks** when the type is known at compile time.
-3. **Use `Class.isInstance(obj)` instead of manual `getClass()` comparisons** for polymorphic checks.
-4. **Walk the hierarchy only once** and cache the result if you need all interfaces or all fields including inherited ones.
-5. **Avoid `Class.forName()` in hot loops** -- it involves classloader lookups and synchronization.
-6. **Use `getSimpleName()` for logging** and `getName()` (the binary name, e.g. `Outer$Inner`, which `Class.forName()` accepts) when you need a name for serialization or persistence; `getCanonicalName()` gives the source-style `Outer.Inner`.
-
-## Edge Cases and Their Handling
-
-1. **Primitive types**: `int.class` is a valid `Class` object but `isPrimitive()` is `true`, it has no fields, no methods, and `getSuperclass()` returns `null`.
-2. **Array types**: `int[].class` has `isArray() == true` and `getComponentType() == int.class`. Multi-dimensional arrays are arrays of arrays.
-3. **Anonymous classes**: Have an empty simple name (`getSimpleName()` returns `""`).
-4. **Lambda classes**: Synthetic classes with `isSynthetic() == true`.
-5. **`void.class`**: A valid `Class` object with `isPrimitive() == true`.
-6. **Null input**: Always guard against `null` before calling `getClass()` -- it will throw `NullPointerException`.
-
-## Interview-specific Insights
-
-Interviewers commonly probe:
-
-- Whether you understand the three ways to obtain a `Class` object and the semantic differences between them.
-- The distinction between `getDeclaredXxx()` and `getXxx()` families of methods.
-- How the class hierarchy traversal works and why `getInterfaces()` is shallow.
-- Real-world scenarios: plugin systems, serialization frameworks, ORM mapping, and dependency injection all rely on introspection.
-- Module system restrictions and how they affect reflective access.
-
-Tricky questions to expect:
-
-- "What does `int.class == Integer.TYPE` evaluate to?" (Answer: `true`)
-- "Can you get a `Class` object for `void`?" (Answer: yes, `void.class` or `Void.TYPE`)
-- "Does `Class.forName()` call the static initializer?" (Answer: yes, by default)
-
-## Interview Q&A Section
-
-**Q1: What are the three ways to obtain a Class object in Java, and how do they differ?**
-
-```text
-A1: The three ways are:
-
-1. object.getClass() -- Called on an instance at runtime. Returns the actual runtime
-   class, which may be a subclass of the declared type. Requires a non-null instance.
-
-2. TypeName.class -- A class literal. Does not require an instance and works for
-   primitives (int.class) and void (void.class). The first time it is evaluated at run
-   time, the JVM loads the class if it is not loaded yet, but it does NOT initialize it
-   (no static initializer runs).
-
-3. Class.forName("fully.qualified.Name") -- Loads the class dynamically by its
-   fully-qualified name at runtime. Triggers static initialization by default. Throws
-   ClassNotFoundException if the class cannot be found.
-
-Key differences:
-- .getClass() gives the runtime type, which may differ from the declared type due to polymorphism.
-- .class is resolved at compile time and is the most efficient.
-- Class.forName() is the most dynamic but also the slowest and can fail at runtime.
-```
+`Circle` extends an abstract `Shape`:
 
 ```java
-// Example demonstrating all three approaches
-public class ClassObjectDemo {
-    public static void main(String[] args) throws ClassNotFoundException {
-        // 1. From an instance
-        String str = "Hello";
-        Class<?> c1 = str.getClass(); // java.lang.String
+abstract class Shape {
+    private final String color;
+    Shape(String color) { this.color = color; }
+    public String getColor() { return color; }
+    protected abstract double area();
+}
 
-        // 2. Class literal
-        Class<?> c2 = String.class;
+class Circle extends Shape {
+    private final double radius;
+    Circle(String color, double radius) { super(color); this.radius = radius; }
+    public double getRadius() { return radius; }
+    @Override protected double area() { return Math.PI * radius * radius; }
+    void validate() { if (radius <= 0) throw new IllegalStateException(); }
+}
+```
 
-        // 3. Dynamic loading
-        Class<?> c3 = Class.forName("java.lang.String");
+Before reading on: which of the two calls lists `getColor`, and which lists `validate`?
 
-        // All three refer to the same Class object
-        assert c1 == c2 && c2 == c3; // true
+```text
+getMethods():         [equals, getClass, getColor, getRadius, hashCode, notify, notifyAll, toString, wait, wait, wait]
+getDeclaredMethods(): [area, getRadius, validate]
+```
+
+(The names are sorted for printing; the next section explains why that is needed.)
+`getMethods()` answers "what can any caller invoke on a `Circle`": public methods only, inherited ones included, down to
+`Object`'s. `getDeclaredMethods()` answers "what does `Circle`'s own class file declare": every
+access level, nothing inherited. So `validate()` is missing from the first list and `getColor()`
+from the second, and the protected `area()` appears only in the second, because `Circle`
+overrides it.
+
+A tool that must see every method a type's classes declare, whatever its access, walks the chain
+itself: call `getDeclaredMethods()` on the class, then on `getSuperclass()`, until that returns
+`null`. It sees overridden methods twice, once in each class that declares them, and it misses
+interface default methods unless it also visits `getInterfaces()`. The same split holds for
+fields (`getFields` / `getDeclaredFields`) and constructors, except that a class inherits no
+constructors.
+
+## Reflection Returns Members in No Particular Order
+
+A CSV export takes one column per accessor of `Invoice`, a class whose five methods are declared
+in the order `id()`, `customer()`, `amount()`, `currency()`, `status()`:
+
+```java
+for (Method m : Invoice.class.getDeclaredMethods()) {   // one CSV column per accessor
+    header.add(m.getName());
+    row.add((String) m.invoke(invoice));
+}
+```
+
+We run it on the same JDK, the second time with class data sharing off (`-Xshare:off`). Class
+data sharing is an archive of pre-parsed JDK class data that the JVM maps at startup:
+
+```text
+$ java Order
+id,status,currency,amount,customer
+INV-7,PAID,EUR,120.00,Jane Doe
+$ java -Xshare:off Order
+customer,amount,currency,id,status
+Jane Doe,120.00,EUR,INV-7,PAID
+```
+
+Neither follows the source. The javadoc of both methods says the elements "are not sorted and are
+not in any particular order". Twenty launches of each command, header line only:
+
+```text
+# 20 launches, -Xshare:off (header only)
+      1 customer,amount,currency,id,status
+     19 id,status,customer,amount,currency
+# 20 launches, default
+     20 id,status,currency,amount,customer
+```
+
+With the archive on, the order was the same on every launch, which is what makes the dependency
+easy to ship: the export passes every test on one JVM setup, then a different JDK build, container
+image or flag reorders the columns, and a consumer that reads by position books `Jane Doe` as the
+invoice id. Without the archive it changed between two launches of the same command. JUnit 4 met
+this with test methods and fixes the order itself since 4.11; its `MethodSorters.JVM` option warns
+that "the order from the JVM may vary from run to run".
+
+> **Why it moves.** HotSpot sorts a class's methods by the memory address of each name in the
+> JVM's symbol table, and the shared archive changes where names live. That is an implementation
+> detail and may change; the javadoc promises nothing.
+
+When order matters, take it from something that defines one: sort by name, read an annotation
+that carries a position, or, for records, use the components (two sections down).
+
+## The Compiler Adds Methods You Never Wrote: Bridges and Lambda Bodies
+
+Here is `OrderHandler` from the opening, with a lambda field it uses to skip test orders:
+
+```java
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.function.Predicate;
+
+@Retention(RetentionPolicy.RUNTIME)
+@interface Subscribe {}
+
+interface Handler<E> {
+    void handle(E event);
+}
+
+record OrderPlaced(String orderId) {}
+
+class OrderHandler implements Handler<OrderPlaced> {
+    private final Predicate<String> isTest = id -> id.startsWith("T-");
+
+    @Subscribe
+    @Override
+    public void handle(OrderPlaced event) {
+        if (!isTest.test(event.orderId())) System.out.println("  ship " + event.orderId());
     }
 }
 ```
 
-**Q2: What is the difference between `getDeclaredFields()` and `getFields()`?**
+Its `getDeclaredMethods()`:
 
 ```text
-A2: These methods differ in two important dimensions -- visibility and inheritance:
-
-getDeclaredFields():
-- Returns ALL fields declared in the class itself (public, protected, default, private).
-- Does NOT include inherited fields from superclasses.
-- Use this when you need to inspect the class's own structure.
-
-getFields():
-- Returns ONLY public fields.
-- INCLUDES inherited public fields from superclasses and interfaces.
-- Use this when you want to discover the publicly accessible field API.
-
-The same pattern applies to getMethods()/getDeclaredMethods() and
-getConstructors()/getDeclaredConstructors().
-
-To get all fields (including private inherited fields), you must walk the
-class hierarchy:
-
-  Class<?> current = clazz;
-  while (current != null) {
-      Field[] fields = current.getDeclaredFields();
-      // process fields...
-      current = current.getSuperclass();
-  }
+public void OrderHandler.handle(java.lang.Object)  bridge=true  synthetic=true  @Subscribe=true
+public void OrderHandler.handle(OrderPlaced)       bridge=false synthetic=false @Subscribe=true
+private static boolean OrderHandler.lambda$new$0(java.lang.String) bridge=false synthetic=true  @Subscribe=false
 ```
 
+After erasure, `Handler.handle` takes an `Object`, and a
+`handle(OrderPlaced)` does not override it in the class file. So `javac` adds a **bridge method**
+`handle(Object)` that casts its argument to `OrderPlaced` and calls the real one, and it copies the
+method's annotations onto the bridge. The lambda's body became a private static method,
+`lambda$new$0`. Both are marked synthetic: `isSynthetic()` is `true`, and `isBridge()` picks out
+the bridge. Both `handle` methods are declared by `OrderHandler` itself, and `getMethods()` lists
+the same two: the interface's abstract `handle` is dropped there, because a method declared by a
+class wins over one with the same signature declared by an interface. The annotations go only
+onto the bridge; `Handler.handle` still has none.
+
+The bus registered both `handle` methods. Its scan, with a switch to skip bridges:
+
 ```java
-public class FieldDiscoveryDemo {
-    static class Parent {
-        public String publicField = "public";
-        private String privateField = "private";
-    }
-
-    static class Child extends Parent {
-        public int childPublic = 1;
-        private int childPrivate = 2;
-    }
-
-    public static void main(String[] args) {
-        // getDeclaredFields -- own fields only, all access levels
-        Field[] declared = Child.class.getDeclaredFields();
-        // [childPublic, childPrivate]
-
-        // getFields -- public fields, including inherited
-        Field[] publicFields = Child.class.getFields();
-        // [childPublic, publicField] (the order of the returned array is not specified)
+for (Method m : target.getClass().getDeclaredMethods()) {
+    if (skipBridges && m.isBridge()) continue;
+    if (m.isAnnotationPresent(Subscribe.class) && m.getParameterCount() == 1) {
+        found.add(new Subscription(target, m));
     }
 }
 ```
 
-**Q3: How do you traverse the complete class hierarchy of a class?**
+It then delivers each event to every subscription whose parameter type accepts it. Publishing an
+`OrderPlaced`, then a `PaymentFailed`:
 
 ```text
-A3: Java does not provide a single method to get the complete hierarchy. You must
-walk up the chain using getSuperclass() in a loop:
-
-1. Start with the target class.
-2. Call getSuperclass() to get the parent.
-3. Repeat until getSuperclass() returns null (reached Object or an interface/primitive).
-
-For interfaces, you also need getInterfaces() at each level, and interfaces
-themselves can extend other interfaces, so this becomes a recursive traversal
-(essentially a graph traversal since a class can implement multiple interfaces
-and interfaces can extend multiple interfaces).
-
-Important: getSuperclass() returns null for:
-- java.lang.Object
-- Interfaces
-- Primitives (int.class, etc.)
-- void.class
+skipBridges=false, subscriptions: 2
+  ship A-1001
+  ship A-1001
+  java.lang.ClassCastException: class PaymentFailed cannot be cast to class OrderPlaced (PaymentFailed and OrderPlaced are in unnamed module of loader 'app')
+skipBridges=true, subscriptions: 1
+  ship A-1001
 ```
+
+The bridge's parameter type is `Object`, so it accepts every event: each order ships twice, and
+every other event reaches the cast inside the bridge. (`Method.invoke` wraps that exception in an
+`InvocationTargetException`; unit 10.3.2 covers it.) A narrower return type produces a bridge
+too: a class implementing `Supplier<String>` declares `String get()` and a bridge `Object get()`,
+two methods with the same name and no parameters. A scan that turns methods into routes, columns
+or subscriptions skips `isBridge()` methods, and usually every `isSynthetic()` one.
+
+<!-- practice 1 -->
+
+## Read a Record Through Its Components and a Sealed Type Through Its Permitted Subclasses
+
+A payment is one of a sealed family, and one case is itself sealed:
 
 ```java
-public class HierarchyTraversal {
-    public static List<Class<?>> getFullHierarchy(Class<?> clazz) {
-        List<Class<?>> hierarchy = new ArrayList<>();
-        Class<?> current = clazz;
-        while (current != null) {
-            hierarchy.add(current);
-            current = current.getSuperclass();
-        }
-        return hierarchy;
-    }
-
-    public static Set<Class<?>> getAllInterfaces(Class<?> clazz) {
-        Set<Class<?>> interfaces = new LinkedHashSet<>();
-        collectInterfaces(clazz, interfaces);
-        return interfaces;
-    }
-
-    private static void collectInterfaces(Class<?> clazz, Set<Class<?>> result) {
-        if (clazz == null) return;
-        for (Class<?> iface : clazz.getInterfaces()) {
-            result.add(iface);
-            collectInterfaces(iface, result); // interfaces can extend interfaces
-        }
-        collectInterfaces(clazz.getSuperclass(), result);
-    }
-}
+sealed interface Payment permits Card, Transfer, Wallet {}
+record Card(String last4, long cents) implements Payment {}
+record Transfer(String iban, long cents) implements Payment {}
+sealed interface Wallet extends Payment permits ApplePay, Paypal {}
+record ApplePay(String token, long cents) implements Wallet {}
+record Paypal(String email, long cents) implements Wallet {}
 ```
 
-**Q4: What does `Class.isInstance(obj)` do and how does it differ from `instanceof`?**
+An exporter that treats "no-argument instance methods" as a record's values, next to the record's
+own description:
 
 ```text
-A4: Class.isInstance(obj) is the dynamic equivalent of the instanceof operator.
-
-Similarities:
-- Both check whether an object is an instance of a given type.
-- Both handle null safely (return false for null).
-- Both consider the full type hierarchy (subclasses, implemented interfaces).
-
-Differences:
-- instanceof is a compile-time operator; the type on the right must be known at
-  compile time.
-- isInstance() is a runtime method; the type (Class object) can be determined
-  dynamically at runtime.
-
-Use isInstance() when:
-- The type to check against is not known at compile time.
-- You are writing generic reflection-based code (e.g., a framework, serializer).
-
-Use instanceof (with pattern matching in Java 21) when:
-- The type is known at compile time.
-- You want type narrowing with pattern variables.
+no-arg instance methods of Card: [toString, hashCode, last4, cents]
+record components of Card:      [last4, cents]
+Payment permits: [Card, Transfer, Wallet]
+Wallet permits:  [ApplePay, Paypal]
+Card.getPermittedSubclasses(): null, Wallet.getRecordComponents(): null
 ```
 
-```java
-public class InstanceCheckDemo {
-    public static void main(String[] args) {
-        Object obj = "Hello";
+A record's `toString`, `hashCode` and `equals` are real methods in its class file, so the method
+scan exports `toString` and `hashCode` columns. `getRecordComponents()` returns exactly the
+components, and its javadoc promises them "in the same order that they are declared in the record
+header", the only member list with a promised order. Each `RecordComponent` gives the name, the type, the
+generic type and `getAccessor()`, the method to call for the value.
 
-        // Compile-time instanceof
-        if (obj instanceof String s) {
-            System.out.println("Length: " + s.length());
-        }
+`getPermittedSubclasses()` lists only the direct subtypes: `Wallet` appears as a case, and
+reaching `ApplePay` takes a second call. Its javadoc leaves the order unspecified, and it returns
+`null` for a type that is not sealed, so a recursive walk stops on `null` rather than on an empty
+array. A permitted subclass that the class loader cannot load is "silently ignored", so a missing
+jar shrinks the list without an error.
 
-        // Dynamic isInstance -- type determined at runtime
-        Class<?> targetType = String.class; // could come from configuration
-        if (targetType.isInstance(obj)) {
-            System.out.println("Object is a " + targetType.getSimpleName());
-        }
+<!-- practice 2 -->
 
-        // Null handling
-        System.out.println(String.class.isInstance(null)); // false
-    }
-}
-```
+## Type Arguments Survive in Declarations, Not in Objects
 
-**Q5: How do records and sealed classes interact with the Reflection API?**
+A settings class has a field `List<Integer> ports = new ArrayList<>()` and a method
+`Map<String, List<Integer>> portsByHost()`. What each reflective view reports:
 
 ```text
-A5: Java 16+ and 17+ added reflection support for records and sealed classes:
-
-Records (Java 16+):
-- Class.isRecord() returns true for record types.
-- Class.getRecordComponents() returns an array of RecordComponent objects
-  describing each component (name, type, accessor method, annotations).
-- Record components maintain their declaration order.
-- Records always have a canonical constructor whose parameters match the components.
-
-Sealed classes (Java 17+):
-- Class.isSealed() returns true for sealed types.
-- Class.getPermittedSubclasses() returns an array of Class objects representing
-  the permitted subtypes.
-- This is valuable for building exhaustive pattern matching or framework code
-  that needs to discover all subtypes of a sealed hierarchy.
-
-Both features enhance the reflection API by making the JVM metadata richer and
-more queryable. Frameworks like Jackson, Hibernate, and Spring leverage these
-for automatic mapping, serialization, and dependency injection.
+instance:            class java.util.ArrayList
+field type:          interface java.util.List
+field generic type:  java.util.List<java.lang.Integer>
+return type:         interface java.util.Map
+generic return type: java.util.Map<java.lang.String, java.util.List<java.lang.Integer>>
+element type:        class java.lang.Integer (Class)
+same class:          true
+type token:          java.util.List<java.lang.String>
 ```
 
-```java
-public class RecordSealedReflection {
-    record Point(int x, int y) {}
+The object is an `ArrayList`, and an `ArrayList<String>` has the very same `Class`: type arguments
+are erased from objects. Declarations keep them. For every field, method and class whose
+declaration uses type arguments, the compiler writes the generic signature into the class file.
+`getGenericType()`, `getGenericReturnType()` and `getGenericSuperclass()` return it, as a
+`ParameterizedType` when the type has arguments, and its `getActualTypeArguments()` gives
+`Integer`, a plain `Class`.
 
-    sealed interface Shape permits Circle, Rectangle {}
-    record Circle(double radius) implements Shape {}
-    record Rectangle(double width, double height) implements Shape {}
+The last line is how libraries capture a type that has no field to hang on. `TypeRef<T>` is an
+abstract class whose method returns
+`((ParameterizedType) getClass().getGenericSuperclass()).getActualTypeArguments()[0]`. The
+anonymous subclass `new TypeRef<List<String>>() {}` records `List<String>` in its own superclass
+signature, and that call reads it back. Called on an ordinary object's class,
+`getGenericSuperclass()` reads that class's declaration: for every `ArrayList`, whatever it was
+created with, it is `java.util.AbstractList<E>`.
 
-    public static void main(String[] args) {
-        // Record introspection
-        System.out.println(Point.class.isRecord()); // true
-        var components = Point.class.getRecordComponents();
-        for (var comp : components) {
-            System.out.println(comp.getName() + ": " + comp.getType().getSimpleName());
-        }
-        // Output: x: int, y: int
-
-        // Sealed class introspection
-        System.out.println(Shape.class.isSealed()); // true
-        Class<?>[] permitted = Shape.class.getPermittedSubclasses();
-        for (var sub : permitted) {
-            System.out.println("Permitted: " + sub.getSimpleName());
-        }
-        // Output: Permitted: Circle, Permitted: Rectangle
-    }
-}
-```
-
-**Q6: What happens when you call `Class.forName()` with a class that has a static initializer?**
+A configuration binder that fills `ports` from the string `"8080,8081"` without reading the
+declaration adds `String`s, and the erased list accepts them:
 
 ```text
-A6: By default, Class.forName(String) loads the class AND runs its static
-initializer (static blocks and static field assignments). This is the
-"initialize" variant.
-
-There is an overloaded version:
-  Class.forName(String name, boolean initialize, ClassLoader loader)
-
-If you pass initialize=false, the class is loaded but NOT initialized. The
-static initializer will run later, when the class is first actively used.
-
-This distinction matters for:
-1. Side effects in static initializers (database connections, logging, registrations).
-2. Performance: avoiding unnecessary initialization.
-3. JDBC: Class.forName("com.mysql.cj.jdbc.Driver") traditionally relied on
-   the static initializer to register the driver with DriverManager.
-
-In modern Java (JDBC 4.0+), drivers use ServiceLoader, so explicit Class.forName()
-is no longer needed for JDBC drivers.
+naive:     ports = [8080, 8081]
+           class java.lang.String cannot be cast to class java.lang.Integer (java.lang.String and java.lang.Integer are in module java.base of loader 'bootstrap')
+signature: ports = [8080, 8081], first port 8080
 ```
 
-```java
-public class ForNameDemo {
-    static class Eager {
-        static {
-            System.out.println("Eager initialized!");
-        }
-    }
+The failure appears in whichever code first reads `int port = ports.get(0)`, far from the binder
+that caused it. The second binder read `Integer` from
+`getGenericType()` and converted each item.
 
-    public static void main(String[] args) throws ClassNotFoundException {
-        // Triggers static initializer
-        Class.forName("ForNameDemo$Eager");
-        // Output: "Eager initialized!"
+<!-- practice 3 -->
 
-        // Does NOT trigger static initializer
-        Class.forName("ForNameDemo$Eager", false,
-                ForNameDemo.class.getClassLoader());
-        // No output (already initialized in this case, but for a fresh class it would defer)
-    }
-}
-```
+<!-- practice 4 -->
+
+## Summary
+
+- **`getMethods()` is public and inherited; `getDeclaredMethods()` is this class, every access
+  level.** Seeing every class's methods takes a walk up `getSuperclass()`.
+- **Members come back in no particular order.** The order shifts with JVM setup; take order from a
+  sort, an annotation or record components.
+- **The compiler adds bridge and synthetic methods, and bridges carry the annotations.** A scan that
+  doesn't skip `isBridge()` registers an implementation of a generic interface method twice, once
+  for the erased parameter type.
+- **Records and sealed types describe themselves.** `getRecordComponents()` is in header order;
+  `getPermittedSubclasses()` is direct subtypes only, unordered, `null` when not sealed.
+- **Type arguments live in declarations.** `getGenericType()` and its relatives have them; an
+  object's `getClass()` never does.
+
+## Reference
+
+| Call | Returns | Order | Edge cases |
+|---|---|---|---|
+| `getMethods()` | public methods, own and inherited, from superclasses and superinterfaces | none | static methods of superinterfaces excluded |
+| `getDeclaredMethods()` | this class's methods, every access level, bridges and synthetic ones included | none | no `<clinit>`; empty for arrays and primitives |
+| `getMethod(name, types...)` | one public method | n/a | with bridges of the same signature, the one with the most specific return type |
+| `getRecordComponents()` | the record's components | header order | `null` if not a record |
+| `getPermittedSubclasses()` | direct permitted subtypes | unspecified | `null` if not sealed; unloadable ones left out |
+| `getSuperclass()` | the direct superclass | n/a | `null` for `Object`, interfaces, primitives, `void` |
+| `getInterfaces()` | the directly implemented interfaces | declaration order | not inherited ones |
+| `Method.isBridge()` / `isSynthetic()` | added by the compiler | n/a | javac marks every bridge synthetic too |
+| `getGenericType()`, `getGenericReturnType()`, `getGenericSuperclass()` | the declared type with its arguments | n/a | a plain `Class` when the declaration has none |
+
+## Challenges
+
+1. A dependency-injection container finds constructors with `getDeclaredConstructors()`. A class
+   has two that are both eligible. What does the container do today, and what makes it pick the
+   other one next year?
+2. Your serializer walks fields with `getDeclaredFields()` up the hierarchy. A subclass declares a
+   field with the same name as a private field of its superclass. What should the JSON contain?
+3. `Wallet` gains a third case in a jar that one service doesn't ship. What does a tool built on
+   `getPermittedSubclasses()` report there, and how would you notice?
+
+## Design Note: Why Signatures Keep Type Arguments and Objects Don't
+
+Generics arrived in Java 5 with erasure, so that a `List<String>` and a pre-generics raw `List`
+are the same class at run time and old binaries keep working. The type arguments went into the
+`Signature` attribute of each class, field and method, for the compiler compiling against that
+class, and reflection exposes the same attribute. Nothing per object records them, which costs
+every framework that binds data: it can only learn a type argument from a declaration.
 
 ## Code Examples
 

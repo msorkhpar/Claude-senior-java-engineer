@@ -1,24 +1,15 @@
-`RandomGeneratorFactory.of(name)` picks an algorithm by name, and
-`create(seed)` makes a seeded generator. Two of the page's pitfalls:
+The payment team runs chaos tests against its gateway: several workers send calls at the same
+time, each on its own thread, and `ChaosRun` decides which of each worker's calls fail. Each run
+is named by an algorithm and a seed, which the report prints, for example
+`L128X256MixRandom / 4417`. Last week a run found a double charge, and nobody could make it happen
+again from the name in the report.
 
-- Hardcoding an algorithm name without checking it exists: `of()` throws
-  for a name the JVM does not have. The page checks first with
-  `RandomGeneratorFactory.all()`.
-- **Confusing seeded and unseeded generators**: a generator created with a seed
-  is **reproducible**, giving the same sequence for the same seed, while
-  `create()` without a seed is not.
+`ChaosRun.failingCalls(...)` already makes one draw per call. Finish the `TODO` in
+`src/main/java/practice/ChaosRun.java`: `generatorFor(worker)` returns the generator that worker
+draws from in this run.
 
-Write the class `Seeds`:
-
-- `available(String algorithm)` returns whether the JVM has an algorithm with
-  exactly that name (names are case-sensitive). It never throws.
-- `sample(String algorithm, long seed, int count, int bound)` returns `count`
-  values from `0` (inclusive) to `bound` (exclusive), drawn with `ints` from
-  that algorithm's generator created with the whole `long` `seed`.
-
-| call | answer |
-|---|---|
-| `available("L64X128MixRandom")` | `true` |
-| `available("NoSuchAlgorithm")`, `available("")` | `false`, `false` |
-| `sample("L64X128MixRandom", 42, 5, 100)` twice | the same five values both times |
-| `sample("L64X128MixRandom", 1, 20, 1000)` and `sample("L64X128MixRandom", 2, 20, 1000)` | two different lists |
+When you're done, every worker draws with the algorithm the run is named by, and a new `ChaosRun`
+with the same algorithm and seed fails exactly the same calls for every worker, in whatever order
+the workers start. Within one run the workers fail different
+calls from each other, and draw on their own threads without getting in each other's way. About
+three lines.

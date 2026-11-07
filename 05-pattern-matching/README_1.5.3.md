@@ -1,178 +1,293 @@
 # 1.5.3 Record Patterns in Java (Java 19+)
 
-## Concept Explanation
+A payments service replaced its getter chains with record patterns. Since the deploy, payments
+from some payers are rejected:
 
-Record patterns, introduced as a preview feature in Java 19 and finalized in Java 21, enhance pattern matching
-capabilities in Java. They allow for concise and type-safe decomposition of record values, making it easier to work with
-complex data structures and improving code readability.
+```text
+Exception in thread "main" java.lang.IllegalArgumentException: not a payment: Payment[payer=Payer[id=p-17, address=null], cents=5000]
+```
 
-Record patterns extend the pattern matching feature to work seamlessly with records, enabling developers to destructure
-record instances and bind their components to variables in a single, expressive statement.
+The message says the value is not a payment, then prints one. Nothing failed inside the pattern;
+it didn't match.
 
-## Key Points to Remember
+Record patterns were previews in Java 19 and 20 and are final in Java 21; every output here is
+from Java 21. From records we need one fact: each component has an accessor
+method, `iban()` for `iban` (unit 2.4.1). Type patterns and binding variables are unit 1.5.2;
+`switch`, guards and exhaustiveness are unit 1.5.4.
 
-1. Record patterns are part of Java's ongoing effort to improve pattern matching.
-2. They work in conjunction with the `instanceof` operator and `switch` expressions/statements.
-3. Record patterns allow for nested pattern matching, enabling deep destructuring of complex record structures.
-4. They provide a more concise and readable alternative to manual field access.
-5. Record patterns are type-safe, with compile-time checks ensuring correct usage.
+## A Record Pattern Tests the Type, Then Binds Each Component by Position
 
-## Relevant Java Features
-
-- Introduced as a preview feature in Java 19
-- Finalized in Java 21
-- Works in tandem with other pattern matching features like pattern matching for instanceof and switch expressions
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Forgetting that record patterns are only applicable to records**:
-    - Ensure you're working with record types, not regular classes.
-
-2. **Overlooking the possibility of null values**:
-    - Always include null checks or use appropriate patterns to handle potential null values.
-
-3. **Mismatching component names**:
-    - The variable names in the pattern don't have to match the record's component names, but matching them improves
-      readability.
-
-4. **Neglecting to use var for type inference**:
-    - Utilize `var` to let the compiler infer the types of destructured components when appropriate.
-
-## Best Practices and Optimization Techniques
-
-1. Use record patterns to simplify complex nested record structures.
-2. Combine record patterns with sealed classes for exhaustive pattern matching.
-3. Leverage type inference with `var` to reduce verbosity.
-4. Use record patterns inside loop bodies and stream lambdas for more expressive data processing. (Record patterns in
-   the enhanced `for` header were a Java 20 preview and were removed in Java 21.)
-5. Prefer record patterns over manual getter calls for improved readability.
-
-## Edge Cases and Their Handling
-
-1. **Null records**: A record pattern never matches null (and a nested record pattern never matches a null component),
-   so account for null separately when it is a possible value.
-2. **Empty records**: Record patterns work with empty records, but be mindful of their limited utility.
-3. **Generic records**: Record patterns can be used with generic records, but type erasure applies at runtime.
-
-## Interview-specific Insights
-
-- Understand the motivation behind record patterns and how they improve code quality.
-- Be prepared to compare record patterns with traditional approaches to accessing record components.
-- Practice combining record patterns with other pattern matching features for comprehensive solutions.
-- Consider performance implications, especially with deeply nested patterns.
-
-Q1: What are record patterns in Java and when were they introduced?
-A1: Record patterns are a feature in Java that allows for concise and type-safe decomposition of record values. They
-were introduced as a preview feature in Java 19 and finalized in Java 21. Record patterns extend the pattern matching
-capabilities in Java, making it easier to work with complex data structures and improving code readability.
-
-Q2: How do record patterns work with the `instanceof` operator?
-A2: Record patterns can be used in conjunction with the `instanceof` operator to perform type checking and component
-extraction in a single step. Here's an example:
+Two accounts and a transfer between them:
 
 ```java
-if (obj instanceof Point(int x, int y)) {
-    System.out.println("X coordinate: " + x);
-    System.out.println("Y coordinate: " + y);
+record Account(String iban, String currency) {}
+record Transfer(Account from, Account to, long cents) {}
+```
+
+```java
+Object event = new Transfer(new Account("DE-ACC-1", "EUR"), new Account("GB-ACC-2", "GBP"), 12_500);
+
+if (event instanceof Transfer(Account(var iban, var currency), Account to, long cents)) {
+    System.out.println("debit " + iban + " " + cents + " " + currency + ", credit " + to.iban());
+}
+if (event instanceof Transfer(Account to, Account from, long cents)) {
+    System.out.println("debit " + from.iban() + ", credit " + to.iban());
 }
 ```
 
-This code checks if `obj` is an instance of `Point` and, if so, extracts its `x` and `y` components into local
-variables.
+```text
+debit DE-ACC-1 12500 EUR, credit GB-ACC-2
+debit GB-ACC-2, credit DE-ACC-1
+```
 
-Q3: Can you demonstrate nested record patterns?
-A3: Certainly! Nested record patterns allow for deep destructuring of complex record structures. Here's an example using
-the `Rectangle` record from our implementation:
+The first pattern tests `event instanceof Transfer`, calls `from()`, `to()` and `cents()`, and
+matches each result against the pattern in the same position. `Account(var iban, var currency)`
+repeats the test one level down, so one pattern takes apart a record and the records inside it.
+`var` gives a binding its component's type: `iban` is a `String`.
+
+The second pattern reads as well as the first and debits the wrong account. Components bind by
+position: the first pattern in the list gets `from()`, whatever you name it. The compiler checks
+the count (`incorrect number of nested patterns`), that each pattern fits its component's type,
+and that the type is a record. A class with the same accessors gets `deconstruction patterns can
+only be applied to records` (javac's name for record patterns). Here both components are `Account`s, so
+it had nothing to object to. Where a record has two components of one type (from and to, billing
+and shipping, min and max), copy the order from the record's declaration and name each binding
+after its component.
+
+> **Where Java 21 allows them.** A record pattern follows `instanceof` or is a `case` label
+> (unit 1.5.4). It can't declare variables (`Point(int x, int y) = p;` doesn't compile), and
+> `for (Point(var x, var y) : points)`, a Java 20 preview, was dropped from Java 21. The unnamed
+> pattern `_`, for a component you don't need, is a preview in Java 21 and final in Java 22; in
+> 21 without `--enable-preview` every component gets a name.
+
+## A Record Pattern Never Matches null, at Any Depth; var and the Component's Declared Type Do
+
+The payment service's records, and its method after the refactor:
 
 ```java
-Rectangle rect = new Rectangle(new Point(1, 2), new Point(3, 4));
-if (rect instanceof Rectangle(Point(int x1, int y1), Point(int x2, int y2))) {
-    System.out.println("Top-left: (" + x1 + "," + y1 + ")");
-    System.out.println("Bottom-right: (" + x2 + "," + y2 + ")");
+record Address(String country, String postcode) {}
+record Payer(String id, Address address) {}          // address is null when none is on file
+record Payment(Payer payer, long cents) {}
+```
+
+```java
+static String book(Object event) {
+    if (event instanceof Payment(Payer(var id, Address(var country, var postcode)), long cents)) {
+        return "booked " + id + " " + country + " " + cents;
+    }
+    throw new IllegalArgumentException("not a payment: " + event);
 }
 ```
 
-This code destructures the `Rectangle` and its nested `Point` records in a single pattern.
-
-Q4: How do record patterns improve code readability compared to manual field access?
-A4: Record patterns provide a more concise and expressive way to access record components. Compare these two approaches:
-
-Without record patterns:
+Payer `p-17` has no address on file. Before reading the output, decide which of these four tests
+are `true`:
 
 ```java
-if (shape instanceof Rectangle) {
-    Rectangle rect = (Rectangle) shape;
-    int x1 = rect.topLeft().x();
-    int y1 = rect.topLeft().y();
-    int x2 = rect.bottomRight().x();
-    int y2 = rect.bottomRight().y();
-    // Use x1, y1, x2, y2
+Object event = new Payment(new Payer("p-17", null), 5_000);
+System.out.println("Payer(var id, Address(var c, var pc)): "
+        + (event instanceof Payment(Payer(var id, Address(var c, var pc)), var cents)));
+System.out.println("Payer(var id, var address):            "
+        + (event instanceof Payment(Payer(var id, var address), var cents)));
+System.out.println("Payer(var id, Address address):        "
+        + (event instanceof Payment(Payer(var id, Address address), var cents)));
+Object none = null;
+System.out.println("null, Payment(var payer, var cents):   "
+        + (none instanceof Payment(var payer, var cents)));
+```
+
+```text
+Payer(var id, Address(var c, var pc)): false
+Payer(var id, var address):            true
+Payer(var id, Address address):        true
+null, Payment(var payer, var cents):   false
+```
+
+A record pattern starts with an `instanceof` test, and `null` is an instance of nothing (unit
+1.5.1). That holds at every level. The address is `null`, so `Address(var c, var pc)` fails, the
+whole pattern fails, and `book` calls a payment "not a payment". Its author read the
+nested pattern as "take the address apart if there is one". It means "a payment whose payer has
+an address".
+
+A component pattern that tests nothing matches `null` and binds it: `var address`, or a type
+pattern on the component's declared type or a supertype, such as `Address address`. So a match
+doesn't promise non-null bindings: after `Payer(var id, var address)` matched, a call to
+`address.country()` threw `NullPointerException`.
+
+Choose per component: nest a record pattern only where a `null` component means "not this case".
+Where `null` is a legal value, bind it with `var` and check it, or give it a branch of its own.
+`book` needs the country only as a label, so `var address` and a null check are enough.
+
+<!-- practice 1 -->
+
+## A Narrower Type on a Component Is a Test, So a Payload Whose Type Changes Stops Matching
+
+```java
+record Event(String type, Object payload) {}
+record Envelope<T>(String id, T body) {}
+```
+
+A producer moves its event payload from JSON text to UTF-8 bytes:
+
+```java
+Object before = new Event("order.created", "{\"id\":42}");
+Object after = new Event("order.created", "{\"id\":42}".getBytes(StandardCharsets.UTF_8));
+System.out.println("String payload: " + (before instanceof Event(var type, String json)));
+System.out.println("byte[] payload: " + (after instanceof Event(var type, String json)));
+```
+
+```text
+String payload: true
+byte[] payload: false
+```
+
+`payload` is declared `Object`, so `String json` asks a question: is this component's value a
+`String`? It is not a cast, and a `byte[]` makes the pattern fail without a `ClassCastException`.
+A consumer that dispatches on `Event(var type, String json)` stops handling the producer's events
+and reports nothing. Wherever a chain of record patterns ends, in an `else` or a `default`, make
+the leftover case throw or count, not return quietly.
+
+The same test reaches inside generic records. Type arguments are erased (unit 1.5.1), but the
+components hold real objects:
+
+```java
+Object env = new Envelope<>("m-1", 42);
+System.out.println("Envelope(var id, String body):  " + (env instanceof Envelope(var id, String body)));
+System.out.println("Envelope(var id, Integer body): " + (env instanceof Envelope(var id, Integer body)));
+Envelope<String> typed = new Envelope<>("m-2", "hello");
+if (typed instanceof Envelope(var id, var body)) {
+    System.out.println("inferred: body.length() = " + body.length());   // body is a String
 }
 ```
 
-With record patterns:
+```text
+Envelope(var id, String body):  false
+Envelope(var id, Integer body): true
+inferred: body.length() = 5
+```
+
+Leave the type arguments out of the pattern: the compiler infers them, so for an
+`Envelope<String>`, `body` is a `String`. Against an `Object`,
+`Envelope<String>(var id, var body)` is refused (`Object cannot be safely cast to
+Envelope<String>`), since nothing at run time could check the `String`.
+
+Primitive components get no such test in Java 21. A pattern on an `int` component is `int` or
+`var`: `long x` and `Integer x` are compile errors.
+
+> **Later versions.** javac 25 accepts `long x` on an `int` component with `--enable-preview`;
+> without it, it reports `primitive patterns are a preview feature`.
+
+<!-- practice 3 -->
+
+## Matching Calls the Accessors, and an Exception From One Arrives as MatchException
+
+A record can override an accessor. This one masks the card number:
 
 ```java
-if (shape instanceof Rectangle(Point(var x1, var y1), Point(var x2, var y2))) {
-    // Use x1, y1, x2, y2 directly
+record CardToken(String pan) {
+    @Override
+    public String pan() {
+        return "**** " + pan.substring(pan.length() - 4);
+    }
 }
 ```
 
-The record pattern version is more concise and eliminates the need for explicit casting and multiple method calls.
-
-Q5: How can record patterns be used in switch expressions?
-A5: Record patterns integrate seamlessly with switch expressions, allowing for powerful pattern matching. Here's an
-example from our implementation:
-
 ```java
-String description = switch (shape) {
-    case Rectangle(Point(var x1, var y1), Point(var x2, var y2)) ->
-        String.format("Rectangle from (%d,%d) to (%d,%d)", x1, y1, x2, y2);
-    case Circle(Point(var x, var y), var r) ->
-        String.format("Circle at (%d,%d) with radius %d", x, y, r);
-    default -> "Unknown shape";
-};
-```
+Object ok = new CardToken("4111111111111111");
+if (ok instanceof CardToken(var pan)) System.out.println("bound: " + pan);
 
-This switch expression uses record patterns to match and destructure different shapes, providing a concise way to handle
-various record types.
-
-Q6: What are some best practices when using record patterns?
-A6: Some best practices for using record patterns include:
-
-1. Use them to simplify complex nested record structures.
-2. Combine them with sealed classes for exhaustive pattern matching.
-3. Leverage type inference with `var` to reduce verbosity.
-4. Use them inside loop bodies and stream lambdas (not in the `for` header, which Java 21 does not allow).
-5. Prefer record patterns over manual getter calls for improved readability.
-
-Q7: How do you handle potential null values when using record patterns?
-A7: When using record patterns, it's important to account for potential null values. You can do this by including a null
-check before the pattern match or by using the pattern matching construct itself to handle null cases. For example:
-
-```java
-if (shape instanceof Rectangle(Point(var x1, var y1), Point(var x2, var y2))) {
-    // Process non-null Rectangle
-} else if (shape == null) {
-    // Handle null case
-} else {
-    // Handle other cases
+Object shortPan = new CardToken("42");                 // bad data from an old import
+try {
+    if (shortPan instanceof CardToken(var pan)) System.out.println("bound: " + pan);
+} catch (StringIndexOutOfBoundsException e) {
+    System.out.println("caught " + e);
 }
 ```
 
-Or, using a switch expression:
-
-```java
-String result = switch (shape) {
-    case null -> "Null shape";
-    case Rectangle(Point(var x1, var y1), Point(var x2, var y2)) -> 
-        String.format("Rectangle from (%d,%d) to (%d,%d)", x1, y1, x2, y2);
-    // Other cases...
-    default -> "Unknown shape";
-};
+```text
+bound: **** 1111
+Exception in thread "main" java.lang.MatchException: java.lang.StringIndexOutOfBoundsException: Range [-2, 2) out of bounds for length 2
 ```
 
-These examples demonstrate how to safely handle null values when working with record patterns.
+The binding is what `pan()` returned, not the field. A record pattern gets each component through
+its accessor, the record's public API, so it sees the same masked, copied or validated value as
+any other caller. A `var` component is read the same way.
+
+When an accessor throws during a match, the match throws `MatchException` with the original
+exception as its cause (see its javadoc), and no later `case` or `default` is tried. The
+`catch` for `StringIndexOutOfBoundsException` never ran, and in a batch job one bad record from
+an old import ends the batch. Catch `MatchException` where one record may fail without the rest,
+and decide by `getCause()`.
+
+How often an accessor runs is the compiler's choice. javac reads components left to right and
+stops at the first that fails; in a `switch` it read each accessor once across three cases, and
+sometimes again after a failed `when` guard (unit 1.5.4; Reference). Keep accessors free of side effects.
+
+<!-- practice 2 -->
+
+## Summary
+
+- **A record pattern tests the type, then binds each component by position.** Names are free,
+  so two components of one type can be bound the wrong way round without a compile error.
+- **A record pattern never matches `null`, at any depth.** A nested pattern on a component that
+  may be `null` rejects the whole value; `var` or the declared type binds the `null` instead.
+- **A narrower type on a component is a test, not a cast.** A payload whose type changes falls
+  through to the leftover branch, so that branch must not be silent.
+- **Matching calls the accessors.** It sees what they return, and their exceptions arrive as
+  `MatchException` with the original as the cause.
+
+## Reference
+
+**What a component pattern matches (Java 21):**
+
+| Component pattern | Value is `null` | Value not of the pattern's type |
+|---|---|---|
+| `var x` | matches, `x` is `null` | (no test) matches |
+| `T x`, `T` the component's declared type or a supertype | matches, `x` is `null` | (no test) matches |
+| `S x`, `S` narrower than the declared type | doesn't match | doesn't match, no exception |
+| a record pattern `R(...)` | doesn't match | doesn't match |
+
+**Refused by javac 21:**
+
+| Pattern | Error |
+|---|---|
+| fewer components than the record | `incorrect number of nested patterns` |
+| a class that is not a record | `deconstruction patterns can only be applied to records` |
+| `long x` or `Integer x` on an `int` component | `pattern of type long is not applicable at int` (`Integer` for the second) |
+| `Envelope<String>(var id, var body)` on an `Object` | `Object cannot be safely cast to Envelope<String>` |
+| `Point(int x, _)` | `unnamed variables are a preview feature and are disabled by default` (javac 25 with `--release 22` accepts it) |
+| `for (Point(int x, int y) : points)` | a syntax error (`'.class' expected`) |
+
+**Accessor calls (javac 21; javac 25 with `--release 21` the same), for `Pair(Object left, Object right)` holding `(42, "x")`:**
+
+| Code | Accessors called |
+|---|---|
+| `p instanceof Pair(String l, var r)` | `left()` only: the first component failed |
+| a `switch` with cases `Pair(String l, String r)`, `Pair(Integer l, Integer r)`, `Pair(Integer l, String r)` | `left()` once, `right()` once |
+| `case Pair(var l, var r) when l == null`, then `case Pair(var l, var r)` | `left()` and `right()` twice each |
+| the same with `Pair(Integer l, String r)` and a false guard `l > 100` | `left()` once, `right()` once |
+| any accessor throwing during a match | `MatchException`, cause = the accessor's exception |
+
+## Challenges
+
+1. A consumer matches events with a chain of record patterns, and some event kinds are ignored
+   on purpose. How do you make a value that nothing matched visible, without paging anyone for the
+   ones you mean to ignore?
+2. A record holds a mutable list of 10,000 items, and its accessor returns `List.copyOf(items)`.
+   A hot loop matches it with three guarded `case`s on every iteration. Count the copies, measure
+   what they cost, and decide what you would change: the accessor, the record or the switch.
+3. Clients of your library destructure its records with record patterns. You add a component to
+   one of them. What fails in the clients' sources, and what happens to their already compiled
+   classes? Try it.
+
+## Design Note: Why a Pattern Calls the Accessors
+
+A record pattern could have read the fields. Java has it call the accessors, so a pattern can't
+see more of a record than its public API shows. The pattern is the inverse of the canonical
+constructor: one builds the record from its components, the other gets them back.
+
+The price is that matching runs code. An accessor can be slow, have side effects, or throw, and
+the language needs a way to report a throw from inside a test that otherwise only answers yes or
+no. It reports it as `MatchException`, a type that few `catch` blocks name.
 
 ## Code Examples
 

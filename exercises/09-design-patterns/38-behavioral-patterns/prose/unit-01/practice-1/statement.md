@@ -1,22 +1,10 @@
-The Strategy pattern has three parts: a **strategy interface**, the concrete
-strategies, and a **context** that holds one strategy and delegates to it.
-The page's first pitfall is a context whose strategy can be `null`: it fails
-with a `NullPointerException` far from the mistake.
+The checkout page quotes shipping through one `ShippingPolicy` object that every request thread
+calls. The carrier's rate table is a remote service, and a lookup can take 300 ms. The version in
+production, `ByWeightV1`, gives the right price in every unit test, yet support has tickets from
+customers who were quoted the price of somebody else's parcel, and only at busy hours.
 
-`SortStrategy<T>` (given) has `List<T> sort(List<T> data)` and `String name()`.
-Write the context, `Sorter<T>`:
-
-- `new Sorter<>(strategy)` keeps the strategy; `null` throws
-  `IllegalArgumentException`.
-- `sort(data)` returns what the current strategy returns for `data`.
-- `setStrategy(next)` **replaces the strategy** used by every later `sort()`;
-  `null` is refused with `IllegalArgumentException` here too, and the old
-  strategy stays.
-- `getStrategy()` returns the current strategy.
-
-| strategy held | call | answer |
-|---|---|---|
-| ascending | `sort([3, 1, 2])` | `[1, 2, 3]` |
-| ascending, then `setStrategy(descending)` | `sort([3, 1, 2])` | `[3, 2, 1]` |
-| ascending | `setStrategy(null)` | `IllegalArgumentException` |
-| none | `new Sorter<>(null)` | `IllegalArgumentException` |
+Write `quoteCents` in `ByWeight`, in `src/main/java/practice/ShippingQuotes.java`. It gives every
+parcel the price `ByWeightV1` gives it when called on its own: billable kilograms (the grams
+rounded up, at least 1) times the zone's rate, plus 20 % for the zone `island`. One `ByWeight`
+serves every thread at once, and a quote must not wait for another parcel's rate lookup. Leave
+`ByWeightV1` as it is. About three lines in total.

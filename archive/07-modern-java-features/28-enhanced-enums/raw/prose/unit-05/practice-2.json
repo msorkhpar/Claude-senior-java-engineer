@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Discount strategies with validated results",
+  "title": "Make the help desk follow its own workflow",
   "blocks": [
     {
       "type": "heading",
@@ -19,57 +19,48 @@
     },
     {
       "type": "para",
-      "text": "The page's `DiscountStrategy` is the Strategy pattern as an enum: each constant is built with a description and a `Function<Double, Double>` calculator. Its pitfall is applying the calculator to raw input; the fix validates first and cleans up the result:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "if (amount < 0) throw new IllegalArgumentException(\"Amount cannot be negative\");\nreturn Math.max(0, Math.round(calculator.apply(amount) * 100.0) / 100.0);"
-    },
-    {
-      "type": "para",
-      "text": "The constants and their calculators are given (note that the flat ones subtract without a floor). Write:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`double applyDiscount(double amount)`: refuses a negative `amount` with `IllegalArgumentException`; otherwise applies the calculator, rounds to cents, and never returns less than `0`.",
-        "`static DiscountStrategy bestDiscount(double amount)`: of every strategy except `NONE`, the one whose `applyDiscount(amount)` is lowest. If several tie, the one declared first wins."
-      ]
+      "text": "The help desk's tickets follow the support team's workflow:"
     },
     {
       "type": "table",
       "headers": [
-        "call",
-        "answer"
+        "From",
+        "May move to"
       ],
       "rows": [
         [
-          "`PERCENTAGE_20.applyDiscount(100)`",
-          "`80.0`"
+          "`NEW`",
+          "`ASSIGNED`, or `CLOSED` (spam)"
         ],
         [
-          "`PERCENTAGE_10.applyDiscount(19.99)`",
-          "`17.99`"
+          "`ASSIGNED`",
+          "`IN_PROGRESS`, or back to `NEW`"
         ],
         [
-          "`FLAT_10.applyDiscount(8)`",
-          "`0.0`"
+          "`IN_PROGRESS`",
+          "`RESOLVED`, or back to `ASSIGNED`"
         ],
         [
-          "`NONE.applyDiscount(-1)`",
-          "throws `IllegalArgumentException`"
+          "`RESOLVED`",
+          "`CLOSED`, or back to `IN_PROGRESS` when the customer reopens it"
         ],
         [
-          "`bestDiscount(100)`",
-          "`BUY_ONE_GET_HALF`"
-        ],
-        [
-          "`bestDiscount(40)`",
-          "`FLAT_10` (ties with `BUY_ONE_GET_HALF`, declared later)"
+          "`CLOSED`",
+          "nothing"
         ]
       ]
+    },
+    {
+      "type": "para",
+      "text": "Today the workflow lives only in a wiki page. Last week an agent's script moved a spam ticket from `CLOSED` straight to `IN_PROGRESS`, and the customer got a \"we're working on it\" email for a message they never sent. The agent's screen shows one button per allowed next state."
+    },
+    {
+      "type": "para",
+      "text": "Finish the four `TODO`s in `src/main/java/practice/Ticket.java`: the workflow table in `transitions()`, `canMoveTo(...)` and `allowedNext()` on `Ticket.State`, and `Ticket.moveTo(...)`."
+    },
+    {
+      "type": "para",
+      "text": "When you're done, the workflow above is the only way a ticket moves, every state answers both questions, and nothing a screen does with its buttons changes the workflow. About twelve lines in total."
     },
     {
       "type": "heading",
@@ -84,7 +75,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.Comparator;\nimport java.util.function.Function;\n\npublic enum DiscountStrategy {\n    NONE(\"No Discount\", amount -> amount),\n    PERCENTAGE_10(\"10% Off\", amount -> amount * 0.90),\n    PERCENTAGE_20(\"20% Off\", amount -> amount * 0.80),\n    FLAT_5(\"5 Off\", amount -> amount - 5.0),\n    FLAT_10(\"10 Off\", amount -> amount - 10.0),\n    BUY_ONE_GET_HALF(\"Buy 1 Get 50% Off 2nd\", amount -> amount * 0.75);\n\n    private final String description;\n    private final Function<Double, Double> calculator;\n\n    DiscountStrategy(String description, Function<Double, Double> calculator) {\n        this.description = description;\n        this.calculator = calculator;\n    }\n\n    public String description() {\n        return description;\n    }\n\n    /** The discounted price: amount validated, result rounded to cents and never below zero. */\n    public double applyDiscount(double amount) {\n        if (amount < 0) {\n            throw new IllegalArgumentException(\"Amount cannot be negative\");\n        }\n        return Math.max(0, Math.round(calculator.apply(amount) * 100.0) / 100.0);\n    }\n\n    /** The strategy other than NONE that leaves the lowest price; the first declared wins a tie. */\n    public static DiscountStrategy bestDiscount(double amount) {\n        return Arrays.stream(values())\n                .filter(d -> d != NONE)\n                .min(Comparator.comparingDouble(d -> d.applyDiscount(amount)))\n                .orElse(NONE);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/** A help-desk ticket. Agents move it through the support team's workflow. */\npublic final class Ticket {\n\n    public enum State {\n        NEW, ASSIGNED, IN_PROGRESS, RESOLVED, CLOSED;\n\n        private static final Map<State, Set<State>> NEXT = transitions();\n\n        /** The support team's workflow: which states each state may move to. */\n        private static Map<State, Set<State>> transitions() {\n            Map<State, Set<State>> next = new EnumMap<>(State.class);\n            next.put(NEW, EnumSet.of(ASSIGNED, CLOSED));\n            next.put(ASSIGNED, EnumSet.of(IN_PROGRESS, NEW));\n            next.put(IN_PROGRESS, EnumSet.of(RESOLVED, ASSIGNED));\n            next.put(RESOLVED, EnumSet.of(CLOSED, IN_PROGRESS));\n            next.put(CLOSED, EnumSet.noneOf(State.class));\n            return next;\n        }\n\n        /** Whether the workflow lets a ticket in this state move to the target. */\n        public boolean canMoveTo(State target) {\n            return NEXT.get(this).contains(target);\n        }\n\n        /** The states this one may move to; the agent's screen shows one button for each. */\n        public Set<State> allowedNext() {\n            return Collections.unmodifiableSet(NEXT.get(this));\n        }\n    }\n\n    private State state = State.NEW;\n\n    public State state() {\n        return state;\n    }\n\n    /** Applies a change an agent asked for. */\n    public void moveTo(State target) {\n        if (!state.canMoveTo(target)) {\n            throw new IllegalStateException(\"ticket can't move from \" + state + \" to \" + target);\n        }\n        state = target;\n    }\n}\n"
         }
       ]
     },
@@ -96,7 +87,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.Comparator;\nimport java.util.function.Function;\n\npublic enum DiscountStrategy {\n    NONE(\"No Discount\", amount -> amount),\n    PERCENTAGE_10(\"10% Off\", amount -> amount * 0.90),\n    PERCENTAGE_20(\"20% Off\", amount -> amount * 0.80),\n    FLAT_5(\"5 Off\", amount -> amount - 5.0),\n    FLAT_10(\"10 Off\", amount -> amount - 10.0),\n    BUY_ONE_GET_HALF(\"Buy 1 Get 50% Off 2nd\", amount -> amount * 0.75);\n\n    private final String description;\n    private final Function<Double, Double> calculator;\n\n    DiscountStrategy(String description, Function<Double, Double> calculator) {\n        this.description = description;\n        this.calculator = calculator;\n    }\n\n    public String description() {\n        return description;\n    }\n\n    /** The discounted price: amount validated, result rounded to cents and never below zero. */\n    public double applyDiscount(double amount) {\n        throw new UnsupportedOperationException(\"write applyDiscount\");\n    }\n\n    /** The strategy other than NONE that leaves the lowest price; the first declared wins a tie. */\n    public static DiscountStrategy bestDiscount(double amount) {\n        throw new UnsupportedOperationException(\"write bestDiscount\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/** A help-desk ticket. Agents move it through the support team's workflow. */\npublic final class Ticket {\n\n    public enum State {\n        NEW, ASSIGNED, IN_PROGRESS, RESOLVED, CLOSED;\n\n        private static final Map<State, Set<State>> NEXT = transitions();\n\n        /** The support team's workflow: which states each state may move to. */\n        private static Map<State, Set<State>> transitions() {\n            // TODO: Build the workflow the statement describes, so that every state can answer\n            //       canMoveTo and allowedNext.\n            throw new IllegalStateException(\"TODO: transitions\");\n        }\n\n        /** Whether the workflow lets a ticket in this state move to the target. */\n        public boolean canMoveTo(State target) {\n            // TODO: Answer from the workflow, for a ticket in any state.\n            throw new IllegalStateException(\"TODO: canMoveTo\");\n        }\n\n        /** The states this one may move to; the agent's screen shows one button for each. */\n        public Set<State> allowedNext() {\n            // TODO: Hand out the states this one may move to. Whatever a screen does with the set\n            //       must not change the workflow.\n            throw new IllegalStateException(\"TODO: allowedNext\");\n        }\n    }\n\n    private State state = State.NEW;\n\n    public State state() {\n        return state;\n    }\n\n    /** Applies a change an agent asked for. */\n    public void moveTo(State target) {\n        // TODO: Apply the change if the workflow allows it. A change it doesn't allow must fail\n        //       with an IllegalStateException and leave the ticket as it was.\n        throw new IllegalStateException(\"TODO: moveTo\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -104,10 +95,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 4,
+    "code": 1,
     "tables": 1,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -115,11 +106,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "11207dae6a687fa1fe0e40d1d566a5d9523671680cea232f46c74bf5fca6afcf",
-  "starting_code": "package practice;\n\nimport java.util.Arrays;\nimport java.util.Comparator;\nimport java.util.function.Function;\n\npublic enum DiscountStrategy {\n    NONE(\"No Discount\", amount -> amount),\n    PERCENTAGE_10(\"10% Off\", amount -> amount * 0.90),\n    PERCENTAGE_20(\"20% Off\", amount -> amount * 0.80),\n    FLAT_5(\"5 Off\", amount -> amount - 5.0),\n    FLAT_10(\"10 Off\", amount -> amount - 10.0),\n    BUY_ONE_GET_HALF(\"Buy 1 Get 50% Off 2nd\", amount -> amount * 0.75);\n\n    private final String description;\n    private final Function<Double, Double> calculator;\n\n    DiscountStrategy(String description, Function<Double, Double> calculator) {\n        this.description = description;\n        this.calculator = calculator;\n    }\n\n    public String description() {\n        return description;\n    }\n\n    /** The discounted price: amount validated, result rounded to cents and never below zero. */\n    public double applyDiscount(double amount) {\n        throw new UnsupportedOperationException(\"write applyDiscount\");\n    }\n\n    /** The strategy other than NONE that leaves the lowest price; the first declared wins a tie. */\n    public static DiscountStrategy bestDiscount(double amount) {\n        throw new UnsupportedOperationException(\"write bestDiscount\");\n    }\n}\n",
+  "content_sha256": "23f840c72f57e20075bd2330ea2ffc08823c118c96afe40c4abe2bc606c7ed9d",
+  "starting_code": "package practice;\n\nimport java.util.Collections;\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/** A help-desk ticket. Agents move it through the support team's workflow. */\npublic final class Ticket {\n\n    public enum State {\n        NEW, ASSIGNED, IN_PROGRESS, RESOLVED, CLOSED;\n\n        private static final Map<State, Set<State>> NEXT = transitions();\n\n        /** The support team's workflow: which states each state may move to. */\n        private static Map<State, Set<State>> transitions() {\n            // TODO: Build the workflow the statement describes, so that every state can answer\n            //       canMoveTo and allowedNext.\n            throw new IllegalStateException(\"TODO: transitions\");\n        }\n\n        /** Whether the workflow lets a ticket in this state move to the target. */\n        public boolean canMoveTo(State target) {\n            // TODO: Answer from the workflow, for a ticket in any state.\n            throw new IllegalStateException(\"TODO: canMoveTo\");\n        }\n\n        /** The states this one may move to; the agent's screen shows one button for each. */\n        public Set<State> allowedNext() {\n            // TODO: Hand out the states this one may move to. Whatever a screen does with the set\n            //       must not change the workflow.\n            throw new IllegalStateException(\"TODO: allowedNext\");\n        }\n    }\n\n    private State state = State.NEW;\n\n    public State state() {\n        return state;\n    }\n\n    /** Applies a change an agent asked for. */\n    public void moveTo(State target) {\n        // TODO: Apply the change if the workflow allows it. A change it doesn't allow must fail\n        //       with an IllegalStateException and leave the ticket as it was.\n        throw new IllegalStateException(\"TODO: moveTo\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-2/src/main/java/practice/DiscountStrategy.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-2/src/test/java/practice/DiscountStrategyTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-2/src/main/java/practice/Ticket.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-2/src/test/java/practice/TicketTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -140,29 +131,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DiscountStrategyTest#appliesEachDiscount",
+        "id": "practice.TicketTest#aTicketWalksThroughTheWorkflowAndCanBeReopened",
         "kind": "main",
-        "says": "Each strategy applies its own calculator, and bestDiscount() picks the strategy that leaves the lowest price."
+        "says": "a ticket moves through every allowed step, including a reopen, and ends closed"
       },
       {
-        "id": "practice.DiscountStrategyTest#aPriceNeverGoesBelowZero",
-        "kind": "edge",
-        "says": "FLAT_10 on 8.00 gives 0.0, not -2.0."
+        "id": "practice.TicketTest#theWorkflowAnswersWhatMayFollow",
+        "kind": "main",
+        "says": "a state answers which states may follow it"
       },
       {
-        "id": "practice.DiscountStrategyTest#aNegativeAmountIsRefused",
+        "id": "practice.TicketTest#aClosedTicketHasNowhereToGo",
         "kind": "edge",
-        "says": "applyDiscount() of a negative amount throws IllegalArgumentException."
+        "says": "a closed ticket answers that it can move nowhere, without an exception"
       },
       {
-        "id": "practice.DiscountStrategyTest#theResultIsRoundedToCents",
+        "id": "practice.TicketTest#aChangeTheWorkflowRefusesLeavesTheTicketAsItWas",
         "kind": "edge",
-        "says": "The result is rounded to the nearest cent: PERCENTAGE_10 on 19.99 gives 17.99, not 17.991, and on 5.02 gives 4.52, not 4.51."
+        "says": "a change the workflow does not allow fails with IllegalStateException and the ticket keeps its state"
       },
       {
-        "id": "practice.DiscountStrategyTest#aTieGoesToTheFirstDeclared",
+        "id": "practice.TicketTest#aScreenThatEditsItsButtonsDoesNotChangeTheWorkflow",
         "kind": "edge",
-        "says": "bestDiscount() compares the final applyDiscount() prices, never NONE, and a tie goes to the one declared first: FLAT_10 before BUY_ONE_GET_HALF at 40, PERCENTAGE_10 at 0, FLAT_5 at 5."
+        "says": "changing the set of next states a caller received does not change the workflow"
       }
     ],
     "report": {
@@ -171,10 +162,10 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.5.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A State Machine Keeps Its Transitions in an EnumMap Filled After the Constants Exist"
     },
     "concepts": [
-      "A strategy enum with a Function field validates its input and cleans its result, such as refusing negative amounts and never returning a negative price."
+      "A state machine keeps its allowed transitions in an EnumMap filled after the constants exist, refuses a move the table doesn't allow and keeps the old state, and gives terminal states an empty row."
     ]
   }
 }

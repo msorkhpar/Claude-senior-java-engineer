@@ -18,161 +18,245 @@
       "text": "1.5.1 instanceof Operator in Java"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "A service loads each plugin through a class loader of its own. The first request to a plugin fails with `ClassCastException: class Greeter cannot be cast to class Greeter`, and the `instanceof Greeter` test a line earlier was `false`, though both classes have the same name and the same bytecode."
     },
     {
       "type": "para",
-      "text": "The `instanceof` operator in Java is used to test whether an object is an instance of a specific class or interface. It's a runtime operator that returns a boolean value: `true` if the object is an instance of the specified type, and `false` otherwise."
+      "text": "Pattern variables are unit 1.5.2; record patterns and `switch`, units 1.5.3 and 1.5.4."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "instanceof Asks About the Object's Class at Run Time, and null Has None"
+    },
+    {
+      "type": "para",
+      "text": "A YAML reader filled this configuration map:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Map<String, Object> config = new HashMap<>();\nconfig.put(\"timeout\", 30L);                      // the YAML reader chose Long\nObject retries = config.get(\"retries\");          // not configured: null\nObject timeout = config.get(\"timeout\");\nSystem.out.println(\"retries instanceof Integer: \" + (retries instanceof Integer));\nSystem.out.println(\"(Integer) retries: \" + (Integer) retries);\nSystem.out.println(\"timeout instanceof Number: \" + (timeout instanceof Number)\n        + \", Comparable: \" + (timeout instanceof Comparable)\n        + \", Integer: \" + (timeout instanceof Integer));\nSystem.out.println(\"Number.class.isInstance(timeout): \" + Number.class.isInstance(timeout));\nint attempts = (Integer) retries;"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "retries instanceof Integer: false\n(Integer) retries: null\ntimeout instanceof Number: true, Comparable: true, Integer: false\nNumber.class.isInstance(timeout): true\nException in thread \"main\" java.lang.NullPointerException: Cannot invoke \"java.lang.Integer.intValue()\" because \"retries\" is null"
+    },
+    {
+      "type": "para",
+      "text": "The test ignores the declared type, `Object` here, and asks whether the class of the object the variable refers to is `T` or a subtype of `T`. A `Long` is a `Number` and a `Comparable`, never an `Integer`. `null` refers to no object, so the test is `false` for every `T`. `Class.isInstance` is the same test with the type as a value."
+    },
+    {
+      "type": "para",
+      "text": "The cast disagrees on `null`. It checks the class and throws `ClassCastException` on a mismatch (unit 1.1.3), but it lets `null` through, so the missing key surfaces later, as a `NullPointerException` where the `Integer` is unboxed. Test a value that may be absent before casting it."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "A Class Is Its Name and the Loader That Defined It"
+    },
+    {
+      "type": "para",
+      "text": "The plugin from the start of the unit, reduced: a `URLClassLoader` with no parent defines its own `Greeter` from the same class file the application loaded."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Object greeter = loader.loadClass(\"Greeter\").getDeclaredConstructor().newInstance();\nSystem.out.println(\"class name: \" + greeter.getClass().getName());\nSystem.out.println(\"greeter instanceof Greeter: \" + (greeter instanceof Greeter));\nGreeter g = (Greeter) greeter;"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "class name: Greeter\ngreeter instanceof Greeter: false\nException in thread \"main\" java.lang.ClassCastException: class Greeter cannot be cast to class Greeter (Greeter is in unnamed module of loader java.net.URLClassLoader @5c647e05; Greeter is in unnamed module of loader 'app')"
+    },
+    {
+      "type": "para",
+      "text": "At run time the JVM identifies a class by its name and the loader that defined it. The caller's `Greeter` is the application loader's, so the plugin's object is of an unrelated class. A cache that keeps objects across a reload hands out instances of the old classes. Load the shared type from a parent loader both sides use, or drop the old objects with the old loader."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Compiler Rejects a Test That Can Never Be True, Judging Only the Declared Types"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void check(Integer count, Thread worker, String name, int[] ids) {\n    boolean a = count instanceof String;\n    boolean b = worker instanceof List;\n    boolean c = name instanceof Runnable;\n    boolean d = ids instanceof Object[];\n    String s = (String) count;\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Impossible.java:5: error: incompatible types: Integer cannot be converted to String\nImpossible.java:7: error: incompatible types: String cannot be converted to Runnable\nImpossible.java:8: error: incompatible types: int[] cannot be converted to Object[]\nImpossible.java:9: error: incompatible types: Integer cannot be converted to String"
+    },
+    {
+      "type": "para",
+      "text": "javac accepts `x instanceof T` only if a cast from `x`'s declared type to `T` could succeed for some object. No object is both an `Integer` and a `String`. A `Thread` can be a `List`, since a subclass of `Thread` may implement it, so the `worker` test compiles and is decided at run time. `String` is `final`, as are `Integer` and `Long`, and it doesn't implement `Runnable`, so no subclass can add it. The cast follows the same rule."
+    },
+    {
+      "type": "para",
+      "text": "Against an `Object` parameter every test compiles, even one no caller can satisfy."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Primitive types.** Java 21 rejects `x instanceof Integer` for an `int x`: the left side must be a reference. Java 25's javac reports it as a preview feature (\"primitive patterns\")."
+        }
+      ]
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Arrays Keep Their Element Type at Run Time; Generic Types Lose Their Type Arguments"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Object names = new String[] {\"ada\", \"grace\"};\nObject untyped = new Object[] {\"ada\", \"grace\"};\nObject counts = new int[] {1, 2};\nSystem.out.println(\"names: Object[] \" + (names instanceof Object[]) + \", String[] \" + (names instanceof String[]));\nSystem.out.println(\"untyped: String[] \" + (untyped instanceof String[]));\nSystem.out.println(\"counts: Object[] \" + (counts instanceof Object[]) + \", Object \" + (counts instanceof Object));\nObject[] slots = (Object[]) names;\nslots[0] = 42;                                       // caught and printed\n\nObject payload = new ArrayList<>(List.of(7, 8));     // integers, from another module\nSystem.out.println(\"payload instanceof List<?>: \" + (payload instanceof List<?>));\nList<String> tags = (List<String>) payload;         // unchecked: checks only List\nSystem.out.println(\"cast done, size \" + tags.size());\nString first = tags.get(0);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "names: Object[] true, String[] true\nuntyped: String[] false\ncounts: Object[] false, Object true\njava.lang.ArrayStoreException: java.lang.Integer\npayload instanceof List<?>: true\ncast done, size 2\nException in thread \"main\" java.lang.ClassCastException: class java.lang.Integer cannot be cast to class java.lang.String (java.lang.Integer and java.lang.String are in module java.base of loader 'bootstrap')"
+    },
+    {
+      "type": "para",
+      "text": "An array's class is fixed when it is created, whatever it holds later: `untyped` holds only strings and is still no `String[]`. A `String[]` is also an `Object[]`, and the array checks every store, hence the `ArrayStoreException`. An `int[]` holds no references, so it is an `Object` but not an `Object[]`."
+    },
+    {
+      "type": "para",
+      "text": "A generic type keeps no type argument at run time: `ArrayList<String>` and `ArrayList<Integer>` are one class. The cast to `List<String>` could check only `List`, and javac flags it only as unchecked. The `ClassCastException` comes from a cast the compiler inserted at `tags.get(0)`, in whatever code reads the list, as with the varargs array in unit 1.3.2. For the same reason javac refuses `payload instanceof List<String>` for an `Object payload`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "GenericTests.java:7: error: Object cannot be safely cast to List<String>"
+    },
+    {
+      "type": "para",
+      "text": "Since Java 16 a type argument is allowed where the declared type already guarantees it: `tags instanceof ArrayList<String>` compiles for a `List<String> tags`. Before that, only a raw type or `<?>` was. To get a `List<String>` out of an `Object`, test `List<?>`, then test every element."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "In equals, instanceof Breaks Symmetry With a Subclass, and getClass() Refuses Every Subclass"
+    },
+    {
+      "type": "para",
+      "text": "Unit 1.3.4 fixed an `equals(Sku)` overload with an `equals(Object)` that starts with a type test. Here both classes test with `instanceof`, and the subclass adds a field:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Objects;\n\nclass Point {\n    final int x, y;\n    Point(int x, int y) { this.x = x; this.y = y; }\n\n    @Override public boolean equals(Object o) {\n        if (!(o instanceof Point)) return false;\n        Point p = (Point) o;\n        return x == p.x && y == p.y;\n    }\n    @Override public int hashCode() { return Objects.hash(x, y); }\n}\n\nclass LabeledPoint extends Point {\n    final String label;\n    LabeledPoint(int x, int y, String label) { super(x, y); this.label = label; }\n\n    @Override public boolean equals(Object o) {\n        if (!(o instanceof LabeledPoint)) return false;\n        LabeledPoint p = (LabeledPoint) o;\n        return super.equals(p) && label.equals(p.label);\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Output for `depot = new Point(3, 4)` and `gate = new LabeledPoint(3, 4, \"gate B\")`, then with `if (o == null || getClass() != o.getClass()) return false;` in place of each `instanceof` line, then against an anonymous `new Point(3, 4) { }`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "instanceof:  depot.equals(gate) true, gate.equals(depot) false\n             List.of(depot).contains(gate) false, List.of(gate).contains(depot) true\n             HashSet size, depot added first 2, gate added first 1\ngetClass():  depot.equals(gate) false, gate.equals(depot) false\n             depot.equals(subclass adding nothing) false"
+    },
+    {
+      "type": "para",
+      "text": "`Object.equals` requires symmetry: `x.equals(y)` is true exactly when `y.equals(x)` is. `depot` accepts any `Point`; `gate` only a `LabeledPoint`. `contains` calls `equals` on its argument, so `contains` answers differently depending on which of the two the list holds, and a `HashSet` keeps one or both depending on which was added first."
+    },
+    {
+      "type": "para",
+      "text": "`getClass()` restores symmetry by refusing every other class, even a subclass that adds no field. A `final` value class avoids the choice, since `instanceof` is then exact; every record is final. When a type needs more state, hold a `Point` in a field instead of extending it."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "Syntax: `object instanceof Type`",
-        "Returns `true` if `object` is an instance of `Type` or any of its subclasses.",
-        "Returns `false` if `object` is `null`.",
-        "Can be used with classes, interfaces, and even arrays.",
-        "Often used before casting to ensure type safety."
+        "**`instanceof` tests the run-time class of the object, subtypes included, and is `false` for `null`.** A cast lets `null` through, and a class is its name plus its loader, so a reloaded class is a different type.",
+        "**The compiler rejects a test that can never be true, from the declared types only.** An interface test compiles unless the class is `final` and doesn't implement it; an `Object` parameter turns the check off.",
+        "**Arrays know their element type; generics don't.** An `int[]` is not an `Object[]`, and an unchecked cast to `List<String>` fails later, where an element is read.",
+        "**In `equals`, `instanceof` with a subclass that adds state breaks symmetry; `getClass()` refuses all subclasses.** Make value classes `final`, or compose instead of extending."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java Features"
+      "text": "Reference"
     },
     {
-      "type": "para",
-      "text": "While the basic `instanceof` operator has been part of Java since its early versions, Java 16 introduced pattern matching for `instanceof`, which we'll cover in the next section."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Null Pointer Exception: `instanceof` always returns `false` for `null`, so it's safe to use with potentially null objects.",
-        "Unnecessary use: Overuse of `instanceof` can indicate poor design. Consider polymorphism instead.",
-        "Confusion with inheritance: `instanceof` returns `true` for subclasses as well."
+      "type": "table",
+      "headers": [
+        "Expression",
+        "Result"
+      ],
+      "rows": [
+        [
+          "`null instanceof T`, `T.class.isInstance(null)`",
+          "`false`"
+        ],
+        [
+          "`(T) null`, `T.class.cast(null)`",
+          "`null`, no exception"
+        ],
+        [
+          "`new int[1] instanceof Cloneable`, `Serializable`",
+          "`true`"
+        ],
+        [
+          "`Number.class.isAssignableFrom(Long.class)`",
+          "`true` (the reverse is `false`)"
+        ],
+        [
+          "`new ArrayList<String>().getClass() == new ArrayList<Integer>().getClass()`",
+          "`true`"
+        ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Use `instanceof` sparingly; prefer polymorphism when possible.",
-        "When checking multiple types, order checks from most specific to least specific.",
-        "Consider using pattern matching for `instanceof` (Java 16+) for more concise code."
+        "Your service decodes JSON into `Map<String, Object>`. Find every cast that follows a `get` and decide which should test, which should fall back to a default, and which should fail loudly.",
+        "A library's class hierarchy uses `instanceof` in `equals`. You must subclass it and add a field. What are your options, and what does each cost?",
+        "How does your framework's development-mode restart load your classes, and which cached objects could outlive a restart?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Interfaces: An object can be an instance of multiple interfaces.",
-        "Primitive types: `instanceof` cannot be used with primitive types.",
-        "Array types: `instanceof` can be used with array types."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why Java Lets Code Ask an Object's Class"
     },
     {
       "type": "para",
-      "text": "Interviewers often use `instanceof` questions to test understanding of inheritance and polymorphism. Be prepared to discuss alternatives to `instanceof` and when it's appropriate to use it."
-    },
-    {
-      "type": "para",
-      "text": "Q: What is the purpose of the `instanceof` operator in Java? A: The `instanceof` operator in Java is used to test whether an object is an instance of a specific class, subclass, or interface. It returns a boolean value: true if the object is an instance of the specified type, and false otherwise. This operator is often used for type checking before casting or to implement type-specific behavior."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Object obj = \"Hello\";\nif (obj instanceof String) {\n    String str = (String) obj;\n    System.out.println(\"Length: \" + str.length());\n}"
-    },
-    {
-      "type": "para",
-      "text": "Q: Can `instanceof` be used with primitive types? A: No, `instanceof` cannot be used with primitive types. It can only be used with reference types (objects). If you need to check for a primitive type, you should use the corresponding wrapper class."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Incorrect: This will not compile\nint x = 5;\nif (x instanceof int) { } // Compilation error\n\n// Correct: Using wrapper class\nInteger y = 5;\nif (y instanceof Integer) {\n    System.out.println(\"y is an Integer\");\n}"
-    },
-    {
-      "type": "para",
-      "text": "Q: How does `instanceof` behave with null values? A: The `instanceof` operator always returns `false` when the object being tested is `null`, regardless of the type being checked against. This behavior makes it safe to use `instanceof` without first checking if an object is null."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "String str = null;\nSystem.out.println(str instanceof String); // Prints: false"
-    },
-    {
-      "type": "para",
-      "text": "Q: How does `instanceof` work with inheritance? A: When using `instanceof` with inheritance, it returns `true` if the object is an instance of the specified class or any of its subclasses. This includes direct and indirect subclasses."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class Animal {}\nclass Dog extends Animal {}\n\nAnimal animal = new Dog();\nSystem.out.println(animal instanceof Animal); // true\nSystem.out.println(animal instanceof Dog);    // true\nSystem.out.println(animal instanceof Object); // true"
-    },
-    {
-      "type": "para",
-      "text": "Q: Can `instanceof` be used with interfaces? A: Yes, `instanceof` can be used with interfaces. It returns `true` if the object implements the specified interface, either directly or through one of its superclasses."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface Runnable {}\nclass Runner implements Runnable {}\n\nRunnable runner = new Runner();\nSystem.out.println(runner instanceof Runnable); // true\nSystem.out.println(runner instanceof Object);   // true"
-    },
-    {
-      "type": "para",
-      "text": "Q: What are some alternatives to using `instanceof` in Java? A: While `instanceof` is useful in certain scenarios, overuse can lead to code that's hard to maintain. Some alternatives include:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Polymorphism: Use method overriding to implement type-specific behavior.",
-        "Visitor Pattern: For operations across a set of related classes.",
-        "Type-based dispatch: Use a map of types to handlers.",
-        "Pattern matching (Java 16+): More concise syntax for type checking and casting."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Here's an example of using polymorphism instead of `instanceof`:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface Shape {\n    double area();\n}\n\nclass Circle implements Shape {\n    private double radius;\n    \n    public Circle(double radius) {\n        this.radius = radius;\n    }\n    \n    @Override\n    public double area() {\n        return Math.PI * radius * radius;\n    }\n}\n\nclass Rectangle implements Shape {\n    private double width;\n    private double height;\n    \n    public Rectangle(double width, double height) {\n        this.width = width;\n        this.height = height;\n    }\n    \n    @Override\n    public double area() {\n        return width * height;\n    }\n}\n\n// Usage\nShape shape1 = new Circle(5);\nShape shape2 = new Rectangle(4, 6);\n\nSystem.out.println(shape1.area()); // Calls Circle's area method\nSystem.out.println(shape2.area()); // Calls Rectangle's area method"
-    },
-    {
-      "type": "para",
-      "text": "This approach uses polymorphism to avoid the need for `instanceof` checks, resulting in more maintainable and extensible code."
+      "text": "Polymorphism is the usual way to vary behavior by type: each class overrides `area()`, and the caller calls it. A chain of `instanceof` tests does the same from outside the classes and must be edited for every new subtype; one it misses falls to the `else` without a warning. Java still needs the test where code receives an object whose type nobody could declare: `equals(Object)`, deserialized data, a plugin. Sealed types with a `switch` (unit 1.5.4) bring the compiler back into such a chain, which then fails to compile when a subtype is added and not handled."
     },
     {
       "type": "heading",
@@ -192,17 +276,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 9,
-    "paras": 11,
-    "code": 6,
-    "tables": 0,
-    "lists": 6,
+    "headings": 11,
+    "paras": 17,
+    "code": 11,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "3f03c581d324d8e303879ca27fd12fd70191374a3458c991ea4395df7cc726b8"
+  "content_sha256": "88098180dca8c207e8b9951e5541de7ada60a7181805d64c43ad844e912aa2c7"
 }

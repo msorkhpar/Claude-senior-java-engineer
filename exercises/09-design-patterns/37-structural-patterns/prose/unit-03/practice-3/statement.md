@@ -1,22 +1,15 @@
-The page's caching proxy stands in front of an expensive `DataLookupService`
-and remembers each answer, so a repeated key never reaches the real service.
-Its best practices name the tool: `ConcurrentHashMap.computeIfAbsent`, which
-makes the check and the store one atomic step.
+The treasury team imports the bank's payment file every night, one CSV row per payment. A row
+without an amount must be rejected and leave nothing behind, while the rows before and after it
+are imported. Last week a bad row left a "payment from" entry with no amount in the ledger, and
+reconciliation took a day.
 
-Given: `DataLookupService` (`String lookup(String key)`). Write
-`CachingProxy implements DataLookupService`:
+`importRow` is already marked `@Transactional`, and `PaymentImport.transactional(...)` is the
+proxy that runs such methods in a transaction. Finish the two `TODO`s in
+`src/main/java/practice/PaymentImport.java`:
 
-- `lookup(key)` asks the real service the first time and answers later calls
-  for that key from the cache. **Keys are matched by `equals`, not identity**,
-  and **every key keeps its own entry**.
-- **Racing lookups of one key ask the real service once**: a thread that asks
-  while another is fetching the same key waits for that result.
-- `isCached(key)`, `cacheSize()` and `clearCache()` (after which the next lookup
-  asks the real service again).
+- `CsvRows.importAll(...)`: import the rows, rejecting the bad ones;
+- `create(...)`: build the importer the application calls.
 
-| calls | real service asked | `cacheSize()` |
-|---|---|---|
-| `lookup("k1")` | 1 | 1 |
-| `lookup("k1")` again | still 1 | 1 |
-| `lookup("a")`, `lookup("b")`, `lookup("a")` | 2 | 2 |
-| `clearCache()`, then `lookup("k1")` | once more | 1 |
+When you're done, each good row commits on its own, a bad row rolls back only itself and shows
+up in `rejected()`, and the ledger holds only complete payments. You may add a field. About six
+lines in total.

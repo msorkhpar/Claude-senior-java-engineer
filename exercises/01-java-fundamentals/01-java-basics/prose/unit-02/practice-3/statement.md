@@ -1,16 +1,12 @@
-The default value of a reference is `null`, and following a `null` reference
-throws a `NullPointerException`. The page's advice is to check for `null` or to
-use `Optional`.
+An operations team hunts memory leaks with a small tool that reads a heap dump: every object in
+the heap, the objects each one's fields refer to, and the GC roots (static fields and the local
+variables of live threads). Its report lists the objects the next collection would free. An
+engineer reads it to find what is holding the rest, so a report that names a held object as
+garbage, or a freed one as held, sends them after the wrong code.
 
-`Directory.Person` has an `address`, and `Directory.Address` has a `city`. Any of
-the three can be missing: the person itself, their address, or the address's city.
+`garbage(...)` already builds the report. Finish the `TODO` in
+`src/main/java/practice/HeapDump.java`:
 
-Write `Directory.cityOf(Person person)`. It returns the person's city, or
-`"Unknown"` when any link on the way is `null`.
+- `retained(heap, roots)`: the objects of the heap that a collection must keep.
 
-| person | answer |
-|---|---|
-| `new Person("Ann", new Address("Oslo"))` | `"Oslo"` |
-| `null` | `"Unknown"` |
-| `new Person("Bo", null)` | `"Unknown"` |
-| `new Person("Cy", new Address(null))` | `"Unknown"` |
+About seven lines.

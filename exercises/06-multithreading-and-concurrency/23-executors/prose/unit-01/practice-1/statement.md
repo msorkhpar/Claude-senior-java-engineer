@@ -1,22 +1,15 @@
-The page warns that `Executors.newFixedThreadPool(n)` queues without limit, and
-recommends building a `ThreadPoolExecutor` yourself: a **bounded** queue, a
-rejection policy, and a `ThreadFactory` that gives the threads useful names. Its
-interview answer walks a pool of core 2, maximum 4 and a queue of 2 through seven
-tasks.
+The document service reads the text out of every uploaded scan, a few seconds of OCR each. On
+a normal day three workers keep up. At the end of the month the accountants upload in bursts,
+and last month the service ran out of memory with forty thousand scans waiting.
 
-Write `BoundedPool.create(core, max, queueCapacity, name)`, returning a
-`ThreadPoolExecutor` that:
+The team's decision: three workers normally, and at most six scans waiting for one. When six are
+already waiting, the service may take on extra workers for the burst, five at most in total. A
+scan that arrives when all five are busy and six are waiting must not be lost or refused: the
+upload thread that brought it reads it itself, which slows that uploader down until the burst
+passes.
 
-- keeps `core` threads (idle core threads do not time out) and grows to at most `max` threads;
-- holds at most `queueCapacity` waiting tasks;
-- refuses a task it cannot take by throwing `RejectedExecutionException`;
-- names its threads `name-1`, `name-2`, ... in the order it creates them, as
-  daemon threads. (Threads may be created from several submitting threads at once, so count them
-  thread-safely; the tests submit from one thread, so they cannot catch a racy count.)
+Write `create()` in `src/main/java/practice/OcrPool.java`. The class already has the numbers and a
+`ThreadFactory` that names the threads. About five lines in total.
 
-| `create(2, 4, 2, "orders")`, then tasks that stay busy | pool size | queued |
-|---|---|---|
-| after 4 tasks | `2` | `2` |
-| after 6 tasks | `4` | `2` |
-| a 7th task | `RejectedExecutionException` | |
-| names of the threads running the first 6 tasks | `orders-1` .. `orders-4` | |
+The tests hand scans to your pool from a thread named `uploader` and read the pool's size and its
+queue.

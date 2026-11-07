@@ -1,15 +1,17 @@
-The page's HashMap always rounds a requested capacity **up** to the nearest
-power of two, so that `hash & (capacity - 1)` can stand in for `hash % capacity`.
-Its `tableSizeFor` gives 16 for 10, 32 for 17, and 64 for 64. A request of 0 is
-valid and gives the minimum table.
+The catalogue import loads one batch of SKUs at a time, and the batch header says how many rows
+follow. A profile of an import shows time in `HashMap.resize` and `ConcurrentHashMap.transfer` on
+every batch, and a heap dump shows the stock cache's table twice the length of the price index's,
+for the same number of SKUs.
 
-Write `TableSize.tableSizeFor(int requested)`: the smallest power of two that
-is at least `requested`, and `1` for a request of zero or less. Requests go up to `1 << 30`.
+`CatalogMaps` builds three maps per batch. Finish its three factory methods in
+`src/main/java/practice/CatalogMaps.java`:
 
-| requested | answer |
-|---|---|
-| `10` | `16` |
-| `17` | `32` |
-| `100` | `128` |
-| `64` | `64` |
-| `0` | `1` |
+- `newPriceIndex(skus)`: filled once by the import thread, then only read;
+- `newStockCache(skus)`: shared by the request threads;
+- `newRecentTable(maxEntries)`: the table behind `RecentLookups`, a cache of the prices users looked
+  up most recently, which drops the one used least recently when it is full.
+
+When you're done, none of the three grows its table while a batch loads or while the cache evicts,
+and the stock cache's table is no longer than it needs to be. About three lines in total.
+
+The tests read each map's table length by reflection.

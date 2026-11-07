@@ -1,124 +1,274 @@
 # 3.1.3 The finally block for cleanup operations
 
-The `finally` block is an essential component of Java's exception handling mechanism, primarily used for cleanup
-operations. It ensures that certain code is executed regardless of whether an exception occurs or not.
+The nightly settlement export fails at 02:10. The alert reads
+`java.io.IOException: flush failed: No space left on device`, thrown by the `finally` that closes the
+report writer. The real failure, a query that timed out, is in no log, and the next night's export
+blocks on an export lock that was never released.
 
-## Key Points
+## finally Runs on Every Way Out of try: return, break, continue or a Throw
 
-1. The `finally` block is executed after the `try` and `catch` blocks, regardless of whether an exception was thrown or
-   caught.
-2. It's commonly used for cleanup operations like closing resources (files, database connections, etc.).
-3. The `finally` block is optional but can only be used in conjunction with a `try` block.
-4. If a `finally` block is present, it will execute even if the `try` or `catch` blocks contain a `return` statement.
-5. In rare cases, a `finally` block might not execute: if the JVM exits first (`System.exit`, a crash, the process
-   being killed) or the `try` block never finishes (an infinite loop or a deadlock). Interrupting the thread does not
-   skip `finally`.
-
-## Common Pitfalls
-
-1. Throwing exceptions from the `finally` block can mask original exceptions.
-2. Returning from a `finally` block overrides any return value from the `try` or `catch` blocks.
-3. Using `finally` for resource management when try-with-resources is more appropriate (in Java 7+).
-
-## Best Practices
-
-1. Use `finally` blocks for cleanup operations that must occur regardless of exceptions.
-2. Avoid throwing exceptions from `finally` blocks unless absolutely necessary.
-3. Don't use `return` statements in `finally` blocks.
-4. For resource management, prefer try-with-resources over `finally` blocks when possible.
-5. Keep `finally` blocks short and focused on cleanup tasks.
-
-## Edge Cases
-
-1. If the `try` block exits via a `return` statement, the `finally` block still executes before the method returns.
-2. If an exception is thrown in the `try` block and another in the `finally` block, the exception from the `finally`
-   block is propagated, potentially masking the original exception.
-
-## Interview Insights
-
-Interviewers often ask about the execution order of `try`, `catch`, and `finally` blocks, especially in complex
-scenarios involving exceptions and return statements. Be prepared to explain the flow control in various situations.
-
-## Interview Q&A Section
-
-Q1: What is the purpose of the `finally` block in Java?
-
-```text
-A1: The `finally` block in Java serves several important purposes:
-
-1. Cleanup operations: It's primarily used to perform cleanup operations, such as closing resources (files, database connections, network sockets) that need to be closed regardless of whether an exception occurred or not.
-
-2. Guaranteed execution: The code in the `finally` block is guaranteed to execute (except in cases of JVM exit or thread death), providing a reliable place for essential operations.
-
-3. Exception-independent logic: It allows you to specify code that should run regardless of whether an exception was thrown or caught, ensuring certain actions always occur.
-
-4. Resource management: Although try-with-resources is preferred for resource management in modern Java, `finally` blocks are still used in scenarios where try-with-resources is not applicable.
-
-5. Consistency: It helps maintain consistency in program execution by ensuring that certain cleanup or finalization code always runs, contributing to more robust and predictable applications.
-
-The `finally` block is an essential tool for writing robust, resource-safe Java code, especially when dealing with operations that require cleanup regardless of the execution path.
-```
-
-Q2: Will a `finally` block execute if there's a `return` statement in the `try` block? Provide an example.
-
-A2: Yes, the `finally` block will execute even if there's a `return` statement in the `try` block. Here's an example:
+This loop leaves its `try` five ways, counting the normal end:
 
 ```java
-public class FinallyWithReturnDemo {
-    public static int demonstrateFinally() {
+static String firstCsv(List<String> files) {
+    for (String f : files) {
         try {
-            System.out.println("In try block");
-            return 1;  // This return doesn't prevent finally from executing
+            if (f.startsWith(".")) continue;          // skip hidden files
+            if (f.endsWith(".csv")) return f;
+            if (f.equals("STOP")) break;
+            if (f.isEmpty()) throw new IllegalArgumentException("empty name");
         } finally {
-            System.out.println("In finally block");
+            System.out.println("  finally after " + (f.isEmpty() ? "\"\"" : f));
         }
     }
+    return null;
+}
+```
 
-    public static void main(String[] args) {
-        int result = demonstrateFinally();
-        System.out.println("Method returned: " + result);
+```text
+  finally after .tmp
+  finally after notes.txt
+  finally after rates.csv
+returned rates.csv
+  finally after notes.txt
+  finally after STOP
+returned null
+  finally after notes.txt
+  finally after ""
+threw empty name
+```
+
+The compiler copies the `finally` code onto every path out of the `try`: the normal end, each
+`return`, `break` and `continue`, and an exception of any type (`javap -c` shows five copies of the
+`println` in `firstCsv`).
+
+Cleanup written anywhere else misses a path. A quote service counts calls in flight and refuses new
+ones at 200. If the decrement sits after the backend call, every failed call leaks one; add it to a
+`catch (IOException e)` as well, and every `NullPointerException` still leaks one. After an outage of a few minutes
+the gauge stays at 200 and the service refuses every request with nothing running. Unit 6.3.1
+applies the same rule to `unlock()`.
+
+## A return in finally Throws Away the Exception and the try's Result
+
+```java
+static int rowsImported(String file) {        // no throws clause, and javac accepts it
+    int rows = 0;
+    try {
+        rows = importRows(file);              // throws IOException at row 4120
+    } finally {
+        return rows;
     }
 }
 
-// Output:
-// In try block
-// In finally block
-// Method returned: 1
-```
-
-In this example, even though the `try` block has a `return` statement, the `finally` block still executes before the
-method actually returns. The `finally` block is guaranteed to execute (barring JVM exit or thread death) regardless of
-how the `try` block exits, whether by normal completion, a `return` statement, or an exception.
-
-Q3: What happens if both the `try` block and the `finally` block throw exceptions?
-
-```text
-A3: When both the `try` block and the `finally` block throw exceptions, the exception from the `finally` block takes precedence, and the exception from the `try` block is lost. This behavior can lead to unexpected results and is generally considered a pitfall in exception handling. Here's what happens:
-
-1. If the `try` block throws an exception, it's temporarily saved.
-2. The `finally` block is then executed.
-3. If the `finally` block throws an exception, it replaces the exception from the `try` block.
-4. The exception from the `finally` block is what gets propagated up the call stack.
-
-This behavior can be problematic because it can mask the original exception, making debugging more difficult. It's generally recommended to avoid throwing exceptions in `finally` blocks for this reason. If you need to perform operations in a `finally` block that might throw exceptions, it's best to catch and handle those exceptions within the `finally` block itself.
-```
-
-Example:
-
-```java
-try {
-    throw new IllegalArgumentException("Exception from try block");
-} finally {
-    throw new RuntimeException("Exception from finally block");
+static int version() {
+    try {
+        return 1;
+    } finally {
+        return 2;
+    }
 }
 ```
 
-In this case, the RuntimeException from the finally block will be thrown, and the IllegalArgumentException from the try
-block will be lost.
+```text
+rowsImported(prices-0611.csv) = 0
+version() = 2
+```
 
-To preserve information about both exceptions, you could catch the exception in the try block, store it, and then in the
-finally block, if you're forced to throw an exception, you can set the original exception as the cause of the new
-exception using the initCause() method.
+The file was corrupt; the caller got 0 and no error, so its retry on `IOException` never ran. When `finally` ends with `return`, `break`, `continue` or a throw
+of its own, that ending replaces the `try`'s: the pending exception or return value is dropped.
+javac warns only when the `finally` lint is on (`-Xlint:finally` or `-Xlint`):
+
+```text
+ReturnInFinally.java:16: warning: [finally] finally clause cannot complete normally
+```
+
+<!-- practice 1 -->
+
+## A return Fixes Its Value Before finally Runs, but the Object Can Still Change
+
+A metrics buffer hands its lines to a collector every ten seconds and starts a new batch:
+
+```java
+static int attemptsSoFar() {
+    try {
+        return attempts;
+    } finally {
+        attempts = 0;                       // reset for the next window
+    }
+}
+
+static List<String> drain() {
+    try {
+        return pending;
+    } finally {
+        pending.clear();                    // start the next batch
+    }
+}
+```
+
+```text
+attemptsSoFar() = 3, attempts now 0
+drain() = []
+```
+
+`return attempts` copied the value 3 before `finally` ran, so the reset didn't reach the caller.
+`return pending` copied a reference, and `clear()` emptied the list it points to, so every batch the
+collector got was empty. Reassigning the field leaves the
+returned list alone:
+
+```java
+static List<String> drainFixed() {
+    try {
+        return pending;
+    } finally {
+        pending = new ArrayList<>();        // a new list; the returned one is untouched
+    }
+}
+```
+
+```text
+drainFixed() = [cpu=0.55, heap=0.47], pending now []
+```
+
+<!-- practice 2 -->
+
+## An Exception From finally Replaces the One in Flight and Skips the Cleanup After It
+
+The export from the opening:
+
+```java
+static void export(ReportWriter out) throws IOException {
+    exportLock.lock();
+    try {
+        out.write("header");
+        queryFailed();                      // IllegalStateException: query timed out
+    } finally {
+        out.close();                        // IOException: No space left on device
+        exportLock.unlock();
+    }
+}
+```
+
+```text
+caller sees: java.io.IOException: flush failed: No space left on device
+export lock still held: true
+```
+
+The `IOException` from `close()` replaced the `IllegalStateException`, which survives as neither
+cause nor suppressed. It also ended the `finally`, so `unlock()` never ran, and the next export, on another thread, waits for the lock forever.
+
+Each cleanup step that can fail needs its own `try`, and its failure is attached to the original
+with `addSuppressed`:
+
+```java
+static void exportFixed(ReportWriter out) throws IOException {
+    exportLock.lock();
+    Throwable primary = null;
+    try {
+        out.write("header");
+        queryFailed();
+    } catch (Throwable t) {
+        primary = t;
+        throw t;
+    } finally {
+        try {
+            out.close();
+        } catch (Throwable e) {
+            if (primary == null) throw e;
+            primary.addSuppressed(e);
+        } finally {
+            exportLock.unlock();
+        }
+    }
+}
+```
+
+```text
+java.lang.IllegalStateException: settlement query timed out after 30 s
+	at Replaced.queryFailed(Replaced.java:16)
+	at Replaced.exportFixed(Replaced.java:35)
+	at Replaced.main(Replaced.java:62)
+	Suppressed: java.io.IOException: flush failed: No space left on device
+		at Replaced$ReportWriter.close(Replaced.java:12)
+		at Replaced.exportFixed(Replaced.java:41)
+		... 1 more
+export lock still held: false
+```
+
+When only `close()` fails, it is rethrown: a writer that couldn't flush lost rows, and swallowing
+that reports a file as complete when it isn't.
+
+<!-- practice 3 -->
+
+## finally Runs Only When the Thread Leaves try: exit, halt and a Killed JVM Skip It
+
+Each case runs in its own JVM: a shutdown hook prints `hook ran`, and a thread sleeps inside a `try`
+whose `finally` prints `finally ran`:
+
+```text
+System.exit(0) in try:     exit   0  hook ran
+halt(0) in try:            exit   0  (nothing)
+main ends, daemon in try:  exit   0  hook ran
+SIGTERM while in try:      exit 143  hook ran
+SIGKILL while in try:      exit 137  (nothing)
+interrupt() while in try:  exit   0  interrupted, finally ran, hook ran
+```
+
+`finally` runs when the thread leaves the `try`. `System.exit` and a SIGTERM start the JVM's
+shutdown: hooks run, then the JVM halts every thread where it is; per the `Runtime` javadoc,
+"`finally` clauses are not executed". When the last non-daemon thread ends, the same happens to
+daemon threads.
+`halt` and SIGKILL skip the hooks too. An interrupt is the one case here that runs `finally`: it
+ends the `sleep` with an exception, and the thread leaves `try` the ordinary way.
+
+A lock file or temp file cleaned up only in `finally` is left behind by every deploy whose SIGTERM
+arrives while a thread is in that `try`. Cleanup that must survive shutdown goes in a shutdown hook that stops the work and waits
+for it (unit 6.4.1), and startup must cope with what a SIGKILL leaves.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **`finally` runs on every way out of `try`.** Cleanup after the block, or in a `catch`, misses
+  the paths it wasn't written for.
+- **A `return` in `finally` discards the exception and the result.** javac warns only with
+  `-Xlint:finally` or `-Xlint`.
+- **`return` fixes its value before `finally` runs.** Reassigning the variable doesn't change the
+  result; mutating the object it refers to does.
+- **An exception from `finally` replaces the one in flight and ends the `finally`.** Give each
+  failing cleanup step its own `try`, attach its failure with `addSuppressed`, and release
+  locks in an inner `finally`.
+- **`finally` needs the thread to leave `try`.** `System.exit`, SIGTERM, `halt` and SIGKILL skip
+  it, and so does JVM exit for a daemon thread still in `try`.
+
+## Reference
+
+**What reaches the caller (Java 21, ran):**
+
+| `try` | `catch` | `finally` | Caller gets |
+|---|---|---|---|
+| returns 1 | | returns 2 | 2 |
+| throws A | | returns, `break`s or `continue`s | no exception; `finally`'s return or jump wins |
+| throws A | | throws C | C; A is lost |
+| throws A | throws B (cause A) | throws C | C, with no cause and no suppressed |
+| throws A | rethrows A | completes | A, after `finally` ran |
+
+## Challenges
+
+1. A job holds a lock, a temp file and a database connection. Write its cleanup by hand so that
+   each is released when any other release fails. How many nested `try` blocks did it take?
+2. Your service gets SIGTERM, and a request is in the middle of a two-phase write. What should the
+   shutdown hook wait for, and for how long?
+3. Turn on `-Xlint:finally` in a codebase you know. What does it find?
+
+## Design Note: Why Cleanup Is a Block of Code
+
+C++ releases a resource in a destructor that runs when its owning object goes out of scope. Java
+objects have no such moment, so Java put cleanup in the method that acquires the resource, as a
+block the compiler copies onto every exit path. The release sits next to the acquisition, but each caller
+rewrites it, in order, with nested handling for each failing step.
+Try-with-resources (unit 3.1.4) moved that code into the compiler for anything `AutoCloseable`;
+`finally` stays for what is not a resource object: a lock, a gauge, a flag.
 
 ## Code Examples
 

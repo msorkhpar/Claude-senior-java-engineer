@@ -1,16 +1,13 @@
-`skip(n)` drops the first `n` elements and `limit(n)` keeps at most `n`. Together they
-cut a slice out of a stream, which is exactly what pagination needs. Both take a
-`long`.
+At the sorting hub, every parcel passes two scanners, and a jam sends some parcels past the same
+scanner again a few minutes later. The loading list is supposed to hold each parcel once, but the
+drivers' lists have started showing the same parcel two or three times, and the loaders put it on
+the truck that many times in their count.
 
-Write `Pager.page(List<Integer> items, int page, int size)`. Pages are numbered from
-`0` and hold `size` items each; return the items of page `page`, in order. `page` is
-never negative and `size` is at least `1`.
+`HubScans.loadingList(...)` already reads the scanner lines into `Parcel`s. Finish the three
+`TODO`s in `src/main/java/practice/HubScans.java`:
 
-| items | page | size | answer |
-|---|---|---|---|
-| `1..10` | `0` | `3` | `[1, 2, 3]` |
-| `1..10` | `1` | `3` | `[4, 5, 6]` |
-| `1..10` | `3` | `3` | `[10]` |
+- `Parcel.equals(...)` and `Parcel.hashCode()`: a parcel is identified by its carrier and its
+  tracking number; the scan time is not part of what it is;
+- `unique(...)`: each parcel once, as it was first scanned, in the order of the scans.
 
-The list does not always divide into whole pages, a caller may ask past the end, and
-`page * size` in `int` arithmetic can overflow.
+Keep `Parcel` a class. About six lines in total.

@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "03-exception-handling",
+    "11-try-catch"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "ordinal": 3,
+  "title": "Check yourself: try-with-resources",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-lock-in-catch",
+        "stem": "A billing job runs `try (var lock = locks.acquire(\"invoice-7731\"); var conn = db.connect()) { charge(conn); } catch (DeclinedException e) { notifyCustomer(e); }`. The call to charge() throws DeclinedException. While notifyCustomer() runs, what state are the lock and the connection in?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Both are still held, since the catch belongs to the same statement whose header acquired them",
+            "correct": false,
+            "says": "the catch belongs to the statement, and the statement closes its resources before the catch runs"
+          },
+          {
+            "id": "b",
+            "text": "Both are released, since the statement closes what its header declared before its catch runs",
+            "correct": true,
+            "says": "the resources are closed, in reverse order, before the statement's catch and finally run"
+          },
+          {
+            "id": "c",
+            "text": "Only the connection is closed, since the lock is released after the catch, last in reverse order",
+            "correct": false,
+            "says": "reverse order applies among the resources; all of them are closed before the catch runs"
+          },
+          {
+            "id": "d",
+            "text": "Only the lock is released, since it was declared first and resources close in the order they appear",
+            "correct": false,
+            "says": "resources close in reverse order of declaration, and all of them before the catch"
+          }
+        ],
+        "origin": {
+          "path": "11-try-catch/README_3.1.4.md",
+          "section": "Resources Close in Reverse Order, Before the Statement's catch and finally Run"
+        }
+      },
+      {
+        "id": "q-log-message",
+        "stem": "An export runs a query inside `try (Connection conn = pool.getConnection()) { ... }`. The query throws SQLTimeoutException(\"query timed out\"), and then conn.close() throws SQLException(\"connection reset\"). The caller catches the exception and logs `\"export failed: \" + e.getMessage()`. What does the log line say?",
+        "options": [
+          {
+            "id": "a",
+            "text": "export failed: query timed out, since the body's exception is thrown and the close failure rides along inside it",
+            "correct": true,
+            "says": "the body's exception is thrown, and the close failure is only in its getSuppressed(), which getMessage() does not include"
+          },
+          {
+            "id": "b",
+            "text": "export failed: query timed out; connection reset, since the close failure is added to the message of the exception thrown",
+            "correct": false,
+            "says": "addSuppressed attaches the close failure as an object; the message of the thrown exception is unchanged"
+          },
+          {
+            "id": "c",
+            "text": "export failed: connection reset, since the close runs after the query and its exception takes the place of the earlier one",
+            "correct": false,
+            "says": "that is what a close in finally does; try-with-resources keeps the body's exception and suppresses the close failure"
+          },
+          {
+            "id": "d",
+            "text": "export failed: connection reset, since a close failure is reported first and the failure it hides is attached to it",
+            "correct": false,
+            "says": "it is the other way round: the body's exception is thrown and the close failure is attached to it"
+          }
+        ],
+        "origin": {
+          "path": "11-try-catch/README_3.1.4.md",
+          "section": "A close() Failure Is Attached as Suppressed, Not Thrown in Place of the Body's Exception"
+        }
+      },
+      {
+        "id": "q-object-stream",
+        "stem": "A cache loader runs `try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(file))) { return in.readObject(); }`. One cache file is empty, so ObjectInputStream's constructor throws EOFException. What becomes of the FileInputStream opened for it?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The statement closes it, since a stream passed to a resource's constructor in the header is closed with that resource",
+            "correct": false,
+            "says": "only the declared variable is a resource; a stream created as a constructor argument is not, and here the resource never existed"
+          },
+          {
+            "id": "b",
+            "text": "The statement closes it, since a resource whose constructor throws is closed along with those declared before it",
+            "correct": false,
+            "says": "a resource whose constructor threw never existed, so there is nothing to close, and the file stream is not a resource"
+          },
+          {
+            "id": "c",
+            "text": "It stays open until a garbage collection reclaims it, since the resource the header declares was never created",
+            "correct": true,
+            "says": "the declared resource is the ObjectInputStream, which was never created, so nothing closes the file until the JDK's cleaner does after a GC"
+          },
+          {
+            "id": "d",
+            "text": "It stays open until the loader's thread ends, since the streams a thread opens are released when that thread finishes",
+            "correct": false,
+            "says": "nothing ties a stream to its thread; the descriptors came back after a full GC, when the JDK's cleaner closed the unreachable streams"
+          }
+        ],
+        "origin": {
+          "path": "11-try-catch/README_3.1.4.md",
+          "section": "Only a Resource That Finished Constructing Is Closed, So Declare Each Stream Separately"
+        }
+      },
+      {
+        "id": "q-borrowed-writer",
+        "stem": "A report method creates a BufferedWriter and passes it to `static void writeFooter(Writer out) throws IOException { try (out) { out.write(\"-- end --\"); } }`. After writeFooter returns, the report method writes one more section to the same writer. What happens at that write?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It succeeds, since the statement closes only what its own header creates, and the writer came from outside",
+            "correct": false,
+            "says": "since Java 9 a statement also closes an existing variable named in its header"
+          },
+          {
+            "id": "b",
+            "text": "It succeeds, since the statement closes only what its own method opens, and the writer came from outside",
+            "correct": false,
+            "says": "the statement closes whatever it names, whoever opened it"
+          },
+          {
+            "id": "c",
+            "text": "It fails with IOException, since the statement closes what it names when its block ends, the writer included",
+            "correct": true,
+            "says": "the statement closes the variable it names, so the caller's writer is closed and the next write fails with Stream closed"
+          },
+          {
+            "id": "d",
+            "text": "It fails with IOException, since the statement closes what it names when its header runs, the writer included",
+            "correct": false,
+            "says": "the statement closes its resources when the block exits; closed at the header, the footer write itself would have failed"
+          }
+        ],
+        "origin": {
+          "path": "11-try-catch/README_3.1.4.md",
+          "section": "A Variable Named in the Header Is Closed Too, Whoever Opened It"
+        }
+      }
+    ]
+  }
+}

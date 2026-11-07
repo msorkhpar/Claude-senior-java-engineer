@@ -1,24 +1,14 @@
-An enum cannot extend another enum, so the page's fix for "I need more
-severities" is a shared interface: `StandardSeverity` and
-`ExtendedSeverity` both implement `Severity`, and code that works with
-`Severity` accepts constants of either enum.
+The order service writes an audit line for every field of an order that changes:
+`discount: Discount NONE -> VOUCHER`, or `total: type changed from Amount to Channel` when the
+old and the new value are not of the same type. Since `LOYALTY` and `VOUCHER` got discount
+rules of their own, the audit log has gone wrong for them: some lines name no type at all, and
+a customer moving from no discount to a voucher is logged as a change of type.
 
-The starter declares the interface and both enums. Write two methods that work
-only through `Severity`:
+Finish the two `TODO`s in `src/main/java/practice/AuditLog.java`:
 
-- `static List<Severity> all()` returns every constant of both enums,
-  ordered by `level()` from lowest to highest. The caller must not be able to
-  change the list.
-- `static Optional<Severity> highest(Collection<? extends Severity> among)`
-  returns the constant with the highest `level()`, or an empty `Optional` when
-  `among` is empty.
+- `typeName(value)`: the name the log shows for the value's type;
+- `sameType(a, b)`: whether a change from `a` to `b` is an edit of one type.
 
-| call | answer |
-|---|---|
-| `all()` | `[TRACE, LOW, MEDIUM, HIGH, CRITICAL, CATASTROPHIC]` |
-| `highest(List.of(LOW, CRITICAL, MEDIUM))` | `Optional[CRITICAL]` |
-| `highest(List.of(HIGH, TRACE))` | `Optional[HIGH]` |
-| `highest(List.of())` | `Optional.empty` |
-| `all().add(LOW)` | throws `UnsupportedOperationException` |
-
-Note that `ExtendedSeverity` has a constant *below* every standard one.
+When you're done, every constant of `Discount` is logged as a `Discount`, whichever constant it
+is, and a constant of one enum is never the same type as a constant of another. About four lines
+in total.

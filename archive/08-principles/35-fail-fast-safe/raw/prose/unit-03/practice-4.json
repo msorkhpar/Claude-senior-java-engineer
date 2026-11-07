@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Paying for safety",
+  "title": "Check yourself: choosing an iterator",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,181 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-cow-workload",
-        "stem": "Threads share a list of 10,000 elements and write to it as often as they read it. Per this page, why is `CopyOnWriteArrayList` a poor fit here?",
+        "id": "q-retry-dispatch",
+        "stem": "A webhook dispatcher walks a shared `ArrayList` of 12 endpoints on one thread and calls each in turn. An admin thread adds an endpoint about once a day. The team wraps the walk in `catch (ConcurrentModificationException e)` and retries the whole dispatch. What can still go wrong?",
         "options": [
           {
             "id": "a",
-            "text": "Every write copies the whole array, so each one costs O(n)",
-            "correct": true,
-            "says": "The page says CopyOnWriteArrayList writes are O(n) because the entire array is copied, which makes it unsuitable for a 50/50 workload."
+            "text": "Nothing the retry misses, since the walk throws before it has called any endpoint",
+            "correct": false,
+            "says": "most failed dispatches had already reached some listeners before the walk threw"
           },
           {
             "id": "b",
-            "text": "Every read takes the list's lock, so readers queue on writers",
+            "text": "Nothing the retry misses, since a walk disturbed by another thread always ends in that exception",
             "correct": false,
-            "says": "The page says CopyOnWriteArrayList reads are O(1) with no synchronization needed."
+            "says": "the listener run also ended in NullPointerException and NoSuchElementException, which that catch doesn't see"
           },
           {
             "id": "c",
-            "text": "Every iterator throws once a write lands during its traversal",
+            "text": "Some endpoints get one webhook twice, since the walk throws after it has called the endpoints before it",
+            "correct": true,
+            "says": "most failed dispatches had already reached some listeners, so a retry sends them the event again"
+          },
+          {
+            "id": "d",
+            "text": "Some endpoints get one webhook twice, since the walk throws only after it has called every endpoint",
             "correct": false,
-            "says": "The page's table says snapshot iteration is always safe: it never throws."
+            "says": "the walk fails part-way: giving up never sends the event to the endpoints after the failure, so it had not called them all"
           }
         ],
         "origin": {
           "path": "35-fail-fast-safe/README_8.5.3.md",
-          "section": "Interview Q&A Section"
+          "section": "Once Another Thread Writes, a Fail-Fast Walk Fails at Random; a Small Listener List Needs a Snapshot"
         }
       },
       {
-        "id": "q-total",
-        "stem": "Other threads keep writing to a `ConcurrentHashMap<String, Integer>` of scores. Per this page, what does adding up its values in a for-each over `entrySet()` produce?",
+        "id": "q-cow-growth",
+        "stem": "Open orders are kept in a `CopyOnWriteArrayList`. During a sale the list grows from 5,000 to 50,000 orders, with about a thousand inserts a second. What happens to the cost of one insert?",
         "options": [
           {
             "id": "a",
-            "text": "A sum that may include some of the other threads' changes and miss others",
+            "text": "It grows about tenfold, since each insert copies every order already in the list",
             "correct": true,
-            "says": "The page's pitfall says such a sum may include some new entries and miss others, because the iteration is weakly consistent."
+            "says": "every write copies the whole array, so time and allocation per write grow with the list"
           },
           {
             "id": "b",
-            "text": "A ConcurrentModificationException as soon as another thread changes it",
+            "text": "It grows about tenfold, since each insert waits for the readers walking the list to finish",
             "correct": false,
-            "says": "The page says weakly consistent iteration is always safe and never throws."
+            "says": "readers take no lock; a walk keeps the array it started with and never holds up a write"
           },
           {
             "id": "c",
-            "text": "An exact sum of the map as it stood when the for-each began its first step",
+            "text": "It stays about the same, since an insert only places one reference at the end",
             "correct": false,
-            "says": "The page says that sum may be inconsistent, and that even reduceValues is weakly consistent; an exact total must be kept beside the writes."
+            "says": "the measured cost per write went from 160 ns at 1,000 elements to 21 µs at 100,000"
+          },
+          {
+            "id": "d",
+            "text": "It stays about the same, since one copy is shared by all inserts made in the same second",
+            "correct": false,
+            "says": "every mutative operation makes a fresh copy; the bytes allocated per write grew with the list"
           }
         ],
         "origin": {
           "path": "35-fail-fast-safe/README_8.5.3.md",
-          "section": "Common Pitfalls and How to Avoid Them"
+          "section": "Every Copy-on-Write Write Copies the Whole Array, So Its Cost Grows with the List"
+        }
+      },
+      {
+        "id": "q-seat-total",
+        "stem": "An airline moves seats between the cabins of a flight with `cabins.merge(from, -n, Integer::sum)` followed by `cabins.merge(to, n, Integer::sum)` on a `ConcurrentHashMap`. A dashboard adds up `cabins.values()` while upgrades run. What does the dashboard show?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The seats the flight really has, since each merge is atomic and the walk never throws",
+            "correct": false,
+            "says": "atomic single-key updates don't help: the walk reads each key at a different moment"
+          },
+          {
+            "id": "b",
+            "text": "The seats the flight really has, since a walk over a concurrent map reads every value at one moment",
+            "correct": false,
+            "says": "no walk over a structure that changes under it gives one moment; the live stock report was wrong in 98 of 100 reports"
+          },
+          {
+            "id": "c",
+            "text": "Now and then a wrong count, since the walk can read the two cabins of one move at different moments",
+            "correct": true,
+            "says": "a report that reads one side of a move before it and the other after it counts the units twice or not at all"
+          },
+          {
+            "id": "d",
+            "text": "Now and then a ConcurrentModificationException, since an upgrade can change the map during the walk",
+            "correct": false,
+            "says": "the live reports were wrong and none threw; a weakly consistent iterator never throws ConcurrentModificationException (unit 6.5.3)"
+          }
+        ],
+        "origin": {
+          "path": "35-fail-fast-safe/README_8.5.3.md",
+          "section": "A Weakly Consistent Walk Fits Work on One Element at a Time, Not a Total Across Elements"
+        }
+      },
+      {
+        "id": "q-in-place",
+        "stem": "Fifty currency rates live in an `AtomicReference<Map<String, BigDecimal>>` that holds a `HashMap`. An update calls `rates.get().put(code, rate)`. A pricing job walks `rates.get()` to convert a basket. Does each conversion use the rates of one moment?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Yes, since reading the map through the AtomicReference hands the job a copy of its own",
+            "correct": false,
+            "says": "get() returns the one map the updates change; nothing is copied"
+          },
+          {
+            "id": "b",
+            "text": "Yes, since replacing the value of an existing key cannot disturb a walk in progress",
+            "correct": false,
+            "says": "the job walks the one map that updates change, so a conversion can mix rates from before and after an update"
+          },
+          {
+            "id": "c",
+            "text": "No, since every update changes the very same map object that the job is walking",
+            "correct": true,
+            "says": "a mutable map kept in the AtomicReference and changed in place is the live map again"
+          },
+          {
+            "id": "d",
+            "text": "No, since each call to get() makes a new copy and two copies can disagree",
+            "correct": false,
+            "says": "get() copies nothing; the problem is that the one shared map changes in place"
+          }
+        ],
+        "origin": {
+          "path": "35-fail-fast-safe/README_8.5.3.md",
+          "section": "A Total That Must Add Up Needs a Snapshot or a Lock, and Size Decides Which"
+        }
+      },
+      {
+        "id": "q-big-snapshot",
+        "stem": "An inventory of 2,000,000 items takes about 3,000 moves a second, and an hourly report must add up. The team switches to publishing a new unmodifiable map on every move. What happens to the moves?",
+        "options": [
+          {
+            "id": "a",
+            "text": "They fall to a small fraction of their rate, since each move copies every entry of the inventory",
+            "correct": true,
+            "says": "the snapshot copies the whole map on every move; at 100,000 warehouses the mover managed a few hundred moves a second"
+          },
+          {
+            "id": "b",
+            "text": "They fall to a small fraction of their rate, since each move waits while the hourly report walks",
+            "correct": false,
+            "says": "with a snapshot the report walks a map nobody changes, so moves never wait for it; waiting is the lock's cost"
+          },
+          {
+            "id": "c",
+            "text": "They keep their rate, since only the hourly report ever reads the new maps",
+            "correct": false,
+            "says": "the cost is in writing: each move builds a copy, whoever reads it"
+          },
+          {
+            "id": "d",
+            "text": "They keep their rate, since the copy is taken once an hour, when the report begins",
+            "correct": false,
+            "says": "the copy is made by every move, not by the report"
+          }
+        ],
+        "origin": {
+          "path": "35-fail-fast-safe/README_8.5.3.md",
+          "section": "A Total That Must Add Up Needs a Snapshot or a Lock, and Size Decides Which"
         }
       }
     ],
     "concepts": [
-      "The collection is chosen by workload: plain ArrayList and HashMap for one thread, CopyOnWriteArrayList only for small read-heavy lists because each write is an O(n) copy, ConcurrentHashMap for a shared map.",
-      "A total summed over a weakly consistent iteration may count some concurrent writes and miss others; an exact total is kept beside the writes."
+      "Once another thread writes, a walk over a fail-fast collection fails at random, not only with ConcurrentModificationException, and often after it has already handled some elements, so retrying it repeats them.",
+      "A snapshot charges each write a copy of the whole map, so it fits small or rarely written data; a lock makes writers wait out each read, which suits large, busy data.",
+      "A mutable map kept in an AtomicReference and changed in place is not a snapshot: a reader walks the live map.",
+      "A total added up by a weakly consistent walk while writers move value between keys can be one the collection never held, even though each update is atomic."
     ]
   }
 }

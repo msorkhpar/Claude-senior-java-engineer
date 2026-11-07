@@ -18,372 +18,425 @@
       "text": "4.2.3. Function — Transforming Values and Returning Results"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
-    },
-    {
       "type": "para",
-      "text": "`Function<T, R>` is the transformation workhorse of functional programming in Java. It accepts a value of type `T` and produces a result of type `R`. Unlike `Consumer` (which discards the result) and `Supplier` (which takes no input), `Function` models a pure input-output mapping — it is the direct Java equivalent of the mathematical concept of a function f: T → R."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of `Function` like a factory assembly line station. Raw material (type `T`) goes in, a finished product (type `R`) comes out. The station can be chained with other stations using `andThen()` to form a complete pipeline: mill → forge → polish → inspect."
-    },
-    {
-      "type": "para",
-      "text": "The interface definition:"
+      "text": "A checkout service prices a basket in one statement:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "@FunctionalInterface\npublic interface Function<T, R> {\n    R apply(T t);\n\n    default <V> Function<T, V> andThen(Function<? super R, ? extends V> after) { ... }\n    default <V> Function<V, R> compose(Function<? super V, ? extends T> before) { ... }\n    static <T> Function<T, T> identity() { ... }\n}"
+      "text": "Map<String, Integer> prices = basket.stream()\n        .collect(Collectors.toMap(Function.identity(), Checkout::priceOf));"
     },
     {
       "type": "para",
-      "text": "**Key composition methods:**"
+      "text": "In its first week in production two customers got an error page. One basket was `[AB-1, CD-2, AB-1]`, the same SKU twice; the other was `[AB-1, ZZ-9]`, with a SKU the catalogue had just dropped, for which `priceOf` returns `null`."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`f.andThen(g)` — `f` runs first, then `g` on the result: equivalent to `g(f(x))`",
-        "`f.compose(g)` — `g` runs first, then `f` on the result: equivalent to `f(g(x))`",
-        "`Function.identity()` — returns a function that always returns its input unchanged"
+      "type": "code",
+      "lang": "text",
+      "text": "java.lang.IllegalStateException: Duplicate key AB-1 (attempted merging values 1250 and 1250)\njava.lang.NullPointerException"
+    },
+    {
+      "type": "para",
+      "text": "The failures come from what the JDK does with a function's result, or with a function of the wrong interface type; one rule per section. How `andThen` and `compose` order their steps, and the primitive specialisations, are in unit 4.1.3."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "UnaryOperator<T> Is a Function<T, T>, but a Function<T, T> Is Not a UnaryOperator<T>"
+    },
+    {
+      "type": "para",
+      "text": "`UnaryOperator<T>` extends `Function<T, T>` and adds no abstract method. `BinaryOperator<T>` extends `BiFunction<T, T, T>` the same way. Some JDK methods ask for the narrower type: `List.replaceAll` takes a `UnaryOperator<E>`, `Stream.reduce` a `BinaryOperator<T>`. Pass `replaceAll` a function that is already in a variable:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> skus = new ArrayList<>(List.of(\" ab-1\", \"cd-2 \"));\nFunction<String, String> clean = s -> s.strip().toUpperCase();\nskus.replaceAll(clean);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ReplaceAll.java:9: error: incompatible types: Function<String,String> cannot be converted to UnaryOperator<String>\n        skus.replaceAll(clean);\n                        ^"
+    },
+    {
+      "type": "para",
+      "text": "The same lambda written inside the call compiles. A lambda has no type of its own: it takes the type the call expects (unit 4.1.1), so `skus.replaceAll(s -> s.strip().toUpperCase())` creates a `UnaryOperator<String>`. The variable `clean` already has a type, and `Function<String, String>` is the supertype. Java's functional interfaces are named types, so two interfaces with the same method shape are still two types, and a value converts only to a supertype. A `BiFunction<Integer, Integer, Integer>` handed to `reduce(0, add)` fails the same way, and so does `skus.replaceAll(Function.identity())`, because `identity()` returns a `Function`."
+    },
+    {
+      "type": "para",
+      "text": "A cast silences the compiler:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "skus.replaceAll((UnaryOperator<String>) clean);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "java.lang.ClassCastException"
+    },
+    {
+      "type": "para",
+      "text": "It compiles because a `Function` variable could hold a `UnaryOperator`. It fails at run time because the object behind `clean` was created as a `Function` and implements nothing else. Either declare the variable as `UnaryOperator<String>`, which still goes anywhere a `Function<String, String>` is accepted, or adapt it with a method reference, `clean::apply`, which creates a new `UnaryOperator` that calls `clean`. For a no-op, use `UnaryOperator.identity()`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Collectors.toMap Throws on a Duplicate Key or a null Value Until You Say What to Do"
+    },
+    {
+      "type": "para",
+      "text": "`toMap(keyMapper, valueMapper)` won't choose between two values for one key, and it won't store a `null` value at all. Those are the two failures from the start of the unit."
+    },
+    {
+      "type": "para",
+      "text": "Where `HashMap.put` would silently keep the second value, the collector throws `IllegalStateException`, as its javadoc says. A repeated key usually means the key isn't what you thought it was: here the basket needs a quantity, and dropping one of the two lines would undercharge."
+    },
+    {
+      "type": "para",
+      "text": "The third argument, a `BinaryOperator<U>`, gets the value already collected and the new one, and returns the one to keep. It doesn't help with `null`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List.of(\"AB-1\", \"ZZ-9\").stream()\n        .collect(Collectors.toMap(Function.identity(), Checkout::priceOf, (first, again) -> first));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "with a merge function: java.lang.NullPointerException"
+    },
+    {
+      "type": "para",
+      "text": "The three-argument form collects through `Map.merge`, which rejects a `null` value too. Deal with the `null` before the collector: filter the SKU out, or, here, reject the basket with a message that names the SKU the catalogue no longer prices."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "A Merge Function Picks a Winner, and the Last One Seen Isn't Always the Newest"
+    },
+    {
+      "type": "para",
+      "text": "A price feed sends a SKU again whenever its price changes, with a version number. The service keeps one price per SKU. Two merge functions look equivalent:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Map<String, Price> newest = feed.stream().collect(Collectors.toMap(Price::sku, Function.identity(),\n        BinaryOperator.maxBy(Comparator.comparingLong(Price::version))));\nMap<String, Price> lastSeen = feed.stream().collect(Collectors.toMap(Price::sku, Function.identity(),\n        (older, newer) -> newer));"
+    },
+    {
+      "type": "para",
+      "text": "The feed held `AB-1` at version 7, then 9, then 8:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "maxBy(version):         Price[sku=AB-1, cents=1190, version=9]\n(older, newer) -> newer: Price[sku=AB-1, cents=1300, version=8]"
+    },
+    {
+      "type": "para",
+      "text": "`(older, newer) -> newer` keeps whatever arrived last. That is the newest only while the feed arrives in order, and one retried message breaks that. `BinaryOperator.minBy` and `maxBy` turn a `Comparator` into a merge function that decides by the data."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Ties.** The javadoc of `minBy` and `maxBy` doesn't say which operand wins when the comparator returns 0. On Java 21 both return the first one, the value already in the map. If a tie can happen, add a tie-breaker with `thenComparing` rather than rely on that."
+        }
       ]
     },
     {
+      "type": "heading",
+      "level": 3,
+      "text": "Function.identity() or x -> x"
+    },
+    {
       "type": "para",
-      "text": "**Related types:**"
+      "text": "`Function.identity()` and `sku -> sku` give the same map as key mappers: the checkout prints `{CD-2=899, AB-1=1250}` with either. On Java 21, `identity()` returns the same object every time, which its javadoc doesn't promise, and `UnaryOperator.identity()` is a different one:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "identity() == identity(): true\nFunction.identity() == UnaryOperator.identity(): false"
+    },
+    {
+      "type": "para",
+      "text": "Pass the one whose type the call asks for. Whether two lambdas are the same object is unit 4.1.1's subject, and no code should depend on it."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Remapping Function That Returns null Removes the Entry"
+    },
+    {
+      "type": "para",
+      "text": "`Map.compute`, `computeIfPresent` and `merge` take a `BiFunction` and store what it returns, except `null`, which removes the key. A stock service reserves one unit of a SKU, and returns `null` to mean \"nothing left, do nothing\":"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Map<String, Integer> stock = new TreeMap<>(Map.of(\"AB-1\", 2, \"CD-2\", 1));\nBiFunction<String, Integer, Integer> takeOne = (sku, left) -> left > 0 ? left - 1 : null;\nfor (int i = 0; i < 2; i++) {\n    stock.computeIfPresent(\"CD-2\", takeOne);\n    System.out.println(\"after reserving CD-2: \" + stock);\n}\nint left = stock.get(\"CD-2\");"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "after reserving CD-2: {AB-1=2, CD-2=0}\nafter reserving CD-2: {AB-1=2}\njava.lang.NullPointerException: Cannot invoke \"java.lang.Integer.intValue()\" because the return value of \"java.util.Map.get(Object)\" is null"
+    },
+    {
+      "type": "para",
+      "text": "The second reservation found zero units and deleted the SKU. A stock report no longer lists it, a bulk update such as `replaceAll` no longer reaches it, and every caller that unboxes `stock.get(sku)` throws. To leave an entry as it is, return the value you were given: `left > 0 ? left - 1 : left`."
+    },
+    {
+      "type": "para",
+      "text": "This makes \"update, or remove when done\" one call. In a `ConcurrentHashMap` that call is atomic, so a counter can drop its key at zero without a race between the decrement and the `remove`. Return `null` only to remove."
+    },
+    {
+      "type": "para",
+      "text": "When the key is absent, `merge` stores the value you pass without calling the function. `merge(\"ZZ-9\", -1, Integer::sum)` on an empty map leaves `{ZZ-9=-1}`, a count below zero for something that was never counted."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A null Halfway Through an andThen Chain Fails in the Next Step; Optional.map Stops There"
+    },
+    {
+      "type": "para",
+      "text": "A shipping label takes an order's customer, the customer's address, and the address's city. An order collected in the store has a customer with no address:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Function<Order, Customer> customer = Order::customer;\nFunction<Customer, Address> address = Customer::address;\nFunction<Address, String> city = Address::city;\nFunction<Order, String> shipTo = customer.andThen(address).andThen(city);\n\nOrder home = new Order(\"o-17\", new Customer(\"Jane Doe\", new Address(\"Lyon\")));\nOrder pickup = new Order(\"o-18\", new Customer(\"John Roe\", null));   // collects in store\nSystem.out.println(shipTo.apply(home));\nSystem.out.println(shipTo.apply(pickup));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Lyon\njava.lang.NullPointerException\n\tat java.base/java.util.function.Function.lambda$andThen$1(Function.java:88)\n\tat Chain.main(Chain.java:19)"
+    },
+    {
+      "type": "para",
+      "text": "`andThen` passes each result to the next step without looking at it. `Customer::address` returned `null`, `Address::city` was called on it, and the exception has no message. Because the steps are method references, no frame of theirs appears either: the trace stops at the JDK's `andThen`. Written as lambdas, the steps would add a frame and a helpful message, but still at the step after the one that returned `null`. Checking the order for `null` before `apply` doesn't help, because the `null` appeared in the middle. `Optional.map` does check after every step:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Function<Order, String> shipToOrNone = order -> Optional.ofNullable(order)\n        .map(Order::customer)\n        .map(Customer::address)\n        .map(Address::city)\n        .orElse(\"(in store)\");"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Lyon\n(in store)"
+    },
+    {
+      "type": "para",
+      "text": "A step that returns `null` turns the `Optional` empty, and the steps after it don't run. Use this when a missing value is a normal case, like a pickup order. When it is a bug, the empty `Optional` hides which step was missing: fail at that step instead, with `Objects.requireNonNull(value, message)` naming what was absent."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Memoized Function Must Be Pure, and Its Computation Must Not Go Back Into the Map"
+    },
+    {
+      "type": "para",
+      "text": "`key -> cache.computeIfAbsent(key, slow)` caches the function `slow` in one line; in the run, three lookups of two keys ran `slow` twice. That only works for a pure function: a cached price lookup keeps its first answer after the price changes. Recursion breaks it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static Map<Integer, Long> memo = new ConcurrentHashMap<>();\n\nstatic long fib(int n) {\n    if (n < 2) return n;\n    return memo.computeIfAbsent(n, k -> fib(k - 1) + fib(k - 2));\n}"
+    },
+    {
+      "type": "para",
+      "text": "With a new `ConcurrentHashMap` for each call:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "fib(13) = 233\nfib(14): java.lang.IllegalStateException: Recursive update"
+    },
+    {
+      "type": "para",
+      "text": "`computeIfAbsent` holds the key's slot in the table while the function runs, and the function here inserts other keys into the same map. The javadoc forbids it: \"The mapping function must not modify this map during computation\", but the map throws only when it notices. Here the twelfth entry, for 13, made the table grow while the computation for 14 still held its slot, and the resize found it. A unit test of `fib(10)` passes. A `HashMap` notices at once and throws `ConcurrentModificationException`. Unit 4.1.4 covers functions that change their own map in general."
+    },
+    {
+      "type": "para",
+      "text": "The fix is to recurse with no computation in progress: look the key up, compute the value outside the map, and store it with `putIfAbsent`."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static final Map<Integer, Long> known = new ConcurrentHashMap<>();\n\nstatic long fibOutside(int n) {\n    if (n < 2) return n;\n    Long cached = known.get(n);\n    if (cached != null) return cached;\n    long value = fibOutside(n - 1) + fibOutside(n - 2);   // recurse with no computation in progress\n    known.putIfAbsent(n, value);\n    return value;\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "fibOutside(90) = 2880067194370816120"
+    },
+    {
+      "type": "para",
+      "text": "Two threads may now compute the same key; for a pure function that costs only time."
+    },
+    {
+      "type": "para",
+      "text": "A `null` result isn't cached. If the function returns `null`, `computeIfAbsent` records nothing, so the function runs again on the next call:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lookups for an unknown SKU asked 3 times: 3, cache {}"
+    },
+    {
+      "type": "para",
+      "text": "For a lookup that is slow because it goes to another service, the unknown keys are the expensive ones. Cache the absence too, for example as an `Optional`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`BiFunction<T, U, R>` — accepts two arguments of types `T` and `U`, returns `R`. Has `andThen()` but not `compose()`.",
-        "`UnaryOperator<T>` — extends `Function<T, T>` where input and output are the same type. Has a static `identity()`.",
-        "`BinaryOperator<T>` — extends `BiFunction<T, T, T>` where both inputs and output are the same type. Adds `maxBy(Comparator)` and `minBy(Comparator)`."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Primitive specializations (selected):**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`IntFunction<R>` — `int` → `R`",
-        "`ToIntFunction<T>` — `T` → `int`",
-        "`IntUnaryOperator` — `int` → `int`",
-        "`IntBinaryOperator` — `(int, int)` → `int`",
-        "`ToLongFunction<T>`, `ToDoubleFunction<T>`, `LongToIntFunction`, etc."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Key use sites in the JDK:**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Stream.map(Function)` — transforms each element",
-        "`Stream.flatMap(Function<T, Stream<R>>)` — transforms and flattens",
-        "`List.replaceAll(UnaryOperator)` — in-place list transformation",
-        "`Map.computeIfAbsent(K, Function<K,V>)` — compute and cache a map value",
-        "`Stream.reduce(T, BinaryOperator<T>)` — reduction to a single value"
+        "**A `Function<T, T>` variable is not a `UnaryOperator<T>`.** A lambda takes the type the call asks for; a variable doesn't convert, and a cast compiles and then throws `ClassCastException`.",
+        "**`Collectors.toMap` throws on a duplicate key and on a `null` value.** A merge function decides duplicates (`maxBy` by the data, not by arrival order); `null` values have to be dealt with before the collector.",
+        "**A remapping function that returns `null` removes the entry.** Return the old value to leave it, and remember that `merge` stores its value for an absent key without calling the function.",
+        "**A `null` in the middle of an `andThen` chain fails in the next step,** not in the step that returned it. `Optional.map` stops at the first `null`.",
+        "**A memo built on `computeIfAbsent` needs a pure function that doesn't recurse into the map**, and it doesn't cache `null`."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`Function<T, R>` has one abstract method: `R apply(T t)` — it transforms `T` to `R`.",
-        "`andThen(g)` runs `this` first, then `g`: mathematically `g(f(x))`.",
-        "`compose(g)` runs `g` first, then `this`: mathematically `f(g(x))`. Only `Function` has `compose`; `BiFunction` does not.",
-        "`Function.identity()` is a no-op function: equivalent to `t -> t`. Useful as a default or placeholder.",
-        "`UnaryOperator<T>` extends `Function<T, T>` — use it when input and output types are the same for better expressiveness.",
-        "`BinaryOperator<T>` extends `BiFunction<T, T, T>` — use it for reductions, combining two values of the same type.",
-        "`BiFunction` has `andThen()` but not `compose()` — you cannot compose before a two-argument function in the same way.",
-        "Primitive specializations (`ToIntFunction`, `IntFunction`, `IntUnaryOperator`) avoid autoboxing — use them in performance-sensitive numeric pipelines."
+      "type": "para",
+      "text": "**JDK methods that take the narrower operator types:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Method",
+        "Parameter type"
+      ],
+      "rows": [
+        [
+          "`List.replaceAll`",
+          "`UnaryOperator<E>`"
+        ],
+        [
+          "`Stream.iterate(seed, f)`",
+          "`UnaryOperator<T>`"
+        ],
+        [
+          "`Stream.reduce(identity, op)`, `Stream.reduce(op)`",
+          "`BinaryOperator<T>`"
+        ],
+        [
+          "`Collectors.toMap(k, v, merge)`",
+          "`BinaryOperator<U>`"
+        ],
+        [
+          "`Collectors.reducing(op)`",
+          "`BinaryOperator<T>`"
+        ]
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
+      "type": "para",
+      "text": "**What happens to a `null` the function returns:**"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Java 8**: `Function<T,R>`, `BiFunction<T,U,R>`, `UnaryOperator<T>`, `BinaryOperator<T>`, and all primitive specializations introduced.",
-        "**Java 8**: `Map.computeIfAbsent(K, Function<K,V>)` is one of the most-used Function application sites.",
-        "**Java 8**: `Map.compute`, `Map.computeIfPresent`, and `Map.merge` also accept functions (`Map.getOrDefault`, added at the same time, takes a plain default value).",
-        "**Java 16**: `Stream.toList()` terminal operation often follows a `map(Function)`; unlike `collect(Collectors.toList())` it returns an unmodifiable list.",
-        "**Java 16+**: Records as data carriers work seamlessly with Function — a `Function<PersonRecord, String>` can extract a field.",
-        "**Java 21**: Pattern matching in switch expressions can be used inside a Function lambda to dispatch transformations based on type.",
-        "**Java 21**: Sequenced collections API (`getFirst()`, `getLast()`) can be used inside Function pipelines."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Call",
+        "Function",
+        "When it returns `null`"
+      ],
+      "rows": [
         [
-          "**Confusing `compose` and `andThen`** — this is a very common interview trap.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// andThen: this runs FIRST — left to right\n// f.andThen(g) == g(f(x))\nFunction<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\n\n// Broken expectation: \"I want upper first, then trim\"\nFunction<String, String> wrong = trim.andThen(upper); // actually: trim first, then upper\n\n// Fix: put the step you want first on the left of andThen, or pass it to compose\nFunction<String, String> correct = upper.andThen(trim);   // upper first, then trim\nFunction<String, String> same    = trim.compose(upper);   // also upper first, then trim\n// For these two steps the results happen to be equal; for non-commutative transforms the order matters"
-          }
+          "`Map.computeIfAbsent(k, f)`",
+          "`Function`",
+          "no mapping is recorded; `f` runs again next time"
         ],
         [
-          "**Using `BiFunction` and expecting `compose()`** — `BiFunction` does not have a `compose()` method. Only unary `Function` does.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "BiFunction<String, Integer, String> repeat = (s, n) -> s.repeat(n);\n// repeat.compose(...); // does NOT exist — compile error\n// Fix: chain with andThen after the BiFunction produces its result\nFunction<String, String> upper = String::toUpperCase;\nBiFunction<String, Integer, String> repeatThenUpper = repeat.andThen(upper);"
-          }
+          "`Map.computeIfPresent(k, f)`",
+          "`BiFunction`",
+          "the mapping is removed"
         ],
         [
-          "**Chaining functions that throw `NullPointerException`** — if an intermediate step returns `null`, the next step in `andThen` will receive null.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Broken: toUpperCase() on null throws NPE\nFunction<String, String> toNull = s -> null;\nFunction<String, String> pipeline = toNull.andThen(String::toUpperCase);\npipeline.apply(\"hello\"); // NPE in andThen step"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: add null guards in each step\nFunction<String, String> safe = s -> Optional.ofNullable(s)\n    .map(String::toUpperCase)\n    .orElse(\"\");"
-          }
+          "`Map.compute(k, f)`",
+          "`BiFunction`",
+          "the mapping is removed, or stays absent"
         ],
         [
-          "**Using `Function.identity()` incorrectly expecting a copy** — `identity()` returns the exact same reference, not a copy. For mutable types, this can cause bugs if the object is later mutated.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Tricky: identity() returns the SAME list reference, not a copy\nFunction<List<String>, List<String>> id = Function.identity();\nList<String> original = new ArrayList<>(List.of(\"a\", \"b\"));\nList<String> result = id.apply(original);\nresult.add(\"c\"); // mutates the original too!"
-          }
+          "`Map.merge(k, v, f)`",
+          "`BiFunction`, called only if `k` has a non-null value",
+          "the mapping is removed"
         ],
-        "**Overloading ambiguity** — when a method is overloaded for two unrelated functional interfaces of the same shape (for example `Function<String,String>` and a custom `StringMapper { String map(String s); }`), a lambda argument is ambiguous. Prefer explicit casts or distinct method names. (Overloads for `Function<T,T>` and `UnaryOperator<T>` are not ambiguous: `UnaryOperator` is a subtype, so that more specific overload is chosen.)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
         [
-          "**Compose functions with `andThen()` to build readable pipelines.** Name intermediate functions for clarity:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Function<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\nFunction<String, String> slugify = s -> s.replace(\" \", \"-\");\nFunction<String, String> normalize = trim.andThen(upper).andThen(slugify);"
-          }
+          "`Collectors.toMap(k, v)`",
+          "value mapper",
+          "`NullPointerException`; a duplicate key throws `IllegalStateException`"
         ],
-        "**Use `UnaryOperator<T>` instead of `Function<T,T>`** when input and output are the same type — it is more descriptive and accepted by `List.replaceAll()`.",
-        "**Use `BinaryOperator<T>` for reductions.** `Stream.reduce(identity, BinaryOperator)` is the canonical use — it clearly expresses \"combining two values of the same type into one\".",
-        "**Use `Function.identity()` as a default/no-op** in builder APIs or pipeline configurations where a \"do nothing\" function is needed.",
-        "**Prefer primitive specializations** (`ToIntFunction`, `IntFunction`, `IntUnaryOperator`) in hot numeric processing paths to eliminate boxing overhead.",
         [
-          "**Use `Map.computeIfAbsent(key, Function)` as a single \"get or compute\" operation** rather than get-check-put patterns (it is atomic in `ConcurrentHashMap`; in a plain `HashMap` it is simply one call instead of three).",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Verbose get-check-put\nif (!cache.containsKey(key)) cache.put(key, expensiveCompute(key));\nreturn cache.get(key);\n\n// Clean computeIfAbsent\nreturn cache.computeIfAbsent(key, k -> expensiveCompute(k));"
-          }
+          "`Collectors.toMap(k, v, merge)`",
+          "plus a `BinaryOperator` merge",
+          "`NullPointerException` from `Map.merge`"
+        ],
+        [
+          "`f.andThen(g)`",
+          "`Function`",
+          "`g` is called with `null`"
+        ],
+        [
+          "`Optional.map(f)`",
+          "`Function`",
+          "the result is empty and later `map`s don't run"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**`apply()` returning null** — `Function` does not prohibit returning null. Callers should handle this if the function can return null, typically by wrapping in `Optional`.",
-        "**`Function.identity()` with null input** — `identity()` returns its input unchanged, including null. This is consistent behavior but callers should know identity does not guard against null.",
-        "**Side effects in Function** — technically possible but discouraged. A Function that modifies external state (counter, DB) is impure and breaks referential transparency. Use `Consumer` for side effects.",
-        "**`BinaryOperator.maxBy()` / `minBy()` with empty stream** — `stream.reduce(BinaryOperator)` (no identity) returns an `Optional`. With an empty stream, it returns `Optional.empty()`. Use `orElseThrow()` only if you are certain the stream is non-empty.",
-        "**Recursive Function** — A `Function` can be made recursive by using a local variable in a `UnaryOperator` array (workaround for the effectively-final requirement), but this is complex. For recursive transformations, prefer regular named methods.",
-        "**`andThen` with expensive second step** — `andThen` always invokes the second function if the first does not throw. There is no short-circuiting. If you need conditional execution, use an if-check inside the lambda."
+        "A `toMap` over orders keyed by customer id throws on a duplicate in production. Is the fix a merge function, `groupingBy`, or a different key? What does each choice do to the totals a finance report reads?",
+        "Your memo wraps a remote lookup that sometimes returns `null` for \"not found yet\". How long should the absence stay cached, and what in your cache expresses that?",
+        "Measure how long `computeIfAbsent` on a `ConcurrentHashMap` holds other writers back when its function takes 50 ms, for writers to the same key and to other keys."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why Java Has Both Function<T, T> and UnaryOperator<T>"
     },
     {
       "type": "para",
-      "text": "Interviewers focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The `compose` vs `andThen` distinction — always a popular question; memorize: `andThen` = \"this then that\", `compose` = \"that then this\".",
-        "`Function.identity()` — when, why, and the gotcha with mutable objects.",
-        "`UnaryOperator` and `BinaryOperator` as specializations of Function/BiFunction.",
-        "`List.replaceAll(UnaryOperator)` and `Map.computeIfAbsent(K, Function)` as canonical use sites.",
-        "Stream `map()` accepts `Function<T,R>` — interviewers may ask why `map` is not called `apply`.",
-        "Primitive specializations and why they exist."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Common tricky questions:**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What is `Function.compose(g)` equivalent to in terms of `andThen`?\" (`f.compose(g)` == `g.andThen(f)` — the argument runs first.)",
-        "\"Does `BiFunction` have a `compose()` method?\" (No — only unary `Function` does. `BiFunction` only has `andThen`.)",
-        "\"What does `Function.identity()` return?\" (The same object reference — not a copy.)",
-        "\"What is the difference between `UnaryOperator<String>` and `Function<String, String>`?\" (Semantically equivalent; `UnaryOperator` is more expressive and satisfies `List.replaceAll`.)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the difference between `Function.andThen()` and `Function.compose()`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Both compose two functions into a pipeline, but in opposite orders:\n\n    f.andThen(g)  — f runs FIRST, result passed to g — equivalent to g(f(x))\n    f.compose(g)  — g runs FIRST, result passed to f — equivalent to f(g(x))\n\nMemory trick:\n- andThen: \"apply this, then apply the argument\" — left to right reading\n- compose: \"apply the argument before applying this\" — right to left (mathematical notation)\n\nBiFunction only has andThen, not compose — because you cannot compose before a two-argument function\nwithout supplying both arguments first."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Function<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\n\n// andThen: trim first, then upper — same as upper(trim(input))\nString r1 = trim.andThen(upper).apply(\"  hello  \"); // \"HELLO\"\n\n// compose: upper first, then trim — same as trim(upper(input))\nString r2 = trim.compose(upper).apply(\"  hello  \"); // \"HELLO\" (same here because upper doesn't add spaces)\n\n// Use a more illustrative example to see the difference\nFunction<Integer, Integer> times2 = x -> x * 2;\nFunction<Integer, Integer> plus3  = x -> x + 3;\n\n// andThen: times2 first, then plus3 => (x * 2) + 3\nint a = times2.andThen(plus3).apply(5);  // (5*2)+3 = 13\n\n// compose: plus3 first, then times2 => (x + 3) * 2\nint b = times2.compose(plus3).apply(5);  // (5+3)*2 = 16\n\nSystem.out.println(a); // 13\nSystem.out.println(b); // 16"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What are `UnaryOperator` and `BinaryOperator`, and how do they relate to `Function`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: UnaryOperator<T> extends Function<T, T> — it represents a function where the input and\noutput are the same type. It adds no new abstract methods beyond Function's apply(T); the\nconstraint is purely that T → T.\n\nBinaryOperator<T> extends BiFunction<T, T, T> — it represents a function that takes two\narguments of the same type and returns the same type. It adds two static factory methods:\n- maxBy(Comparator<T>) — returns a BinaryOperator that picks the larger element\n- minBy(Comparator<T>) — returns a BinaryOperator that picks the smaller element\n\nThese specializations make code more expressive and are accepted by specific API methods:\n- List.replaceAll(UnaryOperator<E>)  — transforms each list element in-place\n- Stream.reduce(T, BinaryOperator<T>)  — folds a stream to a single value"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// UnaryOperator: same-type transformation\nUnaryOperator<String> trim = String::trim;\nUnaryOperator<Integer> square = x -> x * x;\n\n// Using with List.replaceAll — requires UnaryOperator, not Function\nList<String> names = new ArrayList<>(List.of(\"  Alice \", \" Bob \", \"  Charlie  \"));\nnames.replaceAll(String::trim);   // in-place transformation\n// names = [\"Alice\", \"Bob\", \"Charlie\"]\n\n// BinaryOperator: two same-type inputs, same-type output\nBinaryOperator<Integer> add = Integer::sum;\nBinaryOperator<String> concat = (a, b) -> a + b;\nBinaryOperator<Integer> max = BinaryOperator.maxBy(Integer::compareTo);\n\n// Using with Stream.reduce\nList<Integer> numbers = List.of(1, 2, 3, 4, 5);\nint sum = numbers.stream().reduce(0, add);        // 15\nint maximum = numbers.stream().reduce(Integer.MIN_VALUE, max); // 5\n\n// BinaryOperator.maxBy and minBy\nBinaryOperator<String> longerOf = BinaryOperator.maxBy(Comparator.comparingInt(String::length));\nOptional<String> longest = Stream.of(\"hi\", \"hello\", \"hey\").reduce(longerOf);\nSystem.out.println(longest.orElse(\"\")); // \"hello\""
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does `Map.computeIfAbsent()` use `Function`, and why is it better than get-check-put?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Map.computeIfAbsent(K key, Function<K,V> mappingFunction), in a single call (atomically in ConcurrentHashMap):\n1. Checks if the key is absent (or mapped to null)\n2. If absent, calls mappingFunction.apply(key) to compute the value\n3. Stores the computed value in the map\n4. Returns the (new or existing) value\n\nThis is better than the get-check-put pattern for two reasons:\n1. Atomicity: in concurrent maps (like ConcurrentHashMap), computeIfAbsent is atomic — no\n   race condition between the check and the put.\n2. Conciseness: it replaces 3-4 lines with a single expression.\n\nCommon use cases:\n- Building grouping maps (group by first letter, etc.)\n- Implementing caches\n- Initializing default values for map keys"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Verbose get-check-put (not atomic for concurrent maps)\nMap<String, List<String>> groups = new HashMap<>();\nString word = \"apple\";\nString key = String.valueOf(word.charAt(0));\nif (!groups.containsKey(key)) {\n    groups.put(key, new ArrayList<>());\n}\ngroups.get(key).add(word);\n\n// Clean computeIfAbsent\nMap<String, List<String>> groups2 = new HashMap<>();\nList<String> words = List.of(\"apple\", \"banana\", \"avocado\", \"cherry\", \"blueberry\");\nfor (String w : words) {\n    groups2.computeIfAbsent(String.valueOf(w.charAt(0)), k -> new ArrayList<>()).add(w);\n}\n// groups2 = {\"a\": [\"apple\", \"avocado\"], \"b\": [\"banana\", \"blueberry\"], \"c\": [\"cherry\"]}\n\n// Cache implementation\nMap<String, Integer> cache = new HashMap<>();\nFunction<String, Integer> computeLength = String::length;\n// On first call: computes and stores; on subsequent calls: returns cached value\nint len1 = cache.computeIfAbsent(\"hello\", computeLength); // computes 5, stores it\nint len2 = cache.computeIfAbsent(\"hello\", computeLength); // returns cached 5"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: What is `Function.identity()` and when is it useful?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Function.identity() returns a Function that always returns its input argument unchanged:\n    T -> T, equivalent to t -> t.\n\nUse cases:\n1. As a default/no-op in builder patterns where a transformation Function is optional.\n2. In stream pipelines as a placeholder: stream.map(Function.identity()) is a no-op.\n3. In test code to assert that a pipeline correctly passes through unchanged values.\n4. With Collectors.toMap() when the value should be the element itself:\n   stream.collect(toMap(keyExtractor, Function.identity()))\n\nImportant caveat: identity() returns the SAME reference — not a copy. For mutable objects,\nthe caller and the \"result\" share the same object. This is usually fine for immutable types\n(String, Integer, records) but can be surprising for mutable collections."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// No-op transformation in a stream\nList<String> names = List.of(\"Alice\", \"Bob\");\nList<String> same = names.stream()\n    .map(Function.identity()) // passes each string through unchanged\n    .collect(Collectors.toList());\n\n// Collectors.toMap with identity value\nMap<String, String> nameMap = names.stream()\n    .collect(Collectors.toMap(\n        String::toLowerCase,    // key: lowercased name\n        Function.identity()     // value: original name\n    ));\n// {\"alice\" -> \"Alice\", \"bob\" -> \"Bob\"}\n\n// Default pipeline: apply transform if provided, otherwise identity\nFunction<String, String> transform = getOptionalTransform().orElse(Function.identity());\nList<String> result = names.stream().map(transform).collect(Collectors.toList());\n\n// Gotcha: identity() with mutable objects\nList<String> mutable = new ArrayList<>(List.of(\"a\", \"b\"));\nFunction<List<String>, List<String>> id = Function.identity();\nList<String> ref = id.apply(mutable); // SAME reference\nref.add(\"c\"); // mutates mutable too!\nSystem.out.println(mutable); // [a, b, c]"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How do primitive function specializations differ from generic `Function<T,R>` and when should you prefer them?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Generic Function<T,R> requires both T and R to be reference types. When T or R is a\nprimitive type (int, long, double), autoboxing occurs: primitives are wrapped in Integer,\nLong, Double, etc., creating heap objects.\n\nPrimitive specializations eliminate this overhead:\n- ToIntFunction<T>:    T -> int  (no boxing on the int side)\n- IntFunction<R>:      int -> R  (no boxing on the int side)\n- IntUnaryOperator:    int -> int (no boxing at all)\n- IntBinaryOperator:   (int, int) -> int (no boxing at all)\n- ToLongFunction<T>, ToDoubleFunction<T>, etc.\n\nUse primitive specializations when:\n- Processing large arrays or streams of numbers\n- Working with IntStream, LongStream, DoubleStream APIs\n- Performance profiling shows boxing/unboxing overhead"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Generic Function with boxing\nFunction<String, Integer> length = String::length;  // returns Integer (boxed)\nint len = length.apply(\"hello\");  // unboxed to int\n\n// Primitive specialization — no boxing on the return side\nToIntFunction<String> primLength = String::length;   // returns int (primitive)\nint primLen = primLength.applyAsInt(\"hello\");  // no unboxing needed\n\n// IntFunction: int in, object out (e.g., int -> String)\nIntFunction<String> padded = i -> String.format(\"%03d\", i);\nString s = padded.apply(7);  // \"007\"\n\n// IntUnaryOperator: int in, int out — used with IntStream.map()\nIntUnaryOperator square = n -> n * n;\nint[] squares = IntStream.rangeClosed(1, 5)\n    .map(square)\n    .toArray();  // [1, 4, 9, 16, 25] — no boxing at any step\n\n// IntBinaryOperator: (int, int) -> int — used with IntStream.reduce()\nIntBinaryOperator multiply = (a, b) -> a * b;\nint product = IntStream.rangeClosed(1, 5).reduce(1, multiply);  // 120 (factorial 5)"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: Show a complete real-world Function pipeline for normalizing user input.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Function composition with andThen() is excellent for building data normalization or\nETL (Extract-Transform-Load) pipelines. Each step is a pure transformation that can be\nnamed, tested independently, and reordered. This is the Pipeline pattern."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Individual, testable transformation steps\nFunction<String, String> trim = String::trim;\nFunction<String, String> lower = String::toLowerCase;\nFunction<String, String> removeSpecialChars = s -> s.replaceAll(\"[^a-z0-9\\\\s-]\", \"\");\nFunction<String, String> collapseSpaces = s -> s.replaceAll(\"\\\\s+\", \" \");\nFunction<String, String> spaceToHyphen = s -> s.replace(\" \", \"-\");\n\n// Compose into a single pipeline\nFunction<String, String> slugify = trim\n    .andThen(lower)\n    .andThen(removeSpecialChars)\n    .andThen(collapseSpaces)\n    .andThen(spaceToHyphen);\n\n// Apply\nSystem.out.println(slugify.apply(\"  Hello, World!  \"));   // \"hello-world\"\nSystem.out.println(slugify.apply(\"Java 21 Features!!!\"));  // \"java-21-features\"\nSystem.out.println(slugify.apply(\"  My   Blog   Post  \")); // \"my-blog-post\"\n\n// The pipeline can be used with Stream.map()\nList<String> titles = List.of(\"Hello World\", \"Java Is Great\", \"  Spaces  \");\nList<String> slugs = titles.stream()\n    .map(slugify)\n    .collect(Collectors.toList());\n// [\"hello-world\", \"java-is-great\", \"spaces\"]"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q7: How does `BiFunction<T,U,R>` work and what are its limitations compared to `Function<T,R>`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A7: BiFunction<T,U,R> accepts two arguments of types T and U and returns a value of type R.\nIts abstract method is R apply(T t, U u). It also has andThen(Function<R,V>) to chain a\npost-processing function.\n\nKey limitations compared to Function<T,R>:\n1. No compose() method — you cannot \"compose before\" a two-argument function the same way.\n2. Cannot be used directly where Function<T,R> is expected (different functional interface type).\n3. Cannot chain two BiFunctions directly — you can only chain a BiFunction with a subsequent\n   unary Function via andThen().\n\nSubtype relationships:\n- UnaryOperator<T>  extends Function<T,T>\n- BinaryOperator<T> extends BiFunction<T,T,T>"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Basic BiFunction\nBiFunction<String, Integer, String> repeat = (s, n) -> s.repeat(n);\nString result = repeat.apply(\"Ha\", 3);  // \"HaHaHa\"\n\n// andThen with BiFunction — chains a unary Function after\nBiFunction<String, Integer, String> repeatAndUpper = repeat.andThen(String::toUpperCase);\nString upper = repeatAndUpper.apply(\"ha\", 3);  // \"HAHAHA\"\n\n// BiFunction for combining two different types\nBiFunction<String, List<String>, String> formatter =\n    (header, items) -> header + \": \" + String.join(\", \", items);\nString line = formatter.apply(\"Languages\", List.of(\"Java\", \"Kotlin\", \"Scala\"));\n// \"Languages: Java, Kotlin, Scala\"\n\n// BiFunction in Map.compute, Map.merge\nMap<String, Integer> wordCount = new HashMap<>();\nList<String> words = List.of(\"java\", \"python\", \"java\", \"java\", \"python\");\nwords.forEach(word -> wordCount.merge(word, 1, Integer::sum));\n// wordCount = {\"java\": 3, \"python\": 2}\n\n// BinaryOperator (extends BiFunction<T,T,T>) for stream reduction\nBinaryOperator<Integer> sum = Integer::sum;\nint total = List.of(1, 2, 3, 4, 5).stream().reduce(0, sum);  // 15"
+      "text": "Java 8 added function types as ordinary named interfaces, not as a new kind of type. That let `Runnable`, `Comparator` and every single-method interface already written accept lambdas without change, and it gave each interface a place for its own helpers: `BinaryOperator.minBy`, `UnaryOperator.identity()`. The cost is that two interfaces with the same shape are unrelated unless one extends the other, so a `Function<T, T>` can't go where a `UnaryOperator<T>` is asked for, and `java.util.function` needs 43 interfaces where a language with structural function types needs one arrow. Accept the widest type in your own parameters (`Function<? super T, ? extends R>`, unit 4.1.3) and declare your variables as the type the API you call asks for."
     },
     {
       "type": "heading",
@@ -403,17 +456,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 10,
-    "paras": 16,
-    "code": 15,
-    "tables": 0,
-    "lists": 12,
+    "headings": 13,
+    "paras": 33,
+    "code": 22,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
-    "rules": 6,
-    "quotes": 0,
-    "html": 0,
+    "rules": 0,
+    "quotes": 1,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "8c1a913bb9edf00e2da01b9f1aefa76c1dd103f35ada35ff458c5b4b20bb7e07"
+  "content_sha256": "e2fba5e5c8cee48cfb602a84cf45785f31345db02271286fa178127d6d6d71fe"
 }

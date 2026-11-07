@@ -1,23 +1,14 @@
-Composition does not need a class per behaviour: a class can hold functional interfaces and
-combine them at run time. The page's `TextProcessor` holds a list of
-`Function<String, String>` and applies them one after another:
+The edge service caches geo-IP answers by address so it doesn't call the lookup provider for
+every request. Memory allows a fixed number of answers. When a new one arrives and the cache is
+full, the answer that has gone longest without being *used* must go: an address read a second ago
+stays, even if it was first cached long before the others. Answers arrive one at a time, and at
+start-up a warm-up job loads the previous run's answers in one `putAll`; the bound must hold
+either way.
 
-```java
-var processor = new TextProcessor()
-    .addTransformation(String::trim)
-    .addTransformation(String::toUpperCase)
-    .addTransformation(s -> s.replace(" ", "_"));
+`RecentLookups.java` extends `LinkedHashMap`, and its constructor already passes
+`orderedByUse()` as the third argument of `LinkedHashMap(int, float, boolean)` (see that
+constructor's javadoc). Finish the three `TODO` methods, about four lines in total:
 
-processor.process("  hello world  "); // "HELLO_WORLD"
-```
-
-Write `addTransformation` and `process` in `TextProcessor`:
-
-- `addTransformation(t)` adds `t` after the transformations already added, and returns the
-  same processor every time, so calls chain; trim then upper-case turns `"  hello  "` into `"HELLO"`;
-- `process(input)` applies the transformations **in the order they were added**: the
-  example above gives `"HELLO_WORLD"`. A transformation added twice runs twice, in each of
-  its places;
-- a processor with no transformations returns its input unchanged;
-- the composition is live: a transformation added after `process` has run is used by the
-  next `process` call.
+- `orderedByUse()`: the order that makes "the eldest entry" the least recently used one;
+- `removeEldestEntry`: keeps the cache at no more than `capacity` answers;
+- `nextToDrop()`: the address that would be dropped next, or `null` when the cache is empty.

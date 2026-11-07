@@ -1,19 +1,8 @@
-Failure atomicity is not automatic: a method that changes several fields and
-throws in the middle leaves the object half-updated. Write `Rectangle`:
+An ordering service's mobile app decides what to show from the API's error responses. The order
+module's developers improve their exception messages often, to make the logs easier to read, and
+those messages hold customer ids and the names of internal risk rules. After the last release the
+app started showing "Something went wrong" for out-of-stock items, and a security review flagged
+a response that named a risk rule.
 
-- `Rectangle(int width, int height)`, `getWidth()`, `getHeight()`;
-- `void resize(int newWidth, int newHeight)`.
-
-Both the constructor and `resize` accept positive sides only. A side that is
-not positive throws `IllegalArgumentException("Width must be positive: <w>")`
-or `IllegalArgumentException("Height must be positive: <h>")`, the width
-checked first.
-
-| calls | result |
-|---|---|
-| `new Rectangle(2, 3)` then `resize(4, 5)` | width `4`, height `5` |
-| `new Rectangle(2, 3)` then `resize(10, 0)` | throws `IllegalArgumentException("Height must be positive: 0")`; still `2` by `3` |
-| `new Rectangle(0, 3)` | throws `IllegalArgumentException("Width must be positive: 0")` |
-
-If a constructor throws, the caller never gets a reference, so validating
-there means an invalid rectangle can never exist.
+Finish `toResponse` in `src/main/java/practice/OrderApi.java`, using the statuses its comment
+documents. About five lines.

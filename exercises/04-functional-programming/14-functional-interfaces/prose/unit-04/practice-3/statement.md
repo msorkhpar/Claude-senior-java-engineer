@@ -1,17 +1,10 @@
-There are two ways to drop unwanted elements. `stream().filter(predicate)` builds a **new** list and leaves the
-source alone. `collection.removeIf(predicate)` changes the collection **in place**, with no iterator and no
-`ConcurrentModificationException`. `Predicate.not(String::isBlank)` reads well in a filter.
+The shipment desk pastes tracking references from carrier e-mails into a form. A reference is two
+capital letters, nine digits and two capital letters, and the pattern is already in
+`TRACKING_REF`. Anything else goes back to the sender for correction, because the carrier's
+tracking API rejects it a day later. The desk also lists shipments by carrier; a shipment with a
+`null` carrier hasn't been handed to one yet, and the desk asks for those by passing `null`.
 
-Write two methods in `Cleaner`. An entry is empty when it is `null` or `String.isBlank()` is true for it, so Unicode
-whitespace such as `"\u2003"` counts as no text.
-
-1. `meaningful(List<String> items)` returns a new list of the non-empty entries, in order; it is a new list even when
-   nothing had to be dropped.
-2. `prune(List<String> names)` removes the empty entries from `names` itself and returns how many it removed.
-
-| call | result | list afterwards |
-|---|---|---|
-| `meaningful(["hello", "", "world"])` | `["hello", "world"]` | unchanged |
-| `prune(["Alice", "", "Bob"])` | `1` | `["Alice", "Bob"]` |
-
-Empty entries may sit next to each other. The page's own example list is `["Alice", "", "Bob", null, "  ", "Charlie"]`.
+Write `validRef()` and `byCarrier(...)` in `src/main/java/practice/Shipments.java`. A pasted text
+is valid only if it is a reference and nothing else. The carrier filter must work for every
+carrier, `null` included, on a list where some shipments have no carrier. About two lines in
+total.

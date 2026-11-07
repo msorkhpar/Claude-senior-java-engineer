@@ -1,9 +1,9 @@
-The course computes `n!` with a `do`-`while` loop that multiplies a `long` up. A `long`
-holds `20!` but not `21!`, and plain `*` would wrap around silently.
+Compliance archives every tenant's audit log once a month. The audit service hands a log out in
+pages: `fetch(null)` returns the first page, and each page carries the cursor that fetches the
+page after it, or `null` on the last one. A page can come back empty while the service moves a
+tenant between partitions, and still carry a cursor.
 
-Write `of(int n)` in `Factorial`:
+Last month's archive files were empty for every tenant, and nobody noticed for three weeks.
 
-- `of(0)` and `of(1)` are `1`, `of(5)` is `120`, and `of(20)` is `2432902008176640000`;
-- a negative `n` has no factorial: throw `IllegalArgumentException`;
-- when the result does not fit in a `long`, as for `of(21)`, throw `ArithmeticException`
-  instead of returning a wrapped value. `Math.multiplyExact` does exactly that.
+Write `exportAll()` in `src/main/java/practice/AuditExport.java`: every event of the log, in the
+order the service returns them, whatever the number of pages. About six lines.

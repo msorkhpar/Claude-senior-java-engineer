@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Smallest and largest, combined at join",
+  "title": "Name the day's best-selling product",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's best practice is to keep `compute()` pure: each task returns its own result and the parent combines the results at the join, instead of writing into shared state. Its edge cases warn that max and min must handle **negative numbers** (start from `Integer.MIN_VALUE` / `Integer.MAX_VALUE`), and that input is validated **in the constructor**."
+      "text": "The shop's morning e-mail names yesterday's best-selling product: the one with the most units over all of the day's order lines. A product can appear on any number of lines, anywhere in the day. A busy day has tens of millions of lines, so the count has been given a `ForkJoinPool` and a threshold."
     },
     {
       "type": "para",
-      "text": "Write `MinMaxTask(array, start, end, threshold)`, a `RecursiveTask<Range>` where `Range` is the record `(min, max)` of `array[start..end)`. Split at the midpoint while the range is longer than `threshold`, and combine the two halves' `Range`s into one. An empty range has no smallest value: the constructor refuses it with `IllegalArgumentException`."
+      "text": "Write `top` in `src/main/java/practice/BestSeller.java`, with the `RecursiveTask` it runs as a nested class. When you're done:"
     },
     {
-      "type": "table",
-      "headers": [
-        "array",
-        "threshold",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`3, -1, 7, 2, 9, 0`",
-          "2",
-          "`Range[min=-1, max=9]`"
-        ],
-        [
-          "`-5, -3, -9, -4`",
-          "1",
-          "`Range[min=-9, max=-3]`"
-        ],
-        [
-          "`Integer.MIN_VALUE, Integer.MIN_VALUE`",
-          "1",
-          "`Range[min=-2147483648, max=-2147483648]`"
-        ],
-        [
-          "`5, 3, 9, 4`",
-          "1",
-          "`Range[min=3, max=9]`"
-        ],
-        [
-          "any array, range `[2, 2)`",
-          "1",
-          "`IllegalArgumentException`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`top` returns the product with the most units, and how many it sold, for any threshold;",
+        "when two products sold the same number of units, the smaller product id wins."
       ]
+    },
+    {
+      "type": "para",
+      "text": "About twenty-five lines in total, most of them the task class. The tests run `BestSeller` on a pool of three workers, with days of 1 to about 3,000 order lines."
     },
     {
       "type": "heading",
@@ -73,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class MinMaxTask extends RecursiveTask<MinMaxTask.Range> {\n\n    public record Range(int min, int max) {\n    }\n\n    private final int[] array;\n    private final int start;\n    private final int end;\n    private final int threshold;\n\n    public MinMaxTask(int[] array, int start, int end, int threshold) {\n        if (end <= start) {\n            throw new IllegalArgumentException(\"an empty range has no smallest or largest value\");\n        }\n        this.array = array;\n        this.start = start;\n        this.end = end;\n        this.threshold = threshold;\n    }\n\n    @Override\n    protected Range compute() {\n        int length = end - start;\n        if (length <= threshold) {\n            int min = Integer.MAX_VALUE;\n            int max = Integer.MIN_VALUE;\n            for (int i = start; i < end; i++) {\n                min = Math.min(min, array[i]);\n                max = Math.max(max, array[i]);\n            }\n            return new Range(min, max);\n        }\n        int mid = start + length / 2;\n        MinMaxTask left = new MinMaxTask(array, start, mid, threshold);\n        MinMaxTask right = new MinMaxTask(array, mid, end, threshold);\n        left.fork();\n        Range r = right.compute();\n        Range l = left.join();\n        return new Range(Math.min(l.min(), r.min()), Math.max(l.max(), r.max()));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\n\n/**\n * Finds the day's best-selling product: the one with the most units over all order lines. A busy\n * day has tens of millions of order lines, so the count runs on a ForkJoinPool.\n */\npublic class BestSeller {\n\n    /** A product and the units it sold. */\n    public record Top(long productId, long units) {}\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the count runs in\n     * @param threshold the most order lines one task counts by itself on its own thread\n     */\n    public BestSeller(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * The product with the most units sold, over every order line of the day. Order line i sold\n     * units[i] units of product productIds[i]; a product can appear on any number of lines. When\n     * two products sold the same number of units, the one with the smaller id wins. A day always\n     * has at least one order line.\n     */\n    public Top top(long[] productIds, int[] units) {\n        Map<Long, Long> sold = pool.invoke(new Count(productIds, units, 0, productIds.length));\n        Top best = null;\n        for (Map.Entry<Long, Long> e : sold.entrySet()) {\n            long id = e.getKey(), n = e.getValue();\n            if (best == null || n > best.units() || (n == best.units() && id < best.productId())) best = new Top(id, n);\n        }\n        return best;\n    }\n\n    /** Units sold per product on order lines from to to - 1. */\n    final class Count extends RecursiveTask<Map<Long, Long>> {\n        private final long[] productIds;\n        private final int[] units;\n        private final int from, to;\n\n        Count(long[] productIds, int[] units, int from, int to) {\n            this.productIds = productIds;\n            this.units = units;\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Map<Long, Long> compute() {\n            if (to - from <= threshold) {\n                Map<Long, Long> sold = new HashMap<>();\n                for (int i = from; i < to; i++) sold.merge(productIds[i], (long) units[i], Long::sum);\n                return sold;\n            }\n            int mid = (from + to) >>> 1;\n            Count left = new Count(productIds, units, from, mid);\n            left.fork();\n            Map<Long, Long> sold = new Count(productIds, units, mid, to).compute();\n            left.join().forEach((id, n) -> sold.merge(id, n, Long::sum));\n            return sold;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class MinMaxTask extends RecursiveTask<MinMaxTask.Range> {\n\n    public record Range(int min, int max) {\n    }\n\n    public MinMaxTask(int[] array, int start, int end, int threshold) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    @Override\n    protected Range compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\n\n/**\n * Finds the day's best-selling product: the one with the most units over all order lines. A busy\n * day has tens of millions of order lines, so the count runs on a ForkJoinPool.\n */\npublic class BestSeller {\n\n    /** A product and the units it sold. */\n    public record Top(long productId, long units) {}\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the count runs in\n     * @param threshold the most order lines one task counts by itself on its own thread\n     */\n    public BestSeller(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * The product with the most units sold, over every order line of the day. Order line i sold\n     * units[i] units of product productIds[i]; a product can appear on any number of lines. When\n     * two products sold the same number of units, the one with the smaller id wins. A day always\n     * has at least one order line.\n     */\n    public Top top(long[] productIds, int[] units) {\n        // TODO: Count the day on the pool, with a RecursiveTask you write as a nested class here.\n        //       A task given up to `threshold` order lines counts them on its own thread; a longer\n        //       stretch is shared with the pool's other workers.\n        throw new IllegalStateException(\"TODO: top\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,10 +70,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -104,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "117c3681e44b769a403fc28143442434ae8b33839b91b38b1c623a975185cf07",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class MinMaxTask extends RecursiveTask<MinMaxTask.Range> {\n\n    public record Range(int min, int max) {\n    }\n\n    public MinMaxTask(int[] array, int start, int end, int threshold) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    @Override\n    protected Range compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n",
+  "content_sha256": "5fe0b5ab35a040106d5d1c432078a2a8a8c3a270be1170751fa1ba1c26167441",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\n\n/**\n * Finds the day's best-selling product: the one with the most units over all order lines. A busy\n * day has tens of millions of order lines, so the count runs on a ForkJoinPool.\n */\npublic class BestSeller {\n\n    /** A product and the units it sold. */\n    public record Top(long productId, long units) {}\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the count runs in\n     * @param threshold the most order lines one task counts by itself on its own thread\n     */\n    public BestSeller(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * The product with the most units sold, over every order line of the day. Order line i sold\n     * units[i] units of product productIds[i]; a product can appear on any number of lines. When\n     * two products sold the same number of units, the one with the smaller id wins. A day always\n     * has at least one order line.\n     */\n    public Top top(long[] productIds, int[] units) {\n        // TODO: Count the day on the pool, with a RecursiveTask you write as a nested class here.\n        //       A task given up to `threshold` order lines counts them on its own thread; a longer\n        //       stretch is shared with the pool's other workers.\n        throw new IllegalStateException(\"TODO: top\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-2/src/main/java/practice/MinMaxTask.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-2/src/test/java/practice/MinMaxTaskTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-2/src/main/java/practice/BestSeller.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-2/src/test/java/practice/BestSellerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,29 +106,14 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.MinMaxTaskTest#findsTheSmallestAndLargest",
+        "id": "practice.BestSellerTest#findsTheBestSellerOfADay",
         "kind": "main",
-        "says": "The task returns the smallest and the largest value of its range."
+        "says": "top names the product with the most units and its total, for one line, a short day with a tie, and a long day at several thresholds"
       },
       {
-        "id": "practice.MinMaxTaskTest#allNegativeValues",
+        "id": "practice.BestSellerTest#aProductThatComesSecondEverywhereCanWinTheDay",
         "kind": "edge",
-        "says": "The largest of all-negative values is found, because the search does not start from 0."
-      },
-      {
-        "id": "practice.MinMaxTaskTest#allPositiveValues",
-        "kind": "edge",
-        "says": "The smallest of all-positive values is found, because the search does not start from 0."
-      },
-      {
-        "id": "practice.MinMaxTaskTest#anEmptyRangeIsRefused",
-        "kind": "edge",
-        "says": "A task over an empty range is refused with IllegalArgumentException when it is built."
-      },
-      {
-        "id": "practice.MinMaxTaskTest#onlyTheRangeCounts",
-        "kind": "edge",
-        "says": "Values outside [start, end), such as a large array[0], play no part in a range's min and max."
+        "says": "a product that leads no stretch of lines but sells the most over the day is the best seller, whatever the threshold"
       }
     ],
     "report": {
@@ -160,11 +122,10 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.2.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "The Parent Can Only Combine What Its Halves Return"
     },
     "concepts": [
-      "A max or min search starts from Integer.MIN_VALUE or Integer.MAX_VALUE so negative numbers are handled.",
-      "Invalid input such as an empty range for a max is refused early, in the task's constructor."
+      "The value a task returns must hold enough to combine with its sibling's so that any split gives the answer one task would: sets for a distinct count, sum and count for an average, every value's count for the most frequent one."
     ]
   }
 }

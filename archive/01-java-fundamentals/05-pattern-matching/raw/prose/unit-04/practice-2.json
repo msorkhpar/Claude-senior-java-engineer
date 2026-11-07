@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Dispatch over a sealed hierarchy",
+  "title": "Make a new kind of parcel impossible to quote by accident",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,56 @@
     },
     {
       "type": "para",
-      "text": "A switch of type patterns over a sealed interface can name every permitted type and need no `default`: the compiler checks the cases are exhaustive, and refuses the switch if a new vehicle type is added and not handled."
-    },
-    {
-      "type": "para",
-      "text": "`TollGate` holds `sealed interface Vehicle permits Car, Truck, Motorcycle` and three records: `Car(int doors)`, `Truck(double cargoCapacity)` and `Motorcycle(boolean hasSidecar)`. Write `toll(Vehicle vehicle)` in `TollGate` as one switch expression with no `default`:"
+      "text": "The web shop quotes shipping with the carrier's parcel types, `Letter`, `Box` and `Tube`. Prices in cents:"
     },
     {
       "type": "table",
       "headers": [
-        "vehicle",
-        "toll"
+        "Parcel",
+        "Price"
       ],
       "rows": [
         [
-          "any car",
-          "`5`"
+          "a `Letter` of up to 100 g",
+          "140"
         ],
         [
-          "a truck",
-          "`10`, plus `2` for each started tonne of capacity: `Truck(3.5)` pays `18`"
+          "a heavier `Letter`",
+          "290"
         ],
         [
-          "a motorcycle",
-          "`2`, or `3` with a sidecar"
+          "a `Box`",
+          "650, plus 120 for each started kilogram, plus 400 if it is fragile"
+        ],
+        [
+          "a `Tube` up to 90 cm long",
+          "980"
+        ],
+        [
+          "a longer `Tube`",
+          "1,500"
         ]
       ]
+    },
+    {
+      "type": "para",
+      "text": "`Parcel` and its records come from the carrier's library, and the carrier adds a kind of parcel once or twice a year. The last time, the shop quoted the new kind at a price nobody had agreed, for a month, at a loss on every one."
+    },
+    {
+      "type": "para",
+      "text": "Write `priceCents(...)` in `src/main/java/practice/ParcelPricing.java`, without touching the hierarchy. When the next kind arrives, two things must hold:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "once the shop is built against the new library, the build fails, with the compiler pointing at your method;",
+        "a copy of the shop built before the new kind existed, which meets one in production, throws rather than quoting any price."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "About five lines in total. The tests compile your file themselves, once as it is and once with a kind added, and run the old build against the new hierarchy."
     },
     {
       "type": "heading",
@@ -59,7 +83,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class TollGate {\n\n    /** A vehicle at the toll gate. */\n    public sealed interface Vehicle permits Car, Truck, Motorcycle {\n    }\n\n    /** A car with a number of doors. */\n    public record Car(int doors) implements Vehicle {\n    }\n\n    /** A truck with a cargo capacity in tonnes. */\n    public record Truck(double cargoCapacity) implements Vehicle {\n    }\n\n    /** A motorcycle, with or without a sidecar. */\n    public record Motorcycle(boolean hasSidecar) implements Vehicle {\n    }\n\n    private TollGate() {\n    }\n\n    /** Returns the toll for a vehicle. */\n    public static int toll(Vehicle vehicle) {\n        return switch (vehicle) {\n            case Car c -> 5;\n            case Truck t -> 10 + 2 * (int) Math.ceil(t.cargoCapacity());\n            case Motorcycle m -> m.hasSidecar() ? 3 : 2;\n        };\n    }\n}\n"
+          "text": "package practice;\n\n/** Quotes the price of sending a parcel with the carrier. */\npublic final class ParcelPricing {\n\n    /**\n     * The kinds of parcel the carrier accepts. This hierarchy is generated from the carrier's\n     * library, which gains a kind now and then: never edit it here.\n     */\n    public sealed interface Parcel permits Letter, Box, Tube {\n    }\n\n    public record Letter(int grams) implements Parcel {\n    }\n\n    public record Box(int grams, boolean fragile) implements Parcel {\n    }\n\n    public record Tube(int lengthCm) implements Parcel {\n    }\n\n    private ParcelPricing() {\n    }\n\n    /** The price in cents of sending this parcel. */\n    public static int priceCents(Parcel parcel) {\n        return switch (parcel) {\n            case Letter l -> l.grams() <= 100 ? 140 : 290;\n            case Box b -> 650 + 120 * ((b.grams() + 999) / 1000) + (b.fragile() ? 400 : 0);\n            case Tube t -> t.lengthCm() > 90 ? 1500 : 980;\n        };\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +95,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class TollGate {\n\n    /** A vehicle at the toll gate. */\n    public sealed interface Vehicle permits Car, Truck, Motorcycle {\n    }\n\n    /** A car with a number of doors. */\n    public record Car(int doors) implements Vehicle {\n    }\n\n    /** A truck with a cargo capacity in tonnes. */\n    public record Truck(double cargoCapacity) implements Vehicle {\n    }\n\n    /** A motorcycle, with or without a sidecar. */\n    public record Motorcycle(boolean hasSidecar) implements Vehicle {\n    }\n\n    private TollGate() {\n    }\n\n    /** Returns the toll for a vehicle. */\n    public static int toll(Vehicle vehicle) {\n        throw new UnsupportedOperationException(\"write toll\");\n    }\n}\n"
+      "text": "package practice;\n\n/** Quotes the price of sending a parcel with the carrier. */\npublic final class ParcelPricing {\n\n    /**\n     * The kinds of parcel the carrier accepts. This hierarchy is generated from the carrier's\n     * library, which gains a kind now and then: never edit it here.\n     */\n    public sealed interface Parcel permits Letter, Box, Tube {\n    }\n\n    public record Letter(int grams) implements Parcel {\n    }\n\n    public record Box(int grams, boolean fragile) implements Parcel {\n    }\n\n    public record Tube(int lengthCm) implements Parcel {\n    }\n\n    private ParcelPricing() {\n    }\n\n    /** The price in cents of sending this parcel. */\n    public static int priceCents(Parcel parcel) {\n        // TODO: Price each kind of parcel as the statement's table says. When the carrier adds a\n        //       kind, this method must not quote it before someone here has decided its price.\n        throw new IllegalStateException(\"TODO: priceCents\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,10 +103,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
     "tables": 1,
-    "lists": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -90,11 +114,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "27860ab03fe17b17217d5a3c4d464400d2b7c2f2ac0751898ce33ee59660ad60",
-  "starting_code": "package practice;\n\npublic final class TollGate {\n\n    /** A vehicle at the toll gate. */\n    public sealed interface Vehicle permits Car, Truck, Motorcycle {\n    }\n\n    /** A car with a number of doors. */\n    public record Car(int doors) implements Vehicle {\n    }\n\n    /** A truck with a cargo capacity in tonnes. */\n    public record Truck(double cargoCapacity) implements Vehicle {\n    }\n\n    /** A motorcycle, with or without a sidecar. */\n    public record Motorcycle(boolean hasSidecar) implements Vehicle {\n    }\n\n    private TollGate() {\n    }\n\n    /** Returns the toll for a vehicle. */\n    public static int toll(Vehicle vehicle) {\n        throw new UnsupportedOperationException(\"write toll\");\n    }\n}\n",
+  "content_sha256": "f4844fa88f58fe794157e7843f9993e3414d8fdcdd18dbcfd53e9b76b48fedfb",
+  "starting_code": "package practice;\n\n/** Quotes the price of sending a parcel with the carrier. */\npublic final class ParcelPricing {\n\n    /**\n     * The kinds of parcel the carrier accepts. This hierarchy is generated from the carrier's\n     * library, which gains a kind now and then: never edit it here.\n     */\n    public sealed interface Parcel permits Letter, Box, Tube {\n    }\n\n    public record Letter(int grams) implements Parcel {\n    }\n\n    public record Box(int grams, boolean fragile) implements Parcel {\n    }\n\n    public record Tube(int lengthCm) implements Parcel {\n    }\n\n    private ParcelPricing() {\n    }\n\n    /** The price in cents of sending this parcel. */\n    public static int priceCents(Parcel parcel) {\n        // TODO: Price each kind of parcel as the statement's table says. When the carrier adds a\n        //       kind, this method must not quote it before someone here has decided its price.\n        throw new IllegalStateException(\"TODO: priceCents\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-04/practice-2/src/main/java/practice/TollGate.java",
-    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-04/practice-2/src/test/java/practice/TollGateTest.java",
+    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-04/practice-2/src/main/java/practice/ParcelPricing.java",
+    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-04/practice-2/src/test/java/practice/ParcelPricingTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,19 +139,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TollGateTest#chargesCarsAndTrucks",
+        "id": "practice.ParcelPricingTest#quotesEveryKindOfParcel",
         "kind": "main",
-        "says": "A car pays 5, a 3-tonne truck 16, and a motorcycle 2."
+        "says": "letters, boxes and tubes get the prices the table gives them"
       },
       {
-        "id": "practice.TollGateTest#aStartedTonneCounts",
+        "id": "practice.ParcelPricingTest#aNewKindStopsTheBuildUntilSomeoneGivesItAPrice",
         "kind": "edge",
-        "says": "A 3.5-tonne truck pays 18: each started tonne counts."
+        "says": "once a kind of parcel is added to the hierarchy, the class no longer compiles, and the error is that the switch doesn't cover every input"
       },
       {
-        "id": "practice.TollGateTest#aSidecarCostsOneMore",
+        "id": "practice.ParcelPricingTest#aBuildFromBeforeANewKindRefusesItInsteadOfQuoting",
         "kind": "edge",
-        "says": "A motorcycle with a sidecar pays 3."
+        "says": "a build compiled before a kind was added still prices the old kinds and throws for the new one rather than quoting a price"
       }
     ],
     "report": {
@@ -136,10 +160,11 @@
     },
     "origin": {
       "path": "05-pattern-matching/README_1.5.4.md",
-      "section": "Key Points to Remember"
+      "section": "A Subtype Added After Compilation Reaches the Switch as MatchException"
     },
     "concepts": [
-      "A switch of type patterns over a sealed interface covers every permitted type with no default, and the compiler checks it."
+      "A switch with no default, compiled before a permitted subtype was added, throws MatchException when it meets that subtype; a default answers it instead.",
+      "Over a sealed type, an unguarded case for each permitted subtype makes the switch exhaustive with no default, so a new subtype stops the build at the switch, while a default absorbs it silently."
     ]
   }
 }

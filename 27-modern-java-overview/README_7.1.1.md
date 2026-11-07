@@ -1,419 +1,270 @@
 # 7.1.1. Java 8 (LTS)
 
-## Concept Explanation
+A service moves from Java 7 to Java 8. One class that compiled for years stops compiling, with
+`inherits unrelated defaults for spliterator() from types Set and List`. After the fix it ships, and
+a week later the cache-size metric reads 1 while the cache holds thousands of entries. The metric
+counts calls to the cache's `put`, and the new code writes with `merge`.
 
-Java 8, released in March 2014, is one of the most transformative releases in Java's history. It introduced fundamental
-paradigm shifts that moved Java from a purely object-oriented language into one that embraces functional programming
-concepts. Java 8 remains the baseline for many enterprise applications and is still widely deployed in production
-environments.
+Neither failure is a bug in the old code. Java 8 added methods to interfaces and classes that old
+code already implemented and extended. Lambdas, streams and `java.time` have their own units,
+listed in the last section; this page covers default and static interface methods meeting existing
+classes, and `Optional`. Every output is from Java 21; code marked `--release 8` was also compiled against the
+Java 8 API.
 
-**Real-world analogy**: Think of Java 8 as the moment a traditional workshop added power tools. The craftsmen (developers)
-could still use their hand tools (imperative programming), but the new power tools (lambdas, streams, Optional) let them
-accomplish the same tasks faster, more elegantly, and with less effort. The workshop's fundamental nature didn't change --
-it just became dramatically more productive.
+## The JDK's New Defaults Reach Classes Written Before Them, and Two of Them Can Collide
 
-The five pillars of Java 8 are:
-1. **Lambda Expressions and Functional Interfaces** -- enabling behavior parameterization
-2. **Stream API** -- declarative data processing pipelines
-3. **Default and Static Methods in Interfaces** -- evolving interfaces without breaking implementations
-4. **Optional Class** -- explicit handling of absent values
-5. **New Date and Time API** -- replacing the broken `java.util.Date` and `Calendar`
-
-## Key Points to Remember
-
-- Lambda expressions provide concise syntax for anonymous functions and only work with functional interfaces (SAM types).
-- The `@FunctionalInterface` annotation documents intent and causes compile-time enforcement.
-- The Stream API separates *what* from *how* -- you declare transformations, not iteration logic.
-- Streams are lazy: intermediate operations are not executed until a terminal operation is invoked.
-- `Optional` is designed for return types, not for fields, parameters, or collections.
-- Default methods in interfaces enable API evolution without breaking existing implementations.
-- The diamond problem with default methods is resolved by requiring the implementing class to override.
-- `java.time` is immutable and thread-safe, unlike `java.util.Date`.
-- Method references (`Class::method`) are syntactic sugar for lambdas and improve readability.
-- Parallel streams use the common ForkJoinPool and can cause contention if misused.
-
-## Relevant Java 21 Features
-
-Java 21 builds on every Java 8 foundation:
-
-- **Lambda expressions** are now used pervasively with virtual threads (`Thread.ofVirtual().start(() -> ...)`) and structured concurrency.
-- **Streams** gained `toList()` (Java 16), `mapMulti()` (Java 16), and work with record patterns in Java 21.
-- **Functional interfaces** are used with pattern matching in switch expressions for cleaner dispatching.
-- **Optional** received `isEmpty()` (Java 11), `stream()` (Java 9), and `or()` (Java 9).
-- **Date/Time API** remains the standard; no replacement, only incremental additions like `InstantSource` (Java 17).
-- **Default methods** continue to be the foundation for interface evolution (e.g., `SequencedCollection` in Java 21 adds default methods to existing collection interfaces).
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Mutating state in lambdas**: Lambdas can only access effectively final local variables.
-   ```java
-   // WRONG: modifying local variable
-   int count = 0;
-   list.forEach(item -> count++); // Compilation error
-
-   // FIX: use AtomicInteger or stream reduction
-   long count = list.stream().count();
-   ```
-
-2. **Overusing parallel streams**: Parallel streams are not always faster and share the common ForkJoinPool.
-   ```java
-   // WRONG: parallelizing trivial work
-   List<String> names = List.of("Alice", "Bob");
-   names.parallelStream().forEach(System.out::println); // Overhead > benefit
-
-   // FIX: only parallelize CPU-intensive work on large datasets
-   largeList.parallelStream().map(this::expensiveComputation).collect(toList());
-   ```
-
-3. **Using Optional.get() without checking**: This defeats the purpose of Optional.
-   ```java
-   // WRONG
-   Optional<String> opt = findUser(id);
-   String name = opt.get(); // NoSuchElementException risk
-
-   // FIX
-   String name = opt.orElse("Unknown");
-   String name = opt.orElseThrow(() -> new UserNotFoundException(id));
-   ```
-
-4. **Confusing `this` in lambdas vs anonymous classes**: In lambdas, `this` refers to the enclosing class.
-   ```java
-   // In lambda: this == enclosing instance
-   Runnable r = () -> System.out.println(this.getClass()); // Enclosing class
-
-   // In anonymous class: this == anonymous class instance
-   Runnable r = new Runnable() {
-       public void run() { System.out.println(this.getClass()); } // Anon class
-   };
-   ```
-
-5. **Ignoring stream short-circuiting**: Operations like `findFirst()`, `anyMatch()` are short-circuiting.
-   ```java
-   // INEFFICIENT: processes entire stream
-   boolean found = list.stream().filter(predicate).collect(toList()).size() > 0;
-
-   // FIX: short-circuits on first match
-   boolean found = list.stream().anyMatch(predicate);
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer method references** over lambdas for improved readability: `String::toUpperCase` vs `s -> s.toUpperCase()`.
-2. **Don't cache lambdas just to save allocations**: on HotSpot a non-capturing lambda is created once per call site
-   and reused; only lambdas that capture variables allocate a new object on each evaluation.
-3. **Use primitive stream specializations** (`IntStream`, `LongStream`, `DoubleStream`) to avoid autoboxing overhead.
-4. **Chain Optional operations** instead of nested if-null checks: `opt.map(f).filter(p).orElse(default)`.
-5. **Prefer `Collectors.toUnmodifiableList()`** (Java 10+) for immutable results.
-6. **Use `DateTimeFormatter` as static constants** -- they are thread-safe and expensive to create.
-7. **Always use `ZonedDateTime`** when dealing with time zones, never `LocalDateTime` + manual offset.
-8. **Favor `Stream.of()` and `IntStream.range()`** over `Arrays.stream()` for clarity.
-
-## Edge Cases and Their Handling
-
-1. **Null elements in streams**: `filter(Objects::nonNull)` before processing.
-2. **Empty Optional chaining**: `opt.flatMap(f).map(g).orElse(default)` safely handles absence at every step.
-3. **Empty stream reductions**: `reduce()` without identity returns `Optional`, `reduce(identity, op)` returns identity for empty streams.
-4. **Parallel stream ordering**: `forEachOrdered()` preserves encounter order; `forEach()` does not.
-5. **LocalDate edge cases**: `LocalDate.of(2024, 2, 29)` is valid (leap year); `LocalDate.of(2023, 2, 29)` throws `DateTimeException`.
-6. **Duration vs Period**: `Duration` measures time-based (hours, minutes, seconds), `Period` measures date-based (years, months, days).
-7. **Time zone DST transitions**: `ZonedDateTime` correctly handles daylight saving gaps and overlaps.
-
-## Interview-specific Insights
-
-Interviewers frequently test:
-- The difference between `map()` and `flatMap()` in both Stream and Optional
-- When to use parallel streams (and when not to)
-- How default methods resolve the diamond problem
-- Why `Optional` should not be used for fields or method parameters
-- The internal mechanics of lambda desugaring (`invokedynamic`)
-- Thread-safety properties of `java.time` vs `java.util.Date`
-
-Tricky topics:
-- Explaining why `Comparator.comparing()` works with lambdas (target typing + type inference)
-- The difference between `Collectors.toList()` and `Stream.toList()` (mutability guarantees)
-- How `peek()` behaves with short-circuiting terminal operations
-
-## Interview Q&A Section
-
-**Q1: What are the main features introduced in Java 8 and why are they significant?**
-
-```text
-A1: Java 8 introduced five major features:
-
-1. Lambda Expressions: Enable treating behavior as data, reducing boilerplate for anonymous
-   inner classes and enabling functional programming patterns.
-
-2. Stream API: Provides a declarative way to process collections using a pipeline of
-   operations (filter, map, reduce). Supports lazy evaluation and parallel processing.
-
-3. Default Methods: Allow adding new methods to interfaces without breaking existing
-   implementations. This was essential for evolving the Collections API (e.g., adding
-   forEach(), stream() to Iterable/Collection).
-
-4. Optional: A container type that explicitly represents the presence or absence of a
-   value, reducing NullPointerException occurrences.
-
-5. Date and Time API (java.time): Replaces the broken java.util.Date and Calendar with
-   immutable, thread-safe types like LocalDate, LocalTime, ZonedDateTime.
-
-Significance: Java 8 transformed Java from a purely OOP language into one supporting
-functional programming, dramatically improving code expressiveness and enabling modern
-programming patterns.
-```
+Java 8 gave `Collection` a `spliterator()` default so that every collection could be streamed, and
+`List` and `Set` each override it with their own default. A class that is both, an insertion-ordered
+set written on top of `AbstractList`, now inherits two:
 
 ```java
-// Demonstrating all five features in one example
-import java.time.LocalDate;
 import java.util.*;
-import java.util.stream.*;
 
-public class Java8AllFeatures {
-    // Default method in interface
-    interface Describable {
-        String describe();
-        default String describeUpperCase() {
-            return describe().toUpperCase();
-        }
-    }
+/** A list of tags that refuses duplicates: an ordered set. */
+public class OrderedTags extends AbstractList<String> implements Set<String> {
+    private final List<String> items = new ArrayList<>();
 
-    // record is Java 16+ syntax, used here for brevity; in Java 8 this would be a small class
-    record Person(String name, LocalDate birthDate) implements Describable {
-        public String describe() { return name + " born " + birthDate; }
-    }
-
-    public static void main(String[] args) {
-        List<Person> people = List.of(
-            new Person("Alice", LocalDate.of(1990, 5, 15)),
-            new Person("Bob", LocalDate.of(2005, 3, 20))
-        );
-
-        // Lambda + Stream + Optional
-        Optional<String> firstAdult = people.stream()
-            .filter(p -> p.birthDate().isBefore(LocalDate.now().minusYears(18)))
-            .map(Person::describeUpperCase)  // method reference + default method
-            .findFirst();
-
-        System.out.println(firstAdult.orElse("No adults found"));
-    }
+    @Override public String get(int i) { return items.get(i); }
+    @Override public int size() { return items.size(); }
+    @Override public void add(int i, String tag) { if (!items.contains(tag)) items.add(i, tag); }
+    @Override public String remove(int i) { return items.remove(i); }
 }
 ```
-
-**Q2: Explain the difference between `map()` and `flatMap()` in the Stream API.**
 
 ```text
-A2: Both are intermediate operations that transform stream elements, but they differ in
-how they handle the transformation result:
-
-map(Function<T, R>):
-- Applies the function to each element, producing one output per input.
-- The result is a Stream<R>.
-- Use when each element maps to exactly one result.
-
-flatMap(Function<T, Stream<R>>):
-- Applies the function to each element, where each element produces a Stream.
-- All resulting streams are then "flattened" into a single Stream<R>.
-- Use when each element maps to zero or more results (one-to-many transformation).
-
-Common use case: flattening nested collections.
-- map() on List<List<String>> produces Stream<List<String>>
-- flatMap() on List<List<String>> produces Stream<String>
-
-The same distinction applies to Optional:
-- Optional.map() wraps the result in Optional -> Optional<Optional<T>> possible
-- Optional.flatMap() expects the function to return Optional -> avoids nesting
+OrderedTags.java:4: error: types Set<E#1> and List<E#2> are incompatible;
+public class OrderedTags extends AbstractList<String> implements Set<String> {
+       ^
+  class OrderedTags inherits unrelated defaults for spliterator() from types Set and List
+  where E#1,E#2 are type-variables:
+    E#1 extends Object declared in interface Set
+    E#2 extends Object declared in interface List
+1 error
 ```
+
+`--release 8` gives the same error. Neither default is more specific than the
+other, so Java won't pick one: the class must override the method. Unit 2.3.1 has the full rules,
+including the `IncompatibleClassChangeError` an old class file that isn't rebuilt gets instead,
+when `spliterator()` is first called.
+
+The quick fix is `Set.super.spliterator()`, but it reports only `Set`'s characteristics. What a
+plain `List` (`ArrayList`) reports, what `Set.super` reports, and an override that states both:
 
 ```java
-// map vs flatMap demonstration
-List<List<String>> nested = List.of(
-    List.of("a", "b"),
-    List.of("c", "d"),
-    List.of("e")
-);
-
-// map: Stream<List<String>> - NOT what we want
-List<List<String>> mapped = nested.stream()
-    .map(list -> list)
-    .collect(Collectors.toList());
-// Result: [[a, b], [c, d], [e]]
-
-// flatMap: Stream<String> - flattened
-List<String> flatMapped = nested.stream()
-    .flatMap(Collection::stream)
-    .collect(Collectors.toList());
-// Result: [a, b, c, d, e]
-
-// Optional flatMap example
-Optional<String> userId = Optional.of("123");
-// map would give Optional<Optional<User>>
-// flatMap gives Optional<User>
-Optional<User> user = userId.flatMap(id -> findUserById(id));
+@Override public Spliterator<String> spliterator() {
+    return Spliterators.spliterator(this, Spliterator.ORDERED | Spliterator.DISTINCT);
+}
 ```
-
-**Q3: When should you use parallel streams, and what are the dangers?**
 
 ```text
-A3: Parallel streams split the data source and process chunks on multiple threads
-using the common ForkJoinPool.
-
-Use parallel streams when:
-1. The dataset is large (typically > 10,000 elements).
-2. The per-element processing is CPU-intensive.
-3. The data source splits well (ArrayList, arrays split well; LinkedList does not).
-4. The operations are stateless, non-interfering, and associative.
-5. There is no shared mutable state.
-
-Dangers and pitfalls:
-1. Shared ForkJoinPool: All parallel streams in the JVM share the same pool
-   (Runtime.getRuntime().availableProcessors() - 1 threads). A slow parallel stream
-   can starve others.
-
-2. Overhead: Thread coordination has overhead. For small datasets or trivial operations,
-   sequential is faster.
-
-3. Order sensitivity: Operations like forEach() do not preserve order in parallel.
-   Use forEachOrdered() if order matters.
-
-4. Mutable state: Accumulating into a shared collection (e.g., ArrayList) from parallel
-   stream causes race conditions. Use collect() with thread-safe collectors instead.
-
-5. Non-splittable sources: LinkedList, Stream.iterate(), and BufferedReader.lines()
-   split poorly, making parallelism ineffective.
-
-Rule of thumb: Measure before parallelizing. Use JMH benchmarks for critical paths.
+ArrayList's spliterator(): [ORDERED, SIZED, SUBSIZED]
+Set.super.spliterator():  [DISTINCT, SIZED, SUBSIZED]
+own override:             [ORDERED, DISTINCT, SIZED, SUBSIZED]
 ```
+
+Without `ORDERED`, a stream over the tags has no encounter order, and the `Stream` javadoc then
+lets `findFirst()` return any of them. `List.super.spliterator()` doesn't compile here: `not an
+enclosing class: List`, and once the class names `List` too, `redundant interface List is extended
+by AbstractList`. `X.super` reaches only an interface the class names directly and that no other
+supertype already extends.
+
+## A Method Java 8 Added to a Collection Need Not Go Through Your Overrides
+
+The cache from the opening extends `HashMap` and counts writes in `put`. The same calls ran on it
+and on a map built from `AbstractMap` with the same counter. An `ArrayList` subclass counting in
+`remove` held `[x, y, z, y]` and ran `remove("x")`, then `removeIf(s -> s.equals("y"))`:
 
 ```java
-// WRONG: shared mutable state
-List<Integer> results = new ArrayList<>();
-IntStream.range(0, 10000).parallel().forEach(results::add); // Race condition!
+static class CountingMap<K, V> extends HashMap<K, V> {
+    int writes;
+    @Override public V put(K key, V value) { writes++; return super.put(key, value); }
+}
 
-// CORRECT: use collect
-List<Integer> results = IntStream.range(0, 10000)
-    .parallel()
-    .boxed()
-    .collect(Collectors.toList());
-
-// Custom ForkJoinPool to avoid starving the common pool
-ForkJoinPool customPool = new ForkJoinPool(4);
-List<String> result = customPool.submit(() ->
-    largeList.parallelStream()
-        .map(this::expensiveOperation)
-        .collect(Collectors.toList())
-).get();
+CountingMap<String, Integer> hits = new CountingMap<>();
+hits.put("a", 1);
+hits.merge("a", 1, Integer::sum);
+hits.computeIfAbsent("b", k -> 1);
+hits.putIfAbsent("c", 1);
+hits.compute("a", (k, v) -> v + 1);
 ```
-
-**Q4: How do default methods in interfaces solve the diamond problem?**
 
 ```text
-A4: The diamond problem occurs when a class implements two interfaces that both provide
-a default method with the same signature. Java resolves this with three rules:
-
-1. Class wins: If the class provides an implementation, it takes priority over any
-   default method.
-
-2. Sub-interface wins: If one interface extends another and both define the same
-   default method, the more specific (sub-interface) wins.
-
-3. Explicit resolution required: If neither rule applies (two unrelated interfaces
-   with same default method), the class MUST override the method and explicitly choose
-   which to call using InterfaceA.super.method().
-
-This design was necessary because Java 8 needed to add methods like forEach() and
-stream() to existing collection interfaces without breaking millions of existing
-implementations.
+HashMap subclass:     size 3, writes counted 1 {a=3, b=1, c=1}
+AbstractMap subclass: size 3, writes counted 5 {a=3, b=1, c=1}
+ArrayList subclass:   [z], removals counted 1 of 3
 ```
+
+`Map`'s defaults for `merge`, `compute`,
+`computeIfAbsent` and `putIfAbsent` are written with `get` and `put`, and their javadoc spells that
+out, so the `AbstractMap` version counted all five. `HashMap` overrides them with its own code,
+which writes to its table directly. `ArrayList.removeIf` removes without calling
+`remove`, so the counter missed both `y`s.
+
+A subclass that guards a concrete collection's mutators covers only the methods that existed when
+it was written. Java 8 added `putIfAbsent`, `merge`, `compute*`, `replace`, `replaceAll`, `removeIf` and `sort`,
+and Java 21 added more (unit 7.1.5). Override each new mutator so that it goes through your hook,
+or extend `AbstractMap` or `AbstractList` around the real collection, where the defaults call your
+methods.
+
+<!-- practice 1 -->
+
+## Static Interface Methods Belong to the Interface: Implementers Don't Inherit Them
+
+Java 8 also allowed static interface methods, such as `Comparator.naturalOrder()`. Unlike a
+class's statics, which a subclass can be used to call, they can't be called through an implementer:
 
 ```java
-interface A {
-    default String greet() { return "Hello from A"; }
+static class ByLength implements Comparator<String> {
+    public int compare(String a, String b) { return Integer.compare(a.length(), b.length()); }
 }
 
-interface B {
-    default String greet() { return "Hello from B"; }
-}
-
-// Compilation error without explicit override!
-// class C implements A, B {} // ERROR: class C inherits unrelated defaults
-
-// Must resolve explicitly
-class C implements A, B {
-    @Override
-    public String greet() {
-        // Choose one, combine, or provide entirely new implementation
-        return A.super.greet() + " and " + B.super.greet();
-    }
-}
-
-// Sub-interface rule
-interface D extends A {
-    @Override
-    default String greet() { return "Hello from D"; }
-}
-
-class E implements A, D {
-    // No override needed - D.greet() wins (more specific)
-    // E.greet() returns "Hello from D"
-}
+Comparator<String> natural = Comparator.naturalOrder();          // on the interface: compiles
+Comparator<String> viaClass = ByLength.naturalOrder();           // cannot find symbol
+Comparator<String> viaInstance = new ByLength().naturalOrder();  // cannot find symbol
+Comparator<String> d = natural.naturalOrder();                   // illegal static interface method call
 ```
 
-**Q5: Why was Optional introduced, and what are the rules for using it properly?**
+These errors are from `--release 8`. A class can implement any number of interfaces, and if
+it inherited their statics, two interfaces with the same static would make a call through the class
+ambiguous. Because nothing is inherited, a library can add a static method to an interface and break
+no implementer.
+
+A default method can't override `equals`, `hashCode` or `toString` either: `default method toString
+in interface Named overrides a member of java.lang.Object`. Every class inherits those from
+`Object`, and a class's method beats a default, so such a default could never run.
+
+<!-- practice 4 -->
+
+## Optional Is a Return Type, and get() Without a Check Only Renames the NullPointerException
+
+`Optional<String> email(String customer)` tells the caller that a customer may have no address
+(unit 1.3.2). A caller that is sure the address is there calls `get()`, and then it isn't:
+
+```java
+email("c-9").get();
+email("c-9").orElseThrow(() -> new UnknownCustomerException("c-9"));
+```
 
 ```text
-A5: Optional was introduced to address the pervasive problem of NullPointerException
-in Java code. It makes the possibility of absence explicit in the type system, forcing
-callers to handle the absent case.
-
-Rules for proper Optional usage:
-
-DO:
-1. Use as method return type when absence is a valid outcome.
-2. Chain operations: map(), flatMap(), filter(), orElse(), orElseThrow().
-3. Use orElseGet() with expensive default computations (lazy evaluation).
-4. Use stream() to integrate with Stream pipelines (Java 9+).
-5. Use isEmpty()/isPresent() for conditional logic.
-
-DO NOT:
-1. Use Optional as a field type (adds overhead, complicates serialization).
-2. Use Optional as a method parameter (callers already handle null; use overloading).
-3. Use Optional for collections (return empty collection instead).
-4. Use Optional.get() without checking (defeats the purpose).
-5. Use Optional.of(null) (throws NPE; use Optional.ofNullable()).
-6. Create Optional just to chain .isPresent()/.get() (use if-null check instead).
-
-The key insight: Optional is a RETURN TYPE signal that says "this method may not
-produce a result." It is NOT a general-purpose null replacement.
+get():            java.util.NoSuchElementException: No value present
+orElseThrow(...): Lookups$UnknownCustomerException: no email for customer c-9
 ```
+
+`get()` throws just as dereferencing `null` did, and with less information: since Java 15 an
+NPE names the expression that was null (unit 3.2.2), while `No value present` names nothing. The
+on-call engineer can't tell which customer or which lookup failed. Use `map`, `orElse`,
+`orElseGet`, or `orElseThrow` with an exception that carries the key.
+
+> **Java 8 has fewer methods.** `orElseThrow()` without arguments (Java 10) and `isEmpty()` (Java 11)
+> don't compile with `--release 8`: `cannot find symbol` and `method orElseThrow in class
+> Optional<T> cannot be applied to given types`. Code that must build on 8 passes a `Supplier`.
+
+<!-- practice 2 -->
+
+## An Optional Field Breaks Serialization, and an Optional Parameter Can Still Be null
+
+The javadoc calls `Optional` "primarily intended for use as a method return type". `Profile` keeps
+one in a field and is stored in the HTTP session; `receipt` takes one as a parameter:
 
 ```java
-// Good: return type signaling possible absence
-public Optional<User> findById(long id) {
-    User user = database.lookup(id);
-    return Optional.ofNullable(user);
+static class Profile implements Serializable {
+    final String id;
+    final Optional<String> email;
+    Profile(String id, Optional<String> email) { this.id = id; this.email = email; }
 }
 
-// Good: chaining operations
-String displayName = findById(id)
-    .filter(User::isActive)
-    .map(User::getDisplayName)
-    .orElse("Anonymous");
-
-// Good: flatMap for nested Optional
-Optional<String> city = findById(id)
-    .flatMap(User::getAddress)        // returns Optional<Address>
-    .flatMap(Address::getCity);       // returns Optional<String>
-
-// BAD: Optional as parameter
-public void process(Optional<String> name) { } // Don't do this
-// Better: overload
-public void process(String name) { }
-public void process() { } // no-name version
-
-// BAD: Optional for collections
-public Optional<List<Item>> getItems() { } // Don't do this
-// Better: return empty collection
-public List<Item> getItems() { return Collections.emptyList(); }
+static String receipt(String order, Optional<String> to) {
+    return to.isPresent() ? "receipt " + order + " to " + to.get() : "receipt " + order + " printed";
+}
 ```
+
+Writing a `Profile` that holds an address to an `ObjectOutputStream`, then calling
+`receipt("o-18", null)`:
+
+```text
+session write:     java.io.NotSerializableException: java.util.Optional
+receipt(null):    java.lang.NullPointerException: Cannot invoke "java.util.Optional.isPresent()" because "to" is null
+```
+
+`Optional` isn't `Serializable`, though a generic class can be (`ArrayList<String>` is), so
+session replication, a distributed cache or RMI fails on `Profile` at run time; the compiler never
+complains. Keep the field a nullable `String` and return
+`Optional.ofNullable(email)` from the getter.
+
+A parameter of type `Optional` has three states: present, empty and `null`, and nothing stops a caller from passing the third. Overload the
+method instead, or take a nullable argument and document it.
+
+<!-- practice 3 -->
+
+## The Rest of Java 8 Is Taught in Its Own Units
+
+| Java 8 change | What bites on upgrade or in an interview | Unit |
+|---|---|---|
+| lambdas | capture only effectively final locals; `this` is the enclosing object | 4.1.x |
+| `java.util.function` | a checked exception doesn't fit `Function`; `Supplier` runs on every `get()` | 4.2.x |
+| method references | `Class::method` is static or unbound, and the declaration decides | 4.3.x |
+| streams | lazy until a terminal operation; parallel streams share the common pool | 4.4.x |
+| `java.time` | immutable replacements for `Date` and `Calendar` | 7.3.x |
+| `CompletableFuture` | a non-async callback runs on the completing thread, or on the caller if already complete | 6.4.2, 5.3.4 |
+| `merge`, `compute` on `ConcurrentHashMap` | one atomic call, where `get` then `put` loses updates | 6.5.2 |
+| Metaspace replaces PermGen | Java 21 refuses `-XX:MaxPermSize`: `Unrecognized VM option` | 10.5.1 |
+| default methods | conflict rules and evolving a published interface | 2.3.1, 2.3.3 |
+
+## Summary
+
+- **New JDK defaults reach old classes, and two can collide.** A class that is both a `List` and a
+  `Set` must override `spliterator()`, and `X.super` keeps only one interface's promises.
+- **Methods Java 8 added need not go through your overrides.** `HashMap.merge` and
+  `ArrayList.removeIf` bypass a subclass's `put` and `remove`; override them or wrap the collection.
+- **Static interface methods aren't inherited.** Call them on the interface; that is why adding one
+  breaks no implementer.
+- **`Optional` is a return type.** `get()` without a check fails like `null` did, with less
+  information; give `orElseThrow` an exception that names the key.
+- **Not a field or a parameter.** An `Optional` field doesn't serialize, and an `Optional` parameter
+  can be `null`.
+
+## Reference
+
+**Interface methods (checked with `--release 8`):**
+
+| Declaration or call | Result |
+|---|---|
+| a class inherits two unrelated defaults with the same signature | compile error until the class overrides |
+| `X.super.m()`, `X` a direct superinterface that no other supertype extends | calls `X`'s default |
+| `X.super.m()`, `X` named directly but also extended by the superclass | compile error: redundant interface |
+| `X.super.m()`, `X` not named in the class's `implements` clause | compile error: not an enclosing class |
+| `Iface.staticM()` | compiles |
+| `Impl.staticM()` or `instance.staticM()` | compile error |
+| `default String toString()` in an interface | compile error: overrides a member of `Object` |
+
+**`Optional` methods by release (javadoc `@since`):**
+
+| Method | Since |
+|---|---|
+| `of`, `ofNullable`, `empty`, `get`, `isPresent`, `ifPresent`, `map`, `flatMap`, `filter`, `orElse`, `orElseGet`, `orElseThrow(Supplier)` | 8 |
+| `or`, `ifPresentOrElse`, `stream` | 9 |
+| `orElseThrow()` | 10 |
+| `isEmpty` | 11 |
+
+## Challenges
+
+1. Your library ships a `Map` subclass that enforces a size cap in `put`. List every method a
+   Java 8 caller can use to add a key, and decide for each one: override it, or rebuild the class
+   on `AbstractMap`?
+2. An entity class has an `Optional<Address>` getter over a nullable field. Which frameworks in your
+   stack read the field, which call the getter, and what breaks for the ones that call it?
+3. Find a class in your codebase that implements two JDK interfaces. Which defaults does it inherit
+   from each, and what would a new default in a future release do to it?
+
+## Design Note: Why Optional Is a Class and Not a Rule About null
+
+Java 8 could not make the type system track `null` without changing every existing signature, so
+it added a library class that new methods could return: `Stream.findFirst`, `max` and
+`Optional`-returning lookups. Old methods kept their contracts, and `Map.get` still returns `null`
+for a missing key. The cost is two conventions in one codebase, and an `Optional` reference that
+can itself be `null`; the javadoc only asks that it never be. The class is also value-based, and
+the rules for value-based classes warn against `==` and synchronizing on its instances, which leaves later releases free
+to change how they are represented.
 
 ## Code Examples
 

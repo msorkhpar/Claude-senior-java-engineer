@@ -1,424 +1,391 @@
 # 8.4.3. Benefits of Composition over Inheritance for Concurrency
 
-## Concept Explanation
+The login service keeps its sessions in `MapSessions`, a small class with a private `HashMap`.
+Since the request handlers moved onto more threads, the "active sessions" gauge reads tens of
+thousands low, and now and then a user who has just logged in is told the session doesn't exist.
+The fix is one line inside `MapSessions`. What else has to change, and what has to be checked
+again? Every output below is from Java 21 on a 20-core machine.
 
-While the previous section focused on how to apply composition in concurrent code, this section examines the specific benefits that composition delivers in concurrent systems. The two primary benefits are: (1) making concurrent behavior easier to reason about, and (2) improving modularity and testability.
+## Callers That Know Only the Wrapper Run Unchanged When Its HashMap Becomes a ConcurrentHashMap
 
-**Real-world analogy**: Consider two approaches to building a home security system. The inheritance approach is like a monolithic alarm system where the motion detector, camera, door lock, and siren are all wired together in a single unit -- if one component fails or needs upgrading, you must understand the entire system and risk breaking other components. The composition approach is like a modular smart home system where each device (camera, sensor, lock, siren) is independent, communicates through a standard protocol, and can be tested, replaced, or upgraded individually. When multiple events happen simultaneously (motion detected AND door opened), the modular system handles them cleanly because each component manages its own state.
+The handlers see an interface, and the map is a private field of the class behind it:
 
-### 8.4.3.1 Easier to Reason About Concurrent Behavior
-
-When components are composed rather than inherited, each component has a clear, bounded scope of responsibility. A `ThreadSafeCache` wrapper knows exactly one thing: synchronize access to the underlying cache. The underlying `SimpleCache` knows exactly one thing: store key-value pairs. Neither component needs to understand the other's internals.
-
-This separation makes it straightforward to answer critical concurrent programming questions:
-- "Where is synchronization applied?" -- In the ThreadSafeCache wrapper, nowhere else.
-- "Can this operation deadlock?" -- Each component has at most one lock, and when only one layer synchronizes (see Q4), a call never holds two locks at once.
-- "Is this data structure thread-safe?" -- Check if it is wrapped in a thread-safe decorator.
-
-### 8.4.3.2 Improved Modularity and Testability
-
-Composition inherently supports dependency injection, which is the foundation of testable concurrent code. Each composed component can be:
-- **Tested in isolation**: Test the `SimpleCache` without threading concerns, test the `ThreadSafeCache` wrapper with concurrent access.
-- **Mocked easily**: Replace a real `NotificationSender` with an `InMemoryNotificationSender` for testing.
-- **Measured independently**: Profile the `TemplateFormatter` separately from the `NotificationService` to identify performance bottlenecks.
-
-## Key Points to Remember
-
-- Composition isolates thread-safety concerns into dedicated wrapper components, making them auditable and replaceable.
-- Each composed component can be unit-tested without needing the full composition stack.
-- Mocking composed dependencies is straightforward, enabling focused concurrent testing.
-- Composition supports the "single responsibility for synchronization" principle: only one layer is responsible for thread safety.
-- Processing pipelines built through composition can be parallelized naturally (each item runs through the composed pipeline independently).
-- Composition eliminates "inherited lock" problems where a child class unknowingly shares a parent's monitor.
-- The combination of composition + interfaces + dependency injection creates a "testing triangle" that makes concurrent code verifiable.
-
-## Relevant Java 21 Features
-
-- **Virtual threads (JEP 444)**: Composed pipelines execute naturally on virtual threads. Each pipeline stage delegates to the next without blocking platform threads, achieving high concurrency with simple, sequential code.
-- **Records for immutable compositions**: Records as value objects in composed systems are inherently thread-safe, eliminating the need for defensive copying.
-- **Pattern matching for switch**: When composed objects use sealed interfaces, pattern matching enables clean decomposition without downcasting, keeping concurrent code readable.
-- **Scoped values (JEP 446, preview)**: Scoped values work well with composed components, allowing context to flow through a composition chain without mutable shared state.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Testing only the composition, not the components**
-
-   If you only test `NotificationService` end-to-end, you miss edge cases in `TemplateFormatter` and `InMemoryNotificationSender`.
-
-   **Fix**: Test each composed component independently, then test the composition as an integration test.
-
-2. **Over-mocking losing realistic behavior**
-
-   Replacing every dependency with a mock can hide concurrency bugs because mocks do not simulate timing.
-
-   **Fix**: Use real implementations for concurrent tests (e.g., `InMemoryNotificationSender`) and mocks only for isolation tests.
-
-3. **Assuming composition automatically provides thread safety**
-
-   Composing non-thread-safe components does not make the composition thread-safe.
-
-   **Fix**: Explicitly add a thread-safe wrapper (decorator) when concurrent access is required. Document which components are thread-safe and which are not.
-
-4. **Ignoring decorator ordering effects on concurrency**
-
-   Applying `LoggingDecorator(SynchronizedDecorator(base))` means logging happens outside the lock, while `SynchronizedDecorator(LoggingDecorator(base))` means logging happens inside the lock.
-
-   **Fix**: Document the intended ordering and create factory methods that enforce it.
-
-5. **Shared mutable state in composed components**
-
-   If two composed components share a mutable object (e.g., a shared counter), concurrency bugs can still occur despite clean composition.
-
-   **Fix**: Use `AtomicInteger`, `ConcurrentHashMap`, or other thread-safe types for shared state. Prefer immutable data transfer between components.
-
-## Best Practices and Optimization Techniques
-
-1. **Layer thread safety as a single wrapper**: Apply synchronization at exactly one level in the composition chain. Avoid redundant synchronization in multiple layers.
-2. **Use `CopyOnWriteArrayList` for thread-safe listener/observer lists**: When composing observable behavior, CopyOnWriteArrayList provides safe iteration under concurrent modification.
-3. **Design composed interfaces for testability**: Keep interfaces small and focused so that mock implementations are trivial.
-4. **Use in-memory test doubles over mocks for concurrency tests**: Real objects with simple implementations (like `InMemoryNotificationSender`) expose timing issues that mocks hide.
-5. **Compose processing pipelines for parallelism**: A `ProcessingPipeline` of independent stages can process multiple items concurrently because each item flows through its own copy of the pipeline execution.
-6. **Use `AtomicInteger` / `AtomicReference` for counters and metrics in composed services**: Avoid synchronized blocks for simple counters; atomic variables are lock-free and performant.
-7. **Test concurrent behavior with Awaitility**: Use the Awaitility library to assert conditions that depend on asynchronous composition.
-
-## Edge Cases and Their Handling
-
-1. **Empty pipeline execution**: A pipeline with no stages should return the input unchanged, not null or an error.
-2. **Null results from pipeline stages**: If a stage returns null, subsequent stages would throw NPE. Define a short-circuit convention (return null early or throw).
-3. **Concurrent modification of pipeline stages**: If stages are added while the pipeline is executing, results are unpredictable. Make the stage list immutable after construction or use `CopyOnWriteArrayList`.
-4. **Notification to blank/null recipients**: Validation should happen at the composed boundary (sender) and results should propagate through the composition chain.
-5. **Timeout in concurrent pipeline execution**: When processing items concurrently, individual items may hang. Use `Future.get(timeout)` to bound execution time.
-
-## Interview-specific Insights
-
-Interviewers asking about composition benefits in concurrency want to see:
-- Understanding that composition isolates concerns, making each component's thread-safety properties auditable.
-- Ability to design testable concurrent systems using dependency injection and composition.
-- Knowledge that mocking composed dependencies enables focused testing of concurrent logic.
-- Awareness that processing pipelines composed from stages can be parallelized naturally.
-- Understanding the difference between "thread-safe by composition" (wrapping with a sync decorator) vs "thread-safe by inheritance" (extending with synchronized overrides).
-
-Whiteboard tip: When asked to design a concurrent system, start by identifying the components, define interfaces for each, then compose them. Show how the thread-safe wrapper is applied at a single layer.
-
-## Interview Q&A Section
-
-**Q1: How does composition make concurrent behavior easier to reason about?**
-
-```text
-A1: Composition makes concurrent behavior easier to reason about through
-several mechanisms:
-
-1. Explicit boundaries: Each composed component has a clear scope. A
-   ThreadSafeCache wrapper's ONLY job is synchronization. The SimpleCache's
-   ONLY job is storage. You can audit thread safety by looking at one class.
-
-2. Single lock scope: With composition, each wrapper has at most one lock.
-   There are no hidden inherited locks that might cause deadlocks. As long as
-   only one layer synchronizes, the lock graph is flat, not hierarchical
-   (stacking two synchronizing wrappers would nest their locks again).
-
-3. Visible synchronization: You can see exactly which operations are
-   synchronized by examining the wrapper. With inheritance, you must read
-   the entire hierarchy to find all synchronized methods.
-
-4. Predictable behavior: A composed decorator always delegates to its
-   delegate. There are no super.method() calls that might invoke overridden
-   methods in a subclass (which is the fragile base class problem).
-
-5. Isolated state: Each component manages its own state. Shared state is
-   explicit (passed through interfaces), not implicit (inherited fields).
-
-6. Composable safety: You can add thread safety to ANY Cache implementation
-   by wrapping it, without modifying the implementation or knowing its
-   internals.
+```java
+/** What the login service's handlers know about the session store. */
+public interface Sessions {
+    void open(String id, String user);
+    String user(String id);           // null when there is no such session
+    boolean close(String id);
+    int count();
+}
 ```
 
 ```java
-// Reasoning about thread safety is EASY with composition:
+import java.util.HashMap;
+import java.util.Map;
 
-// Step 1: SimpleCache is NOT thread-safe (no synchronization)
-Cache<String, Integer> simple = new SimpleCache<>();
+public final class MapSessions implements Sessions {
+    private final Map<String, String> byId = new HashMap<>();
 
-// Step 2: ThreadSafeCache IS thread-safe (wraps with synchronized)
-Cache<String, Integer> safe = new ThreadSafeCache<>(simple);
-
-// Step 3: BoundedCache adds eviction (thread safety depends on what wraps it)
-Cache<String, Integer> bounded = new BoundedCache<>(new SimpleCache<>(), 100);
-
-// Step 4: Compose both bounded AND thread-safe
-Cache<String, Integer> safeBounded = new ThreadSafeCache<>(
-    new BoundedCache<>(new SimpleCache<>(), 100)
-);
-// Thread safety is clear: ThreadSafeCache provides it, others don't.
+    public void open(String id, String user) { byId.put(id, user); }
+    public String user(String id)            { return byId.get(id); }
+    public boolean close(String id)          { return byId.remove(id) != null; }
+    public int count()                       { return byId.size(); }
+}
 ```
 
-**Q2: How does composition improve testability of concurrent code?**
+A load program, `LoginLoad`, plays eight request threads. Each logs in 25,000 users, checks right
+away that its own session is there, and logs every second one out again, so 100,000 sessions
+should stay open:
+
+```java
+for (int i = 0; i < 25_000; i++) {
+    String id = th + "-" + i;
+    sessions.open(id, "user-" + i);
+    if (sessions.user(id) == null) notFound.incrementAndGet();   // just logged in
+    if (i % 2 == 1) sessions.close(id);                         // logs out again
+}
+```
+
+We compile everything once and run the load five times. Then we change one line of
+`MapSessions` to `new ConcurrentHashMap<>()` (and its import), recompile that file alone, and run
+the same `LoginLoad.class` five more times. Each block's first line gives the first 16 hex digits
+of the SHA-256 of each caller's class file (`GuestLogin` comes in the next section):
 
 ```text
-A2: Composition improves testability in several concrete ways:
+LoginLoad.class 24c79f54405ae471, GuestLogin.class 7f2b8782a0ed5e4f, MapSessions over HashMap:
+open sessions: 52999 of 100000, own session not found: 19, threads failed: [], stuck after 3 s: 0
+open sessions: 38066 of 100000, own session not found: 24, threads failed: [], stuck after 3 s: 5
+open sessions: 51588 of 100000, own session not found: 25, threads failed: [ClassCastException], stuck after 3 s: 1
+open sessions: 54761 of 100000, own session not found: 40, threads failed: [], stuck after 3 s: 0
+open sessions: 36576 of 100000, own session not found: 32, threads failed: [], stuck after 3 s: 6
 
-1. Dependency injection: Composed objects receive their dependencies through
-   constructors. In tests, you can inject test doubles (mocks, stubs, fakes)
-   that simulate specific concurrent behaviors.
+LoginLoad.class 24c79f54405ae471, GuestLogin.class 7f2b8782a0ed5e4f, MapSessions over ConcurrentHashMap:
+open sessions: 100000 of 100000, own session not found: 0, threads failed: [], stuck after 3 s: 0
+open sessions: 100000 of 100000, own session not found: 0, threads failed: [], stuck after 3 s: 0
+open sessions: 100000 of 100000, own session not found: 0, threads failed: [], stuck after 3 s: 0
+open sessions: 100000 of 100000, own session not found: 0, threads failed: [], stuck after 3 s: 0
+open sessions: 100000 of 100000, own session not found: 0, threads failed: [], stuck after 3 s: 0
+```
 
-2. Isolated unit testing: Test the SimpleCache without threading. Test the
-   ThreadSafeCache with concurrent threads. Each test focuses on one concern.
+Over `HashMap` the store loses sessions, misses ones just written, and leaves threads looping
+inside it (unit 6.5.2 shows why). Over `ConcurrentHashMap` every run is exact, and the caller's
+bytes are the same. A compiled call names the method it calls, `Sessions.open(String, String)`,
+and never the type of a private field, so nothing a caller was compiled against moved.
 
-3. In-memory test doubles: Create lightweight implementations (like
-   InMemoryNotificationSender) that record interactions. These are more
-   realistic than mocks for concurrent testing because they actually execute.
+The same store written as a subclass has no private part to change. Here a nightly report copies
+it with `clone()`, which `HashMap` makes public:
 
-4. Focused concurrency tests: To test that ThreadSafeCache handles concurrent
-   puts correctly, you only need to create threads that call put() on the
-   wrapper. You do not need to set up an entire system.
+```java
+import java.util.HashMap;
 
-5. Mock verification: Using Mockito, you can verify that a composed component
-   was called the expected number of times, even in concurrent scenarios.
-
-6. Pipeline testing: Test each pipeline stage independently with various
-   inputs, then test the composed pipeline end-to-end.
-
-7. Strategy testing: Test each retry strategy (fixed, exponential) in
-   isolation, then test the ResilientExecutor with each strategy.
+/** The same store, written as a subclass. */
+public class SessionTable extends HashMap<String, String> {
+}
 ```
 
 ```java
-// Testing composed components independently
+SessionTable table = new SessionTable();
+table.put("s-1", "user-1");
+@SuppressWarnings("unchecked")
+Map<String, String> copy = (Map<String, String>) table.clone();
+```
 
-// Test 1: TemplateFormatter in isolation (no concurrency needed)
-@Test
-void testFormatter() {
-    var formatter = new TemplateFormatter();
-    String result = formatter.format("Hello ${name}!", Map.of("name", "Alice"));
-    assertThat(result).isEqualTo("Hello Alice!");
+After `extends HashMap` becomes `extends ConcurrentHashMap` and only `SessionTable` is
+recompiled, the old report class fails when it runs, and recompiling it fails too:
+
+```text
+Exception in thread "main" java.lang.IllegalAccessError: class NightlyReport tried to access protected method 'java.lang.Object java.util.AbstractMap.clone()' (NightlyReport is in unnamed module of loader 'app'; java.util.AbstractMap is in module java.base of loader 'bootstrap')
+	at NightlyReport.main(NightlyReport.java:9)
+```
+
+```text
+work/NightlyReport.java:9: error: clone() has protected access in AbstractMap
+        Map<String, String> copy = (Map<String, String>) table.clone();
+                                                              ^
+1 error
+```
+
+A subclass publishes every public method of its superclass, so the superclass is part of what
+each caller compiled against, and changing it means finding every caller. Units 8.4.1 and 8.4.2
+show the coupling in the other direction: a subclass that depends on how its base calls its own
+methods, and one that locks a different object than its base.
+
+## The Swap Is Free Only for What the Wrapper Promises: HashMap Accepted null, ConcurrentHashMap Throws
+
+Both builds also ran `GuestLogin`, compiled once with the load:
+
+```java
+Sessions sessions = new MapSessions();
+sessions.open("s-guest", null);
+System.out.println("count: " + sessions.count() + ", logged in: " + (sessions.user("s-guest") != null));
+```
+
+Over `HashMap`, then over `ConcurrentHashMap`:
+
+```text
+count: 1, logged in: false
+```
+
+```text
+Exception in thread "main" java.lang.NullPointerException
+	at java.base/java.util.concurrent.ConcurrentHashMap.putVal(ConcurrentHashMap.java:1011)
+	at java.base/java.util.concurrent.ConcurrentHashMap.put(ConcurrentHashMap.java:1006)
+	at MapSessions.open(MapSessions.java:7)
+```
+
+Over `HashMap` the guest's session was stored and then looked missing, since `user` returns
+`null` for both. Over `ConcurrentHashMap` the same call throws from inside the map, in a class
+nobody edited. The `Map` interface allows both: its javadoc says some implementations prohibit
+null keys and values and throw when given one, and `ConcurrentHashMap`'s says it allows neither.
+
+A wrapper hides an implementation only where its own contract is narrower than every
+implementation it may hold. `MapSessions` decides about `null` itself, in every method; `open`
+and `user`:
+
+```java
+public void open(String id, String user) {
+    byId.put(Objects.requireNonNull(id, "id"), Objects.requireNonNull(user, "user"));
 }
+public String user(String id)   { return byId.get(Objects.requireNonNull(id, "id")); }
+```
 
-// Test 2: InMemoryNotificationSender in isolation
-@Test
-void testSender() {
-    var sender = new InMemoryNotificationSender();
-    assertThat(sender.send("user", "msg")).isTrue();
-    assertThat(sender.getSentMessages()).containsExactly("user: msg");
-}
+The guest login over both backings now prints the same thing, pointing at the caller's line
+(unit 8.5.1):
 
-// Test 3: NotificationService with real components (integration)
-@Test
-void testNotificationService() {
-    var sender = new InMemoryNotificationSender();
-    var formatter = new TemplateFormatter();
-    var service = new NotificationService(sender, formatter);
+```text
+Exception in thread "main" java.lang.NullPointerException: user
+	at java.base/java.util.Objects.requireNonNull(Objects.java:259)
+	at MapSessions.open(MapSessions.java:9)
+	at GuestLogin.main(GuestLogin.java:5)
+```
 
-    service.notify("admin@example.com", "Alert: ${event}", Map.of("event", "login"));
-    assertThat(sender.getSentMessages())
-        .containsExactly("admin@example.com: Alert: login");
-}
+Iteration is the other difference. A method that returned the live map, or a view of it, would
+give callers a fail-fast iterator over `HashMap` and a weakly consistent one over
+`ConcurrentHashMap` (unit 6.5.3). A wrapper that lists its contents returns a copy, such as
+`Map.copyOf(byId)`.
 
-// Test 4: Concurrent access to NotificationService
-@Test
-void testConcurrentNotifications() throws Exception {
-    var sender = new InMemoryNotificationSender();
-    var service = new NotificationService(sender, new TemplateFormatter());
+<!-- practice 1 -->
 
-    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-        for (int i = 0; i < 100; i++) {
-            final int id = i;
-            executor.submit(() ->
-                service.notify("user" + id, "Message ${id}", Map.of("id", String.valueOf(id)))
-            );
-        }
+## One Metrics Decorator Serves Every Implementation, and Its Own Counters Must Be Thread-Safe
+
+Operations wants call counts and latency for the store. A decorator implements `Sessions`, holds
+another `Sessions`, and measures each call it passes on:
+
+```java
+import java.util.concurrent.atomic.LongAdder;
+
+/** Adds call counts and timings to any Sessions. */
+public final class MeteredSessions implements Sessions {
+    private final Sessions inner;
+    private final LongAdder calls = new LongAdder();
+    private final LongAdder nanos = new LongAdder();
+
+    public MeteredSessions(Sessions inner) { this.inner = inner; }
+
+    public void open(String id, String user) {
+        long start = System.nanoTime();
+        try { inner.open(id, user); } finally { record(start); }
     }
-    // InMemoryNotificationSender uses CopyOnWriteArrayList, so this is safe
-    assertThat(sender.getSentMessages()).hasSize(100);
+    public String user(String id) {
+        long start = System.nanoTime();
+        try { return inner.user(id); } finally { record(start); }
+    }
+    public boolean close(String id) {
+        long start = System.nanoTime();
+        try { return inner.close(id); } finally { record(start); }
+    }
+    public int count() {
+        long start = System.nanoTime();
+        try { return inner.count(); } finally { record(start); }
+    }
+
+    private void record(long start) {
+        calls.increment();
+        nanos.add(System.nanoTime() - start);
+    }
+
+    public long calls()     { return calls.sum(); }
+    public long meanNanos() { long c = calls.sum(); return c == 0 ? 0 : nanos.sum() / c; }
 }
 ```
 
-**Q3: How do processing pipelines benefit from composition in concurrent systems?**
+`new MeteredSessions(new MapSessions())` measures the store over either map, and wraps a test
+fake as well. Measuring by subclassing would take one subclass per class measured.
+
+Its first version kept `private long calls;` and counted with `calls++`. Eight threads made
+800,000 calls through each version, over the `ConcurrentHashMap` store, five runs each:
 
 ```text
-A3: Processing pipelines built through composition offer several concurrency
-benefits:
-
-1. Natural parallelism: Each item flows through the pipeline independently.
-   Multiple items can be processed concurrently on different threads (or
-   virtual threads) because they do not share pipeline state.
-
-2. Stage independence: Each stage is a Function<T, T> that transforms input
-   to output. Stages are stateless and do not interfere with each other.
-
-3. Easy scaling: To process N items concurrently, submit each to a virtual
-   thread. The pipeline itself does not need any modification.
-
-4. Testable stages: Each stage can be tested independently. A trim stage,
-   an uppercase stage, and a suffix stage are all simple functions that can
-   be verified in isolation.
-
-5. Dynamic composition: Stages can be added based on runtime configuration.
-   Different users or contexts can have different pipelines without changing
-   any class hierarchy.
-
-6. Null safety: The pipeline can define a convention for null results
-   (short-circuit and return null) that is consistent across all stages.
-
-7. Error isolation: If one item fails in its pipeline execution, other
-   items on other threads continue processing unaffected.
+long counters:     calls made 800000, counted 588550, sessions 400000
+long counters:     calls made 800000, counted 587597, sessions 400000
+long counters:     calls made 800000, counted 584955, sessions 400000
+long counters:     calls made 800000, counted 589093, sessions 400000
+long counters:     calls made 800000, counted 584595, sessions 400000
+LongAdder counters: calls made 800000, counted 800000, sessions 400000
+LongAdder counters: calls made 800000, counted 800000, sessions 400000
+LongAdder counters: calls made 800000, counted 800000, sessions 400000
+LongAdder counters: calls made 800000, counted 800000, sessions 400000
+LongAdder counters: calls made 800000, counted 800000, sessions 400000
 ```
+
+The store kept all 400,000 sessions while the metrics lost a quarter of the calls. A decorator
+has its own fields, every thread that uses the store uses them, and the thread-safety of what it
+wraps doesn't extend to them. `calls++` reads, adds and writes, and two
+threads that read the same value write the same result (unit 6.2.1). `LongAdder` or `AtomicLong`
+makes each update atomic. `LongAdder` keeps several cells under contention and adds them up when
+read, so eight counting threads don't all fight over one variable.
+
+<!-- practice 2 -->
+
+## A Synchronizing Decorator Protects Only the Calls That Go Through It
+
+A decorator can add a lock instead of a different map:
 
 ```java
-// Composing a pipeline and executing concurrently
-var pipeline = new ProcessingPipeline<String>()
-    .addStage(String::trim)
-    .addStage(String::toUpperCase)
-    .addStage(s -> s + " [PROCESSED]");
-
-// ConcurrentPipelineExecutor processes each item on a virtual thread
-var executor = new ConcurrentPipelineExecutor<>(pipeline);
-List<String> results = executor.processAll(
-    List.of("  hello  ", "  world  ", "  java  ")
-);
-// Results: ["HELLO [PROCESSED]", "WORLD [PROCESSED]", "JAVA [PROCESSED]"]
-
-// Each item runs independently:
-// Virtual Thread 1: "  hello  " -> trim -> "hello" -> upper -> "HELLO" -> suffix
-// Virtual Thread 2: "  world  " -> trim -> "world" -> upper -> "WORLD" -> suffix
-// Virtual Thread 3: "  java  "  -> trim -> "java"  -> upper -> "JAVA"  -> suffix
-```
-
-**Q4: What is the "single responsibility for synchronization" principle?**
-
-```text
-A4: The "single responsibility for synchronization" principle states that
-in a composed system, exactly ONE layer should be responsible for thread
-safety. This is a concurrent-specific application of the Single Responsibility
-Principle.
-
-Why this matters:
-- If multiple layers add synchronization, you get redundant locking (reduced
-  performance) or nested locking (deadlock risk).
-- If NO layer adds synchronization, you get data races.
-- With exactly one layer, the system is both safe and efficient.
-
-How composition enables this:
-- The base component (SimpleCache) is NOT thread-safe. It is simple and fast.
-- A dedicated wrapper (ThreadSafeCache) adds thread safety.
-- Higher-level components (BoundedCache) do NOT add synchronization -- they
-  rely on being wrapped by ThreadSafeCache if needed.
-- The composition order makes the synchronization layer explicit:
-    ThreadSafeCache(BoundedCache(SimpleCache))
-
-Contrast with inheritance:
-- A parent class might add synchronized methods.
-- A child class might add its own synchronized methods.
-- The interaction between these synchronization layers is implicit and
-  potentially dangerous.
-```
-
-```java
-// Single responsibility for synchronization
-
-// Layer 1: Storage (no sync) - simple, testable, fast
-class SimpleCache<K, V> implements Cache<K, V> {
-    private final Map<K, V> store = new HashMap<>();
-    // All operations are unsynchronized
-    public V get(K key) { return store.get(key); }
-    public void put(K key, V value) { store.put(key, value); }
-}
-
-// Layer 2: Thread safety (ONLY sync layer)
-class ThreadSafeCache<K, V> implements Cache<K, V> {
-    private final Cache<K, V> delegate;
+/** Runs every call on the wrapped Sessions under one lock. */
+public final class SynchronizedSessions implements Sessions {
+    private final Sessions inner;
     private final Object lock = new Object();
 
-    public V get(K key) {
-        synchronized (lock) { return delegate.get(key); }
-    }
-    public void put(K key, V value) {
-        synchronized (lock) { delegate.put(key, value); }
-    }
-}
+    public SynchronizedSessions(Sessions inner) { this.inner = inner; }
 
-// Layer 3: Eviction (no sync) - relies on ThreadSafeCache wrapping it
-class BoundedCache<K, V> implements Cache<K, V> {
-    private final Cache<K, V> delegate;
-    private final int maxSize;
-    // Eviction logic, no synchronization
+    public void open(String id, String user) { synchronized (lock) { inner.open(id, user); } }
+    public String user(String id)            { synchronized (lock) { return inner.user(id); } }
+    public boolean close(String id)          { synchronized (lock) { return inner.close(id); } }
+    public int count()                       { synchronized (lock) { return inner.count(); } }
 }
-
-// Correct composition: sync wraps everything
-Cache<K, V> cache = new ThreadSafeCache<>(
-    new BoundedCache<>(new SimpleCache<>(), 1000)
-);
 ```
 
-**Q5: How would you design a notification system using composition for concurrency?**
+`HashMapSessions` is `MapSessions` with its original `HashMap` field and the null checks.
+Wrapped, it kept every session in all five runs of the first section's load:
 
 ```text
-A5: A well-designed notification system using composition separates concerns
-into independently testable components:
-
-1. MessageFormatter (interface): Transforms templates into messages.
-   - TemplateFormatter: Replaces ${key} placeholders.
-   - HtmlFormatter, MarkdownFormatter: Alternative formatters.
-
-2. NotificationSender (interface): Sends formatted messages.
-   - EmailSender, SmsSender: Production implementations.
-   - InMemoryNotificationSender: Test double that records messages.
-
-3. NotificationService: Composes a formatter and sender. Orchestrates the
-   formatting and sending workflow. Tracks success/failure counts using
-   AtomicInteger for thread safety.
-
-Benefits for concurrency:
-- The service uses AtomicInteger for counters (lock-free, thread-safe).
-- InMemoryNotificationSender uses CopyOnWriteArrayList (thread-safe reads).
-- Each dependency can be tested independently.
-- The sender can be swapped (email in prod, in-memory in tests) via DI.
-- Multiple notifications can be sent concurrently because the service's
-  notify() method is stateless (only atomic counters are mutated).
-
-This design would never work well with inheritance because you would need
-classes like EmailTemplateNotifier, SmsTemplateNotifier, EmailHtmlNotifier,
-SmsHtmlNotifier -- an explosion of subclasses.
+SynchronizedSessions over HashMapSessions: open sessions 100000 of 100000
 ```
+
+Reads take the lock too: in the first section, a `user` call that ran beside another thread's
+`put` missed sessions its own thread had just written.
+
+`Collections.synchronizedMap(m)` is the JDK's version of this class. It returns a `Map` that
+holds `m` and runs each `Map` method under one lock, the wrapper object itself, over any `Map`. A
+`TreeMap` inside still walks in key order, but the wrapper is only a `Map`: it is not a
+`SortedMap`, which is why `synchronizedSortedMap` exists. A walk is many calls, so it must hold
+the wrapper's lock (unit 6.5.2). The javadoc adds a condition: all access to the backing map goes through the
+returned map.
+
+Here the expiry job was built before the wrap and kept the `HashMap` itself. Seven request
+threads put 25,000 sessions each through the wrapper while the job removes 50,000 expired ones
+through its own reference:
 
 ```java
-// Composition-based notification system
-interface NotificationSender {
-    boolean send(String recipient, String message);
-}
-
-interface MessageFormatter {
-    String format(String template, Map<String, String> variables);
-}
-
-class NotificationService {
-    private final NotificationSender sender;
-    private final MessageFormatter formatter;
-    private final AtomicInteger successCount = new AtomicInteger(0);
-    private final AtomicInteger failureCount = new AtomicInteger(0);
-
-    NotificationService(NotificationSender sender, MessageFormatter formatter) {
-        this.sender = Objects.requireNonNull(sender);
-        this.formatter = Objects.requireNonNull(formatter);
-    }
-
-    boolean notify(String recipient, String template, Map<String, String> vars) {
-        String message = formatter.format(template, vars);
-        boolean success = sender.send(recipient, message);
-        if (success) successCount.incrementAndGet();
-        else failureCount.incrementAndGet();
-        return success;
-    }
-}
-
-// Production: email sender + template formatter
-var prodService = new NotificationService(new EmailSender(), new TemplateFormatter());
-
-// Testing: in-memory sender + same formatter
-var testSender = new InMemoryNotificationSender();
-var testService = new NotificationService(testSender, new TemplateFormatter());
-testService.notify("user@example.com", "Hello ${name}!", Map.of("name", "Alice"));
-assertThat(testSender.getSentMessages()).containsExactly("user@example.com: Hello Alice!");
+Map<String, String> backing = new HashMap<>();
+for (int i = 0; i < 50_000; i++) backing.put("old-" + i, "user-" + i);
+Map<String, String> sessions = Collections.synchronizedMap(backing);
+Map<String, String> expiryView = escape ? backing : sessions;   // what the expiry job was given
 ```
+
+```text
+expiry job given the HashMap: found 175000 of 175000 new, 0 expired left, size() 175335
+expiry job given the HashMap: found 175000 of 175000 new, 0 expired left, size() 175362
+expiry job given the HashMap: found 175000 of 175000 new, 0 expired left, size() 175420
+expiry job given the HashMap: found 175000 of 175000 new, 0 expired left, size() 175577
+expiry job given the HashMap: found 174999 of 175000 new, 0 expired left, size() 175234
+expiry job given the wrapper: found 175000 of 175000 new, 0 expired left, size() 175000
+expiry job given the wrapper: found 175000 of 175000 new, 0 expired left, size() 175000
+expiry job given the wrapper: found 175000 of 175000 new, 0 expired left, size() 175000
+expiry job given the wrapper: found 175000 of 175000 new, 0 expired left, size() 175000
+expiry job given the wrapper: found 175000 of 175000 new, 0 expired left, size() 175000
+```
+
+The wrapper's lock kept its own callers apart and nobody else: the job's removes ran beside the
+puts. `size()`, the number on the gauge, was wrong in every run, by up to 577, and one session
+vanished in one run. Any reference to the inner object that outlives the wrap is a path around
+the lock. `new SynchronizedSessions(new HashMapSessions())` leaves no such reference.
+
+### Which Layer Holds the Lock Decides What the Metrics Measure
+
+Stacking both decorators gives two orders, and both compile and pass a single-threaded test. In
+the second, threads call `insideShared` and the metrics are read from `inside`:
+
+```java
+MeteredSessions outside = new MeteredSessions(new SynchronizedSessions(new HashMapSessions()));
+MeteredSessions inside = new MeteredSessions(new HashMapSessions());
+Sessions insideShared = new SynchronizedSessions(inside);
+```
+
+Eight threads made 200,000 calls each through each stack, three rounds:
+
+```text
+metrics outside the lock: mean 1163 ns/call   metrics inside the lock: mean  79 ns/call
+metrics outside the lock: mean  951 ns/call   metrics inside the lock: mean  70 ns/call
+metrics outside the lock: mean  826 ns/call   metrics inside the lock: mean  55 ns/call
+```
+
+The store did the same work. Outside the lock the timer also runs while a caller waits for the
+lock, which is the latency a request sees. Inside, it is how long the store holds the lock, the
+number to check before blaming the map. These are one machine's numbers; the ratio depends on
+cores and contention.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Callers that see only the wrapper's methods survive a change of what it wraps.** Replacing a
+  private `HashMap` with a `ConcurrentHashMap` changed no caller's class file and ended the lost
+  sessions; the same change to a subclass of `HashMap` broke a caller at run time and at compile
+  time.
+- **The swap is free only within the wrapper's own contract.** Maps differ on `null` and on
+  iteration; a wrapper that rejects `null` itself and returns copies behaves the same over all of
+  them.
+- **A decorator's own state needs its own thread-safety.** `long` counters in a metrics decorator
+  lost a quarter of the calls over a correct store; `LongAdder` counted every one.
+- **A synchronizing decorator protects only the calls that go through it.** `Collections.synchronizedMap`
+  miscounted once another reference to its map was used. Stacked with metrics, its position
+  decides whether the timings include waiting for the lock.
+
+## Reference
+
+**What a map accepts and how it iterates (Java 21, run single-threaded):**
+
+| Map | `put(k, null)` | `put(null, v)` | `get(null)` | `put` during a walk |
+|---|---|---|---|---|
+| `HashMap`, `LinkedHashMap` | accepted | accepted | returns the value or `null` | `ConcurrentModificationException` |
+| `TreeMap` (natural order) | accepted | `NullPointerException` | `NullPointerException` | `ConcurrentModificationException` |
+| `ConcurrentHashMap`, `ConcurrentSkipListMap` | `NullPointerException` | `NullPointerException` | `NullPointerException` | walk continues |
+| `Collections.synchronizedMap(m)` | as `m` | as `m` | as `m` | as `m` |
+
+**Decorators in the JDK** (each wraps any implementation of its interface):
+
+| Factory | Adds | Condition in its javadoc |
+|---|---|---|
+| `Collections.synchronizedMap/List/Set` | one lock around each call | all access through the returned object; hold its lock while walking it |
+| `Collections.unmodifiableMap/List/Set` | rejects changes with `UnsupportedOperationException` | a view: reads go through to the backing collection, so its changes show |
+| `Collections.checkedMap/List/Set` | a type check on insert | guaranteed only while all access goes through the returned object |
+
+## Challenges
+
+1. `MapSessions` must also list the sessions of one user. Can you add that without making a swap
+   back to `HashMap` (for a single-threaded batch tool) unsafe, and what does the copy cost on
+   100,000 sessions?
+2. Write a test that would have caught the `long` counters in `MeteredSessions`. How many threads
+   and calls does it need to fail every time on your machine, and on a two-core CI runner?
+3. A cache needs eviction (`LinkedHashMap` in access order) and sharing between threads. Compare
+   `Collections.synchronizedMap` over it with a `ConcurrentHashMap` plus your own eviction: what
+   does each cost readers, given that `get` on an access-ordered `LinkedHashMap` moves the entry?
+
+## Design Note: Why the JDK Wraps Instead of Subclassing
+
+Java 1.2 could have shipped `SynchronizedHashMap`, `SynchronizedTreeMap` and so on, one subclass
+per map. It shipped `Collections.synchronizedMap`, one private class that holds any `Map`, and
+the same for unmodifiable and checked collections. One class covers every implementation,
+including ones written later, and none of them has to be designed for extension. The design
+pattern behind it is the decorator of unit 9.2.2. It costs in two ways. A decorator exposes only
+the interface it implements, so a wrapped `TreeMap` stops being a `SortedMap` and the JDK needed
+`synchronizedSortedMap` and `synchronizedNavigableMap` as well. And a decorator can't control who
+else holds the object inside, so its guarantee depends on how callers use it, as the javadoc
+conditions say; a compound action still needs its lock or a single call such as `merge`. `ConcurrentHashMap`, added in Java 5, is the other answer: the thread-safety is built
+into the implementation, with no lock to hold from outside.
 
 ## Code Examples
 

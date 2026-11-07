@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "The same legacy player behind an object adapter and a class adapter",
+  "title": "Give a sensor's int[] buffer a List view",
   "blocks": [
     {
       "type": "heading",
@@ -19,66 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page's Q2 adapts one legacy player to the `MediaPlayer` interface in two ways:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "an **object adapter** holds a `LegacyAudioPlayer` and **delegates to the player it was given**, so it works with any subclass of it;",
-        "a **class adapter** `extends LegacyAudioPlayer implements MediaPlayer` and **calls the method it inherits**."
-      ]
+      "text": "A vendor's sensor library samples a production line and writes each reading into an `int[]` buffer that you allocate and hand to it; it keeps writing into the same buffer for as long as the line runs. The analytics code takes a `List<Integer>`: it reads the latest samples, smooths outliers by writing corrected values back where the library will pick them up, and sorts or reverses the readings in place with `Collections`. Today the service copies the buffer into a new list every second, and the corrections never reach the library."
     },
     {
       "type": "para",
-      "text": "Neither adds behaviour: **the call passes through unchanged**, and whatever the legacy player throws reaches the caller."
-    },
-    {
-      "type": "para",
-      "text": "Given: `MediaPlayer` and `LegacyAudioPlayer` (its `playMp3` refuses a blank name with `IllegalArgumentException`). Write both adapters:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`new AudioPlayerAdapter(player)`: **`null` is refused at once** with `NullPointerException`; `getPlayerType()` is `\"Audio (Object Adapter)\"`.",
-        "`new AudioClassAdapter()`: `getPlayerType()` is `\"Audio (Class Adapter)\"`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "adapter",
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "object, around `new LegacyAudioPlayer()`",
-          "`play(\"song.mp3\")`",
-          "`\"Playing MP3: song.mp3\"`"
-        ],
-        [
-          "class",
-          "`play(\"song.mp3\")`",
-          "`\"Playing MP3: song.mp3\"`"
-        ],
-        [
-          "object or class",
-          "`play(\" song.mp3\")`",
-          "`\"Playing MP3:  song.mp3\"`"
-        ],
-        [
-          "object or class",
-          "`play(\"  \")`",
-          "`IllegalArgumentException` from the legacy player"
-        ],
-        [
-          "object",
-          "`new AudioPlayerAdapter(null)`",
-          "`NullPointerException`"
-        ]
-      ]
+      "text": "Finish `src/main/java/practice/IntArrayList.java`, a `List<Integer>` over the buffer: the constructor, `get`, `set` and `size`. `AbstractList` supplies the rest, and refuses `add` and `remove`, since the buffer can't grow. When you're done, the list and the buffer stay the same data in both directions, and every `java.util.Collections` algorithm that changes a list works on it. About six lines in total."
     },
     {
       "type": "heading",
@@ -93,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class Audio {\n\n    private Audio() {\n    }\n\n    /** The interface clients program against. */\n    public interface MediaPlayer {\n        String play(String filename);\n\n        String getPlayerType();\n    }\n\n    /** The existing player, with a method of its own name and shape. */\n    public static class LegacyAudioPlayer {\n        public String playMp3(String filename) {\n            Objects.requireNonNull(filename, \"filename must not be null\");\n            if (filename.isBlank()) {\n                throw new IllegalArgumentException(\"filename must not be blank\");\n            }\n            return \"Playing MP3: \" + filename;\n        }\n    }\n\n    /** Object adapter: wraps a player. */\n    public static final class AudioPlayerAdapter implements MediaPlayer {\n\n        private final LegacyAudioPlayer player;\n\n        public AudioPlayerAdapter(LegacyAudioPlayer player) {\n            this.player = Objects.requireNonNull(player, \"player must not be null\");\n        }\n\n        @Override\n        public String play(String filename) {\n            return player.playMp3(filename);\n        }\n\n        @Override\n        public String getPlayerType() {\n            return \"Audio (Object Adapter)\";\n        }\n    }\n\n    /** Class adapter: is a player. */\n    public static class AudioClassAdapter extends LegacyAudioPlayer implements MediaPlayer {\n\n        @Override\n        public String play(String filename) {\n            return playMp3(filename);\n        }\n\n        @Override\n        public String getPlayerType() {\n            return \"Audio (Class Adapter)\";\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.AbstractList;\nimport java.util.Objects;\nimport java.util.RandomAccess;\n\n/**\n * A {@code List<Integer>} over the {@code int[]} buffer the sensor library fills.\n * The list has the buffer's size: add and remove throw UnsupportedOperationException.\n */\npublic final class IntArrayList extends AbstractList<Integer> implements RandomAccess {\n\n    private final int[] buffer;\n\n    /** The list presents this buffer. */\n    public IntArrayList(int[] buffer) {\n        this.buffer = Objects.requireNonNull(buffer);\n    }\n\n    /** The value at {@code index}. */\n    @Override\n    public Integer get(int index) {\n        return buffer[index];\n    }\n\n    /** Puts {@code value} at {@code index}, as List.set does. */\n    @Override\n    public Integer set(int index, Integer value) {\n        int previous = buffer[index];\n        buffer[index] = value;\n        return previous;\n    }\n\n    /** How many values the list holds. */\n    @Override\n    public int size() {\n        return buffer.length;\n    }\n}\n"
         }
       ]
     },
@@ -105,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class Audio {\n\n    private Audio() {\n    }\n\n    /** The interface clients program against. */\n    public interface MediaPlayer {\n        String play(String filename);\n\n        String getPlayerType();\n    }\n\n    /** The existing player, with a method of its own name and shape. */\n    public static class LegacyAudioPlayer {\n        public String playMp3(String filename) {\n            Objects.requireNonNull(filename, \"filename must not be null\");\n            if (filename.isBlank()) {\n                throw new IllegalArgumentException(\"filename must not be blank\");\n            }\n            return \"Playing MP3: \" + filename;\n        }\n    }\n\n    /** Object adapter: wraps a player. */\n    public static final class AudioPlayerAdapter implements MediaPlayer {\n\n        public AudioPlayerAdapter(LegacyAudioPlayer player) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        @Override\n        public String play(String filename) {\n            throw new UnsupportedOperationException(\"write play\");\n        }\n\n        @Override\n        public String getPlayerType() {\n            throw new UnsupportedOperationException(\"write getPlayerType\");\n        }\n    }\n\n    /** Class adapter: is a player. */\n    public static class AudioClassAdapter extends LegacyAudioPlayer implements MediaPlayer {\n\n        @Override\n        public String play(String filename) {\n            throw new UnsupportedOperationException(\"write play\");\n        }\n\n        @Override\n        public String getPlayerType() {\n            throw new UnsupportedOperationException(\"write getPlayerType\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.AbstractList;\nimport java.util.Objects;\nimport java.util.RandomAccess;\n\n/**\n * A {@code List<Integer>} over the {@code int[]} buffer the sensor library fills.\n * The list has the buffer's size: add and remove throw UnsupportedOperationException.\n */\npublic final class IntArrayList extends AbstractList<Integer> implements RandomAccess {\n\n    private final int[] buffer;\n\n    /** The list presents this buffer. */\n    public IntArrayList(int[] buffer) {\n        // TODO: keep what the list will present; refuse null.\n        throw new IllegalStateException(\"TODO: IntArrayList(int[])\");\n    }\n\n    /** The value at {@code index}. */\n    @Override\n    public Integer get(int index) {\n        // TODO\n        throw new IllegalStateException(\"TODO: get\");\n    }\n\n    /** Puts {@code value} at {@code index}, as List.set does. */\n    @Override\n    public Integer set(int index, Integer value) {\n        // TODO: honour List.set's whole contract.\n        throw new IllegalStateException(\"TODO: set\");\n    }\n\n    /** How many values the list holds. */\n    @Override\n    public int size() {\n        // TODO\n        throw new IllegalStateException(\"TODO: size\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -113,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 2,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -124,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "08ae4793a2916fac6a9bbe119fcd2b3dcf9e3960b09d84539e20f041818ac81d",
-  "starting_code": "package practice;\n\nimport java.util.Objects;\n\npublic final class Audio {\n\n    private Audio() {\n    }\n\n    /** The interface clients program against. */\n    public interface MediaPlayer {\n        String play(String filename);\n\n        String getPlayerType();\n    }\n\n    /** The existing player, with a method of its own name and shape. */\n    public static class LegacyAudioPlayer {\n        public String playMp3(String filename) {\n            Objects.requireNonNull(filename, \"filename must not be null\");\n            if (filename.isBlank()) {\n                throw new IllegalArgumentException(\"filename must not be blank\");\n            }\n            return \"Playing MP3: \" + filename;\n        }\n    }\n\n    /** Object adapter: wraps a player. */\n    public static final class AudioPlayerAdapter implements MediaPlayer {\n\n        public AudioPlayerAdapter(LegacyAudioPlayer player) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        @Override\n        public String play(String filename) {\n            throw new UnsupportedOperationException(\"write play\");\n        }\n\n        @Override\n        public String getPlayerType() {\n            throw new UnsupportedOperationException(\"write getPlayerType\");\n        }\n    }\n\n    /** Class adapter: is a player. */\n    public static class AudioClassAdapter extends LegacyAudioPlayer implements MediaPlayer {\n\n        @Override\n        public String play(String filename) {\n            throw new UnsupportedOperationException(\"write play\");\n        }\n\n        @Override\n        public String getPlayerType() {\n            throw new UnsupportedOperationException(\"write getPlayerType\");\n        }\n    }\n}\n",
+  "content_sha256": "61728c80487b1539132c1d2ac332a17e42396d8d1be54c1e37cb717de9efed4c",
+  "starting_code": "package practice;\n\nimport java.util.AbstractList;\nimport java.util.Objects;\nimport java.util.RandomAccess;\n\n/**\n * A {@code List<Integer>} over the {@code int[]} buffer the sensor library fills.\n * The list has the buffer's size: add and remove throw UnsupportedOperationException.\n */\npublic final class IntArrayList extends AbstractList<Integer> implements RandomAccess {\n\n    private final int[] buffer;\n\n    /** The list presents this buffer. */\n    public IntArrayList(int[] buffer) {\n        // TODO: keep what the list will present; refuse null.\n        throw new IllegalStateException(\"TODO: IntArrayList(int[])\");\n    }\n\n    /** The value at {@code index}. */\n    @Override\n    public Integer get(int index) {\n        // TODO\n        throw new IllegalStateException(\"TODO: get\");\n    }\n\n    /** Puts {@code value} at {@code index}, as List.set does. */\n    @Override\n    public Integer set(int index, Integer value) {\n        // TODO: honour List.set's whole contract.\n        throw new IllegalStateException(\"TODO: set\");\n    }\n\n    /** How many values the list holds. */\n    @Override\n    public int size() {\n        // TODO\n        throw new IllegalStateException(\"TODO: size\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-1/src/main/java/practice/Audio.java",
-    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-1/src/test/java/practice/AudioTest.java",
+    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-1/src/main/java/practice/IntArrayList.java",
+    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-1/src/test/java/practice/IntArrayListTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -149,29 +94,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AudioTest#bothAdaptersPlayThroughTheLegacyPlayer",
+        "id": "practice.IntArrayListTest#presentsTheBufferAsAListOfItsValues",
         "kind": "main",
-        "says": "Both adapters answer play(\"song.mp3\") with the legacy player's \"Playing MP3: song.mp3\" and report their own player type."
+        "says": "the list holds the buffer's values, in order, and answers the usual List questions about them"
       },
       {
-        "id": "practice.AudioTest#theObjectAdapterUsesThePlayerItWasGiven",
-        "kind": "edge",
-        "says": "Given a subclass of LegacyAudioPlayer that overrides playMp3, the object adapter returns what that subclass returns."
+        "id": "practice.IntArrayListTest#keepsTheBuffersSizeAndRefusesNull",
+        "kind": "main",
+        "says": "the list has the buffer's fixed size, and a null buffer is refused at once"
       },
       {
-        "id": "practice.AudioTest#theClassAdapterCallsTheMethodItInherits",
-        "kind": "edge",
-        "says": "A subclass of AudioClassAdapter that overrides playMp3 changes what play returns, because the class adapter calls its own inherited method."
+        "id": "practice.IntArrayListTest#aValueSetThroughTheListIsReadBack",
+        "kind": "main",
+        "says": "set through the list changes the value the list then reads"
       },
       {
-        "id": "practice.AudioTest#theCallPassesThroughUnchanged",
+        "id": "practice.IntArrayListTest#theListAndTheBufferAreTheSameData",
         "kind": "edge",
-        "says": "The adapters pass the filename on untouched: \" song.mp3\" keeps its space, and a blank name reaches the legacy player, which throws IllegalArgumentException."
+        "says": "a sample the library writes into the buffer later shows through the list, and sorting the list sorts the buffer"
       },
       {
-        "id": "practice.AudioTest#aNullPlayerIsRefusedAtOnce",
+        "id": "practice.IntArrayListTest#setAnswersTheValueItReplaced",
         "kind": "edge",
-        "says": "new AudioPlayerAdapter(null) throws NullPointerException immediately."
+        "says": "set returns the value it replaced, which Collections.reverse and Collections.swap rely on"
       }
     ],
     "report": {
@@ -180,13 +125,11 @@
     },
     "origin": {
       "path": "37-structural-patterns/README_9.2.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Arrays.asList Adapts an Array Without Copying It, So Sorting the List Reorders the Array"
     },
     "concepts": [
-      "A class adapter extends the adaptee and implements the target, calling the methods it inherits, so single inheritance limits it to one adaptee class.",
-      "An adapter validates its adaptee eagerly with Objects.requireNonNull, so a null fails at construction rather than on a later call.",
-      "An object adapter implements the target interface and delegates to the adaptee it holds, so it works with any subclass of that adaptee.",
-      "An adapter only translates the interface and adds no behaviour, so calls and the adaptee's exceptions pass through unchanged."
+      "Arrays.asList copies nothing: the list reads and writes the array, so sorting or setting through the list changes the array, and changes to the array show in the list.",
+      "Arrays.asList adapts arrays of objects only: given an int[] it returns a one-element List<int[]>, and the JDK has no List<Integer> view of an int[]."
     ]
   }
 }

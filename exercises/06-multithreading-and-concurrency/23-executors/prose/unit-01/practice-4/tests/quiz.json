@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "06-multithreading-and-concurrency",
+    "23-executors"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 4,
+  "title": "Check yourself: executors and thread pools",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-core-sixteen",
+        "stem": "A report pool is built as `new ThreadPoolExecutor(4, 16, 60, SECONDS, new LinkedBlockingQueue<>(500))`. Fifty slow reports are handed to it within a second, and none has finished yet. How many threads is the pool running?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Sixteen, since reports past the core size start new threads up to the maximum, and only after that wait in the queue",
+            "correct": false,
+            "says": "past the core size a task goes into the queue first; extra threads start only when the queue refuses it"
+          },
+          {
+            "id": "b",
+            "text": "Four, since threads past the core size start only after a core thread has been idle for the keep-alive time",
+            "correct": false,
+            "says": "the keep-alive time decides when idle threads past the core end, not when threads start"
+          },
+          {
+            "id": "c",
+            "text": "Sixteen, since a queue of 500 is meant for quiet hours, so the pool starts threads up to its maximum when work arrives in a burst",
+            "correct": false,
+            "says": "the pool has no notion of a burst; with room in the queue, every report past the core waits there"
+          },
+          {
+            "id": "d",
+            "text": "Four, since reports past the core size wait in the queue, and threads past the core start only when the queue is full",
+            "correct": true,
+            "says": "with 46 of 500 places taken the queue never refuses, so no thread past the core starts"
+          }
+        ],
+        "origin": {
+          "path": "23-executors/README_6.4.1.md",
+          "section": "A Pool Queues Before It Grows: Threads Past the Core Start Only When the Queue Is Full"
+        }
+      },
+      {
+        "id": "q-reconcile-submit",
+        "stem": "A nightly job loops over 500 accounts and calls `pool.submit(() -> reconcile(account))` on a fixed pool, keeping none of the returned values. Reconciling three of the accounts throws `IllegalStateException`. The application has no uncaught-exception handler of its own. What does the log show about those three?",
+        "options": [
+          {
+            "id": "a",
+            "text": "No trace of them, since each exception is stored where only a later get() call would bring it out",
+            "correct": true,
+            "says": "submit() runs the task inside a FutureTask, which stores the exception in the Future; only get() would have thrown it"
+          },
+          {
+            "id": "b",
+            "text": "No trace of them, since a pool's worker catches each task's exception and drops it, so it can go on to the next task",
+            "correct": false,
+            "says": "a pool's worker doesn't catch task exceptions: one from execute() ends the worker and is printed; here the FutureTask caught it"
+          },
+          {
+            "id": "c",
+            "text": "Three stack traces, since an exception that leaves a task reaches the default handler of the pool thread that ran it",
+            "correct": false,
+            "says": "that is what execute() does; with submit() the exception never leaves the FutureTask"
+          },
+          {
+            "id": "d",
+            "text": "Three stack traces, since the pool's afterExecute hook prints each exception that a task throws on one of its threads",
+            "correct": false,
+            "says": "the default afterExecute does nothing, and for a submitted task it receives null"
+          }
+        ],
+        "origin": {
+          "path": "23-executors/README_6.4.1.md",
+          "section": "execute() Hands a Task's Exception to the Thread; submit() Keeps It in the Future"
+        }
+      },
+      {
+        "id": "q-hook-closes-datasource",
+        "stem": "A shutdown hook runs `pool.shutdown(); dataSource.close();`. At that moment one export task is running and 40 are waiting in the pool's queue, and every task writes to the database. What happens to the 40?",
+        "options": [
+          {
+            "id": "a",
+            "text": "They are dropped without running, since shutdown() clears the queue and leaves only the running export to finish",
+            "correct": false,
+            "says": "shutdown() keeps the queued tasks and runs them; only shutdownNow() hands them back unrun"
+          },
+          {
+            "id": "b",
+            "text": "They run and fail, since shutdown() returns while they are still queued, and they reach the database after dataSource.close()",
+            "correct": true,
+            "says": "shutdown() doesn't wait; the queued tasks run after it returns, against the closed data source"
+          },
+          {
+            "id": "c",
+            "text": "They are dropped without running, since a pool whose shutdown has begun refuses every task that has not yet started",
+            "correct": false,
+            "says": "shutdown() refuses tasks submitted after it, not those already in the queue"
+          },
+          {
+            "id": "d",
+            "text": "They run and succeed, since shutdown() returns only once the queued tasks have run, before the hook reaches dataSource.close()",
+            "correct": false,
+            "says": "shutdown() returns at once; waiting is awaitTermination's job"
+          }
+        ],
+        "origin": {
+          "path": "23-executors/README_6.4.1.md",
+          "section": "shutdown() Stops Intake, Not Work: Wait for It With awaitTermination()"
+        }
+      },
+      {
+        "id": "q-geocoder-virtual",
+        "stem": "A service calls a geocoding vendor from `Executors.newFixedThreadPool(20)`. The vendor's contract allows 20 calls in flight and answers 429 beyond that. The team moves the calls to `Executors.newVirtualThreadPerTaskExecutor()`. A burst of 300 lookups arrives. What does the vendor see?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Up to 20 calls at once, since the JVM gives the virtual threads as many carrier threads as the old pool had",
+            "correct": false,
+            "says": "the carriers are not sized to the old pool, and a virtual thread waiting on the network gives its carrier up, so they cap nothing here"
+          },
+          {
+            "id": "b",
+            "text": "Up to 300 calls at once, since each lookup gets a thread of its own, and no lookup waits for a free one",
+            "correct": true,
+            "says": "the pool of 20 was the only limit, and the move removed it; the calls themselves need a limit such as a Semaphore"
+          },
+          {
+            "id": "c",
+            "text": "Up to 20 calls at once, since the new executor keeps the pool size the service configured before the move",
+            "correct": false,
+            "says": "the virtual-thread executor has no pool size; it starts one thread per task"
+          },
+          {
+            "id": "d",
+            "text": "Up to 300 calls at once, since each lookup gets a carrier thread of its own for as long as its call lasts",
+            "correct": false,
+            "says": "the count is right but the reason isn't: a virtual thread waiting on the network gives its carrier up, which is why waiting costs almost nothing"
+          }
+        ],
+        "origin": {
+          "path": "23-executors/README_6.4.1.md",
+          "section": "A Pool's Size Is Also a Limit on Concurrency, and Some Executors Have None"
+        }
+      }
+    ]
+  }
+}

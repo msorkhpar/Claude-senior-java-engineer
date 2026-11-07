@@ -1,22 +1,17 @@
-`@OneToMany` is LAZY by default: the collection is fetched the first time it
-is used. The page's third pitfall touches it after the `EntityManager` is
-closed, which throws `LazyInitializationException`. Build that behaviour by
-hand.
+This practice builds on the previous one: `CustomerSession` now gives each request one object
+per customer. Requests change those objects, and the changes have to reach the database
+without every caller remembering to save. The first attempt wrote every customer the request
+had read, and the database team counts four `UPDATE`s for a request that changed one tier.
 
-`Catalog` is given an open `Connection` to `categories(id, name)` and
-`products(id, name, category_id)`:
+Finish the three `TODO`s in `src/main/java/practice/CustomerSession.java`:
 
-- `category(id)` returns `Optional<Category>` with its id and name. **The
-  products are not loaded until `products()` is first called.**
-- `Category.products()` returns the product names, ordered by id. **They are
-  queried once, then kept.**
-- `close()` closes the catalog (not the connection, which is the caller's).
-  **Loading after close throws `Catalog.LazyInitializationException`**, but
-  **products loaded before close stay readable after it**.
+- `remember(customer)`: keep what the session will compare against; `find` calls it after
+  each load;
+- `isDirty(customer)`: whether the customer now differs from that;
+- `flush()`: write every changed customer with `writeRow`, and return how many it wrote.
 
-| steps | result |
-|---|---|
-| `category(1)` | `Books`, 1 query so far |
-| `products()`, `products()` | `[Dune, Emma]` both times, 2 queries in all |
-| `category(1)`, `close()`, `products()` | `LazyInitializationException` |
-| `category(1)`, `products()`, `close()`, `products()` | `[Dune, Emma]` |
+A request changes customers through their fields and through their tag lists, may set a field
+to the value it already has, and may flush more than once. About ten lines in total.
+
+The tests run against H2 in memory through a connection that counts the `UPDATE` statements
+it executes.

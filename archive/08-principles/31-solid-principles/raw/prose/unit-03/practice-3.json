@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A sorted collection that keeps its contract",
+  "title": "Give a tenant's daily budget the Quota contract",
   "blocks": [
     {
       "type": "heading",
@@ -19,29 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A subtype must not **strengthen a precondition** (require more than the base type) and must not **weaken a postcondition** (deliver less than the base type promises). The page's `SortedCollection` states its contract in comments:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface SortedCollection<T extends Comparable<T>> {\n    void add(T item);           // Precondition: item != null\n    List<T> getAll();           // Postcondition: returned list is sorted\n    int size();                 // Invariant: size() >= 0\n}"
+      "text": "The SMS gateway asks a `Quota` before it sends a tenant's batch, and sends the part it is granted. Internal senders get `Unlimited`; paying tenants are moving to a `DailyQuota` with a budget of messages per day, and the gateway code that calls `grant` must not change for them."
     },
     {
       "type": "para",
-      "text": "In `Sorted`, write `SortedArrayList`, an implementation that keeps the whole contract:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`add(item)` accepts **every** non-null item, duplicates included, and throws `NullPointerException` for `null` (the same precondition, no stronger);",
-        "`getAll()` returns the items in natural order, as a list the caller cannot change: any attempt to change it (`add`, `set`, `remove`, `clear`, `sort`) throws `UnsupportedOperationException` and leaves the collection as it was;",
-        "`size()` counts the items added."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Adding `3000`, `1000`, `2000` gives `[1000, 2000, 3000]`, and adding `2000` twice keeps both. Items that compare as equal are all kept too, such as `new BigDecimal(\"2.0\")` and `new BigDecimal(\"2.00\")`."
+      "text": "Write `DailyQuota.grant` in `src/main/java/practice/Quotas.java`, keeping the contract written on the `Quota` interface. The gateway's own `sendable` method and the tests call it with batches of every size, including empty ones and ones bigger than what is left of the day. About three lines in total."
     },
     {
       "type": "heading",
@@ -56,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Objects;\n\npublic final class Sorted {\n\n    private Sorted() {\n    }\n\n    /**\n     * add(item): any non-null item, duplicates included; add(null) throws NullPointerException.\n     * getAll(): the items in natural order, as a list the caller cannot change.\n     * size(): how many items were added, never negative.\n     */\n    public interface SortedCollection<T extends Comparable<T>> {\n        void add(T item);\n\n        List<T> getAll();\n\n        int size();\n    }\n\n    public static final class SortedArrayList<T extends Comparable<T>> implements SortedCollection<T> {\n        private final List<T> items = new ArrayList<>();\n\n        public void add(T item) {\n            Objects.requireNonNull(item);\n            items.add(item);\n            items.sort(Comparator.naturalOrder());\n        }\n\n        public List<T> getAll() {\n            return Collections.unmodifiableList(items);\n        }\n\n        public int size() {\n            return items.size();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\n\n/** Rationing for the SMS gateway: every sender asks a Quota before it sends. */\npublic final class Quotas {\n\n    private Quotas() {\n    }\n\n    /** Rations a resource between callers. */\n    public interface Quota {\n        /**\n         * Asks for {@code requested} units.\n         *\n         * @param requested any value from 0 up\n         * @return the units granted, from 0 to {@code requested}\n         */\n        int grant(int requested);\n    }\n\n    /** Internal senders: everything asked for is granted. */\n    public static final class Unlimited implements Quota {\n        @Override\n        public int grant(int requested) {\n            return requested;\n        }\n    }\n\n    /** A tenant's daily budget of messages. */\n    public static final class DailyQuota implements Quota {\n        private int remaining;\n\n        public DailyQuota(int budget) {\n            this.remaining = budget;\n        }\n\n        @Override\n        public int grant(int requested) {\n            int granted = Math.min(requested, remaining);\n            remaining -= granted;\n            return granted;\n        }\n\n        int remaining() {\n            return remaining;\n        }\n    }\n\n    /** The sender every tenant's batch goes through: it sends the part of the batch it is granted. */\n    public static List<String> sendable(List<String> batch, Quota quota) {\n        return batch.subList(0, quota.grant(batch.size()));\n    }\n}\n"
         }
       ]
     },
@@ -68,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Sorted {\n\n    private Sorted() {\n    }\n\n    /**\n     * add(item): any non-null item, duplicates included; add(null) throws NullPointerException.\n     * getAll(): the items in natural order, as a list the caller cannot change.\n     * size(): how many items were added, never negative.\n     */\n    public interface SortedCollection<T extends Comparable<T>> {\n        void add(T item);\n\n        List<T> getAll();\n\n        int size();\n    }\n\n    public static final class SortedArrayList<T extends Comparable<T>> implements SortedCollection<T> {\n\n        public void add(T item) {\n            throw new UnsupportedOperationException(\"write add\");\n        }\n\n        public List<T> getAll() {\n            throw new UnsupportedOperationException(\"write getAll\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\n\n/** Rationing for the SMS gateway: every sender asks a Quota before it sends. */\npublic final class Quotas {\n\n    private Quotas() {\n    }\n\n    /** Rations a resource between callers. */\n    public interface Quota {\n        /**\n         * Asks for {@code requested} units.\n         *\n         * @param requested any value from 0 up\n         * @return the units granted, from 0 to {@code requested}\n         */\n        int grant(int requested);\n    }\n\n    /** Internal senders: everything asked for is granted. */\n    public static final class Unlimited implements Quota {\n        @Override\n        public int grant(int requested) {\n            return requested;\n        }\n    }\n\n    /** A tenant's daily budget of messages. */\n    public static final class DailyQuota implements Quota {\n        private int remaining;\n\n        public DailyQuota(int budget) {\n            this.remaining = budget;\n        }\n\n        @Override\n        public int grant(int requested) {\n            // TODO: Grant from what is left of today's budget. Any sender may be handed this quota\n            //       in place of Unlimited.\n            throw new IllegalStateException(\"TODO: grant\");\n        }\n\n        int remaining() {\n            return remaining;\n        }\n    }\n\n    /** The sender every tenant's batch goes through: it sends the part of the batch it is granted. */\n    public static List<String> sendable(List<String> batch, Quota quota) {\n        return batch.subList(0, quota.grant(batch.size()));\n    }\n}\n"
     }
   ],
   "video": null,
@@ -76,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -87,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ff5eed19b1f1ce826f8b291bd9d1b0294da7f13552b63d3828808462ceef6be1",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Sorted {\n\n    private Sorted() {\n    }\n\n    /**\n     * add(item): any non-null item, duplicates included; add(null) throws NullPointerException.\n     * getAll(): the items in natural order, as a list the caller cannot change.\n     * size(): how many items were added, never negative.\n     */\n    public interface SortedCollection<T extends Comparable<T>> {\n        void add(T item);\n\n        List<T> getAll();\n\n        int size();\n    }\n\n    public static final class SortedArrayList<T extends Comparable<T>> implements SortedCollection<T> {\n\n        public void add(T item) {\n            throw new UnsupportedOperationException(\"write add\");\n        }\n\n        public List<T> getAll() {\n            throw new UnsupportedOperationException(\"write getAll\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n    }\n}\n",
+  "content_sha256": "450b7afdbfeabde4720522b6f5b69a885863dd5875090e1e8d07e07145630493",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\n/** Rationing for the SMS gateway: every sender asks a Quota before it sends. */\npublic final class Quotas {\n\n    private Quotas() {\n    }\n\n    /** Rations a resource between callers. */\n    public interface Quota {\n        /**\n         * Asks for {@code requested} units.\n         *\n         * @param requested any value from 0 up\n         * @return the units granted, from 0 to {@code requested}\n         */\n        int grant(int requested);\n    }\n\n    /** Internal senders: everything asked for is granted. */\n    public static final class Unlimited implements Quota {\n        @Override\n        public int grant(int requested) {\n            return requested;\n        }\n    }\n\n    /** A tenant's daily budget of messages. */\n    public static final class DailyQuota implements Quota {\n        private int remaining;\n\n        public DailyQuota(int budget) {\n            this.remaining = budget;\n        }\n\n        @Override\n        public int grant(int requested) {\n            // TODO: Grant from what is left of today's budget. Any sender may be handed this quota\n            //       in place of Unlimited.\n            throw new IllegalStateException(\"TODO: grant\");\n        }\n\n        int remaining() {\n            return remaining;\n        }\n    }\n\n    /** The sender every tenant's batch goes through: it sends the part of the batch it is granted. */\n    public static List<String> sendable(List<String> batch, Quota quota) {\n        return batch.subList(0, quota.grant(batch.size()));\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/31-solid-principles/prose/unit-03/practice-3/src/main/java/practice/Sorted.java",
-    "test_path": "practice/08-principles/31-solid-principles/prose/unit-03/practice-3/src/test/java/practice/SortedTest.java",
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-03/practice-3/src/main/java/practice/Quotas.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-03/practice-3/src/test/java/practice/QuotasTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -112,24 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SortedTest#itemsComeBackInOrder",
+        "id": "practice.QuotasTest#grantsWhatIsAskedWhileTheBudgetLasts",
         "kind": "main",
-        "says": "3000, 1000, 2000 come back as [1000, 2000, 3000], and words sort too."
+        "says": "requests within the budget are granted in full and use up the budget"
       },
       {
-        "id": "practice.SortedTest#duplicatesAreAccepted",
+        "id": "practice.QuotasTest#aBatchBiggerThanWhatIsLeftSendsWhatIsLeft",
         "kind": "edge",
-        "says": "An item equal to one already there is added, not refused."
+        "says": "a request bigger than what is left is granted what is left, without an exception"
       },
       {
-        "id": "practice.SortedTest#nullIsRejected",
+        "id": "practice.QuotasTest#anEmptyBatchGoesThroughLikeAnyOther",
         "kind": "edge",
-        "says": "add(null) throws NullPointerException and adds nothing."
+        "says": "a request for nothing is granted nothing, without an exception, and uses no budget"
       },
       {
-        "id": "practice.SortedTest#theCallerCannotChangeTheReturnedList",
+        "id": "practice.QuotasTest#anExhaustedQuotaKeepsGrantingNothing",
         "kind": "edge",
-        "says": "Adding to the list getAll() returned throws UnsupportedOperationException and changes nothing."
+        "says": "after the budget is used up, every request is granted 0, never a negative number"
       }
     ],
     "report": {
@@ -138,10 +120,10 @@
     },
     "origin": {
       "path": "31-solid-principles/README_8.1.3.md",
-      "section": "8.1.3.1. Definition and Purpose of LSP"
+      "section": "A Subtype May Accept More and Promise More, Never Less"
     },
     "concepts": [
-      "A correct subtype of a sorted collection accepts every item its base accepts and returns what the base promises: a sorted list the caller cannot change."
+      "A subtype may accept more inputs and promise a narrower result; rejecting an input the supertype accepts or returning outside its promised range breaks callers written against the supertype."
     ]
   }
 }

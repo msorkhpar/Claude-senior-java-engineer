@@ -1,14 +1,13 @@
-A `finally` block runs after the `try` block however it ends, which makes it the classic place for
-cleanup such as closing a reader. (Try-with-resources, on the next page, replaces this pattern; here
-you write it by hand.)
+The quote service protects its pricing backend: while `limit` quotes are in flight it refuses new
+ones with `BusyException`. Yesterday the backend was down for four minutes. It came back, but the
+service went on refusing every quote until it was restarted, with nothing running, and the
+gateway, which retries a quote that failed with an `IOException`, never retried anything that
+morning.
 
-Write `FirstLine.read(Reader source)`. It wraps `source` in a `BufferedReader`, returns its first
-line (as `readLine()` gives it), and always closes the reader, which closes `source` too.
+Finish `lookup(...)` in `src/main/java/practice/QuoteService.java`. It counts the quote in
+`inFlight` for as long as it runs, answers from the cache when it can, and otherwise asks the
+backend and caches the price.
 
-| source text | answer |
-|---|---|
-| `"first\nsecond"` | `"first"` |
-| `"only"` | `"only"` |
-
-"Always" includes the run where `readLine()` throws, an `IOException` or anything else, which must
-still reach the caller. (What happens when `close()` itself fails is not checked here.) Keep `readLine()`'s own answer for a source with no lines at all.
+When you're done, `inFlight()` goes back down however a quote ends: with a price, from the
+cache, or with whatever the backend throws, checked or not. And the backend's exception reaches
+the caller of `quote()` as it was thrown. About ten lines in total.

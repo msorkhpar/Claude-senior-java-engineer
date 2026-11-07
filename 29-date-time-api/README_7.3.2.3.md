@@ -1,277 +1,223 @@
 # 7.3.2.3. Duration and Period
 
-## Concept Explanation
-
-`Duration` and `Period` represent amounts of time, but they model fundamentally different concepts:
-
-- **`Duration`** measures a time-based amount in seconds and nanoseconds. It represents an exact, fixed amount of elapsed time (e.g., "2 hours 30 minutes" = exactly 9000 seconds). It is used with `Instant`, `LocalTime`, and `LocalDateTime`.
-
-- **`Period`** measures a date-based amount in years, months, and days. It represents a calendar-based amount that depends on the calendar context (e.g., "1 month" could be 28, 29, 30, or 31 days depending on which month). It is used with `LocalDate` and `LocalDateTime`.
-
-**Real-world analogy**: `Duration` is like a stopwatch -- it measures exact elapsed time regardless of the calendar. `Period` is like saying "come back in one month" -- the exact number of days varies depending on which month you start from. If you say "come back in 1 month" starting February 1, that is 29 days (in a leap year), but starting March 1, it is 31 days. Same period, different durations.
-
-## Key Points to Remember
-
-1. **Duration is seconds-based** -- internally stored as seconds + nanoseconds.
-2. **Period is date-based** -- stored as separate year, month, and day components.
-3. **They are NOT interchangeable** -- you cannot add a `Duration` to a `LocalDate` or a `Period` to a `LocalTime`.
-4. **Period components are independent** -- `Period.of(1, 15, 3)` stores 1 year, 15 months, and 3 days separately. Call `normalized()` to convert excess months to years.
-5. **Duration can be negative** -- represents a backward time span.
-6. **Period.between()** gives a signed result (negative if end is before start).
-7. **ISO-8601 format**: Duration uses `PTxHxMxS` (e.g., "PT2H30M"); Period uses `PxYxMxD` (e.g., "P1Y2M3D").
-8. **`ChronoUnit`** provides an alternative for measuring exact elapsed time in specific units.
-
-## Relevant Java 21 Features
-
-- Duration and Period have kept the same semantics since Java 8; Java 9 added convenience methods such as `Duration.dividedBy(Duration)`, `Duration.truncatedTo()` and the `toXxxPart()` family.
-- `Duration.toXxxPart()` methods (Java 9+) extract individual components: `toHoursPart()`, `toMinutesPart()`, `toSecondsPart()`.
-- Streams and functional patterns work naturally with Duration for aggregation (e.g., summing durations).
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Confusing Duration and Period**:
-   ```java
-   // Problem: Using Duration for date-based arithmetic
-   LocalDate date = LocalDate.of(2024, 1, 15);
-   date.plus(Duration.ofDays(30)); // UnsupportedTemporalTypeException!
-
-   // Fix: Use Period for date arithmetic
-   date.plus(Period.ofMonths(1)); // Correct -- adds 1 calendar month
-   ```
-
-2. **Period normalization confusion**:
-   ```java
-   // Problem: Expecting Period to auto-normalize
-   Period p = Period.of(0, 14, 0);
-   p.getYears();  // 0 (not 1!)
-   p.getMonths(); // 14 (not 2!)
-
-   // Fix: Call normalized()
-   Period normalized = p.normalized();
-   normalized.getYears();  // 1
-   normalized.getMonths(); // 2
-   ```
-
-3. **Period does not normalize days**:
-   ```java
-   // Days are NEVER normalized to months (because days-per-month varies)
-   Period p = Period.of(0, 0, 45);
-   Period normalized = p.normalized();
-   normalized.getDays(); // Still 45 -- days are not converted to months
-   ```
-
-4. **Duration.between() requires compatible types**:
-   ```java
-   // Problem: Can't compute Duration between two LocalDates
-   Duration.between(LocalDate.of(2024, 1, 1), LocalDate.of(2024, 2, 1));
-   // UnsupportedTemporalTypeException!
-
-   // Fix: Use Period.between() or ChronoUnit.DAYS.between()
-   Period.between(LocalDate.of(2024, 1, 1), LocalDate.of(2024, 2, 1));
-   ChronoUnit.DAYS.between(LocalDate.of(2024, 1, 1), LocalDate.of(2024, 2, 1));
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use `Duration` for measuring elapsed time** (stopwatch-like measurements).
-2. **Use `Period` for calendar arithmetic** (adding months, years to dates).
-3. **Use `ChronoUnit.between()`** when you need the total in a single unit (e.g., total days between two dates).
-4. **Parse ISO-8601 strings** with `Duration.parse()` and `Period.parse()` for config/API values.
-5. **Prefer `Duration` over raw milliseconds** for clearer, type-safe code.
-
-## Edge Cases and Their Handling
-
-1. **Zero duration and period**: `Duration.ZERO` and `Period.ZERO` are constants for identity operations.
-2. **Negative Duration**: `Duration.between(later, earlier)` returns a negative duration.
-3. **Negative Period**: `Period.between(laterDate, earlierDate)` returns negative components.
-4. **Adding Period across month boundaries**: `LocalDate.of(2024, 1, 31).plus(Period.ofMonths(1))` returns Feb 29 (clamped).
-5. **Large durations**: `Duration.ofDays(365)` is exactly 365 * 86400 seconds, ignoring leap seconds and DST.
-
-## Interview-specific Insights
-
-Interviewers probe:
-- Understanding the fundamental difference between Duration and Period
-- Knowledge of when each is appropriate
-- Awareness of normalization behavior in Period
-- Edge cases around month-end clamping
-- ISO-8601 duration/period format
-
-## Interview Q&A Section
-
-**Q1: What is the fundamental difference between `Duration` and `Period`?**
-
-```text
-A1: The fundamental difference is what they measure:
-
-Duration: Time-based (exact seconds + nanoseconds)
-- Always the same length regardless of context
-- "2 hours" is always 7200 seconds
-- Used with: Instant, LocalTime, LocalDateTime
-- Suitable for: timeouts, elapsed time, benchmarks
-
-Period: Date-based (years, months, days)
-- Length depends on calendar context
-- "1 month" could be 28, 29, 30, or 31 days
-- Used with: LocalDate, LocalDateTime
-- Suitable for: subscriptions, age calculation, billing cycles
-
-Key insight: "30 days" (Duration) and "1 month" (Period) are NOT the same thing.
-If you start on January 15 and add 1 month, you get February 15.
-If you add 30 days, you get February 14.
-```
+A shop chain's daily sales report is due at 07:00, Amsterdam time. From 29 March 2026 it arrives
+at 08:00, every day. On 25 October it is back at 07:00, and nobody touched it. The scheduler works
+out the next run like this:
 
 ```java
-// Duration: exact time-based amount
-Duration twoHours = Duration.ofHours(2);          // Exactly 7200 seconds
-Duration halfDay = Duration.ofHours(12);           // Exactly 43200 seconds
-Duration timeout = Duration.ofMillis(500);          // Exactly 500 ms
-
-// Period: calendar-based amount (context-dependent)
-Period oneMonth = Period.ofMonths(1);               // 28-31 days depending on month
-Period oneYear = Period.ofYears(1);                  // 365 or 366 days
-Period subscription = Period.of(1, 6, 0);            // 1 year 6 months
-
-// Same "30 days" vs "1 month" can give different results
-LocalDate start = LocalDate.of(2024, 1, 15);
-LocalDate plus30Days = start.plusDays(30);            // 2024-02-14
-LocalDate plus1Month = start.plus(Period.ofMonths(1)); // 2024-02-15
+ZonedDateTime next = last.plus(Duration.ofDays(1));
 ```
 
-**Q2: How does `Period.normalized()` work?**
+`java.time` has two types for an amount of time. `Duration` is an exact number of seconds and
+nanoseconds. `Period` is a number of years, months and days on a calendar. Outputs below are from
+Java 21.0.12 with tzdata 2026b, run with `-Duser.timezone=UTC`; a run with
+`-Duser.timezone=Asia/Tokyo` printed the same lines, since nothing here reads the default zone.
 
-```text
-A2: Period.normalized() converts excess months to years, keeping the relationship
-years * 12 + months constant, without touching the days component.
+## Duration.ofDays(1) Is 24 Hours; Period.ofDays(1) Is the Next Calendar Day
 
-Rules:
-- Months >= 12 are converted to years: Period.of(0, 15, 10).normalized() = P1Y3M10D
-- Negative months with positive years (or vice versa) are balanced
-- Days are NEVER normalized because the number of days per month varies
-- The signs of years and months are normalized to be consistent
-
-Example: Period.of(1, -2, 5).normalized() = P0Y10M5D (10 months instead of 1 year - 2 months)
-```
+Add each kind of day to a 07:00 run on the day before each clock change. What does the wall
+clock show?
 
 ```java
-// Months to years
-Period p1 = Period.of(0, 15, 10);
-Period n1 = p1.normalized();
-// n1 = P1Y3M10D (15 months = 1 year + 3 months, days unchanged)
-
-// Mixed signs
-Period p2 = Period.of(2, -3, 0);
-Period n2 = p2.normalized();
-// n2 = P1Y9M (2 years - 3 months = 1 year 9 months)
-
-// Days are never normalized
-Period p3 = Period.of(0, 0, 45);
-Period n3 = p3.normalized();
-// n3 = P45D (still 45 days -- not converted to months)
+ZoneId amsterdam = ZoneId.of("Europe/Amsterdam");
+for (LocalDate day : List.of(LocalDate.of(2026, 3, 28), LocalDate.of(2026, 10, 24))) {
+    ZonedDateTime report = ZonedDateTime.of(day, LocalTime.of(7, 0), amsterdam);
+    ZonedDateTime byDuration = report.plus(Duration.ofDays(1));
+    ZonedDateTime byPeriod = report.plus(Period.ofDays(1));
+    System.out.println(report);
+    System.out.println("  + Duration.ofDays(1) = " + byDuration);
+    System.out.println("  + Period.ofDays(1)   = " + byPeriod
+            + ", " + Duration.between(report, byPeriod).toHours() + " hours later");
+}
 ```
-
-**Q3: How do you calculate the total number of days in a `Period`?**
 
 ```text
-A3: You cannot directly get total days from a Period because months have variable 
-lengths. Instead, use ChronoUnit.DAYS.between() on the actual dates.
-
-Period.getDays() only returns the days COMPONENT, not the total:
-Period.of(1, 2, 3).getDays() = 3 (not ~430!)
-
-For total days, you must know the start date:
+2026-03-28T07:00+01:00[Europe/Amsterdam]
+  + Duration.ofDays(1) = 2026-03-29T08:00+02:00[Europe/Amsterdam]
+  + Period.ofDays(1)   = 2026-03-29T07:00+02:00[Europe/Amsterdam], 23 hours later
+2026-10-24T07:00+02:00[Europe/Amsterdam]
+  + Duration.ofDays(1) = 2026-10-25T06:00+01:00[Europe/Amsterdam]
+  + Period.ofDays(1)   = 2026-10-25T07:00+01:00[Europe/Amsterdam], 25 hours later
 ```
+
+`Duration.ofDays(1)` is 86,400 seconds; "days" is only a way to write them. Added to a
+`ZonedDateTime`, it moves the instant on by that much. 29 March has 23 hours in Amsterdam, so 24
+hours after 07:00 on the 28th the clock reads 08:00, and every later run adds 24 hours to 08:00 until
+October's 25-hour day takes the hour back. `Period.ofDays(1)` changes the date and keeps the
+wall-clock time.
+
+A report "every day at 07:00" and a renewal "in one month" are calendar amounts: use `Period` or
+`plusDays`. A session that expires "after 24 hours" and a timeout are elapsed time: use
+`Duration`. Mixed up the other way, a 24-hour reservation made with `plusDays(1)` lasts 25 hours
+one night a year and 23 another. A `LocalDate` has no seconds, so adding a `Duration` to it throws
+(see the Reference). Times inside the gap and the overlap themselves are unit 7.3.2.5.
+
+<!-- practice 1 -->
+
+## Period.between Returns Fields; Count Days With ChronoUnit.DAYS.between
+
+An invoice was due on 31 January 2026, and the late fee is charged per day. The billing code reads
+the number of days late from `Period.between(due, paid).getDays()`:
 
 ```java
-Period period = Period.of(1, 2, 3);
-
-// WRONG: This only gets the days component (3)
-int daysComponent = period.getDays(); // 3
-
-// CORRECT: Calculate from actual dates
-LocalDate start = LocalDate.of(2024, 1, 1);
-LocalDate end = start.plus(period);
-long totalDays = ChronoUnit.DAYS.between(start, end); // 428 (end = 2025-03-04)
-
-// Different start date gives different total days
-LocalDate start2 = LocalDate.of(2024, 3, 1);
-LocalDate end2 = start2.plus(period);
-long totalDays2 = ChronoUnit.DAYS.between(start2, end2); // 429 (different!)
+LocalDate due = LocalDate.of(2026, 1, 31);
+for (LocalDate paid : List.of(LocalDate.of(2026, 2, 3), LocalDate.of(2026, 3, 3), LocalDate.of(2027, 1, 30))) {
+    Period p = Period.between(due, paid);
+    System.out.println("paid " + paid + ": Period " + p + ", getDays() " + p.getDays()
+            + ", DAYS.between " + ChronoUnit.DAYS.between(due, paid));
+}
 ```
-
-**Q4: How do you parse and format Duration and Period from strings?**
 
 ```text
-A4: Both Duration and Period use ISO-8601 format for their toString() and parse():
-
-Duration format: PT[nH][nM][nS]
-- PT2H30M = 2 hours 30 minutes
-- PT45S = 45 seconds
-- PT1H30M15.5S = 1 hour 30 minutes 15.5 seconds
-- PT-2H = negative 2 hours
-
-Period format: P[nY][nM][nD]
-- P1Y2M3D = 1 year 2 months 3 days
-- P6M = 6 months
-- P-1Y = negative 1 year
-- P0D = zero period
-
-These are commonly used in configuration files, API responses, and databases.
+paid 2026-02-03: Period P3D, getDays() 3, DAYS.between 3
+paid 2026-03-03: Period P1M3D, getDays() 3, DAYS.between 31
+paid 2027-01-30: Period P11M30D, getDays() 30, DAYS.between 364
 ```
+
+`Period.between` answers "how many whole years, months and days". `getDays()` is the last field of that answer, the days left over after the whole
+months. The customer who paid 31 days late was charged for 3, and the one who paid 364 days late
+for 30. Every test invoice had been paid within the month.
+
+For a total in one unit, use `ChronoUnit.DAYS.between(a, b)` (or `WEEKS`, `MONTHS`, ...), or
+`a.until(b, unit)`. Keep `Period.between` for answers in calendar fields: an age is
+`Period.between(birth, today).getYears()`, which a count of days divided by 365 gets wrong in the
+days before a birthday.
+
+<!-- practice 2 -->
+
+## A Period Keeps the Fields It Was Given, So P14M Is Not P1Y2M
+
+A plan catalogue finds plans by their term. One supplier sends `P14M`, and the catalogue holds
+`P1Y2M`:
 
 ```java
-// Duration parsing
-Duration d1 = Duration.parse("PT2H30M");     // 2 hours 30 minutes
-Duration d2 = Duration.parse("PT45S");        // 45 seconds
-Duration d3 = Duration.parse("PT1H30M15.5S"); // 1h 30m 15.5s
-
-// Duration formatting
-String formatted = Duration.ofHours(2).plusMinutes(30).toString(); // "PT2H30M"
-
-// Period parsing
-Period p1 = Period.parse("P1Y2M3D");   // 1 year 2 months 3 days
-Period p2 = Period.parse("P6M");       // 6 months
-Period p3 = Period.parse("P10D");      // 10 days
-
-// Period formatting
-String pFormatted = Period.of(1, 6, 15).toString(); // "P1Y6M15D"
+Period fourteen = Period.ofMonths(14);
+Period yearTwo = Period.of(1, 2, 0);
+System.out.println(fourteen + " equals " + yearTwo + ": " + fourteen.equals(yearTwo));
+System.out.println(fourteen + ".normalized() = " + fourteen.normalized()
+        + ", equals: " + fourteen.normalized().equals(yearTwo));
+System.out.println(Period.ofDays(45) + ".normalized() = " + Period.ofDays(45).normalized());
+System.out.println(Period.of(1, -3, 0) + ".normalized() = " + Period.of(1, -3, 0).normalized());
 ```
-
-**Q5: What happens when you add a `Duration` of days to a `ZonedDateTime` across a DST boundary?**
 
 ```text
-A5: This is a subtle but important distinction:
-
-Duration.ofDays(1) adds exactly 24 hours (86400 seconds).
-Period.ofDays(1) adds one calendar day (same wall-clock time next day).
-
-Across a DST boundary, these give different results:
-
-On spring-forward day (US Eastern, March 10, 2024), starting at midnight:
-- Duration.ofDays(1): 24 hours later, but the wall clock shows 01:00 the next day
-- Period.ofDays(1): same local time next day (00:00) = 23 actual hours elapsed
-
-On fall-back day (November 3, 2024), starting at midnight:
-- Duration.ofDays(1): 24 hours later, but the wall clock shows 23:00 the same day
-  (one hour short, because 01:00-01:59 was lived twice)
-- Period.ofDays(1): same local time next day (00:00) = 25 actual hours elapsed
-
-This is why choosing between Duration and Period matters for scheduling.
+P14M equals P1Y2M: false
+P14M.normalized() = P1Y2M, equals: true
+P45D.normalized() = P45D
+P1Y-3M.normalized() = P9M
 ```
+
+A `Period` stores its three fields as given, and `equals` compares the fields. `normalized()`
+folds months into years, twelve to one, and balances their signs. It never touches the days: how
+many days make a month depends on the month, and a `Period` doesn't know which one it will be
+added to. So `P1M` and `P30D` stay different: from 1 February they give
+different dates. Normalize both sides before you compare two terms or use one as a map key.
+
+`Duration` stores an exact length, so it has no such question: `Duration.ofMinutes(90)` and
+`Duration.ofSeconds(5400)` are equal and both print `PT1H30M`.
+
+<!-- practice 4 -->
+
+## Duration Prints Hours, Not Days, and Its Hours and Minutes Carry the Sign
+
+`toString()` and `parse()` use ISO-8601: `P`, then date fields, then `T` and time fields.
+Expression, then result:
+
+```text
+Duration.ofMinutes(90)       PT1H30M
+Duration.ofDays(2)           PT48H
+Duration.parse("P2DT3H")     PT51H
+Duration.ofMillis(1500)      PT1.5S
+Period.of(1, 2, 3)           P1Y2M3D
+Period.ofWeeks(2)            P14D
+Duration.parse("PT1M")       PT1M
+Duration.parse("P1M")        DateTimeParseException: Text cannot be parsed to a Duration
+```
+
+A `Duration` never prints days: its largest field is the hour. It accepts `D` on the way in and
+counts each day as 24 hours, but it refuses years, months and weeks. A config value `P1M` is a month to
+`Period.parse` and an error to `Duration.parse`; `PT1M` is one minute.
+
+A night shift runs from 22:00 to 06:30, and a timesheet shows an overtime balance of minus 90
+minutes:
 
 ```java
-ZoneId ny = ZoneId.of("America/New_York");
-// March 10, 2024: clocks spring forward at 2 AM
-
-ZonedDateTime beforeDST = ZonedDateTime.of(2024, 3, 10, 0, 0, 0, 0, ny);
-
-// Duration: exactly 24 hours
-ZonedDateTime plusDuration = beforeDST.plus(Duration.ofDays(1));
-// 2024-03-11T01:00 (moved 24 hours, but wall clock shows 1 AM due to DST)
-
-// Period: same wall clock time
-ZonedDateTime plusPeriod = beforeDST.plus(Period.ofDays(1));
-// 2024-03-11T00:00 (same midnight, but only 23 hours actually elapsed)
+Duration shift = Duration.between(LocalTime.of(22, 0), LocalTime.of(6, 30));
+System.out.println("shift: " + shift);
+Duration balance = Duration.ofMinutes(-90);
+System.out.printf("balance: %d:%02d%n", balance.toHours(), balance.toMinutesPart());
+Duration abs = balance.abs();
+System.out.printf("balance: %s%d:%02d%n", balance.isNegative() ? "-" : "", abs.toHours(), abs.toMinutesPart());
 ```
+
+```text
+shift: PT-15H-30M
+balance: -1:-30
+balance: -1:30
+```
+
+`between(start, end)` subtracts, and a `LocalTime` has no next day, so the shift came out as
+minus 15½ hours. Where an end before the start means the next day, add `Duration.ofDays(1)` to a
+negative result. In a negative `Duration`, `toHours()` and `toMinutesPart()` (and
+`toSecondsPart()`) are all negative, so the first balance printed `-1:-30`. Print the sign once
+and the parts of `abs()`. `Period.between` with the later date first gives `P-1M-3D`, every field
+negative.
+
+`toHours()` is the total; `toHoursPart()` is the hours left after whole days. A timesheet
+total of 30 hours printed with `toHoursPart()` shows 6.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **`Duration.ofDays(1)` is 24 hours, `Period.ofDays(1)` is the next calendar day.** Across a DST
+  change they differ by an hour: schedules use `Period`, expiries and timeouts `Duration`.
+- **`Period.between(...).getDays()` is a field, not a total.** Count with
+  `ChronoUnit.DAYS.between`; use `Period.between` for ages and other calendar answers.
+- **A `Period` compares field by field.** `P14M` is not `P1Y2M` until normalized, and
+  `normalized()` never turns days into months.
+- **A `Duration` prints hours, not days, and its hours and minutes carry its sign.** `between` doesn't
+  wrap midnight; format a negative amount from its `abs()`.
+
+## Reference
+
+From this unit's runs (Java 21):
+
+| Expression | Result |
+|---|---|
+| `LocalDate.of(2026, 3, 28).plus(Duration.ofDays(1))` | `UnsupportedTemporalTypeException: Unsupported unit: Seconds` |
+| `Duration.between(LocalDate, LocalDate)` | `UnsupportedTemporalTypeException: Unsupported unit: Seconds` |
+| `LocalTime.of(9, 0).plus(Period.ofDays(1))` | `UnsupportedTemporalTypeException: Unsupported unit: Days` |
+| `HOURS.between(a, a.plusDays(1))`, `a` = Amsterdam 2026-03-29T00:00 | `23` (`DAYS.between` gives `1`; between the two `LocalDateTime`s, `HOURS` gives `24`) |
+| `Duration.ofHours(30)`: `toDays()`, `toDaysPart()`, `toHoursPart()` | `1`, `1`, `6` |
+| `Duration.ZERO`, `Period.ZERO` | `PT0S`, `P0D` |
+| `Period.of(1, 2, 3).toTotalMonths()` | `14` |
+| `Period.parse("P12M")` | `P12M` (parse doesn't normalize) |
+| `Period.parse("P1Y2M3W4D")` | `P1Y2M25D` (weeks become days) |
+| `Period.parse("PT1H")` | `DateTimeParseException` |
+| `Period.of(1, -3, 0).isNegative()` | `true` (any negative field; normalized it is `P9M`) |
+| `Period.between(2028-02-29, 2029-02-28)` | `P11M30D` |
+
+## Challenges
+
+1. A gym membership runs for one month and can be paused for 10 days. Is the pause a `Period`
+   or a `Duration`, and what decides it?
+2. An API takes a retention setting as ISO-8601 text. Which strings should it accept, and how do
+   you catch a user who wrote `P1M` meaning one minute?
+3. Find the places in a codebase you know that turn a `Duration` into text for a user. Which of
+   them break for a negative amount or for more than 24 hours?
+
+## Design Note: Why Two Amount Types
+
+An amount that held "1 month and 3 hours" would need a date before it had a length, so it could
+not be compared, summed or stored as a number. `java.time` splits it in two. `Duration` is a
+number: it sorts, adds and divides, and it is the same length everywhere. `Period` is an
+instruction to the calendar: it means what people mean by "next month", and it has no length until
+it meets a date. `Duration.ofDays` looks like a calendar amount and isn't; that is the opening
+scheduler's bug.
+
+Every caller has to decide which question each amount answers, because `plus(TemporalAmount)`
+accepts both, and a `LocalDate` refuses a `Duration` only at run time.
 
 ## Code Examples
 

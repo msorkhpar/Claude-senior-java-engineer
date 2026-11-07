@@ -1,175 +1,249 @@
 # 1.2.1 if/else statements in Java
 
-## Concept Explanation
+One release of the order service shipped three bugs, each in an `if` that passed review.
+Customers whose parcel never arrived got no refund. Customers who spent the most got the smallest
+discount. And the nightly export died with a `NullPointerException` on a line where nothing
+looks like it could be `null`. None of them is about syntax.
 
-The `if/else` statement in Java is a fundamental control flow construct that allows you to execute different blocks of
-code based on specified conditions. It enables your program to make decisions and choose different paths of execution
-depending on whether certain conditions are true or false.
+## An else Belongs to the Nearest if, Whatever the Indentation Says
 
-## Key Points to Remember
-
-1. The basic syntax of an `if` statement:
-   ```java
-   if (condition) {
-       // code to execute if condition is true
-   }
-   ```
-
-2. The `else` clause is optional and executes when the `if` condition is false:
-   ```java
-   if (condition) {
-       // code to execute if condition is true
-   } else {
-       // code to execute if condition is false
-   }
-   ```
-
-3. You can chain multiple conditions using `else if`:
-   ```java
-   if (condition1) {
-       // code for condition1
-   } else if (condition2) {
-       // code for condition2
-   } else {
-       // code if no conditions are true
-   }
-   ```
-
-4. Conditions must evaluate to a boolean value (`true` or `false`).
-5. Curly braces `{}` are optional for single-line statements but recommended for clarity.
-6. The ternary operator `?:` can be used as a shorthand for simple if/else statements.
-
-## Java 21 Features
-
-While `if/else` statements haven't changed significantly, pattern matching for `instanceof` (a standard feature since
-Java 16, JEP 394) lets an `if` condition test a type and bind a variable in one step:
+The refund rule: a delivered, damaged parcel is refunded, and a parcel that never arrived gets a
+tracking request. Without braces it was written like this:
 
 ```java
-if (obj instanceof String s && s.length() > 5) {
-    System.out.println(s.toUpperCase());
+static String refund(boolean delivered, boolean damaged) {
+    if (delivered)
+        if (damaged)
+            return "refund";
+    else
+        return "track parcel";
+    return "no action";
 }
 ```
 
-## Common Pitfalls and How to Avoid Them
-
-1. **Forgetting curly braces**: Always use curly braces, even for single-line statements, to prevent logic errors.
-2. **Using `=` instead of `==` in conditions**: `=` is assignment, `==` is comparison.
-3. **Unreachable code**: Ensure all branches of your `if/else` statements are reachable.
-4. **Complex nested conditions**: Use early returns or extract methods to simplify complex nested conditions.
-
-## Best Practices and Optimization Techniques
-
-1. Use `else if` for mutually exclusive conditions to improve readability.
-2. Consider using switch statements or expressions for multiple conditions checking against a single variable.
-3. For simple conditions, use the ternary operator to make code more concise.
-4. Avoid deep nesting of `if/else` statements; refactor into separate methods if necessary.
-
-## Edge Cases and Their Handling
-
-1. **Null checks**: Always check for null before accessing object properties.
-2. **Boundary conditions**: Be careful with comparisons involving the edges of ranges.
-3. **Empty collections**: Check if a collection is empty before performing operations on its elements.
-
-## Interview-specific Insights
-
-- Be prepared to write `if/else` statements on a whiteboard, paying attention to syntax and logic.
-- Understand how to simplify complex conditional logic.
-- Be familiar with the ternary operator and when it's appropriate to use it.
-
-## References
-
-- [Java Language Specification - The if Statement](https://docs.oracle.com/javase/specs/jls/se21/html/jls-14.html#jls-14.9)
-- [Oracle Java Tutorials - The if-then and if-then-else Statements](https://docs.oracle.com/javase/tutorial/java/nutsandbolts/if.html)
-
-## Interview Q&A
-
-Q1: What is the difference between `if (x == 0)` and `if (0 == x)`? Is there any advantage to either?
-```java
-int x = 0;
-if (x == 0) {
-    System.out.println("x is zero");
-}
-
-if (0 == x) {
-    System.out.println("x is zero (Yoda condition)");
-}
+```text
+delivered, damaged:     refund
+delivered, not damaged: track parcel
+not delivered:          no action
 ```
 
-A1: Both conditions are logically equivalent and will produce the same result. The second form (`0 == x`) is sometimes
-called a "Yoda condition". In languages like C, where assignment `=` can be mistakenly used instead of comparison `==`,
-Yoda conditions can prevent accidental assignments. In Java, this is less of an issue because the compiler will catch
-most of these errors. Generally, the first form (`x == 0`) is more readable and commonly used in Java.
+An `if` owns exactly one statement, and without braces the inner `if (damaged) ... else ...` is
+that statement. The grammar attaches an `else` to the nearest `if` that has none, so this
+`else` belongs to `if (damaged)`. Indentation is for people: javac compiles this without a
+warning, even with `-Xlint:all`. A parcel that never arrived falls through to `"no action"`, and a
+delivered parcel in good condition triggers a tracking request. Braces on every branch make the
+binding the one you wrote.
 
-Q2: How can you use `if/else` statements to implement absolute value function?
+## An else-if Chain Runs the First Branch That Holds, So the Order Is the Specification
+
+The discount tiers were 5% from 1,000 euros and 10% from 5,000:
 
 ```java
-public static int abs(int number) {
-    if (number < 0) {
-        return -number;
+static int discountPercent(int spentEuros) {
+    if (spentEuros >= 1_000) {
+        return 5;
+    } else if (spentEuros >= 5_000) {
+        return 10;
     } else {
-        return number;
+        return 0;
     }
 }
 ```
 
-A2: This implementation uses an `if/else` statement to check if the number is negative. If it is, it returns the
-negation of the number (making it positive). Otherwise, it returns the number as is. This effectively implements the
-absolute value function. Like `Math.abs`, it returns `Integer.MIN_VALUE` unchanged for `Integer.MIN_VALUE`, because the
-negation of that value overflows back to itself.
-
-Q3: What's wrong with the following code, and how would you fix it?
-
-```java
-if (score >= 90)
-    System.out.println("A");
-    System.out.println("Excellent!");
-if (score >= 80)
-    System.out.println("B");
-if (score >= 70)
-    System.out.println("C");
-else
-    System.out.println("Needs improvement");
+```text
+500 EUR -> 0%
+1000 EUR -> 5%
+7500 EUR -> 5%
 ```
 
-A3: There are several issues with this code:
+`else if` is not a keyword of its own: it is an `else` whose one statement is another `if`. So
+the conditions are tested from the top, and the first one that holds ends the chain. Every amount
+of 5,000 or more already passes `>= 1_000`, so the 10% branch never runs. javac compiles it
+without a warning: it doesn't compare conditions, so a branch that no input reaches is still
+reachable code to the compiler.
 
-1. The first `if` statement is missing curly braces, so only the first `println` is part of the `if` block. The "
-   Excellent!" message will always print.
-2. The conditions are not mutually exclusive, so multiple grade letters could print for a single score.
-3. The `else` is associated with the last `if`, which might not be the intent.
+When ranges overlap, put the narrow one first: `>= 5_000`, then `>= 1_000`. When one case is a
+special value inside a range, the special value comes first. The boundary operator belongs to the
+same specification: with `> 1_000` instead of `>= 1_000`, a customer who spent exactly 1,000 euros
+gets nothing, and only a test at exactly 1,000 shows it.
 
-Here's a corrected version:
+<!-- practice 1 -->
+
+## A Conditional Expression Takes Its Type From Both Branches, So a Primitive on One Side Unboxes the Other
+
+Tenants on the free plan have a quota of 100; paid tenants have the quota from their contract, and
+`null` means unlimited. Two versions of the lookup:
 
 ```java
-if (score >= 90) {
-    System.out.println("A");
-    System.out.println("Excellent!");
-} else if (score >= 80) {
-    System.out.println("B");
-} else if (score >= 70) {
-    System.out.println("C");
-} else {
-    System.out.println("Needs improvement");
+static Integer quotaIfElse(boolean freePlan, Map<String, Integer> quotas, String tenant) {
+    if (freePlan) {
+        return 100;
+    } else {
+        return quotas.get(tenant);
+    }
+}
+
+static Integer quota(boolean freePlan, Map<String, Integer> quotas, String tenant) {
+    return freePlan ? 100 : quotas.get(tenant);
 }
 ```
 
-Q4: Explain the ternary operator and provide an example of its usage.
+For a paid tenant with no quota set:
+
+```text
+if/else, no quota set: null
+ternary, no quota set: java.lang.NullPointerException: Cannot invoke "java.lang.Integer.intValue()" because the return value of "java.util.Map.get(Object)" is null
+```
+
+That is the nightly export. The `if`/`else` returns each branch as it is. The `?:` operator is an
+expression, and an expression has one type, fixed at compile time from the types of both operands:
+`100` is an `int` and `quotas.get(...)` an `Integer`, so the whole expression is an `int`. The
+`Integer` from the map is unboxed, and unboxing `null` throws (unit 1.1.1). The `int` is then
+boxed again for the return type, so nothing on the line looks primitive.
+
+The same rule changes values that aren't `null`. In an export that writes a count or a ratio:
 
 ```java
-int age = 20;
-String status = (age >= 18) ? "Adult" : "Minor";
-System.out.println(status);  // Outputs: Adult
+int count = 3;
+double ratio = 0.25;
+boolean isRatio = false;
+Object cell = isRatio ? ratio : count;
 ```
 
-A4: The ternary operator is a shorthand way of writing a simple if/else statement. It has the form:
-
-```
-condition ? expression1 : expression2
+```text
+cell = 3.0 (Double)
 ```
 
-If the condition is true, expression1 is evaluated and becomes the result. If the condition is false, expression2 is
-evaluated and becomes the result. In the example, we check if age is greater than or equal to 18. If true, "Adult" is
-assigned to status; otherwise, "Minor" is assigned.
+`int` and `double` are promoted to `double`, so the count arrives as `3.0`, and a consumer that
+expects an integer rejects the file.
+
+When the two operands differ in type, write `if`/`else`, or give both sides the type you want:
+`freePlan ? Integer.valueOf(100) : quotas.get(tenant)` is an `Integer` expression and returns
+`null`, and `isRatio ? (Object) ratio : count` keeps the `Integer`.
+
+<!-- practice 2 -->
+
+## The Compiler Judges an if by Its Constants and Its Exits, Never by What Its Conditions Mean
+
+A parcel fee, declared without an initializer so that every path must set it, and `final` so that
+none sets it twice:
+
+```java
+public class Fee {
+    static int fee(int weightKg) {
+        final int fee;
+        if (weightKg <= 5) {
+            fee = 499;
+        } else if (weightKg > 5) {
+            fee = 999;
+        }
+        return fee;
+    }
+}
+```
+
+```text
+compile/definite/Fee.java:9: error: variable fee might not have been initialized
+        return fee;
+               ^
+1 error
+```
+
+Every `int` passes one of the two conditions, but the definite-assignment rules evaluate only
+constant expressions, not what `weightKg <= 5` means, so to javac both conditions can be false.
+Make the last branch a plain `else` and it compiles. Dropping `final` changes nothing: the error
+comes from reading a local that might be unassigned, and a local of any type, `String`
+included, has no default value.
+
+The tempting fix is `int fee = 0;`. It compiles and switches the check off. Add a third weight
+class, forget one assignment, and the method returns 0: a free shipment, and no tool complains.
+A local declared without a value and assigned in every branch keeps a missing assignment a
+compile error.
+
+Constants are what the compiler does evaluate. `if (false) { ... }` compiles, while
+`while (false) { ... }` is `error: unreachable statement`. The language exempts `if` on purpose,
+so that a constant flag can switch code off:
+
+```java
+static final boolean TRACE = false;
+
+static void handle(String request) {
+    if (TRACE) {
+        System.out.println("handling " + request);
+    }
+}
+```
+
+`javap -c` shows the body of `handle` as a single `return`: the trace code isn't in the class file.
+
+The compiler also tracks whether a branch can complete. A pattern variable introduced by a negated
+`instanceof` is in scope after the `if` when the `if`'s body can't finish normally:
+
+```java
+static int length(Object payload) {
+    if (!(payload instanceof String text)) {
+        return -1;
+    }
+    return text.length();
+}
+```
+
+Replace the `return -1` with a log line and `return text.length()` becomes
+`error: cannot find symbol`: a non-`String` can now reach that line.
+That makes the guard clause, which rejects the bad case and returns, the natural shape for checks
+at the top of a method: the main path stays unindented and gets the typed variable.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **An `else` binds to the nearest `if` without one.** Indentation doesn't count; braces do.
+- **An `else if` chain stops at the first condition that holds.** Order overlapping conditions
+  from narrow to wide and test each boundary value; javac never reports a branch no input reaches.
+- **`?:` has one type, taken from both operands.** An `int` on one side unboxes an `Integer` on
+  the other and throws on `null`; an `int` beside a `double` becomes a `double`.
+- **The compiler evaluates constants and tracks exits, nothing else.** A chain needs a final
+  `else` to assign a local declared without a value, `if (CONSTANT)` removes code, and a guard that returns keeps
+  its pattern variable in scope.
+
+## Reference
+
+**Conditions that compile and surprise (Java 21):**
+
+| Condition | Result |
+|---|---|
+| `if (retries = 0)` with an `int` | `error: incompatible types: int cannot be converted to boolean` |
+| `if (dryRun = true)` with a `boolean` | compiles; assigns `true`, and the branch always runs |
+| `if (approved)` with a `Boolean` that is `null` | `NullPointerException` from unboxing |
+| `if (false) { ... }` | compiles; the body is not generated |
+| `while (false)`, or `while (FLAG)` with a constant `false` | `error: unreachable statement` |
+
+**Type of `c ? a : b` (JLS 15.25), as run:**
+
+| Operands | Type | Effect |
+|---|---|---|
+| `int`, `Integer` | `int` | the `Integer` is unboxed: `null` throws |
+| `Integer`, `Integer` | `Integer` | no unboxing; `null` passes through |
+| `int`, `double` | `double` | `3` becomes `3.0` |
+| `long`, `double` | `double` | a `long` above 2^53 loses its last digits |
+| one operand cast to `Object` | `Object` | each operand keeps its boxed type |
+
+## Challenges
+
+1. Find an `else if` chain of five or more branches in your code base. Which conditions overlap,
+   and which test would show that their order is wrong?
+2. Your team's style allows a brace-less `if` for one-line returns. Write a rule that keeps that
+   and still rules out the refund bug, or argue for braces everywhere.
+3. A method returns `Integer` from a `?:` whose operands come from two other methods. One of them
+   changes its return type from `Integer` to `int`. What breaks, where, and when do you find out?
+
+## Design Note: Why a Condition Must Be a boolean
+
+In C an `if` takes any integer, and `if (x = 0)` compiles, assigns, and never runs its branch.
+Java requires a `boolean`, so that mistake is a type error, and writing `0 == x` to guard against
+it buys nothing for numbers. The rule costs a comparison (`if (count != 0)`, not `if (count)`),
+and it still lets one case through: when the variable is itself a `boolean`, `if (dryRun = true)`
+is legal. Test a boolean by using it, `if (dryRun)`, and there is no `=` to mistype.
 
 ## Code Examples
 

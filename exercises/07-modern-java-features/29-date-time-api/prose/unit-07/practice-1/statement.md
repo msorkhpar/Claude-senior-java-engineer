@@ -1,15 +1,14 @@
-A calendar app stores each meeting as a `ZonedDateTime` in its organiser's zone.
-Write two methods on `Meetings`:
+The scheduling service stores each meeting as a `ZonedDateTime` in the zone of the office that
+hosts it. Two tickets are open. Attendees in other offices say the invite email shows the meeting
+at the wrong time for them; one in Toronto joined a Madrid meeting long after it had ended. And
+when an organiser hands a recurring 16:30 meeting to the office in another country, the new office
+finds it at some other hour of their day.
 
-- `forAttendee(ZonedDateTime meeting, ZoneId attendee)`: the meeting as an
-  attendee in `attendee` sees it. It is the **same moment**, read on the
-  attendee's own clock, and that can be another calendar day.
-- `reschedule(ZonedDateTime meeting, ZoneId newZone)`: the organiser moves the
-  meeting to another office and keeps its **wall-clock time**: noon stays noon,
-  now in `newZone`. That is a different moment.
+Finish the two `TODO` methods in `src/main/java/practice/Invites.java`:
 
-| meeting | zone | forAttendee | reschedule |
-|---|---|---|---|
-| `2024-03-15T12:00` `America/New_York` | `America/Toronto` | `2024-03-15T12:00` Toronto | `2024-03-15T12:00` Toronto |
-| `2024-03-15T12:00` `America/New_York` | `Europe/London` | `2024-03-15T16:00` London | `2024-03-15T12:00` London |
-| `2024-03-15T20:00` `America/New_York` | `Asia/Tokyo` | `2024-03-16T09:00` Tokyo | `2024-03-15T20:00` Tokyo |
+- `asSeenBy(meeting, attendeeZone)`: the meeting as an attendee living in `attendeeZone` finds it
+  in their calendar;
+- `moveToOffice(meeting, officeZone)`: the meeting once the office in `officeZone` hosts it, at
+  the same time on its clocks as before.
+
+`inviteLines` already builds the email from `asSeenBy`. About two lines in total.

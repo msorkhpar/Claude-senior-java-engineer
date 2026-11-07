@@ -1,18 +1,18 @@
-In a parallel stream several threads run the lambdas at once, so a lambda that adds to one shared list races with
-the others. `collect` avoids that: each chunk fills its own container and the containers are merged afterwards,
-left before right, so encounter order survives as well.
+At the end of the day, the payment service reconciles: it asks the bank for the status of every
+payment of the day. Each lookup blocks until the bank answers, which can take seconds. Last week
+someone made the lookups parallel, and since then the card authorisations that the same service
+answers time out for as long as the reconciliation runs. The authorisations use parallel streams
+and `CompletableFuture`'s async methods without an executor.
 
-Write two static methods in `SafeCollect`. Each receives a stream that may be sequential or parallel:
+Finish `statuses(...)` in `src/main/java/practice/StatusReport.java`. When you're done:
 
-1. `List<Long> squares(Stream<Integer> numbers)`: each number squared, as a `long`, in encounter order.
-2. `Map<Character, List<String>> byFirstLetter(Stream<String> words)`: the words grouped by their first letter,
-   each group in encounter order.
+- up to `lookupsAtOnce` lookups wait on the bank at the same time, on threads that belong to the
+  report, and the statuses come back in the order of the ids;
+- when the report returns, or fails, the threads it used end;
+- a lookup that fails with an unchecked exception makes `statuses` throw an exception of the same
+  type.
 
-| call | answer |
-|---|---|
-| `squares(Stream.of(3, 1, 2))` | `[9, 1, 4]` |
-| `squares(Stream.of(100000))` | `[10000000000]` |
-| `byFirstLetter(Stream.of("apple", "banana", "avocado"))` | `{a=[apple, avocado], b=[banana]}` |
+About twelve lines in total.
 
-A square is exact for every `int`, `Integer.MAX_VALUE` included, and a first letter is taken as written: `'A'`
-and `'a'` are two groups. The tests also hand both methods large parallel streams and compare the whole result, order included.
+The tests use a bank that answers only when several lookups are waiting on it, and one that fails
+for a single payment.

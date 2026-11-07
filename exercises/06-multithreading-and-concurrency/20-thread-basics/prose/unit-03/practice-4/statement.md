@@ -1,22 +1,14 @@
-The page's robust task uses **both** cancellation tools: a `volatile boolean`
-flag, which a CPU-bound section can check cheaply, and `interrupt()`, which is
-the only thing that wakes a thread blocked in `sleep()`. "A volatile flag alone
-cannot wake a sleeping thread." Cleanup goes in a `finally` block so it runs
-however the task ends.
+The edge proxies stream their access logs to a collector, and the collector runs one
+`LogTailer` per proxy. Each tailer reads its proxy's socket on a thread of its own. When a proxy
+is retired, the collector calls `stop()` on its tailer, and that call never returns: the
+collector's admin thread hangs until someone restarts it.
 
-Write `Ticker`, a `Runnable` that ticks until it is stopped:
+Reading already works. Finish the two `TODO`s in `src/main/java/practice/LogTailer.java`:
 
-- `Ticker(Runnable tick, long pauseMillis, Runnable cleanup)`.
-- `run()` repeats: run `tick`, then sleep `pauseMillis`. It stops when it has
-  been cancelled or its thread has been interrupted (an interrupt that wakes the
-  sleep counts). When it stops, `cleanup` runs exactly once, and `run()` returns
-  with the interrupt flag restored if an interrupt stopped it.
-- `cancel()` may be called from any thread. It sets a `boolean` field named
-  `cancelled`, which must be `volatile`, **and** interrupts the thread running
-  the ticker, if one is running.
+- `stop()`: end the tailer and wait for its thread;
+- `readFailed(...)`: what happens when a read throws.
 
-| situation | result |
-|---|---|
-| ticking with a 1 ms pause; another thread calls `cancel()` | the thread ends |
-| asleep in a 60 s pause; another thread calls `cancel()` | the thread ends at once |
-| asleep in a 60 s pause; another thread calls `thread.interrupt()` | the thread ends at once; `cleanup` ran once |
+When you're done, `stop()` returns even when the proxy has gone quiet, retiring a proxy doesn't
+page on-call, and a connection that really breaks still does. About six lines in total.
+
+The tests hand the tailer a stream that behaves like a socket's on a platform thread.

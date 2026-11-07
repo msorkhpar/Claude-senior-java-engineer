@@ -1,19 +1,16 @@
-Two feeds report the same events, each in its own zone, so one moment can
-arrive as `2024-03-15T12:00-04:00[America/New_York]` and again as
-`2024-03-15T16:00Z[Europe/London]`.
+Operators type the start of each batch run as a local date and time in the data centre's zone,
+and `BatchStarts` turns it into the moment the job queue receives. Twice a year the operations
+team finds a run in the wrong place: in spring a run they set for a time that night started later
+than they typed, without anyone being asked, and in autumn the nightly export started while the
+hour it reads was still being written.
 
-Write `Events.distinctMoments(List<ZonedDateTime> events)`. It keeps the first
-event for each **moment on the timeline**, and drops every later event at that
-same moment, whatever zone or offset it is written in. Events at the same
-wall-clock time in different zones are different moments. The events it keeps
-stay in **the order they came in**.
+The team's rules for the nights the clocks change:
 
-| events | answer |
-|---|---|
-| `12:00 New York`, `13:00 New York`, `12:00 New York` | `12:00 New York`, `13:00 New York` |
-| `12:00:00 New York`, `12:00:00.5 New York` | both: half a second apart is another moment |
-| `12:00 New York`, `16:00 London`, `16:00Z[UTC]`, `12:00-04:00` | `12:00 New York` |
-| `12:00 New York`, `12:00 London`, `12:00 Tokyo` | all three |
-| `13:00 New York`, `16:00 London`, `12:00 New York` | `13:00 New York`, `16:00 London` |
+- a start at a local time that doesn't happen that night is refused with
+  `IllegalArgumentException`, so the operator picks another;
+- a start at a local time that happens twice runs at the second one, after the clocks have gone
+  back, when the hour's data is complete.
 
-(All on 2024-03-15.)
+Every other start runs at the time typed. Finish `startOf` in
+`src/main/java/practice/BatchStarts.java`. About four lines in total. The data centres include
+zones whose clocks change by less than an hour.

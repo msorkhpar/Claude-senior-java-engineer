@@ -1,13 +1,14 @@
-A compound assignment hides a narrowing cast: `byte b = 10; b += 300;` compiles
-and leaves `b == 54`, because `b += 300` means `b = (byte) (b + 300)`. The
-arithmetic itself happens in `int`: `a + b` on two `byte`s is an `int`.
+The billing service keeps each tenant's 48 feature switches in one `long`: feature n is on when
+bit n is set. Support has three tickets open. A tenant who bought the audit log (feature 42) also
+got single sign-on (feature 10). A cleanup job that switches off every trial feature switched
+some of them back on. And a tenant with only one feature of the "analytics" bundle was shown the
+whole bundle.
 
-Write `SaturatingBytes.addSaturating(byte a, byte b)`. It returns `a + b` when the
-sum fits in a `byte`, and otherwise holds it at the nearest limit: `127` above,
-`-128` below (a *saturating* add, as audio and image code use).
+`FeatureMask` already builds sets of features and switches them on. Finish the three `TODO`
+methods in `src/main/java/practice/FeatureMask.java`:
 
-| a | b | answer |
-|---|---|---|
-| `10` | `20` | `30` |
-| `100` | `100` | `127` |
-| `-100` | `-100` | `-128` |
+- `bit(feature)`: the set that holds one feature;
+- `disable(mask, features)`: the mask with those features switched off;
+- `hasAll(mask, features)`: whether every feature of the set is on.
+
+About three lines in total.

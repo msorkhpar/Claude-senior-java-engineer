@@ -1,29 +1,16 @@
-The page's `TimedCounter` shows what `synchronized` cannot do: `tryLock()` gives
-up at once when the lock is taken, `tryLock(time, unit)` gives up after a
-timeout, and the diagnostics `hasQueuedThreads()` and `getQueueLength()` tell
-you whether anyone is waiting. The page's pitfall: `tryLock()` returns a
-`boolean`, and a caller that ignores it enters the critical section without
-the lock.
+The loyalty service imports partner files into its points ledger on a few worker threads, one
+file at a time. Two incidents last month:
 
-Write `TimedCounter`, a counter guarded by the `ReentrantLock` it is given:
+- A café partner sent a file that would have taken a member below zero. The file was rejected, as
+  it should be, and from then on no other file was imported until someone restarted the service.
+- During a deploy, the service waited out its whole shutdown timeout: two workers were waiting for
+  the ledger behind a long airline import, and the interrupts the deploy sent them changed nothing.
 
-- `boolean tryIncrement()` adds one only if it gets the lock **without
-  waiting**; it returns whether it counted.
-- `boolean increment(long timeout, TimeUnit unit)` waits **at most** `timeout`
-  (in the given `unit`) for the lock; it returns whether it counted.
-  An interrupt while it waits ends it with `InterruptedException`.
-- `long count()` returns the count.
-- `boolean isContended()` is `true` when at least one thread is **waiting** for
-  the lock (not merely when the lock is held).
+Write `importFile` in `src/main/java/practice/PointsLedger.java`. It applies the file with the
+`applyAll` method that is already there, holding the ledger's lock. A rejected file must leave the
+ledger ready for the next one, and its `IllegalArgumentException` must still reach the caller. A
+worker that is interrupted while it waits for the ledger must stop waiting, import nothing, and
+end with `InterruptedException`. About five lines.
 
-The lock is reentrant: a thread that already holds it gets it again at once. Every path that takes the lock should release it, and reading the count under
-the lock too keeps the read consistent with the writes.
-
-| situation | call | answer |
-|---|---|---|
-| lock free | `tryIncrement()`, `increment(1, SECONDS)`, `count()` | `true`, `true`, `2` |
-| another thread holds the lock | `tryIncrement()` | `false` at once; nothing counted |
-| another thread holds the lock | `increment(100_000, MICROSECONDS)` | `false` after about 100 ms |
-| another thread holds it, then releases it | `increment(5, SECONDS)` | `true` |
-| another thread holds it, nobody waits | `isContended()` | `false` |
-| another thread holds it, a third waits | `isContended()` | `true` |
+The tests run the workers on threads of their own and hold the ledger's lock themselves to keep
+a worker waiting.

@@ -1,9 +1,10 @@
-A String cannot change, so replacing characters one by one would build a new String each
-time. A `StringBuilder` changes a character in place with `setCharAt(index, c)`.
+Each invoice-export worker formats every invoice in one `StringBuilder` of its own, kept in
+`ScratchBuffer`, and the workers live as long as the service. Once a month a customer's invoice
+runs to tens of thousands of lines. Since then, monitoring shows the export service's heap
+staying high for weeks, and the heap dump finds each worker holding a buffer of several hundred
+kilobytes, all of it empty.
 
-Write `mask(String card)` in `CardMask`. It replaces every digit with `*` except the last
-four digits, and leaves every other character, such as a space or a dash, where it is:
-
-- `mask("1234567812345678")` is `"************5678"`;
-- `mask("1234 5678 9012 3456")` is `"**** **** **** 3456"`;
-- a number of four digits or fewer is not masked: `mask("123")` is `"123"`.
+Write `acquire()` in `src/main/java/practice/ScratchBuffer.java`. When you're done, each invoice
+starts from an empty builder; after a huge invoice the worker holds no more than `KEEP_LIMIT`
+characters of room; and ordinary invoices, including the next one after a huge one, start with
+`NORMAL_CAPACITY` ready. About five lines.

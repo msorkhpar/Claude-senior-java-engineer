@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Wait for a worker, but not forever",
+  "title": "Report a probe that throws as failed",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,19 @@
     },
     {
       "type": "para",
-      "text": "`join()` waits until a thread ends, and waits **forever** if it never does. The page's safer form is a bounded `join(millis)`, then `isAlive()` to see whether the thread is still running, and `interrupt()` to ask it to stop. Two edge cases from the page matter here: `join()` on a thread that was never started returns at once (it waits only while the thread is alive), and `join(0)` means \"wait forever\"."
+      "text": "This builds on the previous practice: `HealthCheck` now keeps its time budget, and its `await` is the one you wrote."
     },
     {
       "type": "para",
-      "text": "Write `Deadline.await(Thread worker, long millis)`, returning an `Outcome`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`NOT_STARTED` if `worker` was never started (do not wait);",
-        "`FINISHED` if it ends within `millis` milliseconds;",
-        "`CANCELLED` if it is still running after `millis`: interrupt it first."
-      ]
+      "text": "Probes report a problem by throwing: the Redis probe throws when the connection is refused, and the replica probe uses `assert`-style checks that throw `AssertionError` when replication lags. During this morning's Redis outage `/health` answered \"postgres PASSED, redis PASSED\" for twenty minutes, while the service's stderr filled up with stack traces from threads named `probe-redis`."
     },
     {
       "type": "para",
-      "text": "A `millis` of `0` or less throws `IllegalArgumentException`."
+      "text": "`run(...)` already reports `FAILED` for any probe whose failure is in the `failures` map once its thread has finished. Finish `probeThread(...)` in `src/main/java/practice/HealthCheck.java` so that it is."
     },
     {
-      "type": "table",
-      "headers": [
-        "worker",
-        "`millis`",
-        "result"
-      ],
-      "rows": [
-        [
-          "started, ends quickly",
-          "`5000`",
-          "`FINISHED`"
-        ],
-        [
-          "started, blocked until interrupted",
-          "`100`",
-          "`CANCELLED`, and the worker is interrupted"
-        ],
-        [
-          "never started",
-          "`100`",
-          "`NOT_STARTED`"
-        ],
-        [
-          "any",
-          "`0`",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a probe that throws anything at all is reported as `FAILED`. About eight lines."
     },
     {
       "type": "heading",
@@ -81,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Deadline {\n\n    /** How a bounded wait for a worker ended. */\n    public enum Outcome { FINISHED, CANCELLED, NOT_STARTED }\n\n    private Deadline() {\n    }\n\n    /** Waits at most millis for worker; interrupts it if it is still running then. */\n    public static Outcome await(Thread worker, long millis) throws InterruptedException {\n        if (millis <= 0) {\n            throw new IllegalArgumentException(\"a timeout must be positive, and join(0) waits forever\");\n        }\n        if (worker.getState() == Thread.State.NEW) {\n            return Outcome.NOT_STARTED;\n        }\n        worker.join(millis);\n        if (worker.isAlive()) {\n            worker.interrupt();\n            return Outcome.CANCELLED;\n        }\n        return Outcome.FINISHED;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The service's /health endpoint. Runs every probe (database, cache, message broker, ...) on its\n * own thread and reports each one, all within one time budget: the load balancer gives up on the\n * endpoint after that long. A probe reports a problem by throwing.\n */\npublic class HealthCheck {\n\n    public enum Status { PASSED, FAILED, TIMED_OUT }\n\n    /** Runs every probe at once and reports each by name, in the order given. */\n    public Map<String, Status> run(Map<String, Runnable> probes, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        Map<String, Throwable> failures = new ConcurrentHashMap<>();\n        Map<String, Thread> running = new LinkedHashMap<>();\n        for (Map.Entry<String, Runnable> probe : probes.entrySet()) {\n            Thread t = probeThread(probe.getKey(), probe.getValue(), failures);\n            t.start();\n            running.put(probe.getKey(), t);\n        }\n        Map<String, Status> report = new LinkedHashMap<>();\n        for (Map.Entry<String, Thread> probe : running.entrySet()) {\n            if (!await(probe.getValue(), deadline)) {\n                probe.getValue().interrupt();\n                report.put(probe.getKey(), Status.TIMED_OUT);\n            } else if (failures.containsKey(probe.getKey())) {\n                report.put(probe.getKey(), Status.FAILED);\n            } else {\n                report.put(probe.getKey(), Status.PASSED);\n            }\n        }\n        return report;\n    }\n\n    /**\n     * A daemon thread, not started yet, that runs one probe. If the probe fails, its failure is in\n     * {@code failures}, under the probe's name, by the time the thread has finished.\n     */\n    Thread probeThread(String name, Runnable probe, Map<String, Throwable> failures) {\n        Thread t = new Thread(() -> {\n            try {\n                probe.run();\n            } catch (Throwable failure) {\n                failures.put(name, failure);\n            }\n        }, \"probe-\" + name);\n        t.setDaemon(true);\n        return t;\n    }\n\n    /**\n     * Waits for a started probe, but not past the deadline (a System.nanoTime() value). True if\n     * the probe's thread has finished.\n     */\n    boolean await(Thread probe, long deadline) throws InterruptedException {\n        return probe.join(Duration.ofNanos(deadline - System.nanoTime()));\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Deadline {\n\n    /** How a bounded wait for a worker ended. */\n    public enum Outcome { FINISHED, CANCELLED, NOT_STARTED }\n\n    private Deadline() {\n    }\n\n    /** Waits at most millis for worker; interrupts it if it is still running then. */\n    public static Outcome await(Thread worker, long millis) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write await\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The service's /health endpoint. Runs every probe (database, cache, message broker, ...) on its\n * own thread and reports each one, all within one time budget: the load balancer gives up on the\n * endpoint after that long. A probe reports a problem by throwing.\n */\npublic class HealthCheck {\n\n    public enum Status { PASSED, FAILED, TIMED_OUT }\n\n    /** Runs every probe at once and reports each by name, in the order given. */\n    public Map<String, Status> run(Map<String, Runnable> probes, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        Map<String, Throwable> failures = new ConcurrentHashMap<>();\n        Map<String, Thread> running = new LinkedHashMap<>();\n        for (Map.Entry<String, Runnable> probe : probes.entrySet()) {\n            Thread t = probeThread(probe.getKey(), probe.getValue(), failures);\n            t.start();\n            running.put(probe.getKey(), t);\n        }\n        Map<String, Status> report = new LinkedHashMap<>();\n        for (Map.Entry<String, Thread> probe : running.entrySet()) {\n            if (!await(probe.getValue(), deadline)) {\n                probe.getValue().interrupt();\n                report.put(probe.getKey(), Status.TIMED_OUT);\n            } else if (failures.containsKey(probe.getKey())) {\n                report.put(probe.getKey(), Status.FAILED);\n            } else {\n                report.put(probe.getKey(), Status.PASSED);\n            }\n        }\n        return report;\n    }\n\n    /**\n     * A daemon thread, not started yet, that runs one probe. If the probe fails, its failure is in\n     * {@code failures}, under the probe's name, by the time the thread has finished.\n     */\n    Thread probeThread(String name, Runnable probe, Map<String, Throwable> failures) {\n        // TODO: Build the probe's thread as before (a daemon named \"probe-\" + name). A probe\n        //       reports a problem by throwing, and run() reads failures once the thread has\n        //       finished; whatever the probe throws must be there by then.\n        throw new IllegalStateException(\"TODO: probeThread\");\n    }\n\n    /**\n     * Waits for a started probe, but not past the deadline (a System.nanoTime() value). True if\n     * the probe's thread has finished.\n     */\n    boolean await(Thread probe, long deadline) throws InterruptedException {\n        return probe.join(Duration.ofNanos(deadline - System.nanoTime()));\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -112,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "06c74619f06a5a87bc1a9682c91ae7a1cb12196ff2e2fbfdf028ef8e74cafe1f",
-  "starting_code": "package practice;\n\npublic final class Deadline {\n\n    /** How a bounded wait for a worker ended. */\n    public enum Outcome { FINISHED, CANCELLED, NOT_STARTED }\n\n    private Deadline() {\n    }\n\n    /** Waits at most millis for worker; interrupts it if it is still running then. */\n    public static Outcome await(Thread worker, long millis) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write await\");\n    }\n}\n",
+  "content_sha256": "8e0fa7157cb5f72e12dbb4316396e53c51fdf779f43e6649352806672864575a",
+  "starting_code": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The service's /health endpoint. Runs every probe (database, cache, message broker, ...) on its\n * own thread and reports each one, all within one time budget: the load balancer gives up on the\n * endpoint after that long. A probe reports a problem by throwing.\n */\npublic class HealthCheck {\n\n    public enum Status { PASSED, FAILED, TIMED_OUT }\n\n    /** Runs every probe at once and reports each by name, in the order given. */\n    public Map<String, Status> run(Map<String, Runnable> probes, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        Map<String, Throwable> failures = new ConcurrentHashMap<>();\n        Map<String, Thread> running = new LinkedHashMap<>();\n        for (Map.Entry<String, Runnable> probe : probes.entrySet()) {\n            Thread t = probeThread(probe.getKey(), probe.getValue(), failures);\n            t.start();\n            running.put(probe.getKey(), t);\n        }\n        Map<String, Status> report = new LinkedHashMap<>();\n        for (Map.Entry<String, Thread> probe : running.entrySet()) {\n            if (!await(probe.getValue(), deadline)) {\n                probe.getValue().interrupt();\n                report.put(probe.getKey(), Status.TIMED_OUT);\n            } else if (failures.containsKey(probe.getKey())) {\n                report.put(probe.getKey(), Status.FAILED);\n            } else {\n                report.put(probe.getKey(), Status.PASSED);\n            }\n        }\n        return report;\n    }\n\n    /**\n     * A daemon thread, not started yet, that runs one probe. If the probe fails, its failure is in\n     * {@code failures}, under the probe's name, by the time the thread has finished.\n     */\n    Thread probeThread(String name, Runnable probe, Map<String, Throwable> failures) {\n        // TODO: Build the probe's thread as before (a daemon named \"probe-\" + name). A probe\n        //       reports a problem by throwing, and run() reads failures once the thread has\n        //       finished; whatever the probe throws must be there by then.\n        throw new IllegalStateException(\"TODO: probeThread\");\n    }\n\n    /**\n     * Waits for a started probe, but not past the deadline (a System.nanoTime() value). True if\n     * the probe's thread has finished.\n     */\n    boolean await(Thread probe, long deadline) throws InterruptedException {\n        return probe.join(Duration.ofNanos(deadline - System.nanoTime()));\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-3/src/main/java/practice/Deadline.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-3/src/test/java/practice/DeadlineTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-3/src/main/java/practice/HealthCheck.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-3/src/test/java/practice/HealthCheckTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,24 +102,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DeadlineTest#tellsFinishedFromStillRunning",
+        "id": "practice.HealthCheckTest#reportsProbesThatFinishWithoutAProblemAsPassed",
         "kind": "main",
-        "says": "A worker that ends in time is FINISHED; one still running at the deadline is CANCELLED."
+        "says": "probes that finish without throwing are reported as passed, in the order given"
       },
       {
-        "id": "practice.DeadlineTest#aCancelledWorkerIsInterrupted",
+        "id": "practice.HealthCheckTest#reportsAProbeThatThrowsAsFailed",
         "kind": "edge",
-        "says": "A worker still running at the deadline is interrupted."
+        "says": "a probe that throws an exception on its own thread is reported as failed"
       },
       {
-        "id": "practice.DeadlineTest#anUnstartedWorkerIsNotWaitedFor",
+        "id": "practice.HealthCheckTest#reportsAProbeThatFailsAnAssertionAsFailed",
         "kind": "edge",
-        "says": "A worker that was never started is NOT_STARTED, not FINISHED."
-      },
-      {
-        "id": "practice.DeadlineTest#aZeroTimeoutIsRefused",
-        "kind": "edge",
-        "says": "A timeout of 0 or less throws IllegalArgumentException instead of waiting forever."
+        "says": "a probe that ends with an Error, such as a failed assertion, is reported as failed too"
       }
     ],
     "report": {
@@ -163,11 +123,10 @@
     },
     "origin": {
       "path": "20-thread-basics/README_6.1.2.md",
-      "section": "`join()` — Waiting for a Thread to Complete"
+      "section": "An Exception Ends Only Its Own Thread: Hand the Failure Over"
     },
     "concepts": [
-      "join(millis) bounds the wait, after which isAlive() tells whether to interrupt the worker.",
-      "join() on a thread that was never started returns at once, and join(0) waits forever."
+      "An exception thrown in a started thread ends that thread only: join() returns normally and no catch of the caller runs, so the thread must hand the failure over, catching Throwable or through an UncaughtExceptionHandler."
     ]
   }
 }

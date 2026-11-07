@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A task line with an urgent lane",
+  "title": "Let a tenant clear a setting in a concurrent map",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,24 @@
     },
     {
       "type": "para",
-      "text": "The page's `LinkedList` implements both `List` and `Deque`: adding or removing at **either end** is O(1), and the page recommends `ArrayDeque` for the same queue and stack work. A `Deque` has two families of end methods: one throws when the deque is empty, the other returns `null`."
+      "text": "Tenant settings are read by every request thread and changed from the admin page, so they live in a `ConcurrentHashMap`. Tenants can now **clear** a setting, and that is not the same as never setting it: a tenant who clears the invoice footer wants no footer, while a tenant who never set one gets the platform's default footer."
     },
     {
       "type": "para",
-      "text": "Write the class `Tasks`, a line of task names:"
+      "text": "Finish the three `TODO` methods in `src/main/java/practice/TenantSettings.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`add(String task)` puts a task at the **back** of the line.",
-        "`urgent(String task)` puts a task at the **front**, so it is served before everything already waiting. The newest urgent task goes first of all.",
-        "`next()` removes and returns the task at the front, or `null` when the line is empty.",
-        "`last()` returns the task at the back of the whole line (urgent tasks included) without removing it, or `null` when the line is empty."
+        "`encode(value)`: what to store for a value the tenant set, `null` included;",
+        "`decode(stored)`: the tenant's value back from what `encode` stored;",
+        "`isSet(name)`: whether the tenant ever set the setting, cleared or not."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`add(\"a\")`, `add(\"b\")`, `add(\"c\")`, then `next()` three times",
-          "`\"a\"`, `\"b\"`, `\"c\"`"
-        ],
-        [
-          "`add(\"a\")`, `urgent(\"u\")`, then `next()` twice",
-          "`\"u\"`, `\"a\"`"
-        ],
-        [
-          "`urgent(\"x\")`, `urgent(\"y\")`, then `next()` twice",
-          "`\"y\"`, `\"x\"`"
-        ],
-        [
-          "`next()` on a new line",
-          "`null`"
-        ]
-      ]
+      "type": "para",
+      "text": "Any text a tenant types must read back exactly as typed, whatever it is. About five lines in total. The tests use one thread."
     },
     {
       "type": "heading",
@@ -73,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\n\npublic final class Tasks {\n\n    private final Deque<String> line = new ArrayDeque<>();\n\n    /** Puts a task at the back of the line. */\n    public void add(String task) {\n        line.addLast(task);\n    }\n\n    /** Puts a task at the front of the line. */\n    public void urgent(String task) {\n        line.addFirst(task);\n    }\n\n    /** Removes and returns the front task, or null when the line is empty. */\n    public String next() {\n        return line.pollFirst();\n    }\n\n    /** The back task, not removed, or null when the line is empty. */\n    public String last() {\n        return line.peekLast();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * One tenant's settings, read by every request thread and changed from the admin page. A tenant\n * can clear a setting, which is different from never having set it: a cleared setting overrides\n * the platform default with \"nothing\", a setting never set falls back to the default.\n */\npublic class TenantSettings {\n\n    private final ConcurrentHashMap<String, Object> stored = new ConcurrentHashMap<>();\n\n    /** Sets a setting; value may be null, which clears it. */\n    public void set(String name, String value) {\n        stored.put(name, encode(value));\n    }\n\n    /** The setting's value; null when it was cleared or never set. */\n    public String value(String name) {\n        Object v = stored.get(name);\n        return v == null ? null : decode(v);\n    }\n\n    /** The value to use: the tenant's own if it ever set one, cleared or not, else the default. */\n    public String effective(String name, String platformDefault) {\n        return isSet(name) ? value(name) : platformDefault;\n    }\n\n    /** A private object no caller can pass in, so it can only mean \"cleared\". */\n    private static final Object CLEARED = new Object();\n\n    /** What to store for a value the tenant set, which may be null. */\n    Object encode(String value) {\n        return value == null ? CLEARED : value;\n    }\n\n    /** The value the tenant set, from what encode stored. */\n    String decode(Object stored) {\n        return stored == CLEARED ? null : (String) stored;\n    }\n\n    /** Whether the tenant ever set this setting, including setting it to null. */\n    boolean isSet(String name) {\n        return stored.containsKey(name);\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Tasks {\n\n    /** Puts a task at the back of the line. */\n    public void add(String task) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Puts a task at the front of the line. */\n    public void urgent(String task) {\n        throw new UnsupportedOperationException(\"write urgent\");\n    }\n\n    /** Removes and returns the front task, or null when the line is empty. */\n    public String next() {\n        throw new UnsupportedOperationException(\"write next\");\n    }\n\n    /** The back task, not removed, or null when the line is empty. */\n    public String last() {\n        throw new UnsupportedOperationException(\"write last\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * One tenant's settings, read by every request thread and changed from the admin page. A tenant\n * can clear a setting, which is different from never having set it: a cleared setting overrides\n * the platform default with \"nothing\", a setting never set falls back to the default.\n */\npublic class TenantSettings {\n\n    private final ConcurrentHashMap<String, Object> stored = new ConcurrentHashMap<>();\n\n    /** Sets a setting; value may be null, which clears it. */\n    public void set(String name, String value) {\n        stored.put(name, encode(value));\n    }\n\n    /** The setting's value; null when it was cleared or never set. */\n    public String value(String name) {\n        Object v = stored.get(name);\n        return v == null ? null : decode(v);\n    }\n\n    /** The value to use: the tenant's own if it ever set one, cleared or not, else the default. */\n    public String effective(String name, String platformDefault) {\n        return isSet(name) ? value(name) : platformDefault;\n    }\n\n    /** What to store for a value the tenant set, which may be null. */\n    Object encode(String value) {\n        // TODO: The map underneath refuses null. Return what to store so that every value a tenant\n        //       can set, null included, reads back as exactly that value.\n        throw new IllegalStateException(\"TODO: encode\");\n    }\n\n    /** The value the tenant set, from what encode stored. */\n    String decode(Object stored) {\n        // TODO: Turn what encode stored back into the tenant's value.\n        throw new IllegalStateException(\"TODO: decode\");\n    }\n\n    /** Whether the tenant ever set this setting, including setting it to null. */\n    boolean isSet(String name) {\n        // TODO: Answer whether the tenant ever set this setting, cleared or not.\n        throw new IllegalStateException(\"TODO: isSet\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,9 +71,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -104,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d2babaccb1f80358d540ce5f4f1c962af95ebe9916b8714b37cc46870076a6d7",
-  "starting_code": "package practice;\n\npublic final class Tasks {\n\n    /** Puts a task at the back of the line. */\n    public void add(String task) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Puts a task at the front of the line. */\n    public void urgent(String task) {\n        throw new UnsupportedOperationException(\"write urgent\");\n    }\n\n    /** Removes and returns the front task, or null when the line is empty. */\n    public String next() {\n        throw new UnsupportedOperationException(\"write next\");\n    }\n\n    /** The back task, not removed, or null when the line is empty. */\n    public String last() {\n        throw new UnsupportedOperationException(\"write last\");\n    }\n}\n",
+  "content_sha256": "4bf512c58547e2c526090851baf648fa910f0a3d01a77ecb32b3c5bcda6fc10b",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * One tenant's settings, read by every request thread and changed from the admin page. A tenant\n * can clear a setting, which is different from never having set it: a cleared setting overrides\n * the platform default with \"nothing\", a setting never set falls back to the default.\n */\npublic class TenantSettings {\n\n    private final ConcurrentHashMap<String, Object> stored = new ConcurrentHashMap<>();\n\n    /** Sets a setting; value may be null, which clears it. */\n    public void set(String name, String value) {\n        stored.put(name, encode(value));\n    }\n\n    /** The setting's value; null when it was cleared or never set. */\n    public String value(String name) {\n        Object v = stored.get(name);\n        return v == null ? null : decode(v);\n    }\n\n    /** The value to use: the tenant's own if it ever set one, cleared or not, else the default. */\n    public String effective(String name, String platformDefault) {\n        return isSet(name) ? value(name) : platformDefault;\n    }\n\n    /** What to store for a value the tenant set, which may be null. */\n    Object encode(String value) {\n        // TODO: The map underneath refuses null. Return what to store so that every value a tenant\n        //       can set, null included, reads back as exactly that value.\n        throw new IllegalStateException(\"TODO: encode\");\n    }\n\n    /** The value the tenant set, from what encode stored. */\n    String decode(Object stored) {\n        // TODO: Turn what encode stored back into the tenant's value.\n        throw new IllegalStateException(\"TODO: decode\");\n    }\n\n    /** Whether the tenant ever set this setting, including setting it to null. */\n    boolean isSet(String name) {\n        // TODO: Answer whether the tenant ever set this setting, cleared or not.\n        throw new IllegalStateException(\"TODO: isSet\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-2/src/main/java/practice/Tasks.java",
-    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-2/src/test/java/practice/TasksTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-2/src/main/java/practice/TenantSettings.java",
+    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-2/src/test/java/practice/TenantSettingsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,29 +107,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TasksTest#servesInArrivalOrder",
+        "id": "practice.TenantSettingsTest#readsBackWhatTheTenantSet",
         "kind": "main",
-        "says": "Tasks added at the back are served first in, first out, and last() names the newest one."
+        "says": "a value the tenant set reads back as itself and is the effective value"
       },
       {
-        "id": "practice.TasksTest#urgentGoesFirst",
-        "kind": "edge",
-        "says": "An urgent task is served before every task already waiting."
+        "id": "practice.TenantSettingsTest#aSettingNeverSetFallsBackToTheDefault",
+        "kind": "main",
+        "says": "a setting the tenant never set reads as null and falls back to the platform default"
       },
       {
-        "id": "practice.TasksTest#newestUrgentServedFirst",
-        "kind": "edge",
-        "says": "Of two urgent tasks, the one added last is served first."
+        "id": "practice.TenantSettingsTest#aClearedSettingReadsAsNull",
+        "kind": "main",
+        "says": "a setting the tenant cleared reads as null"
       },
       {
-        "id": "practice.TasksTest#emptyLineGivesNull",
+        "id": "practice.TenantSettingsTest#anEmptyValueIsKeptAsEmpty",
         "kind": "edge",
-        "says": "next() and last() on an empty line return null instead of throwing."
+        "says": "an empty value is a value: it reads back as empty, not as cleared"
       },
       {
-        "id": "practice.TasksTest#urgentTasksAreInTheSameLine",
+        "id": "practice.TenantSettingsTest#anyTypedTextReadsBackAsTyped",
         "kind": "edge",
-        "says": "Urgent tasks are part of the one line: with only urgent tasks waiting, last() is the oldest of them."
+        "says": "any text a tenant types, the word null included, reads back as itself and is never taken for a cleared setting"
+      },
+      {
+        "id": "practice.TenantSettingsTest#aClearedSettingOverridesTheDefault",
+        "kind": "edge",
+        "says": "a cleared setting counts as set, so it overrides the platform default with nothing"
       }
     ],
     "report": {
@@ -160,10 +143,10 @@
     },
     "origin": {
       "path": "24-concurrent-collections/README_6.5.1.md",
-      "section": "6.5.1.1. List Implementations"
+      "section": "ConcurrentHashMap Refuses null, So That null from get Means Absent"
     },
     "concepts": [
-      "LinkedList and ArrayDeque serve as a Deque with constant-time adds and removals at both ends, and poll and peek return null on an empty deque."
+      "A stand-in for null in a map that refuses null must be a value no caller can store; an empty string collides with a real empty value."
     ]
   }
 }

@@ -18,405 +18,396 @@
       "text": "4.3.2. Types of Method References (Static, Instance, Constructor)"
     },
     {
+      "type": "para",
+      "text": "A weather service groups each night's readings by whole degree:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "for (Reading r : night) byDegree.computeIfAbsent(r.celsius(), ArrayList::new).add(r);"
+    },
+    {
+      "type": "para",
+      "text": "It ran all summer, until the first night below zero, when every batch failed with `IllegalArgumentException: Illegal Capacity: -1`, thrown from a line that never mentions a capacity. `ArrayList::new` has no parameter list: the interface it is passed to chose the constructor, and passed it the temperature."
+    },
+    {
+      "type": "para",
+      "text": "A method reference comes in four kinds: static (`Integer::parseInt`), bound (`prefix::concat`), unbound (`String::length`) and constructor (`ArrayList::new`). Each maps the functional interface's parameters onto a call in its own way. Unit 4.3.1 covers what all four share."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "`Class::method` Is Static or Unbound, and the Method's Declaration Decides Which"
     },
     {
       "type": "para",
-      "text": "Java defines four distinct categories of method references, each resolving the receiver and arguments differently. Understanding these categories is essential because each one corresponds to a different relationship between the method being referenced and the functional interface being used."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Type 1: Static Method Reference — `ClassName::staticMethod`"
-    },
-    {
-      "type": "para",
-      "text": "A static method reference refers to a static method of a class. There is no receiver object — the method is called directly on the class."
-    },
-    {
-      "type": "para",
-      "text": "**Signature mapping**: The parameters of the functional interface's abstract method become the arguments to the static method. If the static method takes one parameter, the functional interface must take one parameter."
+      "text": "`Integer::parseInt` and `String::length` look alike, and both fit a `Function<String, Integer>`:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Integer.parseInt(String s) — static, one argument\nFunction<String, Integer> parser = Integer::parseInt;\nint n = parser.apply(\"42\"); // calls Integer.parseInt(\"42\")\n\n// Math.abs(int a) — static, one argument\nIntUnaryOperator abs = Math::abs;\nint result = abs.applyAsInt(-5); // calls Math.abs(-5)"
+      "text": "Function<String, Integer> parse = Integer::parseInt;      // Integer.parseInt(s)\nFunction<String, Integer> length = String::length;        // s.length()\nComparator<String> byName = String::compareToIgnoreCase;  // a.compareToIgnoreCase(b)\nSystem.out.println(parse.apply(\"0042\") + \" \" + length.apply(\"0042\"));\nList<String> names = new ArrayList<>(List.of(\"bob\", \"Alice\", \"carol\"));\nnames.sort(byName);\nSystem.out.println(names);"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "Type 2: Bound Instance Method Reference — `instance::instanceMethod`"
-    },
-    {
-      "type": "para",
-      "text": "A bound instance method reference captures a specific instance at the time of creation. The receiver is fixed; when the functional interface is invoked, the referenced method is always called on that captured instance."
+      "type": "code",
+      "lang": "text",
+      "text": "42 4\n[Alice, bob, carol]"
     },
     {
       "type": "para",
-      "text": "**Signature mapping**: The functional interface's abstract method parameters become the arguments to the instance method. The receiver is already determined."
+      "text": "`parseInt` is static, so the argument goes straight to it. `length` is an instance method with no parameters, so the argument becomes the receiver. With more parameters, the first becomes the receiver and the rest the arguments: as a `Comparator<String>`, `compare(a, b)` calls `a.compareToIgnoreCase(b)`. An unbound reference to a fixed-arity method needs one more interface parameter than the method has."
+    },
+    {
+      "type": "para",
+      "text": "Nothing in the text `Class::method` says which of the two it is. The compiler searches both ways: for a static method that takes all the interface's parameters, and for an instance method that takes all but the first. When both searches find one, it does not pick:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// A specific String object is captured\nString prefix = \"Hello\";\nPredicate<String> startsWith = prefix::startsWith;  // bound: 'prefix' is fixed\nboolean b = startsWith.test(\" World\"); // calls \"Hello\".startsWith(\" World\")\n\n// A specific PrintStream (System.out) is captured\nConsumer<String> printer = System.out::println;  // bound: System.out is fixed\nprinter.accept(\"test\"); // calls System.out.println(\"test\")"
+      "text": "import java.util.function.Function;\n\npublic class Ambiguous {\n    Function<Integer, String> label = Integer::toString;\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Ambiguous.java:4: error: incompatible types: invalid method reference\n    Function<Integer, String> label = Integer::toString;\n                                      ^\n    reference to toString is ambiguous\n      both method toString(int) in Integer and method toString() in Integer match\n1 error"
+    },
+    {
+      "type": "para",
+      "text": "`Integer` has a static `toString(int)` that takes the `Integer` by unboxing, and the instance `toString()` that takes it as the receiver. `Long::toString` and `Integer::hashCode` fail the same way. `Object::toString` and `String::valueOf` compile, because each leaves only one search with a match, and so does the lambda `i -> Integer.toString(i)`, an ordinary call with one argument. Unit 4.3.3 covers how overloads of one kind are chosen."
     },
     {
       "type": "heading",
       "level": 3,
-      "text": "Type 3: Unbound Instance Method Reference — `ClassName::instanceMethod`"
+      "text": "Through a Supertype, the Call Still Reaches the Override"
     },
     {
       "type": "para",
-      "text": "An unbound instance method reference refers to an instance method, but the receiver is NOT fixed. Instead, the receiver is supplied as the first argument when the functional interface is invoked. This is why the functional interface needs one extra parameter compared to the method's declared parameters."
-    },
-    {
-      "type": "para",
-      "text": "**Signature mapping**: The first parameter of the functional interface's abstract method becomes the receiver; the remaining parameters become the method's arguments."
+      "text": "The class before `::` in an unbound reference can be a superclass or an interface of the receiver. With `record Sku(String code, int qty) {}`:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// String::toUpperCase — no parameters; but Function<String,String> takes one: the receiver\nFunction<String, String> toUpper = String::toUpperCase;\nString up = toUpper.apply(\"hello\"); // calls \"hello\".toUpperCase()\n\n// String::compareTo — one parameter; Comparator<String> takes two: receiver + argument\nComparator<String> cmp = String::compareTo;\nint r = cmp.compare(\"apple\", \"banana\"); // calls \"apple\".compareTo(\"banana\")"
+      "text": "Function<Object, String> show = Object::toString;\nToIntFunction<CharSequence> chars = CharSequence::length;\nSystem.out.println(show.apply(new Sku(\"A-7\", 3)));\nSystem.out.println(chars.applyAsInt(\"abc\") + \" \" + chars.applyAsInt(new StringBuilder(\"abcdef\")));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Sku[code=A-7, qty=3]\n3 6"
+    },
+    {
+      "type": "para",
+      "text": "`Object::toString` printed the record's own `toString`, not `Sku@` and a hash. The class before `::` decides what compiles and what the interface's first parameter may be; the receiver's class decides which body runs, as for `s.toString()`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Type 4: Constructor Reference — `ClassName::new`"
+      "level": 2,
+      "text": "A Bound Reference Holds Its Receiver, and the Interface's Arguments Become the Method's"
     },
     {
       "type": "para",
-      "text": "A constructor reference refers to a constructor of a class. Like a factory method, it creates a new instance when invoked via the functional interface."
-    },
-    {
-      "type": "para",
-      "text": "**Signature mapping**: The parameters of the functional interface's abstract method become the constructor arguments. The return type is the class being constructed."
+      "text": "In `expr::method`, the expression supplies the receiver, so every parameter of the interface goes to the method. An invoice service tags ids with a prefix, then adds a region suffix the same way:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// No-argument constructor\nSupplier<ArrayList<String>> listMaker = ArrayList::new;\nArrayList<String> list = listMaker.get(); // calls new ArrayList<>()\n\n// One-argument constructor\nFunction<String, StringBuilder> sbMaker = StringBuilder::new;\nStringBuilder sb = sbMaker.apply(\"initial\"); // calls new StringBuilder(\"initial\")\n\n// Two-argument constructor (requires BiFunction or custom interface)\nBiFunction<Integer, Float, HashMap<String, String>> mapMaker = HashMap::new;\nHashMap<String, String> map = mapMaker.apply(16, 0.75f); // calls new HashMap<>(16, 0.75f)"
+      "text": "String prefix = \"INV-\";\nFunction<String, String> tag = prefix::concat;             // prefix.concat(s)\nSystem.out.println(tag.apply(\"1042\"));\nString suffix = \"-EU\";\nFunction<String, String> region = suffix::concat;          // suffix.concat(s), not s.concat(suffix)\nSystem.out.println(region.apply(\"1042\"));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "INV-1042\n-EU1042"
+    },
+    {
+      "type": "para",
+      "text": "The second reference puts the suffix in front. A bound reference cannot make the incoming value the receiver: the receiver was fixed when the reference was created. When the value must be the receiver and something else the argument, write the lambda `s -> s.concat(suffix)`. The same trap turns `term::contains` into \"does the term contain this line?\" when the filter meant \"does this line contain the term?\"."
     },
     {
       "type": "heading",
       "level": 3,
-      "text": "Summary Table"
+      "text": "`this::` Dispatches; `super::` Is Fixed to the Parent's Body"
+    },
+    {
+      "type": "para",
+      "text": "In an instance method or constructor, `this` and `super` can stand before `::`. Both bind the current object, but they call different bodies:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.function.IntFunction;\n\nclass PriceFormat {\n    String format(int cents) {\n        return cents / 100 + \".\" + String.format(\"%02d\", cents % 100);\n    }\n}\n\nclass EuroFormat extends PriceFormat {\n    @Override\n    String format(int cents) {\n        return super.format(cents) + \" EUR\";\n    }\n\n    IntFunction<String> parent() { return super::format; }\n\n    IntFunction<String> own() { return this::format; }\n}"
+    },
+    {
+      "type": "para",
+      "text": "On a `new EuroFormat()`, `parent().apply(1250)` and `own().apply(1250)` give:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "12.50 | 12.50 EUR"
+    },
+    {
+      "type": "para",
+      "text": "`this::format` behaves like `this.format(c)`: it runs the override of whatever class the object is, including a subclass written later. `super::format` behaves like `super.format(c)`: it always runs `PriceFormat`'s body. It skips dynamic dispatch, as `Iface.super::m` does for an interface's default method, and it is how you pass the parent's version as a callback."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "`Class::new` Picks Its Constructor From the Interface's Parameters"
+    },
+    {
+      "type": "para",
+      "text": "A constructor reference has no parameter list of its own. The interface's parameters are the constructor's arguments, so the target type chooses the constructor:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Supplier<List<String>> empty = ArrayList::new;             // new ArrayList<>()\nFunction<Integer, List<String>> sized = ArrayList::new;    // new ArrayList<>(int initialCapacity)\nSystem.out.println(empty.get() + \" \" + sized.apply(5) + \" size=\" + sized.apply(5).size());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[] [] size=0"
+    },
+    {
+      "type": "para",
+      "text": "`sized.apply(5)` is an empty list with room for five elements, not a list holding `5`. In the opening loop, with `record Reading(String sensor, int celsius)`, `computeIfAbsent` takes a `Function<? super K, ? extends V>` and calls it with the key. With `Integer` keys, `ArrayList::new` resolves to `ArrayList(int initialCapacity)`, and the temperature becomes the capacity:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Map<Integer, List<Reading>> byDegree = new TreeMap<>();\nList<Reading> night = List.of(new Reading(\"roof\", 3), new Reading(\"yard\", 1), new Reading(\"roof\", -1));\ntry {\n    for (Reading r : night) byDegree.computeIfAbsent(r.celsius(), ArrayList::new).add(r);\n} catch (IllegalArgumentException e) {\n    System.out.println(e);\n}\nMap<Integer, List<Reading>> fixed = new TreeMap<>();\nfor (Reading r : night) fixed.computeIfAbsent(r.celsius(), k -> new ArrayList<>()).add(r);\nSystem.out.println(fixed.keySet());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "java.lang.IllegalArgumentException: Illegal Capacity: -1\n[-1, 1, 3]"
+    },
+    {
+      "type": "para",
+      "text": "Capacities 3 and 1 are legal; `ArrayList(int)` throws `IllegalArgumentException` for a negative one, so the first negative reading threw. Large positive keys fail another way: a map keyed by customer id reserves an array of that many slots for each new list, and one key of 40,000,000 ran out of memory with `-Xmx64m`. With `String` keys the line does not compile, since no `ArrayList` constructor takes a `String`. Write `k -> new ArrayList<>()` whenever the interface passes something the constructor should not see."
+    },
+    {
+      "type": "para",
+      "text": "A record has one canonical constructor, with its components in order, so `Reading::new` fits a `BiFunction<String, Integer, Reading>`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "BiFunction<String, Integer, Reading> reading = Reading::new;   // the canonical constructor\nSystem.out.println(reading.apply(\"cellar\", 12));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Reading[sensor=cellar, celsius=12]"
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Arrays: `String[]::new` Tells `toArray` the Element Type"
+    },
+    {
+      "type": "para",
+      "text": "`Type[]::new` is a constructor reference that takes the length, an `IntFunction<Type[]>`. Its main use is `Stream.toArray`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Object[] plain = Stream.of(\"b\", \"a\").toArray();\nString[] typed = Stream.of(\"b\", \"a\").toArray(String[]::new);\nSystem.out.println(plain.getClass().getSimpleName() + \" \" + typed.getClass().getSimpleName());\ntry {\n    String[] cast = (String[]) Stream.of(\"b\", \"a\").toArray();\n} catch (ClassCastException e) {\n    System.out.println(e.getMessage().substring(0, e.getMessage().indexOf(\" (\")));\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Object[] String[]\nclass [Ljava.lang.Object; cannot be cast to class [Ljava.lang.String;"
+    },
+    {
+      "type": "para",
+      "text": "A `Stream<String>` does not know at run time that its elements are strings: the type argument is erased. Without a generator, `toArray()` can only allocate an `Object[]`, and an array's class is fixed when it is created, so no cast turns it into a `String[]` later. `String[]::new` lets the stream allocate the right array."
+    },
+    {
+      "type": "para",
+      "text": "The generator must produce an array of a reference type. `int[]::new` is a valid `IntFunction<int[]>`, but `Stream.of(4, 9).toArray(int[]::new)` does not compile (`inference variable A has incompatible bounds`). For a primitive array, convert with `mapToInt(Integer::intValue)` and call `IntStream.toArray()`, which needs no generator."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Constructor Reference Makes a New Object per Call; a Bound Reference Reuses One"
+    },
+    {
+      "type": "para",
+      "text": "A dispatch screen turns parcel ids into slips, two ways:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> ids = List.of(\"A-7\", \"B-12\", \"C-3\");\nList<StringBuilder> slips = ids.stream().map(StringBuilder::new).toList();\nList<StringBuilder> shared = ids.stream().map(new StringBuilder(\"slip \")::append).toList();\nSystem.out.println(slips);\nSystem.out.println(shared + \" distinct objects: \" + shared.stream().distinct().count());"
+    },
+    {
+      "type": "para",
+      "text": "Before reading on: how many `StringBuilder`s does each line create?"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[A-7, B-12, C-3]\n[slip A-7B-12C-3, slip A-7B-12C-3, slip A-7B-12C-3] distinct objects: 1"
+    },
+    {
+      "type": "para",
+      "text": "`StringBuilder::new` names a constructor, so every call runs it: three ids, three builders. In `new StringBuilder(\"slip \")::append`, the `new` is the receiver expression of a bound reference. It runs once, when the reference is created (unit 4.3.1), and every call appends to that one builder and returns it. The list holds the same object three times, so the screen shows `slip A-7B-12C-3` three times, and code that appends a signature to one slip changes all three."
+    },
+    {
+      "type": "para",
+      "text": "A bound reference to a mutable object is shared state. When each call needs its own object, create it inside the call: `StringBuilder::new`, or the lambda `id -> new StringBuilder(\"slip \").append(id)`, which builds `slip A-7`, `slip B-12` and `slip C-3`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**`Class::method` is static or unbound, and the method's declaration decides.** Static passes every argument through; unbound makes the first argument the receiver. When both fit, javac reports an ambiguity instead of choosing. The call is virtual even when a supertype is named.",
+        "**A bound reference holds its receiver.** Each argument goes to the method, so `suffix::concat` prefixes. `this::m` dispatches to the override; `super::m` always runs the parent's body.",
+        "**`Class::new` picks its constructor from the interface's parameters.** `computeIfAbsent(key, ArrayList::new)` turns an `Integer` key into a capacity. `String[]::new` gives `toArray` its element type.",
+        "**A constructor reference makes a new object per call; a bound reference reuses one.** `new StringBuilder()::append` shares one builder across every call."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**The four kinds, with `this`/`super` and arrays as forms of bound and constructor (the interface's method takes `a, b, …`; `x` is the value of `expr`):**"
     },
     {
       "type": "table",
       "headers": [
-        "Type",
-        "Syntax",
-        "Receiver",
-        "Example"
+        "Kind",
+        "Form",
+        "Call it makes",
+        "Example",
+        "Interface"
       ],
       "rows": [
         [
           "Static",
-          "`ClassName::staticMethod`",
-          "None (static)",
-          "`Integer::parseInt`"
+          "`Class::staticMethod`",
+          "`Class.staticMethod(a, b, …)`",
+          "`Integer::parseInt`",
+          "`Function<String, Integer>`"
         ],
         [
-          "Bound Instance",
-          "`instance::instanceMethod`",
-          "Fixed at capture",
-          "`System.out::println`"
+          "Bound",
+          "`expr::method`",
+          "`x.method(a, b, …)`, `x` evaluated once at creation",
+          "`prefix::concat`",
+          "`Function<String, String>`"
         ],
         [
-          "Unbound Instance",
-          "`ClassName::instanceMethod`",
-          "First argument",
-          "`String::toUpperCase`"
+          "Bound, `this`/`super`",
+          "`this::m`, `super::m`",
+          "`this.m(a, …)`, virtual; `super.m(a, …)`, the parent's body",
+          "`super::format`",
+          "`IntFunction<String>`"
+        ],
+        [
+          "Unbound",
+          "`Class::instanceMethod`",
+          "`a.instanceMethod(b, …)`, virtual",
+          "`String::compareToIgnoreCase`",
+          "`Comparator<String>`"
         ],
         [
           "Constructor",
-          "`ClassName::new`",
-          "N/A (creates)",
-          "`ArrayList::new`"
+          "`Class::new`",
+          "`new Class(a, b, …)`, a new object per call",
+          "`Reading::new`",
+          "`BiFunction<String, Integer, Reading>`"
+        ],
+        [
+          "Array constructor",
+          "`Type[]::new`",
+          "`new Type[a]`",
+          "`String[]::new`",
+          "`IntFunction<String[]>`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Constructor references by target type (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Reference",
+        "Target",
+        "Constructor"
+      ],
+      "rows": [
+        [
+          "`ArrayList::new`",
+          "`Supplier<List<T>>`",
+          "`ArrayList()`"
+        ],
+        [
+          "`ArrayList::new`",
+          "`Function<Integer, List<T>>`",
+          "`ArrayList(int initialCapacity)`; negative throws `IllegalArgumentException`"
+        ],
+        [
+          "`ArrayList::new`",
+          "`Function<Collection<T>, List<T>>`",
+          "`ArrayList(Collection)`, a copy"
+        ],
+        [
+          "`StringBuilder::new`",
+          "`Function<String, StringBuilder>`",
+          "`StringBuilder(String)`"
+        ],
+        [
+          "`int[]::new`",
+          "`IntFunction<int[]>`",
+          "`new int[n]`; does not fit `Stream.toArray`"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Static**: `ClassName::staticMethod` — no receiver; arguments match the functional interface's parameters exactly.",
-        "**Bound instance**: `object::instanceMethod` — receiver is the captured object; arguments match the method's parameters.",
-        "**Unbound instance**: `ClassName::instanceMethod` — receiver is the first functional interface argument; remaining arguments match the method's parameters.",
-        "**Constructor**: `ClassName::new` — creates a new instance; arguments match the constructor's parameters.",
-        "The functional interface determines how the compiler interprets the method reference type.",
-        "Unbound instance method references are the trickiest — the receiver consumes one extra parameter from the interface.",
-        "Constructor references always return an instance of the referenced class.",
-        "Static method references work exactly like function pointers in other languages.",
-        "You can use constructor references with generic types; type inference usually resolves the type parameter.",
-        "Interface default methods can be referenced as unbound instance method references through implementing types."
+        "Search a codebase for `computeIfAbsent(` with a `::new` argument. For each hit, what is the map's key type, and which constructor does it select?",
+        "A class registers `this::onEvent` with an event bus in its constructor, and a subclass overrides `onEvent` using a field it sets in its own constructor. What happens to an event delivered during construction, and would `super::onEvent` be any better?",
+        "A team rule says \"prefer method references to lambdas\". Write the exceptions this page gives you, and decide whether a reviewer could spot each one from the line alone."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Java 8**: All four types introduced simultaneously.",
-        "**Java 9+**: Factory methods like `Map.of()`, `List.of()` are static and can serve as method references `Map::of`, `List::of` when the arity matches.",
-        "**Java 16+**: Record components generate getter methods that are perfect for unbound instance method references. `record Person(String name, int age){}` — use `Person::name` or `Person::age` as `Function<Person, String>` and `Function<Person, Integer>` respectively.",
-        "**Java 21**: No new kind of method reference. New APIs such as the `SequencedCollection` methods can be referenced like any other method, e.g. `Function<List<String>, String> first = List::getFirst;`."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Confusing static and unbound instance method references visually**: Both use `ClassName::method` syntax. The difference is whether the method is static or an instance method.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Static method reference: Integer.parseInt is static\nFunction<String, Integer> staticRef = Integer::parseInt; // (String) -> Integer\n\n// Unbound instance method reference: String.length is an instance method\nFunction<String, Integer> unboundRef = String::length; // receiver is the String arg\n\n// Key question: is the referenced method static or an instance method?\n// Check the method declaration in the class's API."
-          }
-        ],
-        [
-          "**Wrong arity in the functional interface for unbound instance methods**: An unbound instance method reference requires the interface to have one extra parameter for the receiver.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// String::contains takes one argument AND needs a receiver\n// So the functional interface needs TWO parameters: receiver + argument\nBiPredicate<String, CharSequence> contains = String::contains; // correct\n// Predicate<String> contains2 = String::contains; // compile error: too few params"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: match the functional interface arity to receiver + args\n// String::compareTo has one param + one receiver = BiFunction or Comparator\nComparator<String> cmp = String::compareTo; // correct: takes two Strings"
-          }
-        ],
-        [
-          "**Using bound when you mean unbound or vice versa**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "String target = \"searchTerm\";\nList<String> sources = List.of(\"find searchTerm here\", \"nothing\", \"also searchTerm\");\n\n// BOUND: always checks whether target contains the argument — probably not the intent\nPredicate<String> bound = target::contains; // checks if \"searchTerm\" contains each source\n// sources.stream().filter(bound).toList(); // filters sources that \"searchTerm\" contains??\n\n// UNBOUND: checks if each source contains \"searchTerm\" — likely the intent\nPredicate<String> unbound = s -> s.contains(target); // lambda needed here\nList<String> found = sources.stream().filter(unbound).toList(); // correct"
-          }
-        ],
-        [
-          "**Constructor reference with wrong type argument**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Attempting to create a LinkedList with constructor reference as Supplier<List<String>>\nSupplier<List<String>> supplier = LinkedList::new; // OK — no-arg constructor\nSupplier<List<String>> arrayList = ArrayList::new; // Also OK\n\n// Problem: using a constructor reference to a non-existent constructor\n// If the class has no matching constructor, it's a compile error\n// Function<Integer, MyClass> fn = MyClass::new; // only if MyClass(int) constructor exists"
-          }
-        ],
-        [
-          "**Static method reference in an instance context**: Static method references do not use `this` and do not have access to instance state. If you need instance state, you must use a bound instance method reference or a lambda.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "class Validator {\n    private final int minLength;\n    Validator(int minLength) { this.minLength = minLength; }\n\n    // WRONG: cannot make this static and use as a bound ref that accesses minLength\n    // public static boolean isValid(String s) { return s.length() >= minLength; } // compile error\n\n    // CORRECT: instance method, use as bound reference\n    public boolean isValid(String s) { return s.length() >= minLength; }\n}\n\nValidator v = new Validator(5);\nPredicate<String> validCheck = v::isValid; // bound instance ref — captures v"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Use static method references for pure utility logic**: Static methods in classes like `Integer`, `Math`, `Objects`, `String` are excellent candidates. `Objects::nonNull`, `Integer::parseInt`, `Math::max`.",
-        "**Use bound instance method references for object method delegation**: When a specific object's method should handle events, callbacks, or processing. E.g., `handler::processEvent` where `handler` is a specific service.",
-        "**Use unbound instance method references as property extractors in streams**: `Comparator.comparing(Person::getName)`, `stream.map(Employee::getDepartment)` — this pattern is idiomatic.",
-        "**Use constructor references in factory patterns and mapping**: When transforming a stream of raw data into domain objects: `dtoList.stream().map(MyEntity::new).toList()`.",
-        "**Document unusual unbound instance method references**: When using `ClassName::method` for an instance method with complex argument mapping, add a comment explaining the receiver/argument binding.",
-        [
-          "**Prefer `Comparator.comparing()` with method references over manual comparators**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Preferred: self-documenting\nlist.sort(Comparator.comparing(Employee::getName).thenComparing(Employee::getDepartment));\n// Avoid: verbose lambda equivalent\nlist.sort((e1, e2) -> { int c = e1.getName().compareTo(e2.getName()); return c != 0 ? c : e1.getDepartment().compareTo(e2.getDepartment()); });"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Varargs constructor reference**: If the constructor accepts varargs, the functional interface can accept an array of the vararg type, or individual arguments (the reference then uses variable-arity invocation).",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// String has no varargs constructor in standard API; hypothetical:\n// Function<Object[], MyClass> fn = MyClass::new; // if MyClass(Object... args) exists\n// BiFunction<String, String, MyClass> fn2 = MyClass::new; // also valid: args packed into an array"
-          }
-        ],
-        [
-          "**Generic class constructor reference with type wildcards**: Type inference usually handles this, but sometimes an explicit type witness is needed.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Inferred as Supplier<ArrayList<String>> from target type\nSupplier<ArrayList<String>> supplier = ArrayList::new; // fine\n\n// If inference fails, use explicit type\nSupplier<ArrayList<String>> explicit = ArrayList<String>::new; // explicit type argument in the reference"
-          }
-        ],
-        [
-          "**Inner class constructor reference**: Non-static inner classes require an enclosing instance, making their constructor references more complex.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "class Outer {\n    class Inner { Inner(int x) {} }\n\n    void demo() {\n        // Non-static inner class: constructor takes enclosing instance implicitly\n        // IntFunction<Inner> fn = Inner::new; // only works inside Outer context\n        IntFunction<Inner> fn = Inner::new; // valid inside Outer\n    }\n}"
-          }
-        ],
-        [
-          "**Static method reference resolving to the most specific overload**: When multiple static overloads exist, the one matching the functional interface parameter types is chosen.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Math.max(int,int) vs Math.max(double,double) — resolved by target type\nIntBinaryOperator intMax = Math::max;      // resolves to max(int, int)\nDoubleBinaryOperator doubleMax = Math::max; // resolves to max(double, double)"
-          }
-        ],
-        "**Method reference vs lambda for static methods with side effects**: Static method references that have side effects (like logging) work the same as lambdas but can make side effects less visible."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why `::` Has No Parameter List"
     },
     {
       "type": "para",
-      "text": "Interviewers focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Can you enumerate all four types and give an example of each without prompting?",
-        "Do you understand WHY unbound instance method references consume an extra functional interface parameter?",
-        "Can you identify which type a given method reference is just by looking at the syntax?",
-        "How do you choose the right functional interface arity for each type?",
-        "What is the relationship between constructor references and the factory method design pattern?"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Common tricky interview questions:**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What is the functional interface type for `String::compareTo`? Why does it take two strings?\" (`Comparator<String>` or `BiFunction<String, String, Integer>` — because the receiver is the first arg)",
-        "\"How is `new ArrayList<>()` expressed as a constructor reference? What functional interface does it match?\" (`ArrayList::new` as `Supplier<ArrayList<String>>`)",
-        "\"If a class has a private constructor, can you use a constructor reference to it?\" (Only where that constructor is accessible, e.g. inside the class itself — the same access rules as `new` apply)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: Enumerate all four types of method references with an example of each.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The four types of method references in Java are:\n\n1. Static method reference: ClassName::staticMethod\n   - Refers to a static method. No receiver. Parameters of the functional interface\n     map directly to the method's parameters.\n\n2. Bound instance method reference: instance::instanceMethod\n   - Refers to an instance method of a specific captured object. The receiver is fixed.\n     Parameters of the functional interface map to the method's parameters.\n\n3. Unbound instance method reference: ClassName::instanceMethod\n   - Refers to an instance method, but the receiver is the first functional interface\n     parameter (supplied at invocation time). The remaining interface parameters map\n     to the method's parameters.\n\n4. Constructor reference: ClassName::new\n   - Refers to a constructor. Parameters of the functional interface map to the\n     constructor's parameters. Return type is the constructed class."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.*;\nimport java.util.function.*;\n\npublic class FourTypesDemo {\n\n    // Helper class for demonstration\n    static class StringWrapper {\n        private final String value;\n        StringWrapper(String value) { this.value = value; }\n        String getValue() { return value; }\n        String appendTo(String other) { return value + other; }\n        static StringWrapper of(String s) { return new StringWrapper(s); }\n    }\n\n    public static void main(String[] args) {\n        // 1. Static method reference: ClassName::staticMethod\n        Function<String, StringWrapper> staticRef = StringWrapper::of;\n        // Equivalent lambda: s -> StringWrapper.of(s)\n        StringWrapper w1 = staticRef.apply(\"hello\");\n\n        // 2. Bound instance method reference: instance::instanceMethod\n        StringWrapper instance = new StringWrapper(\"prefix\");\n        Function<String, String> boundRef = instance::appendTo;\n        // Equivalent lambda: other -> instance.appendTo(other)\n        String s2 = boundRef.apply(\"_suffix\"); // \"prefix_suffix\"\n\n        // 3. Unbound instance method reference: ClassName::instanceMethod\n        Function<StringWrapper, String> unboundRef = StringWrapper::getValue;\n        // Equivalent lambda: sw -> sw.getValue()\n        String s3 = unboundRef.apply(w1); // \"hello\"\n\n        // 4. Constructor reference: ClassName::new\n        Function<String, StringWrapper> ctorRef = StringWrapper::new;\n        // Equivalent lambda: s -> new StringWrapper(s)\n        StringWrapper w2 = ctorRef.apply(\"world\");\n\n        System.out.println(w1.getValue()); // \"hello\"\n        System.out.println(s2);            // \"prefix_suffix\"\n        System.out.println(s3);            // \"hello\"\n        System.out.println(w2.getValue()); // \"world\"\n    }\n}"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: Why does `String::compareTo` used as a `Comparator<String>` work, even though it looks like a static reference?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: String::compareTo is an UNBOUND instance method reference, not a static method reference.\nEven though the syntax looks like ClassName::method, the method 'compareTo' is an instance\nmethod of String, not a static method.\n\nWhen used as a Comparator<String> (whose compare(T a, T b) method takes two Strings):\n- The first String parameter of compare() becomes the RECEIVER of compareTo()\n- The second String parameter of compare() becomes the ARGUMENT to compareTo()\n\nSo: cmp.compare(s1, s2) translates to: s1.compareTo(s2)\n\nThis is exactly why unbound instance method references \"consume\" one extra parameter from\nthe functional interface — to provide the receiver object.\n\nThis is a very common interview question because candidates often assume ClassName::method\nmeans a static reference, but the compiler determines the type based on the method declaration."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.*;\n\n// String::compareTo as Comparator<String>\nComparator<String> cmp = String::compareTo;\n// Equivalent lambda: (s1, s2) -> s1.compareTo(s2)\n\nList<String> words = new ArrayList<>(Arrays.asList(\"banana\", \"apple\", \"cherry\"));\nwords.sort(cmp);\nSystem.out.println(words); // [apple, banana, cherry]\n\n// String::compareToIgnoreCase as Comparator<String>\nComparator<String> ignoreCaseCmp = String::compareToIgnoreCase;\nList<String> mixed = new ArrayList<>(Arrays.asList(\"Banana\", \"apple\", \"CHERRY\"));\nmixed.sort(ignoreCaseCmp);\nSystem.out.println(mixed); // [apple, Banana, CHERRY] — sorted case-insensitively\n\n// Explanation: compareToIgnoreCase(String other) is an instance method on String\n// So ClassName::instanceMethod => first functional-interface param is the receiver"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does a constructor reference work with the factory pattern?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: A constructor reference (ClassName::new) acts as a factory: when the functional interface's\nabstract method is called, it creates and returns a new instance of the class.\n\nThis is equivalent to the Factory Method design pattern — the caller doesn't know or care which\nconcrete class is being instantiated; they just call the functional interface, and the\nconstructor reference handles instantiation.\n\nBenefits of constructor references as factories:\n1. The factory can be passed as a parameter (dependency injection without reflection)\n2. The instantiation logic is decoupled from the caller\n3. Can switch implementations by changing the reference, not the consuming code\n4. Works naturally with streams: stream.map(SomeClass::new) creates a stream of new instances"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.*;\nimport java.util.function.*;\nimport java.util.stream.*;\n\nrecord Point(double x, double y) {}\nrecord Colour(int r, int g, int b) {}\n\npublic class ConstructorRefFactoryDemo {\n\n    // Generic factory method that accepts a constructor reference\n    public static <T> List<T> createList(int count, Supplier<T> factory) {\n        return Stream.generate(factory).limit(count).collect(Collectors.toList());\n    }\n\n    // Factory taking one argument per element\n    public static <T> List<T> createList(List<String> names, Function<String, T> factory) {\n        return names.stream().map(factory).collect(Collectors.toList());\n    }\n\n    public static void main(String[] args) {\n        // Using no-arg constructor reference as Supplier\n        Supplier<ArrayList<String>> listFactory = ArrayList::new;\n        List<ArrayList<String>> buckets = createList(3, listFactory); // 3 empty ArrayLists\n\n        // Using single-arg constructor reference as Function\n        List<String> names = List.of(\"Alice\", \"Bob\", \"Charlie\");\n        List<StringBuilder> builders = createList(names, StringBuilder::new);\n        builders.forEach(sb -> System.out.println(sb.length())); // 5, 3, 7\n\n        // Stream transformation using constructor reference\n        List<String> pointStrings = List.of(\"1.0,2.0\", \"3.0,4.0\");\n        List<Point> points = pointStrings.stream()\n                .map(s -> s.split(\",\"))\n                .map(parts -> new Point(Double.parseDouble(parts[0]),\n                                        Double.parseDouble(parts[1])))\n                .collect(Collectors.toList()); // constructor called via lambda (no ref possible here)\n\n        // Switch factory at call site — no code change in consumer\n        Function<String, StringBuilder> factory1 = StringBuilder::new;\n        Function<String, StringBuffer> factory2 = StringBuffer::new;\n    }\n}"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: When does the compiler use a static vs. an unbound instance method reference interpretation?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: When the compiler sees ClassName::method, it first checks whether 'method' is:\n  (a) A static method of ClassName → static method reference interpretation\n  (b) An instance method of ClassName → unbound instance method reference interpretation\n\nIf both exist (overloading), the compiler uses the target type (functional interface) to\ndisambiguate. If 'method' is only static, interpretation (a) is used. If 'method' is only\nan instance method, interpretation (b) is used.\n\nThe key indicator:\n- Static method reference: the functional interface parameter count == method parameter count\n- Unbound instance ref: the functional interface parameter count == method param count + 1\n  (the extra parameter is the receiver)\n\nIf the target type is ambiguous (multiple candidates match), the compiler reports an error\nand requires an explicit cast."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.function.*;\n\nclass Disambiguate {\n    static String staticMethod(String s) { return \"static:\" + s; }\n    String instanceMethod(String s) { return \"instance:\" + s; }\n\n    void demo() {\n        // Unambiguous: staticMethod is static, used as Function<String,String>\n        Function<String, String> staticRef = Disambiguate::staticMethod;\n\n        // Unambiguous: instanceMethod is an instance method, used as BiFunction\n        // because unbound instance refs consume one extra param for the receiver\n        BiFunction<Disambiguate, String, String> unboundRef = Disambiguate::instanceMethod;\n\n        // Does NOT compile: Function<String,String> gives no receiver, and instanceMethod is not static\n        // Function<String, String> wrong = Disambiguate::instanceMethod;\n        // error: unexpected instance method instanceMethod(String) found in unbound lookup\n\n        // Creating an unbound ref for just one class with one instance method:\n        // Function<String, Integer> len = String::length; // unbound: String is receiver\n    }\n}"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How do constructor references work with arrays?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Array constructor references use a special syntax: TypeName[]::new\nThis creates a functional interface that, when invoked with an int argument, allocates\na new array of the specified length.\n\nThis is commonly used with Stream.toArray(IntFunction<T[]>) to collect a stream into\na typed array. Without array constructor references, you'd need to write i -> new String[i].\n\nArray constructor references work for any type:\n- Primitive: int[]::new, double[]::new, etc.\n- Object: String[]::new, MyClass[]::new, etc."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.stream.*;\n\n// Array constructor reference\njava.util.function.IntFunction<String[]> arrayFactory = String[]::new;\nString[] arr = arrayFactory.apply(5); // new String[5]\n\n// Most common use: Stream.toArray()\nString[] words = Stream.of(\"hello\", \"world\", \"foo\")\n        .map(String::toUpperCase)\n        .toArray(String[]::new); // instead of: .toArray(i -> new String[i])\n\n// Equivalent lambda\nString[] words2 = Stream.of(\"hello\", \"world\", \"foo\")\n        .map(String::toUpperCase)\n        .toArray(i -> new String[i]); // same result, less idiomatic\n\n// Primitive arrays work too\nint[] squares = IntStream.rangeClosed(1, 5)\n        .map(n -> n * n)\n        .toArray(); // IntStream.toArray() doesn't need a factory"
+      "text": "A method reference names a method and lets the target type say how to call it. Leaving out a parameter list keeps `String::length` and `ArrayList::new` short, and lets one spelling serve several shapes: `ArrayList::new` is a `Supplier`, a `Function<Integer, …>` and a `Function<Collection, …>`. The cost is that the line does not say which shape it has. javac turns the static-or-unbound question into an error when both fit, but it cannot tell an intended constructor from an accidental one, and `computeIfAbsent(id, ArrayList::new)` compiles. Where the choice matters, a lambda states the constructor and its arguments."
     },
     {
       "type": "heading",
@@ -436,17 +427,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 15,
-    "paras": 16,
-    "code": 14,
-    "tables": 1,
-    "lists": 8,
+    "headings": 13,
+    "paras": 28,
+    "code": 21,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
-    "rules": 4,
+    "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "ae709e4fcfba43473bd226b125e5d0369adc5207d2b361baede68bab2337b51f"
+  "content_sha256": "9faa34478bbdb1901b633c9953ea442a9d2b3d853db4722a5386d7d8cf2ad777"
 }

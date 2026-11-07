@@ -10,25 +10,60 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "What volatile covers, and what it did not",
+  "title": "Sign every handshake with the key of the certificate it sent",
   "blocks": [
     {
       "type": "heading",
       "level": 2,
-      "text": "Check yourself"
+      "text": "Problem statement"
     },
     {
       "type": "para",
-      "text": "Questions on what this page has just taught. Choose one answer for each."
+      "text": "This practice continues the previous one: `TlsCredentials` now keeps the certificate and its key together, and a reload replaces them safely. The listener also needs the server's side of a handshake, which sends the certificate to the client and then signs with the private key; the client checks the signature against the certificate it received."
+    },
+    {
+      "type": "para",
+      "text": "Finish `serve(...)` in `src/main/java/practice/TlsCredentials.java`. Reloads keep happening on the reload thread while handshakes run, and a reload can complete between the two steps of a handshake. When you're done, every handshake signs with the key of the certificate it sent, and the handshakes after a reload use the renewed pair. About three lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests complete a reload on another thread right after the certificate is sent."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    /** One TLS handshake with a client, as far as the credentials are concerned. */\n    public interface Handshake {\n        /** Sends the server's certificate to the client. */\n        void sendCertificate(String certificate);\n\n        /** Proves the server owns the certificate it sent, by signing with its private key. */\n        void signWith(String privateKey);\n    }\n\n    private volatile Pair current;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.current = new Pair(certificate, privateKey);\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        current = new Pair(source.certificate(), source.privateKey());\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        return current;\n    }\n\n    /** Runs the server's side of one handshake: send the certificate, then sign. */\n    public void serve(Handshake handshake) {\n        Pair pair = current;\n        handshake.sendCertificate(pair.certificate());\n        handshake.signWith(pair.privateKey());\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    /** One TLS handshake with a client, as far as the credentials are concerned. */\n    public interface Handshake {\n        /** Sends the server's certificate to the client. */\n        void sendCertificate(String certificate);\n\n        /** Proves the server owns the certificate it sent, by signing with its private key. */\n        void signWith(String privateKey);\n    }\n\n    private volatile Pair current;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.current = new Pair(certificate, privateKey);\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        current = new Pair(source.certificate(), source.privateKey());\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        return current;\n    }\n\n    /** Runs the server's side of one handshake: send the certificate, then sign. */\n    public void serve(Handshake handshake) {\n        // TODO: A reload can happen at any moment, including between the two steps of a\n        //       handshake. The client checks the signature against the certificate it was sent.\n        throw new IllegalStateException(\"TODO: serve\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 1,
-    "paras": 1,
-    "code": 0,
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -36,74 +71,53 @@
     "rules": 0,
     "quotes": 0,
     "html": 0,
-    "disclosures": 0
+    "disclosures": 1
   },
-  "content_sha256": "01381f530bdd3fd2ea9a42929589b34280a234f0332b7b83c66b27688cf7ac41",
+  "content_sha256": "85e7537087538a4309062dbdf9036b37cef10b4726ba8e4be51c8eaae7d18580",
+  "starting_code": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    /** One TLS handshake with a client, as far as the credentials are concerned. */\n    public interface Handshake {\n        /** Sends the server's certificate to the client. */\n        void sendCertificate(String certificate);\n\n        /** Proves the server owns the certificate it sent, by signing with its private key. */\n        void signWith(String privateKey);\n    }\n\n    private volatile Pair current;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.current = new Pair(certificate, privateKey);\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        current = new Pair(source.certificate(), source.privateKey());\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        return current;\n    }\n\n    /** Runs the server's side of one handshake: send the certificate, then sign. */\n    public void serve(Handshake handshake) {\n        // TODO: A reload can happen at any moment, including between the two steps of a\n        //       handshake. The client checks the signature against the certificate it was sent.\n        throw new IllegalStateException(\"TODO: serve\");\n    }\n}\n",
   "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/src/main/java/practice/TlsCredentials.java",
+    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/src/test/java/practice/TlsCredentialsTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/pom.xml",
+      "test"
+    ],
     "provenance": "generated",
     "trust": "advisory",
-    "kind": "quiz",
-    "questions": [
+    "cases": [
       {
-        "id": "q-reference",
-        "stem": "Per this page, a field is declared `volatile Config config;` and one thread runs `config.value = newValue;`. What does that write give other threads?",
-        "options": [
-          {
-            "id": "a",
-            "text": "Full visibility: a volatile reference makes each field of its object volatile",
-            "correct": false,
-            "says": "The page says only the reference config is volatile, not config.value."
-          },
-          {
-            "id": "b",
-            "text": "Later visibility: the fields are flushed at the next read of the reference",
-            "correct": false,
-            "says": "The page says the write is not ordered by any volatile write, so no later read is promised to see it."
-          },
-          {
-            "id": "c",
-            "text": "No ordering at all: only the reference is volatile, so they may miss it",
-            "correct": true,
-            "says": "The page says config.value is not automatically volatile and other threads may not see the write."
-          }
-        ],
-        "origin": {
-          "path": "21-synchronization/README_6.2.2.md",
-          "section": "Common Pitfalls and How to Avoid Them"
-        }
+        "id": "practice.TlsCredentialsTest#aHandshakeSendsTheCurrentCertificateAndSignsWithItsKey",
+        "kind": "main",
+        "says": "a handshake sends the current certificate and signs with its key, before and after a reload"
       },
       {
-        "id": "q-history",
-        "stem": "Per this page, what made double-checked locking unsafe before Java 5?",
-        "options": [
-          {
-            "id": "a",
-            "text": "Volatile accesses could be reordered with each other by the compiler or CPU",
-            "correct": false,
-            "says": "The page says that before Java 5 volatile accesses were already ordered among themselves."
-          },
-          {
-            "id": "b",
-            "text": "Ordinary writes could be reordered around a volatile write, which published nothing",
-            "correct": true,
-            "says": "The page says before Java 5 ordinary reads and writes could be reordered around volatile accesses, so a volatile write could not publish other data."
-          },
-          {
-            "id": "c",
-            "text": "Volatile reads and writes of a reference could be torn into two separate halves",
-            "correct": false,
-            "says": "The page says a single read or write of a volatile variable, including reading a volatile reference, is atomic."
-          }
-        ],
-        "origin": {
-          "path": "21-synchronization/README_6.2.2.md",
-          "section": "Evolution Across Java Versions"
-        }
+        "id": "practice.TlsCredentialsTest#aReloadBetweenCertificateAndSignatureDoesNotChangeTheKey",
+        "kind": "edge",
+        "says": "a reload that completes after the certificate was sent doesn't change the key the same handshake signs with"
       }
     ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "21-synchronization/README_6.2.2.md",
+      "section": "Every Read of a volatile Field Can See a New Value: Read It Once per Decision"
+    },
     "concepts": [
-      "Before Java 5 double-checked locking was broken even with volatile, because volatile did not order ordinary writes around it.",
-      "A volatile reference does not make the referenced object's fields volatile, so writing a field through it is not ordered."
+      "Each read of a volatile field can see a new value, so a decision that uses the value more than once reads the field once into a local."
     ]
   }
 }

@@ -1,560 +1,342 @@
 # 5.1.3. Synchronization and Memory Consistency
 
-## Concept Explanation
+A trading desk's price book keeps a bid and an ask for each instrument. Every write goes through
+one `synchronized` method, so two quotes never interleave. The endpoint that reports the spread
+reads both fields without the lock: a read can't break anything. Twice a
+day, monitoring alerts on a negative spread: a bid above the ask, which no quote ever had.
 
-**Memory consistency** describes a program's guarantee about the order in which memory operations are observed by
-different threads. Without explicit synchronization, the JMM provides very weak guarantees — a thread may see writes
-in any order, or not see them at all. Synchronization primitives (synchronized, volatile, locks) strengthen these
-guarantees by establishing happens-before edges.
+A lock keeps other threads that take the same lock out of the block, and it hands everything the
+releasing thread wrote to the next thread that takes it. A thread that doesn't take the lock gets
+neither.
 
-**Real-world analogy**: Think of a shared Google Doc (main memory) that multiple collaborators (threads) edit
-simultaneously. Without version control or collaboration rules (synchronization), two users editing at the same time
-may overwrite each other's changes or see stale content. Synchronization is like enforcing a "one editor at a time"
-or "save before sharing" policy, ensuring everyone sees a consistent view of the document.
+Every output below comes from Java 21 (HotSpot, x86_64, 20 cores), one JVM per run.
 
-### The Synchronization Contract in Java
+## Releasing a Lock Publishes Every Write Made Before It, to the Next Thread That Takes the Same Lock
 
-Java provides several synchronization mechanisms, each with specific JMM guarantees:
-
-**1. `synchronized` keyword**
-- `synchronized(obj) { ... }` acquires the intrinsic monitor of `obj`.
-- **On entry** (in the working-memory picture): cached values are invalidated; subsequent reads go to main memory.
-- **On exit** (in the same picture): all writes the thread made before the exit — inside the block or earlier — are
-  flushed to main memory; the monitor is released.
-- Establishes a happens-before edge: unlock of monitor M happens-before any subsequent lock of M.
-- Provides BOTH visibility and atomicity for the protected region.
-
-**2. `volatile` keyword**
-- Volatile write happens-before any subsequent volatile read of the same variable.
-- In the working-memory picture: reads come from main memory and writes go straight to it (implemented with memory
-  barriers, not by bypassing CPU caches).
-- Provides visibility but NOT atomicity for compound operations (like `i++`).
-
-**3. `java.util.concurrent.locks.Lock` interface (ReentrantLock, etc.)**
-- `lock.unlock()` establishes the same happens-before as a monitor release.
-- `lock.lock()` establishes the same happens-before as a monitor acquisition.
-- More flexible than `synchronized` (try-lock, timed lock, interruptible lock, condition variables).
-
-**4. `java.util.concurrent` atomic classes**
-- Operations like `AtomicInteger.compareAndSet()` establish happens-before edges.
-- Based on hardware compare-and-swap (CAS) instructions — lock-free, non-blocking.
-
-### Sequentially Consistent vs. Happens-Before Consistency
-
-Java's JMM provides **happens-before consistency**, which is weaker than sequential consistency. In sequentially
-consistent execution, all threads observe all operations in a single, consistent total order. In happens-before
-consistency, only operations that have an established ordering relationship are guaranteed to be visible in order.
-This weaker model allows hardware and compiler optimizations that make Java programs fast.
-
-The key guarantee on top of this (JLS §17.4.5, "data-race-free implies sequential consistency"): if a program is
-correctly synchronized — it has no data races — then every execution of it appears sequentially consistent. Only
-programs with data races can observe the weaker, reordered behaviour.
-
-## Key Points to Remember
-
-1. `synchronized` provides **both** atomicity and visibility; `volatile` provides only visibility.
-2. The happens-before edge from a monitor release is to **any subsequent acquisition of the SAME monitor**.
-   Synchronizing on different objects provides no cross-thread guarantee.
-3. Synchronization does NOT prevent all interleavings — it only establishes ordering guarantees for actions
-   connected by happens-before.
-4. The **double-checked locking pattern** requires `volatile` on the instance field (since Java 5) to be correct.
-5. **Lock contention** is the primary source of synchronization overhead — minimize the scope of synchronized blocks.
-6. `ReentrantLock` offers the same memory semantics as `synchronized` plus additional features (try-lock, fair mode).
-7. **Condition objects** (`lock.newCondition()`) enable threads to wait for specific state changes efficiently.
-
-## Relevant Java 21 Features
-
-- **Virtual threads and synchronized**: In Java 21, a virtual thread executing inside a `synchronized` block is
-  "pinned" to its carrier platform thread (cannot be unmounted). This can reduce the scalability benefit of virtual
-  threads. Prefer `ReentrantLock` in code used by virtual threads.
-- **VarHandle CAS operations**: `compareAndSet()` always has volatile memory semantics; weaker orderings come from
-  the variants (`compareAndExchangeAcquire/Release`, `weakCompareAndSetPlain/Acquire/Release`), allowing optimized
-  lock-free patterns.
-- **StampedLock (Java 8+)**: Provides optimistic read locking — a reader can read without acquiring a full lock,
-  then validate that no write occurred. Falls back to a pessimistic read if validation fails. Great for read-heavy
-  workloads.
-- **Structured Concurrency (JEP 453, Preview in Java 21)**: `StructuredTaskScope` provides a framework where
-  task lifetimes are scoped, making happens-before relationships more predictable and explicit.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Synchronizing on the wrong object**
-
-   ```java
-   // BROKEN: the field is not final — any reassignment (lock = 43, lock++) switches to a
-   // different Integer, so threads end up locking different objects (autoboxing!)
-   private Integer lock = 42;
-
-   public synchronized void badMethod() { // synchronizes on 'this', not 'lock'
-       // ...
-   }
-
-   // Also broken: Integer.valueOf(42) is cached, so this monitor is shared with every other
-   // piece of code in the JVM that locks on a boxed 42 (javac warns: value-based class)
-   synchronized (lock) { ... }
-   ```
-
-   **Fix**: Always use a dedicated, private, final lock object:
-   ```java
-   private final Object lock = new Object();
-   synchronized (lock) { ... }
-   ```
-
-2. **Double-checked locking without volatile** (broken in every Java version; since Java 5, `volatile` fixes it)
-
-   ```java
-   // BROKEN: without volatile, another thread may see a partially constructed object
-   private static Singleton instance;
-   public static Singleton getInstance() {
-       if (instance == null) {              // First check (no lock)
-           synchronized (Singleton.class) {
-               if (instance == null) {       // Second check (with lock)
-                   instance = new Singleton(); // Object may be partially constructed!
-               }
-           }
-       }
-       return instance;
-   }
-   ```
-
-   **Fix**: Add `volatile`:
-   ```java
-   private static volatile Singleton instance;
-   ```
-
-3. **Locking on mutable references**
-
-   ```java
-   // BROKEN: if 'list' reference changes, locking provides no guarantee
-   private List<String> list = new ArrayList<>();
-   public void add(String item) {
-       synchronized (list) { list.add(item); }
-   }
-   public void replace() {
-       list = new ArrayList<>(); // Changes the lock object!
-   }
-   ```
-
-   **Fix**: Use a separate, final lock object.
-
-4. **Holding locks during I/O or long operations**
-
-   ```java
-   // BAD: holds lock while doing network I/O — blocks other threads
-   public synchronized void fetchAndStore(String url) throws IOException {
-       String data = httpClient.get(url); // may take seconds
-       cache.put(url, data);
-   }
-   ```
-
-   **Fix**: Minimize lock scope — fetch outside the lock, only lock for the store.
-
-## Best Practices and Optimization Techniques
-
-1. **Minimize synchronized block scope**: Lock only what's necessary. Compute results outside the lock,
-   then enter the lock just to update state.
-2. **Document lock ordering**: If you must acquire multiple locks, always acquire them in the same order
-   across all code paths to prevent deadlocks. Document the ordering with comments.
-3. **Prefer explicit Lock over synchronized when**: You need try-lock, timed lock, interruptible lock,
-   or multiple condition variables.
-4. **Use read-write locks for read-heavy workloads**:
-   ```java
-   ReadWriteLock rwLock = new ReentrantReadWriteLock();
-   // Multiple readers can hold the read lock simultaneously
-   rwLock.readLock().lock();
-   try { /* read */ } finally { rwLock.readLock().unlock(); }
-   // Only one writer, exclusive
-   rwLock.writeLock().lock();
-   try { /* write */ } finally { rwLock.writeLock().unlock(); }
-   ```
-5. **Use `java.util.concurrent` instead of rolling your own**: `ConcurrentHashMap`, `BlockingQueue`,
-   `Semaphore`, etc. are battle-tested and correct.
-6. **Test with stress tools**: Use `jcstress` (JVM Concurrency Stress tests) to catch subtle JMM violations
-   that only appear under heavy concurrent load.
-
-## Edge Cases and Their Handling
-
-1. **Nested synchronized blocks and deadlock**: Acquiring locks in different orders across threads causes
-   deadlock. Example: Thread A holds lock1, waits for lock2; Thread B holds lock2, waits for lock1.
-   Prevention: always acquire locks in the same canonical order; use `lock.tryLock(timeout)` as a fallback.
-
-2. **Spurious wakeups**: `Object.wait()` and `Condition.await()` may return without being notified.
-   Always wrap `wait()` in a loop that checks the actual condition:
-   ```java
-   synchronized (lock) {
-       while (!conditionMet()) { // not 'if'
-           lock.wait();
-       }
-   }
-   ```
-
-3. **Re-entrant locking**: Java's `synchronized` and `ReentrantLock` are reentrant — a thread that already
-   holds the lock can re-acquire it without deadlocking. The lock is released when the last release matches
-   the first acquisition.
-
-4. **Memory visibility with lock.tryLock()**: Even if `tryLock()` returns false (lock not acquired), any
-   successful `lock()` / `unlock()` cycle establishes happens-before. A failed tryLock provides no
-   memory ordering guarantee.
-
-## Interview-specific Insights
-
-Interviewers test deep understanding of:
-- **Happens-before through synchronized**: Which writes are visible after acquiring a lock?
-- **Double-checked locking**: Why it was broken, why `volatile` fixes it
-- **Deadlock prevention**: How to avoid, detect, and recover from deadlocks
-- **synchronized vs. ReentrantLock**: When to choose each
-- **Condition variables**: How to use `wait/notify/notifyAll` correctly
-
-Common tricky questions:
-- "Can synchronized guarantee ordering without any write in the synchronized block?" (Yes — the lock itself
-  establishes happens-before for all prior writes)
-- "Is it safe to use `HashMap` inside a synchronized block?" (Yes — provided EVERY access to that map, reads
-  included, synchronizes on the same lock)
-- "Why is `notifyAll()` preferred over `notify()`?" (notify() wakes one thread, which may not be the right one;
-  notifyAll() wakes all and lets them re-check conditions)
-
-## Interview Q&A Section
-
-**Q1: What is the difference between `synchronized` and `volatile` in terms of memory consistency?**
-
-```text
-A1: Both synchronized and volatile establish happens-before edges, but they differ significantly:
-
-VOLATILE:
-- Guarantees: Visibility only. A volatile write happens-before any subsequent volatile read of the same field.
-- Does NOT guarantee atomicity for compound operations (read-modify-write like i++ is still non-atomic).
-- Lighter weight: Just memory barrier instructions, no thread blocking.
-- Use when: A single variable needs to be visible across threads and access to it doesn't require atomicity
-  of compound operations (e.g., a boolean flag, a reference to an immutable object).
-
-SYNCHRONIZED:
-- Guarantees: Both visibility AND atomicity for the protected region.
-- On entry: Thread's working memory is invalidated (reads go to main memory).
-- On exit: Writes are flushed to main memory; monitor is released.
-- Mutual exclusion: Only one thread can hold a monitor at a time — other threads block.
-- Use when: You need to protect compound operations (check-then-act, read-modify-write, multi-step updates).
-
-Rule of thumb:
-- Is the operation a single read or write to a reference or primitive (not long/double compound op)?
-  → volatile may suffice
-- Does the operation involve multiple steps that must appear atomic? → synchronized
-```
+A worker spins until another thread stops it. `stop()` sets the flag under a lock; `isStopped()`
+reads it without one, because a single boolean read looks harmless:
 
 ```java
-public class SyncVsVolatileDemo {
-    // volatile: safe for single read/write, NOT for i++
-    private volatile int volatileCounter = 0;
+static class Worker {
+    private final Object lock = new Object();
+    private boolean stopped;                           // plain field
+    long work;
 
-    // synchronized: safe for compound operations
-    private int syncCounter = 0;
-
-    // WRONG: volatile doesn't make i++ atomic
-    public void wrongIncrement() {
-        volatileCounter++; // read-modify-write: still non-atomic!
+    void stop() {
+        synchronized (lock) { stopped = true; }
     }
 
-    // CORRECT: synchronized protects the compound operation
-    public synchronized void correctIncrement() {
-        syncCounter++; // atomic under the lock
+    boolean isStopped() {
+        return stopped;                                // skips the lock
     }
 
-    // CORRECT: AtomicInteger for lock-free compound ops
-    private final java.util.concurrent.atomic.AtomicInteger atomicCounter =
-        new java.util.concurrent.atomic.AtomicInteger(0);
-
-    public void atomicIncrement() {
-        atomicCounter.incrementAndGet(); // CAS-based, no blocking
+    void run() {
+        while (!isStopped()) work++;
     }
 }
 ```
 
-**Q2: Explain the double-checked locking pattern and why it requires volatile.**
+`main` starts the worker, waits 500 ms, calls `stop()` and waits up to a second. The second version
+locks in `isStopped()` too:
+
+```java
+boolean isStopped() { synchronized (lock) { return stopped; } }
+```
 
 ```text
-A2: Double-checked locking (DCL) is an optimization of the lazy initialization pattern. The naive version:
+skips the lock   still running 1 s after stop(): true
+same lock        still running 1 s after stop(): false (ended after 0 ms)
+```
 
-    if (instance == null) {
-        instance = new Singleton();
-    }
+In ten runs each, the first worker never stopped and the second always did. With `-Xint`, which
+turns the JIT compiler off, the first worker stopped too. The JIT compiled the loop, saw nothing in
+it that synchronizes with another thread, and most likely read `stopped` once (unit 6.2.2 shows the
+same with no lock at all).
 
-is not thread-safe. Wrapping in synchronized:
+The second version works because of a *happens-before edge* (JLS §17.4.5): an unlock of a monitor
+happens-before every later lock of that same monitor. Everything the writer did before its unlock,
+in program order, comes before the unlock; everything the reader does after its lock comes after,
+inside its block or after it. So the reader that takes the lock after `stop()` released it sees
+`stopped = true`, and it also sees every other write the stopping thread made before releasing the
+lock, inside the block or earlier, to any field, static or not. Nothing is published to a memory
+that every thread reads: a thread that takes no lock is promised none of it. A thread can fill in a
+report with plain writes, then set `ready = true` in a `synchronized` block, and a reader that sees
+`ready` under the same lock sees the whole report.
 
-    synchronized (Singleton.class) {
-        if (instance == null) {
-            instance = new Singleton();
+In the first version the reader never locks, so no edge connects the two threads, and the memory
+model lets the read return the old value forever. A deploy that sets the flag then waits out its
+timeout and kills the process mid-write.
+
+`ReentrantLock` and every other `Lock` give the same edge: the `Lock` javadoc requires "the same
+memory synchronization semantics as provided by the built-in monitor lock".
+
+## A Lock on a Different Object Gives No Edge
+
+Two more versions of `isStopped()`. Both writer and reader say `synchronized`, but the reader locks
+another object (ten runs each gave the same as this one):
+
+```java
+boolean isStopped() { synchronized (readLock) { return stopped; } }        // another lock object
+boolean isStopped() { synchronized (new Object()) { return stopped; } }    // a new object each call
+```
+
+```text
+another lock     still running 1 s after stop(): false (ended after 0 ms)
+new Object()     still running 1 s after stop(): true
+```
+
+The edge exists only between an unlock and a later lock **of the same monitor**. With `readLock`,
+nothing in the memory model orders `stop()`'s write before the read. The worker stopped because of
+how this JVM compiled the loop, not because of a rule: a hang is allowed by the JLS, not observed
+here.
+
+No other thread can ever lock the `new Object()`, so its lock can order nothing, and the JIT
+removed it, after which it could read the flag once. With escape analysis off
+(`-XX:-DoEscapeAnalysis`) or lock elimination off (`-XX:-EliminateLocks`), the same worker stopped
+at once.
+
+It usually reaches production as `synchronized void setLimit(int)`, which locks `this`, next to
+`static synchronized int limit()`, which locks the `Class` object, over a `static` field. Review
+sees the keyword on both. The `Class` object is a different monitor from every instance, even when
+the class has only one. Unit 6.2.1 shows the same mistake losing increments. Name the lock that
+guards each field, and take that lock in every method that touches it.
+
+<!-- practice 3 -->
+
+## A Reader That Skips the Lock Can See Two Fields That Were Never Written Together
+
+### Spot the Problem: the Price Book
+
+One instrument of the price book from the opening:
+
+```java
+static class PriceBook {
+    private final Object lock = new Object();
+    private long bid = 10_000, ask = 10_001;           // cents; the spread is never negative
+
+    void quote(long newBid, long newAsk) {
+        synchronized (lock) {
+            bid = newBid;
+            ask = newAsk;
         }
     }
 
-is thread-safe but acquires the lock on every call. The DCL optimization checks outside the lock first:
+    long spreadUnlocked() {
+        return ask - bid;                              // "a read can't break anything"
+    }
 
-    if (instance == null) {                    // First check, no lock
-        synchronized (Singleton.class) {
-            if (instance == null) {             // Second check, with lock
-                instance = new Singleton();
+    long spread() {
+        synchronized (lock) {
+            return ask - bid;
+        }
+    }
+}
+```
+
+One thread alternates between `quote(20_000, 20_001)` and `quote(10_000, 10_001)` as fast as it can.
+Every quote it writes has a spread of 1. Another thread reads the spread 10 million times:
+
+```text
+unlocked read  1,016 negative and 1,071 too wide in 10,000,000 reads; lowest spread -9999
+locked read    0 negative and 0 too wide in 10,000,000 reads; lowest spread 1
+```
+
+"Too wide" is the other mix, a new ask with an old bid. A second run found 908 negative spreads; a
+third found none, so a test that runs it once can pass. The locked reader found none in three runs.
+
+The lock excludes only threads that take it. The unlocked reader can run while the writer is between
+`bid = newBid` and `ask = newAsk`: it reads the old ask, 10,001, and the new bid, 20,000, and
+reports a spread of -9,999. Each write was made under the lock; the reader still saw a pair that no
+single quote ever had. A reader that saw both fields from before the quote, however stale, would
+still see a spread of 1; the mix comes from reading between the two writes.
+
+The same holds for any invariant over two fields, a start before an end or a host with its port:
+the writer's lock keeps it only for readers that take that lock. A trade priced off a negative
+spread goes through with nothing logged.
+
+Read under the same lock as the writes, as `spread()` does. If readers are many and the lock becomes
+contended, put the pair in one immutable object behind one `volatile` reference (unit 6.2.2), or use
+a read-write lock (unit 6.3.1). Reading one field without the lock is no safer: it has the
+visibility problem of the first section, and the JLS even allows a plain `long` to be read half old,
+half new (unit 5.1.1).
+
+<!-- practice 1 -->
+
+## Double-Checked Locking Reads Without the Lock, So Its Field Must Be volatile
+
+A service creates its database connection on first use, and wants later calls not to lock:
+
+```java
+static class Conn {
+    String host;                                 // plain, non-final fields
+    int port;
+    Conn(String host, int port) { this.host = host; this.port = port; }
+}
+
+static class Lazy {                              // double-checked locking, field not volatile
+    private Conn conn;
+
+    Conn get() {
+        if (conn == null) {                      // first check, no lock
+            synchronized (this) {
+                if (conn == null) conn = new Conn("db-1.example.com", 5432);
             }
         }
+        return conn;
     }
-
-Why is it broken without volatile (and why could not even volatile fix it before Java 5)?
-Object construction in Java compiles to roughly:
-1. Allocate memory for the object
-2. Initialize the object fields (call constructor)
-3. Assign the reference to 'instance'
-
-Steps 2 and 3 can be REORDERED by the compiler/JIT. Thread A may assign the reference (step 3) before
-completing construction (step 2). Thread B sees instance != null (first check passes) and returns a
-partially constructed object.
-
-volatile fix (Java 5+): Declaring 'instance' volatile prevents the reordering of steps 2 and 3.
-The volatile write of 'instance' happens-before any subsequent volatile read of 'instance', ensuring
-Thread B sees the fully constructed object.
+}
 ```
 
+Which line reads shared state without the lock? The first check. Once `conn` is set, a caller never
+enters the block, so it never locks after the creating thread unlocked, and no edge connects them.
+It can see `conn` non-null and still read the fields the constructor wrote as `null` and `0`. The
+constructor runs before the assignment in the creating thread's program order, but only a thread
+with an edge to that thread is promised that order (unit 5.1.4 shows what the compiler and the
+processor may reorder).
+
+Two programs, 50 million reads each. The first calls `get()` on fresh `Lazy` objects right after
+another thread has assigned `conn`. The second publishes new `Conn` objects through a plain write
+outside any lock, and reads them with no ordering, like the first check:
+
+```text
+plain field   : 50,000,000 calls to get(), 0 returned an unfinished connection, 0 returned null
+50,000,000 references read without a lock, 197,066 of them to an unfinished object (host null 0, port 0 197,065)
+```
+
+Through `Lazy`, three runs found no unfinished connection: allowed by the JLS, not observed here.
+The plain publication found connections with `port` still 0 in all three runs (40,277 to 290,600 per
+run), and none with the C2 compiler off (`-XX:TieredStopAtLevel=1`), so most likely the JIT moved
+the constructor's store of `port` after the publishing store. The constructor still runs first in
+the creating thread; what moved is when another thread can see each store. Nothing in the JLS stops
+it doing the same inside `Lazy`.
+
+Make the field `volatile`. A volatile write happens-before every later read that sees it, so a
+caller that sees the reference sees the finished object. Read the field once into a local, so the
+value you checked is the value you return:
+
 ```java
-public class DoubleCheckedLocking {
-    // CRITICAL: volatile prevents construction reordering
-    private static volatile DoubleCheckedLocking instance;
+static class LazyVolatile {                      // the same with a volatile field
+    private volatile Conn conn;
 
-    private final int value;
-
-    private DoubleCheckedLocking() {
-        this.value = expensiveInit();
-    }
-
-    private int expensiveInit() {
-        // simulate expensive initialization
-        return 42;
-    }
-
-    public static DoubleCheckedLocking getInstance() {
-        if (instance == null) {                    // First check (no lock, fast path)
-            synchronized (DoubleCheckedLocking.class) {
-                if (instance == null) {             // Second check (with lock)
-                    instance = new DoubleCheckedLocking(); // volatile write
-                }
+    Conn get() {
+        Conn c = conn;
+        if (c == null) {
+            synchronized (this) {
+                c = conn;
+                if (c == null) conn = c = new Conn("db-1.example.com", 5432);
             }
         }
-        return instance; // volatile read
+        return c;
     }
-
-    // Alternative: Initialization-on-demand holder (preferred — no volatile needed)
-    static class SingletonHolder {
-        static final DoubleCheckedLocking INSTANCE = new DoubleCheckedLocking();
-    }
-
-    public static DoubleCheckedLocking getInstanceSafe() {
-        return SingletonHolder.INSTANCE; // class loading is thread-safe
-    }
-
-    public int getValue() { return value; }
 }
 ```
-
-**Q3: How do you prevent deadlock in Java?**
 
 ```text
-A3: Deadlock occurs when two or more threads are permanently blocked, each waiting for a lock held by another.
-Four conditions must ALL be true for deadlock (Coffman conditions):
-1. Mutual exclusion: locks are non-shareable
-2. Hold and wait: threads hold locks while waiting for others
-3. No preemption: locks cannot be forcibly released
-4. Circular wait: threads form a cycle of waiting
-
-Prevention strategies:
-1. LOCK ORDERING: Always acquire multiple locks in the same predefined order across all threads.
-   If Thread A acquires lock1 then lock2, ensure Thread B does the same. Document the order.
-
-2. LOCK TIMEOUT (tryLock): Use ReentrantLock.tryLock(timeout) — if a lock can't be acquired within
-   the timeout, release all held locks and retry. This breaks the hold-and-wait condition.
-
-3. REDUCE LOCK SCOPE: Minimize what happens inside a locked region. Avoid calling external code,
-   I/O operations, or other potentially-locking methods while holding a lock.
-
-4. USE LOCK-FREE STRUCTURES: AtomicInteger, ConcurrentHashMap, etc. avoid locks entirely.
-
-5. STRUCTURED LOCKING: Use java.util.concurrent utilities (BlockingQueue, Semaphore, etc.) that
-   are designed to avoid deadlock.
+volatile field: 50,000,000 calls to get(), 0 returned an unfinished connection, 0 returned null
 ```
 
+The second check is still needed: two callers can both find `null` before either takes the lock,
+and without it the second one builds another connection after the first has released.
+
+For a value per class rather than per object, the other fix is to let class initialization do it
+(this `Conn` is a record whose constructor prints `building the connection`):
+
 ```java
-public class DeadlockPrevention {
-    private final Object lockA = new Object();
-    private final Object lockB = new Object();
-
-    // DEADLOCK RISK: inconsistent lock ordering
-    public void riskyMethod1() {
-        synchronized (lockA) {
-            synchronized (lockB) { /* work */ }
-        }
+static final class ConnectionsHolder {
+    private static final class Holder {
+        static final Conn CONN = new Conn("db-1.example.com", 5432);
     }
 
-    public void riskyMethod2() {
-        synchronized (lockB) {    // different order!
-            synchronized (lockA) { /* work */ }
-        }
+    static Conn get() {
+        return Holder.CONN;
     }
 
-    // SAFE: consistent lock ordering (always lockA before lockB)
-    public void safeMethod1() {
-        synchronized (lockA) {
-            synchronized (lockB) { /* work */ }
-        }
-    }
-
-    public void safeMethod2() {
-        synchronized (lockA) {   // same order as safeMethod1
-            synchronized (lockB) { /* work */ }
-        }
-    }
-
-    // SAFE: tryLock with timeout
-    private final java.util.concurrent.locks.ReentrantLock rlockA =
-        new java.util.concurrent.locks.ReentrantLock();
-    private final java.util.concurrent.locks.ReentrantLock rlockB =
-        new java.util.concurrent.locks.ReentrantLock();
-
-    public boolean tryAcquireBoth() throws InterruptedException {
-        if (rlockA.tryLock(100, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-            try {
-                if (rlockB.tryLock(100, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                    try {
-                        // do work
-                        return true;
-                    } finally { rlockB.unlock(); }
-                }
-            } finally { rlockA.unlock(); }
-        }
-        return false; // back off and retry
+    static String name() {
+        return "connections";
     }
 }
 ```
-
-**Q4: What is a memory barrier and how does Java use them?**
 
 ```text
-A4: A memory barrier (also called a memory fence) is a hardware instruction that prevents the CPU from
-reordering memory operations across the barrier. Different CPUs have different barriers:
-- Load barrier: no load can be moved before this point
-- Store barrier: no store can be moved after this point
-- Full barrier: both load and store ordering enforced
-
-Java abstracts barriers through its higher-level synchronization primitives:
-(the conservative recipe from the JSR-133 Cookbook; JIT compilers may omit barriers the hardware does not need)
-- volatile write: StoreStore + LoadStore barriers before, StoreLoad barrier after
-- volatile read: LoadLoad + LoadStore barriers after
-- synchronized exit (monitor release): treated like a volatile write
-- synchronized entry (monitor acquire): treated like a volatile read
-
-Programmers generally don't need to think about hardware barriers — they think in terms of
-happens-before relationships. But understanding barriers helps explain WHY certain patterns work
-and WHY certain optimizations are forbidden by the JMM.
-
-VarHandle (Java 9+) exposes explicit memory ordering:
-- VarHandle.get() / set() — no barrier (plain access)
-- VarHandle.getOpaque() / setOpaque() — atomic and coherent per variable, no ordering with other variables
-- VarHandle.getAcquire() / setRelease() — release/acquire semantics (like mutex unlock/lock)
-- VarHandle.getVolatile() / setVolatile() — full volatile semantics
+name(): connections
+  building the connection
+first get(): Conn[host=db-1.example.com, port=5432]
+second get(): Conn[host=db-1.example.com, port=5432]
 ```
 
-```java
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
+`Holder` is initialized the first time `get()` reads `Holder.CONN`, not when the outer class is used
+(JLS §12.4.1). The JVM runs a class's initialization under a lock and makes every thread that uses
+the class see its result (JLS §12.4.2), so no `volatile` and no check is needed.
 
-public class MemoryBarrierDemo {
-    private int value;
-    private volatile int volatileFlag;
+A `Conn` whose fields are all `final` is also safe to see through a racy reference, provided its
+constructor doesn't leak `this` (JLS §17.5; the plain-publication run found 0 unfinished objects
+with `final` fields; unit 5.2.3). That doesn't repair the `Lazy` above: its two reads of `conn` may
+see different values, so the second may return `null` (allowed by the JLS; none of the 150 million
+plain-field calls did).
 
-    // VarHandle for fine-grained memory ordering
-    private static final VarHandle VALUE_HANDLE;
-    static {
-        try {
-            VALUE_HANDLE = MethodHandles.lookup()
-                .findVarHandle(MemoryBarrierDemo.class, "value", int.class);
-        } catch (ReflectiveOperationException e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
+<!-- practice 2 -->
 
-    // Release semantics: all writes before this are visible to threads that
-    // do an acquire read of the same variable
-    public void setWithRelease(int v) {
-        value = v;
-        VALUE_HANDLE.setRelease(this, v); // release barrier
-    }
+## Summary
 
-    // Acquire semantics: see all writes made before the corresponding release
-    public int getWithAcquire() {
-        return (int) VALUE_HANDLE.getAcquire(this); // acquire barrier
-    }
+- **Releasing a lock publishes every write made before it to the next thread that takes the same
+  lock.** A getter that skips the lock may never see the setter's write; the worker that read its
+  stop flag without the lock never stopped.
+- **A lock on a different object gives no edge.** Two methods that both say `synchronized` but lock
+  different objects promise nothing; HotSpot removed a lock no other thread could take, and then
+  read the flag once.
+- **A reader that skips the lock can see two fields that were never written together.** Every
+  writer locking keeps an invariant only for readers that lock too; the unlocked reader saw a
+  negative spread about once in 10,000 reads in two runs of three.
+- **Double-checked locking reads without the lock, so its field must be `volatile`.** Without it, a
+  caller may get a reference to an unfinished object; with `volatile` and one read into a local, or
+  with a holder class, it can't.
 
-    // Full volatile semantics (strongest guarantee)
-    public void setVolatile(int v) {
-        VALUE_HANDLE.setVolatile(this, v);
-    }
-}
-```
+## Reference
 
-**Q5: What is the Initialization-on-Demand Holder idiom and why is it preferred over DCL?**
+**What gives an edge from a writer to a reader (Java 21):**
 
-```text
-A5: The Initialization-on-Demand Holder (IODH) idiom exploits the JVM's class loading mechanism to
-achieve lazy, thread-safe initialization without explicit synchronization or volatile:
+| Writer | Reader | Edge |
+|---|---|---|
+| unlock of monitor `m` (end of `synchronized (m)`) | a later lock of `m` | yes (JLS §17.4.5) |
+| unlock of `m` | a lock of another object | no |
+| unlock of `m` | no lock | no |
+| `Lock.unlock()` | a later successful `lock()`, `tryLock()` of the same `Lock` | yes (`Lock` javadoc, "Memory Synchronization") |
+| `Lock.unlock()` | a failed `tryLock()` | not required ("Unsuccessful locking ... do not require any memory synchronization effects") |
+| write of a `volatile` field | a later read of that field | yes (unit 6.2.2) |
+| a class's static initializer | any use of the class after it is initialized | yes (JLS §12.4.2) |
 
-public class Singleton {
-    private Singleton() { }
+**Lazy initialization of a shared object:**
 
-    private static class Holder {
-        static final Singleton INSTANCE = new Singleton();
-    }
+| Shape | Safe | Locks after the first call |
+|---|---|---|
+| `synchronized` getter | yes | every call |
+| double-checked, plain field | no: a caller may see an unfinished object | no |
+| double-checked, `volatile` field, read once into a local | yes | no |
+| holder class (`static final` field of a nested class) | yes, for a `static` value | no |
 
-    public static Singleton getInstance() {
-        return Holder.INSTANCE;
-    }
-}
+## Challenges
 
-Why it works:
-1. The JVM guarantees that class initialization (static initializers) is thread-safe — the JVM uses
-   a class initialization lock to ensure only one thread initializes a class.
-2. The Holder class is NOT initialized until the first call to getInstance() (JLS 12.4.1). This provides lazy
-   initialization.
-3. Once Holder is initialized, the static final INSTANCE is safely published to all threads via the
-   class initialization happens-before guarantee.
-4. No volatile needed — the class loading lock provides the ordering guarantee.
+1. A cache keeps a `HashMap` that every writer updates under `synchronized (this)`. A metrics
+   thread calls `map.size()` without the lock once a second. What can go wrong beyond a stale
+   number, and would you lock, copy, or switch to `ConcurrentHashMap`?
+2. The price book reads the spread under the lock millions of times a second while quotes arrive a
+   few thousand times a second. Measure `spread()` against a version that swaps one immutable
+   `Quote` record through a `volatile` field. Where does each stop scaling?
+3. A team wants double-checked locking for a value that must be reloaded every hour. Which of the
+   fixes on this page still work, and what does the reload need that the first creation didn't?
 
-Why it's preferred over DCL:
-1. Simpler code — no volatile, no double-check
-2. Correct by construction — relies on well-specified JVM behavior
-3. No risk of mis-applying the pattern incorrectly
-4. Works on all Java versions (not just Java 5+)
-```
+## Design Note: Why the Edge Belongs to the Lock Object
 
-```java
-public class InitializationOnDemandHolder {
-    private final int expensiveValue;
+The memory model could have made every lock a full barrier, so that any `synchronized` block
+published everything to everyone. Then the `readLock` version of `isStopped()` would be correct,
+and so would `new Object()`.
 
-    private InitializationOnDemandHolder() {
-        // Expensive initialization — runs only once, lazily, thread-safely
-        this.expensiveValue = computeExpensiveValue();
-    }
-
-    private int computeExpensiveValue() {
-        return 42; // imagine expensive computation here
-    }
-
-    // Inner holder class — loaded lazily on first access to getInstance()
-    private static class Holder {
-        // Class initialization lock ensures thread safety
-        static final InitializationOnDemandHolder INSTANCE =
-            new InitializationOnDemandHolder();
-    }
-
-    public static InitializationOnDemandHolder getInstance() {
-        return Holder.INSTANCE; // Holder class initialized lazily here
-    }
-
-    public int getValue() { return expensiveValue; }
-}
-```
+JSR 133, the memory model since Java 5, ties the monitor edge to one monitor instead: an unlock
+orders only the later locks of the same object. The JIT can then remove a lock that no
+other thread can see, merge adjacent locks on one object, and move reads and writes into a
+critical section, all without breaking a program that synchronizes correctly. The price falls on
+programs that relied on a lock as a general barrier: they still work on some JVMs, and stop
+working on a JVM that removes or merges that lock.
 
 ## Code Examples
 

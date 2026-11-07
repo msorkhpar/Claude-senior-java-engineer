@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Lossless epoch stamps",
+  "title": "Renew subscriptions on the customer's calendar",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,23 @@
     },
     {
       "type": "para",
-      "text": "An `Instant` holds nanoseconds, but `toEpochMilli()` **truncates** to whole milliseconds. For full precision the page reads `getEpochSecond()` and `getNano()`. Note that the nano part is always between 0 and 999,999,999, even before the epoch: half a second before the epoch is epoch second `-1` plus 500,000,000 nanoseconds."
+      "text": "A streaming service sells monthly subscriptions. The terms say a subscription renews one calendar month after it was paid, at the same time of day, by the customer's own calendar: paid on 14 March at 21:00 their time, it renews on 14 April at 21:00 their time. Payments are recorded as `Instant`s, and each customer has a `ZoneId`. Customers write in when a renewal comes a day or two early or late, and when the date on their receipt is not the day it happened for them."
     },
     {
       "type": "para",
-      "text": "A log format writes an instant as its time since the epoch in **decimal seconds with exactly nine decimal places**. Write `EpochStamp`:"
+      "text": "`Renewals` already picks the subscriptions that are due and prints receipts. Finish its two `TODO` methods in `src/main/java/practice/Renewals.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`static String encode(Instant instant)` writes the stamp.",
-        "`static Instant decode(String stamp)` reads a stamp back into the same instant."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "instant",
-        "stamp"
-      ],
-      "rows": [
-        [
-          "`Instant.ofEpochSecond(1710523800, 123_000_000)`",
-          "`\"1710523800.123000000\"`"
-        ],
-        [
-          "`Instant.ofEpochSecond(1710523800, 123_456_789)`",
-          "`\"1710523800.123456789\"`"
-        ],
-        [
-          "`Instant.ofEpochSecond(100, 5)`",
-          "`\"100.000000005\"`"
-        ],
-        [
-          "`Instant.ofEpochSecond(-1, 500_000_000)`",
-          "`\"-0.500000000\"`"
-        ]
+        "`nextRenewal(...)`: the moment the subscription renews;",
+        "`renewalDate(...)`: the date of that renewal as the customer's calendar shows it."
       ]
     },
     {
       "type": "para",
-      "text": "`java.math.BigDecimal` can hold such a number exactly."
+      "text": "About two lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.math.RoundingMode;\nimport java.time.Instant;\n\npublic final class EpochStamp {\n\n    private EpochStamp() {\n    }\n\n    /** The instant as decimal seconds since the epoch, with nine decimal places. */\n    public static String encode(Instant instant) {\n        // seconds plus a never-negative nano part: -1 s + 0.5 s is -0.5 s\n        return BigDecimal.valueOf(instant.getEpochSecond())\n                .add(BigDecimal.valueOf(instant.getNano(), 9))\n                .toPlainString();\n    }\n\n    /** The instant a stamp names. */\n    public static Instant decode(String stamp) {\n        BigDecimal value = new BigDecimal(stamp);\n        BigDecimal seconds = value.setScale(0, RoundingMode.FLOOR);\n        long nanos = value.subtract(seconds).movePointRight(9).longValueExact();\n        return Instant.ofEpochSecond(seconds.longValueExact(), nanos);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDate;\nimport java.time.ZoneId;\nimport java.util.List;\n\n/** Monthly subscriptions: each renews one calendar month after it was paid, by the customer's calendar. */\npublic class Renewals {\n\n    /** A paid subscription; zone is where the customer lives. */\n    public record Subscription(String customer, ZoneId zone, Instant paidAt) {}\n\n    /** The customers whose subscription renews at or before {@code now}, in the given order. */\n    public static List<String> dueBy(List<Subscription> subscriptions, Instant now) {\n        return subscriptions.stream()\n                .filter(s -> !nextRenewal(s).isAfter(now))\n                .map(Subscription::customer)\n                .toList();\n    }\n\n    /** The line printed on the customer's receipt. */\n    public static String receiptLine(Subscription s) {\n        return s.customer() + \": renews on \" + renewalDate(s);\n    }\n\n    /** The moment the subscription renews: one calendar month after payment, same local time. */\n    static Instant nextRenewal(Subscription s) {\n        return s.paidAt().atZone(s.zone()).plusMonths(1).toInstant();\n    }\n\n    /** The date of the renewal as the customer's own calendar shows it. */\n    static LocalDate renewalDate(Subscription s) {\n        return LocalDate.ofInstant(nextRenewal(s), s.zone());\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.Instant;\n\npublic final class EpochStamp {\n\n    private EpochStamp() {\n    }\n\n    /** The instant as decimal seconds since the epoch, with nine decimal places. */\n    public static String encode(Instant instant) {\n        throw new UnsupportedOperationException(\"write encode\");\n    }\n\n    /** The instant a stamp names. */\n    public static Instant decode(String stamp) {\n        throw new UnsupportedOperationException(\"write decode\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDate;\nimport java.time.ZoneId;\nimport java.util.List;\n\n/** Monthly subscriptions: each renews one calendar month after it was paid, by the customer's calendar. */\npublic class Renewals {\n\n    /** A paid subscription; zone is where the customer lives. */\n    public record Subscription(String customer, ZoneId zone, Instant paidAt) {}\n\n    /** The customers whose subscription renews at or before {@code now}, in the given order. */\n    public static List<String> dueBy(List<Subscription> subscriptions, Instant now) {\n        return subscriptions.stream()\n                .filter(s -> !nextRenewal(s).isAfter(now))\n                .map(Subscription::customer)\n                .toList();\n    }\n\n    /** The line printed on the customer's receipt. */\n    public static String receiptLine(Subscription s) {\n        return s.customer() + \": renews on \" + renewalDate(s);\n    }\n\n    /** The moment the subscription renews: one calendar month after payment, same local time. */\n    static Instant nextRenewal(Subscription s) {\n        // TODO: One calendar month after the payment, at the same time of day, for this customer.\n        throw new IllegalStateException(\"TODO: nextRenewal\");\n    }\n\n    /** The date of the renewal as the customer's own calendar shows it. */\n    static LocalDate renewalDate(Subscription s) {\n        // TODO: The date the customer will see on their own calendar when the renewal happens.\n        throw new IllegalStateException(\"TODO: renewalDate\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -106,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3e722433642aca3d00ebb005e85a099adbc07f0646462be062ac7e0929b19e90",
-  "starting_code": "package practice;\n\nimport java.time.Instant;\n\npublic final class EpochStamp {\n\n    private EpochStamp() {\n    }\n\n    /** The instant as decimal seconds since the epoch, with nine decimal places. */\n    public static String encode(Instant instant) {\n        throw new UnsupportedOperationException(\"write encode\");\n    }\n\n    /** The instant a stamp names. */\n    public static Instant decode(String stamp) {\n        throw new UnsupportedOperationException(\"write decode\");\n    }\n}\n",
+  "content_sha256": "60c0832b9b9fc8c9b90fced804693d2ae93e9a7c8fbd16b55dffb1de752e069d",
+  "starting_code": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDate;\nimport java.time.ZoneId;\nimport java.util.List;\n\n/** Monthly subscriptions: each renews one calendar month after it was paid, by the customer's calendar. */\npublic class Renewals {\n\n    /** A paid subscription; zone is where the customer lives. */\n    public record Subscription(String customer, ZoneId zone, Instant paidAt) {}\n\n    /** The customers whose subscription renews at or before {@code now}, in the given order. */\n    public static List<String> dueBy(List<Subscription> subscriptions, Instant now) {\n        return subscriptions.stream()\n                .filter(s -> !nextRenewal(s).isAfter(now))\n                .map(Subscription::customer)\n                .toList();\n    }\n\n    /** The line printed on the customer's receipt. */\n    public static String receiptLine(Subscription s) {\n        return s.customer() + \": renews on \" + renewalDate(s);\n    }\n\n    /** The moment the subscription renews: one calendar month after payment, same local time. */\n    static Instant nextRenewal(Subscription s) {\n        // TODO: One calendar month after the payment, at the same time of day, for this customer.\n        throw new IllegalStateException(\"TODO: nextRenewal\");\n    }\n\n    /** The date of the renewal as the customer's own calendar shows it. */\n    static LocalDate renewalDate(Subscription s) {\n        // TODO: The date the customer will see on their own calendar when the renewal happens.\n        throw new IllegalStateException(\"TODO: renewalDate\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-3/src/main/java/practice/EpochStamp.java",
-    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-3/src/test/java/practice/EpochStampTest.java",
+    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-3/src/main/java/practice/Renewals.java",
+    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-3/src/test/java/practice/RenewalsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EpochStampTest#roundTripsWholeMilliseconds",
+        "id": "practice.RenewalsTest#renewsAnAprilPaymentOnTheSameDayOfMay",
         "kind": "main",
-        "says": "An instant after the epoch is written as its seconds with nine decimal places, and read back to the same instant."
+        "says": "a payment in the middle of a 30-day month renews on the same day and time of the next month, and is due from that moment"
       },
       {
-        "id": "practice.EpochStampTest#subMillisecondDigitsSurvive",
+        "id": "practice.RenewalsTest#renewsAFebruaryPaymentOnTheSameDayOfMarch",
         "kind": "edge",
-        "says": "Digits below the millisecond are written and read back, not dropped."
+        "says": "a February payment renews on the same day of March, not 30 days later"
       },
       {
-        "id": "practice.EpochStampTest#theFractionHasNineDigits",
+        "id": "practice.RenewalsTest#countsTheMonthFromTheDayThePaymentWasMadeInTheCustomersZone",
         "kind": "edge",
-        "says": "Five nanoseconds past a second is written .000000005, not .5."
+        "says": "the month is counted from the date the payment had in the customer's zone, which can differ from the UTC date"
       },
       {
-        "id": "practice.EpochStampTest#beforeTheEpochIsNegative",
+        "id": "practice.RenewalsTest#printsTheRenewalDateFromTheCustomersCalendar",
         "kind": "edge",
-        "says": "Half a second before the epoch is written -0.500000000 and read back to that instant."
+        "says": "the receipt shows the renewal's date in the customer's zone"
       }
     ],
     "report": {
@@ -157,11 +132,10 @@
     },
     "origin": {
       "path": "29-date-time-api/README_7.3.2.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "An Instant Has No Calendar, So Months Need a Zone"
     },
     "concepts": [
-      "An Instant keeps nanoseconds as epoch seconds plus a nano part, and toEpochMilli truncates to milliseconds.",
-      "An instant before the epoch has a negative epoch second and a nano part that is still between 0 and 999,999,999."
+      "A month is added to an instant in the customer's zone and converted back; 30 days or UTC give a different moment."
     ]
   }
 }

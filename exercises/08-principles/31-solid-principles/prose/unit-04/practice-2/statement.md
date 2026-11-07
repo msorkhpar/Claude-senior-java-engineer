@@ -1,26 +1,15 @@
-A client that only submits tasks should not see `shutdown()` or the monitoring methods; a
-component that manages the lifecycle should not see `submit()`. The page segregates a
-concurrent executor into **roles**, and one class implements them all:
+Version 2 of the company's audit library adds `appendAll(batch)` to the `AuditTrail` interface.
+Twelve teams implement `AuditTrail` in their own code, written against version 1: an in-memory
+trail for tests, one that writes to a file, one that forwards to a message queue. None of them
+will change their classes for this release.
 
-```java
-class ManagedExecutor implements TaskSubmitter<Object>, LifecycleManageable, Monitorable {
-    // ... implements all methods
-}
-```
+The payments service records each transfer as a batch, the debit and then the credit, on its
+`LockedTrail`. A compliance report reads `entries()` on its own thread, and an auditor once
+flagged a debit with no credit in a report.
 
-In `Roles` the three role interfaces are given. Write:
+Finish the two `TODO`s in `src/main/java/practice/AuditTrails.java`:
 
-- `ManagedExecutor(poolSize)`, on a fixed thread pool: `submit` runs a task on one of
-  the pool's threads, never on the caller's, and counts it in `getCompletedCount()` only
-  once it has finished (a task that throws has finished too), not when it is submitted; `shutdown()` shuts the pool down, so its
-  threads end;
-  `isShutdown()` says whether it was shut down. As the page's edge case says, a task
-  submitted **after shutdown is refused** with `IllegalStateException`, guarded by an
-  `AtomicBoolean`;
-- `TaskClient`, which only submits: `runTask(task)` submits it and returns its future;
-- `LifecycleManager`, which only manages the lifecycle: `gracefulShutdown()` and
-  `isRunning()`.
+- `AuditTrail.appendAll`, which every team's trail gets without changing a line;
+- `LockedTrail.appendAll`.
 
-The starter's two clients take a whole `ManagedExecutor`. **Each client's one constructor
-must take only the role interface it uses**, so it can be handed anything that plays that
-role.
+Keep `append` and `entries` as they are. About four lines in total.

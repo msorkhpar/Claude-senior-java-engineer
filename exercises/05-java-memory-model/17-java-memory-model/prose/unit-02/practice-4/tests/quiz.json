@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "17-java-memory-model"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "ordinal": 4,
+  "title": "Check yourself: shared and thread-local memory",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-parallel-errors",
+        "stem": "A validator collects bad file names with `List<String> errors = new ArrayList<>(); files.parallelStream().forEach(f -> { if (!valid(f)) errors.add(f); }); return errors;`. The stream runs the lambda on several threads. Is `errors` safe to use this way?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Safe, since errors is a local variable, and a local is never shared between threads",
+            "correct": false,
+            "says": "the variable is private, but the ArrayList it refers to is on the heap and every thread running the lambda reaches it"
+          },
+          {
+            "id": "b",
+            "text": "Safe, since the lambda captures errors by value, so each thread works on a copy of the list",
+            "correct": false,
+            "says": "capturing copies the value of the local, which is a reference; every copy points to the same list"
+          },
+          {
+            "id": "c",
+            "text": "Unsafe, since the threads running the lambda all add to the one list that errors refers to",
+            "correct": true,
+            "says": "the captured reference points to one ArrayList on the heap, which several threads modify at once"
+          },
+          {
+            "id": "d",
+            "text": "Unsafe, since errors lives in the calling thread's frame, which the stream's other threads cannot read",
+            "correct": false,
+            "says": "the other threads never read the caller's frame; they get a copy of the reference, and the problem is the shared list it points to"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.2.md",
+          "section": "Fields, Statics and Array Elements Are Shared; Locals and Parameters Are Not"
+        }
+      },
+      {
+        "id": "q-ready-loop",
+        "stem": "On an x86 server, a status thread runs `while (!ready) { checks++; }` over a plain boolean field. Minutes later another thread sets `ready = true`, and the loop never ends. Which explanation fits?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The reader's cache holds the old value, since a read is served from the core's own cache until the line is evicted",
+            "correct": false,
+            "says": "caches are coherent: a core reading the address sees the latest store that reached any cache"
+          },
+          {
+            "id": "b",
+            "text": "The writer's cache holds the new value, since a write leaves the core only when a fence flushes it",
+            "correct": false,
+            "says": "coherence delivers plain writes without any fence; the opaque loop saw a plain write within a fraction of a millisecond"
+          },
+          {
+            "id": "c",
+            "text": "The reader's register holds the old value, since the compiled code loaded the field once and never read it again",
+            "correct": true,
+            "says": "the JIT may read a plain field once and keep it in a register; the same loop with opaque reads ended within a fraction of a millisecond"
+          },
+          {
+            "id": "d",
+            "text": "The writer's store buffer holds the new value, since a store leaves the buffer only when a fence drains it",
+            "correct": false,
+            "says": "a store buffer holds a write only briefly and drains to the cache on its own, no fence needed; it can reorder, not hide a write"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.2.md",
+          "section": "Threads Don't Keep Private Copies of Memory; Compiled Code Keeps Values in Registers"
+        }
+      },
+      {
+        "id": "q-report-locale",
+        "stem": "A web app keeps each request's locale in an InheritableThreadLocal. Reports run on `Executors.newFixedThreadPool(4)`, created at startup and unused until the first report. The first four reports, all submitted while others were still running, came from a German user and three French users. Later an English user submits a report. In which locale does it come out?",
+        "options": [
+          {
+            "id": "a",
+            "text": "English, since each submit copies the submitting thread's inheritable values into the task",
+            "correct": false,
+            "says": "the copy happens when a thread is created, not when a task is submitted"
+          },
+          {
+            "id": "b",
+            "text": "English, since the task's get() reads the value of the thread that submitted the task",
+            "correct": false,
+            "says": "get() reads the current thread's own value, here the pool thread's"
+          },
+          {
+            "id": "c",
+            "text": "German or French, since each pool thread kept the value it copied from the request that started it",
+            "correct": true,
+            "says": "the pool's threads were created inside the first four submits and copied those requests' values once"
+          },
+          {
+            "id": "d",
+            "text": "No locale, since inheritable values are copied only into threads created with new Thread, not into pool threads",
+            "correct": false,
+            "says": "a pool creates its threads inside submit, on the submitting thread, so they inherit like any other child thread"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.2.md",
+          "section": "InheritableThreadLocal Copies the Value Once, When a Thread Is Created"
+        }
+      },
+      {
+        "id": "q-slot-counters",
+        "stem": "Eight worker threads count events in a shared `AtomicLongArray(8)`; worker i only ever updates slot i. On a 16-core machine, eight workers count fewer events per second in total than one worker alone. What is the most likely cause?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The slots share cache lines, since neighbouring longs sit in one line that each write takes from the other cores",
+            "correct": true,
+            "says": "coherence works on cache lines: cores writing different variables in one line pass the line back and forth"
+          },
+          {
+            "id": "b",
+            "text": "The slots share a lock, since an AtomicLongArray update holds one monitor for the whole array while it runs",
+            "correct": false,
+            "says": "the atomic classes are lock-free; the slots share no lock, only cache lines"
+          },
+          {
+            "id": "c",
+            "text": "The workers contend on nothing, since each slot has one writer, so the slowdown must come from somewhere else",
+            "correct": false,
+            "says": "separate variables in one cache line still contend, as the adjacent-fields run showed"
+          },
+          {
+            "id": "d",
+            "text": "The workers contend on the array reference, since every update first reads the field that holds the array",
+            "correct": false,
+            "says": "a line that is only read sits in every core's cache at once; the writes to neighbouring slots are what move lines"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.2.md",
+          "section": "Threads That Share No Variable Can Still Share a Cache Line"
+        }
+      }
+    ]
+  }
+}

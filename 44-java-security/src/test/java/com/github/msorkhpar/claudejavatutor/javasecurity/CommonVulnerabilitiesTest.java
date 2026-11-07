@@ -1,11 +1,25 @@
 package com.github.msorkhpar.claudejavatutor.javasecurity;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.xml.sax.SAXParseException;
 
-import java.util.List;
-import java.util.Map;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InvalidClassException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -13,400 +27,212 @@ import static org.assertj.core.api.Assertions.*;
 class CommonVulnerabilitiesTest {
 
     @Nested
-    @DisplayName("SQL Injection")
-    class SqlInjectionTest {
-
-        private final CommonVulnerabilities vuln = new CommonVulnerabilities();
+    @DisplayName("ORDER BY allow-list")
+    class OrderByTest {
 
         @Test
-        @DisplayName("Should show vulnerable query with injected SQL")
-        void testVulnerableQueryInjection() {
-            String malicious = "admin' OR '1'='1";
-            String query = vuln.buildVulnerableQuery(malicious);
-
-            // Demonstrates the vulnerability: the injected SQL becomes part of the query
-            assertThat(query)
-                    .contains("OR '1'='1")
-                    .startsWith("SELECT * FROM users");
+        @DisplayName("Maps documented keys to the SQL text the class wrote")
+        void documentedKeys() {
+            assertThat(CommonVulnerabilities.orderBy("price", "asc")).isEqualTo("price ASC");
+            assertThat(CommonVulnerabilities.orderBy("newest", "desc")).isEqualTo("added_on DESC");
+            assertThat(CommonVulnerabilities.productQuery("name", "desc"))
+                    .isEqualTo("SELECT name FROM product ORDER BY name DESC");
         }
 
         @Test
-        @DisplayName("Should show vulnerable query with normal input")
-        void testVulnerableQueryNormal() {
-            String query = vuln.buildVulnerableQuery("alice");
-            assertThat(query).isEqualTo("SELECT * FROM users WHERE username = 'alice'");
+        @DisplayName("Refuses a real but undocumented column and anything that isn't a key")
+        void refusesEverythingElse() {
+            for (String sort : new String[]{"cost", "added_on", "PRICE", "price, cost",
+                    "CASE WHEN 1=1 THEN price ELSE -price END", "price; DROP TABLE staff", null}) {
+                assertThatThrownBy(() -> CommonVulnerabilities.orderBy(sort, "asc"))
+                        .as("sort %s", sort)
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
         }
 
         @Test
-        @DisplayName("Should show vulnerable query with DROP TABLE")
-        void testVulnerableQueryDropTable() {
-            String malicious = "'; DROP TABLE users; --";
-            String query = vuln.buildVulnerableQuery(malicious);
-            assertThat(query).contains("DROP TABLE users");
+        @DisplayName("Refuses a direction with anything beyond asc or desc")
+        void refusesDirection() {
+            assertThatThrownBy(() -> CommonVulnerabilities.orderBy("name", "asc, cost"))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> CommonVulnerabilities.orderBy("name", null))
+                    .isInstanceOf(IllegalArgumentException.class);
         }
     }
 
     @Nested
-    @DisplayName("XSS Prevention")
-    class XssPreventionTest {
+    @DisplayName("Path inside a base directory")
+    class PathTest {
 
-        private final CommonVulnerabilities vuln = new CommonVulnerabilities();
+        @TempDir
+        Path tmp;
 
-        @Test
-        @DisplayName("Vulnerable render should include raw script tags")
-        void testVulnerableHtml() {
-            String result = vuln.renderVulnerableHtml("<script>alert('xss')</script>");
-            assertThat(result).contains("<script>");
+        private Path root;
+        private Path base;
+
+        /* root/uploads/invoice.txt, root/uploads/2026/, root/uploads/team -> ../config, root/config/db.properties,
+           root/uploads-private/payroll.txt, root/secret.txt */
+        @BeforeEach
+        void layOut() throws IOException {
+            root = tmp.toRealPath();
+            base = Files.createDirectories(root.resolve("uploads"));
+            Files.writeString(base.resolve("invoice.txt"), "invoice");
+            Files.createDirectories(base.resolve("2026"));
+            Files.createDirectories(root.resolve("config"));
+            Files.writeString(root.resolve("config/db.properties"), "password=placeholder");
+            Files.createDirectories(root.resolve("uploads-private"));
+            Files.writeString(root.resolve("uploads-private/payroll.txt"), "payroll");
+            Files.writeString(root.resolve("secret.txt"), "secret");
+            Files.createSymbolicLink(base.resolve("team"), Path.of("../config"));
         }
 
         @Test
-        @DisplayName("Safe render should escape script tags")
-        void testSafeHtml() {
-            String result = vuln.renderSafeHtml("<script>alert('xss')</script>");
-            assertThat(result)
-                    .doesNotContain("<script>")
-                    .contains("&lt;script&gt;");
+        @DisplayName("Returns a file of the base, also through a .. that stays inside")
+        void insideFiles() throws IOException {
+            assertThat(Files.readString(CommonVulnerabilities.resolveInside(base, "invoice.txt"))).isEqualTo("invoice");
+            assertThat(Files.readString(CommonVulnerabilities.resolveInside(base, "2026/../invoice.txt")))
+                    .isEqualTo("invoice");
         }
 
         @Test
-        @DisplayName("Safe render should handle null input")
-        void testSafeHtmlNull() {
-            assertThat(vuln.renderSafeHtml(null)).isEqualTo("<div></div>");
+        @DisplayName("Refuses .. above the base and a sibling whose name starts like the base")
+        void refusesTraversal() {
+            assertThatThrownBy(() -> CommonVulnerabilities.resolveInside(base, "../config/db.properties"))
+                    .isInstanceOf(SecurityException.class);
+            assertThatThrownBy(() -> CommonVulnerabilities.resolveInside(base, "../uploads-private/payroll.txt"))
+                    .isInstanceOf(SecurityException.class);
         }
 
         @Test
-        @DisplayName("Safe render should handle normal text")
-        void testSafeHtmlNormal() {
-            assertThat(vuln.renderSafeHtml("Hello World"))
-                    .isEqualTo("<div>Hello World</div>");
+        @DisplayName("Refuses a symbolic link that leads outside, including link/..")
+        void refusesLinks() {
+            assertThatThrownBy(() -> CommonVulnerabilities.resolveInside(base, "team/db.properties"))
+                    .isInstanceOf(SecurityException.class);
+            // normalizes to uploads/secret.txt, but the file system opens root/secret.txt
+            assertThatThrownBy(() -> CommonVulnerabilities.resolveInside(base, "team/../secret.txt"))
+                    .isInstanceOf(SecurityException.class);
         }
 
         @Test
-        @DisplayName("Safe render should escape all special chars")
-        void testSafeHtmlAllSpecialChars() {
-            String result = vuln.renderSafeHtml("a & b < c > d \"e\" 'f'");
-            assertThat(result).contains("&amp;", "&lt;", "&gt;", "&quot;", "&#x27;");
+        @DisplayName("Serves the base's files when the base is reached through a link")
+        void baseThroughLink() throws IOException {
+            Path linked = Files.createSymbolicLink(root.resolve("current"), Path.of("uploads"));
+            assertThat(Files.readString(CommonVulnerabilities.resolveInside(linked, "invoice.txt"))).isEqualTo("invoice");
+        }
+
+        @Test
+        @DisplayName("A missing file is NoSuchFileException, not a pass")
+        void missingFile() {
+            assertThatThrownBy(() -> CommonVulnerabilities.resolveInside(base, "missing.txt"))
+                    .isInstanceOf(NoSuchFileException.class);
         }
     }
 
     @Nested
-    @DisplayName("Login Attempt Tracker")
-    class LoginAttemptTrackerTest {
+    @DisplayName("XML without a DOCTYPE")
+    class XmlTest {
 
-        @Test
-        @DisplayName("Should not lock after fewer than 5 attempts")
-        void testNoLockUnder5Attempts() {
-            var tracker = new CommonVulnerabilities.LoginAttemptTracker();
-            for (int i = 0; i < 4; i++) {
-                assertThat(tracker.recordFailedAttempt("user1")).isFalse();
-            }
-            assertThat(tracker.isLockedOut("user1")).isFalse();
+        private static ByteArrayInputStream xml(String text) {
+            return new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8));
         }
 
         @Test
-        @DisplayName("Should lock after 5 failed attempts")
-        void testLockAfter5Attempts() {
-            var tracker = new CommonVulnerabilities.LoginAttemptTracker();
-            for (int i = 0; i < 4; i++) {
-                tracker.recordFailedAttempt("user1");
-            }
-            boolean locked = tracker.recordFailedAttempt("user1");
-            assertThat(locked).isTrue();
-            assertThat(tracker.isLockedOut("user1")).isTrue();
+        @DisplayName("Reads a plain document")
+        void plainDocument() throws Exception {
+            assertThat(CommonVulnerabilities.textOf(xml("<order><note>leave at the door</note></order>"), "note"))
+                    .isEqualTo("leave at the door");
         }
 
         @Test
-        @DisplayName("Should reset attempts on successful login")
-        void testResetAttempts() {
-            var tracker = new CommonVulnerabilities.LoginAttemptTracker();
-            tracker.recordFailedAttempt("user1");
-            tracker.recordFailedAttempt("user1");
-            tracker.resetAttempts("user1");
-            assertThat(tracker.getFailedAttemptCount("user1")).isZero();
-        }
+        @DisplayName("Refuses a document that declares an external entity, without reading the file")
+        void refusesExternalEntity(@TempDir Path dir) throws IOException {
+            Files.writeString(dir.resolve("secret.txt"), "contents of secret.txt");
+            Path doc = Files.writeString(dir.resolve("order.xml"), """
+                    <?xml version="1.0"?>
+                    <!DOCTYPE order [<!ENTITY note SYSTEM "secret.txt">]>
+                    <order><note>&note;</note></order>
+                    """);
 
-        @Test
-        @DisplayName("Should track different users independently")
-        void testDifferentUsers() {
-            var tracker = new CommonVulnerabilities.LoginAttemptTracker();
-            tracker.recordFailedAttempt("user1");
-            tracker.recordFailedAttempt("user2");
-            assertThat(tracker.getFailedAttemptCount("user1")).isEqualTo(1);
-            assertThat(tracker.getFailedAttemptCount("user2")).isEqualTo(1);
-        }
-
-        @Test
-        @DisplayName("Should return 0 for unknown user")
-        void testUnknownUser() {
-            var tracker = new CommonVulnerabilities.LoginAttemptTracker();
-            assertThat(tracker.getFailedAttemptCount("unknown")).isZero();
-            assertThat(tracker.isLockedOut("unknown")).isFalse();
-        }
-
-        @Test
-        @DisplayName("Should count every failure when attempts arrive concurrently")
-        void testConcurrentFailuresAreAllCounted() throws Exception {
-            for (int trial = 0; trial < 200; trial++) {
-                var tracker = new CommonVulnerabilities.LoginAttemptTracker();
-                var start = new java.util.concurrent.CountDownLatch(1);
-                List<Thread> threads = new java.util.ArrayList<>();
-                for (int i = 0; i < 4; i++) {
-                    Thread t = new Thread(() -> {
-                        try {
-                            start.await();
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                        tracker.recordFailedAttempt("user1");
-                    });
-                    threads.add(t);
-                    t.start();
+            assertThatThrownBy(() -> {
+                try (var in = Files.newInputStream(doc)) {
+                    CommonVulnerabilities.textOf(in, "note");
                 }
-                start.countDown();
-                for (Thread t : threads) {
-                    t.join();
-                }
-                assertThat(tracker.getFailedAttemptCount("user1")).isEqualTo(4);
+            }).isInstanceOf(SAXParseException.class).hasMessageContaining("DOCTYPE is disallowed");
+        }
+
+        @Test
+        @DisplayName("Refuses even a DOCTYPE with only internal entities")
+        void refusesAnyDoctype() {
+            assertThatThrownBy(() -> CommonVulnerabilities.textOf(
+                    xml("<!DOCTYPE order [<!ENTITY n \"x\">]><order><note>&n;</note></order>"), "note"))
+                    .isInstanceOf(SAXParseException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("Serialization filter")
+    class FilterTest {
+
+        record Preferences(String theme, int pageSize) implements Serializable {}
+
+        record Envelope(String kind, Object payload) implements Serializable {}
+
+        static final AtomicInteger REBUILT = new AtomicInteger();
+
+        /** Harmless, but not a class the reader expects; counts each time it is rebuilt. */
+        static final class Housekeeping implements Serializable {
+            private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+                in.defaultReadObject();
+                REBUILT.incrementAndGet();
             }
         }
 
-        @Test
-        @DisplayName("Should throw on null username")
-        void testNullUsername() {
-            var tracker = new CommonVulnerabilities.LoginAttemptTracker();
-            assertThatNullPointerException()
-                    .isThrownBy(() -> tracker.recordFailedAttempt(null));
-        }
-    }
-
-    @Nested
-    @DisplayName("Access Control")
-    class AccessControlTest {
-
-        private final CommonVulnerabilities.AccessControl ac = new CommonVulnerabilities.AccessControl();
-
-        @Test
-        @DisplayName("Guest should only have READ permission")
-        void testGuestPermissions() {
-            assertThat(ac.hasPermission(
-                    CommonVulnerabilities.AccessControl.Role.GUEST,
-                    CommonVulnerabilities.AccessControl.Permission.READ)).isTrue();
-            assertThat(ac.hasPermission(
-                    CommonVulnerabilities.AccessControl.Role.GUEST,
-                    CommonVulnerabilities.AccessControl.Permission.WRITE)).isFalse();
-            assertThat(ac.hasPermission(
-                    CommonVulnerabilities.AccessControl.Role.GUEST,
-                    CommonVulnerabilities.AccessControl.Permission.DELETE)).isFalse();
+        @BeforeEach
+        void reset() {
+            REBUILT.set(0);
         }
 
-        @Test
-        @DisplayName("Admin should have READ, WRITE, DELETE permissions")
-        void testAdminPermissions() {
-            assertThat(ac.hasPermission(
-                    CommonVulnerabilities.AccessControl.Role.ADMIN,
-                    CommonVulnerabilities.AccessControl.Permission.READ)).isTrue();
-            assertThat(ac.hasPermission(
-                    CommonVulnerabilities.AccessControl.Role.ADMIN,
-                    CommonVulnerabilities.AccessControl.Permission.WRITE)).isTrue();
-            assertThat(ac.hasPermission(
-                    CommonVulnerabilities.AccessControl.Role.ADMIN,
-                    CommonVulnerabilities.AccessControl.Permission.DELETE)).isTrue();
-            assertThat(ac.hasPermission(
-                    CommonVulnerabilities.AccessControl.Role.ADMIN,
-                    CommonVulnerabilities.AccessControl.Permission.MANAGE_USERS)).isFalse();
-        }
-
-        @Test
-        @DisplayName("Super Admin should have all permissions")
-        void testSuperAdminPermissions() {
-            for (var permission : CommonVulnerabilities.AccessControl.Permission.values()) {
-                assertThat(ac.hasPermission(
-                        CommonVulnerabilities.AccessControl.Role.SUPER_ADMIN, permission)).isTrue();
+        private static byte[] bytes(Object o) throws IOException {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            try (ObjectOutputStream oos = new ObjectOutputStream(out)) {
+                oos.writeObject(o);
             }
+            return out.toByteArray();
         }
 
         @Test
-        @DisplayName("Should enforce permission and throw SecurityException")
-        void testEnforcePermission() {
-            assertThatExceptionOfType(SecurityException.class)
-                    .isThrownBy(() -> ac.enforcePermission(
-                            CommonVulnerabilities.AccessControl.Role.GUEST,
-                            CommonVulnerabilities.AccessControl.Permission.DELETE))
-                    .withMessageContaining("GUEST")
-                    .withMessageContaining("DELETE");
+        @DisplayName("Reads an allowed class")
+        void allowed() throws Exception {
+            Object read = CommonVulnerabilities.readAllowing(bytes(new Preferences("dark", 50)), Set.of(Preferences.class));
+            assertThat(read).isEqualTo(new Preferences("dark", 50));
         }
 
         @Test
-        @DisplayName("Should not throw when permission exists")
-        void testEnforcePermissionGranted() {
-            assertThatNoException()
-                    .isThrownBy(() -> ac.enforcePermission(
-                            CommonVulnerabilities.AccessControl.Role.ADMIN,
-                            CommonVulnerabilities.AccessControl.Permission.READ));
+        @DisplayName("Rejects another class before its readObject runs")
+        void rejectsTopLevel() throws IOException {
+            byte[] data = bytes(new Housekeeping());
+            assertThatThrownBy(() -> CommonVulnerabilities.readAllowing(data, Set.of(Preferences.class)))
+                    .isInstanceOf(InvalidClassException.class);
+            assertThat(REBUILT.get()).isZero();
         }
 
         @Test
-        @DisplayName("Should return all permissions for a role")
-        void testGetPermissions() {
-            List<CommonVulnerabilities.AccessControl.Permission> perms =
-                    ac.getPermissions(CommonVulnerabilities.AccessControl.Role.USER);
-            assertThat(perms).containsExactlyInAnyOrder(
-                    CommonVulnerabilities.AccessControl.Permission.READ,
-                    CommonVulnerabilities.AccessControl.Permission.WRITE);
+        @DisplayName("Rejects another class nested inside an allowed one")
+        void rejectsNested() throws IOException {
+            byte[] data = bytes(new Envelope("prefs", new Housekeeping()));
+            assertThatThrownBy(() -> CommonVulnerabilities.readAllowing(data, Set.of(Envelope.class, Preferences.class)))
+                    .isInstanceOf(InvalidClassException.class);
+            assertThat(REBUILT.get()).isZero();
         }
 
         @Test
-        @DisplayName("Should throw on null role")
-        void testNullRole() {
-            assertThatNullPointerException()
-                    .isThrownBy(() -> ac.hasPermission(null,
-                            CommonVulnerabilities.AccessControl.Permission.READ));
-        }
-
-        @Test
-        @DisplayName("Should throw on null permission")
-        void testNullPermission() {
-            assertThatNullPointerException()
-                    .isThrownBy(() -> ac.hasPermission(
-                            CommonVulnerabilities.AccessControl.Role.ADMIN, null));
-        }
-    }
-
-    @Nested
-    @DisplayName("Safe Error Handler")
-    class SafeErrorHandlerTest {
-
-        private final CommonVulnerabilities.SafeErrorHandler handler =
-                new CommonVulnerabilities.SafeErrorHandler();
-
-        @Test
-        @DisplayName("Should return generic message regardless of user existence")
-        void testLoginFailureMessage() {
-            String messageUserExists = handler.handleLoginFailure("admin", true);
-            String messageUserNotExists = handler.handleLoginFailure("unknown", false);
-
-            // Both should be identical - no information leakage
-            assertThat(messageUserExists).isEqualTo(messageUserNotExists);
-            assertThat(messageUserExists).isEqualTo("Invalid username or password");
-        }
-
-        @Test
-        @DisplayName("Should return generic error message for exceptions")
-        void testHandleException() {
-            String message = handler.handleException(new RuntimeException("DB connection failed"));
-            assertThat(message)
-                    .doesNotContain("DB connection")
-                    .contains("internal error");
-        }
-
-        @Test
-        @DisplayName("Should perform constant-time string comparison - equal strings")
-        void testConstantTimeEqualsMatch() {
-            assertThat(handler.constantTimeEquals("secret", "secret")).isTrue();
-        }
-
-        @Test
-        @DisplayName("Should perform constant-time string comparison - different strings")
-        void testConstantTimeEqualsDiff() {
-            assertThat(handler.constantTimeEquals("secret", "secre1")).isFalse();
-        }
-
-        @Test
-        @DisplayName("Should perform constant-time string comparison - different lengths")
-        void testConstantTimeEqualsDiffLength() {
-            assertThat(handler.constantTimeEquals("short", "longer")).isFalse();
-        }
-
-        @Test
-        @DisplayName("Should handle nulls in constant-time comparison")
-        void testConstantTimeEqualsNull() {
-            assertThat(handler.constantTimeEquals(null, null)).isTrue();
-            assertThat(handler.constantTimeEquals(null, "a")).isFalse();
-            assertThat(handler.constantTimeEquals("a", null)).isFalse();
-        }
-    }
-
-    @Nested
-    @DisplayName("Safe User DTO")
-    class SafeUserDTOTest {
-
-        @Test
-        @DisplayName("Should create valid DTO")
-        void testValidDTO() {
-            var dto = new CommonVulnerabilities.SafeUserDTO("alice", "alice@test.com", "USER");
-            assertThat(dto.username()).isEqualTo("alice");
-            assertThat(dto.email()).isEqualTo("alice@test.com");
-            assertThat(dto.role()).isEqualTo("USER");
-        }
-
-        @Test
-        @DisplayName("Should throw on null username")
-        void testNullUsername() {
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new CommonVulnerabilities.SafeUserDTO(null, "a@b.com", "USER"));
-        }
-
-        @Test
-        @DisplayName("Should throw on blank username")
-        void testBlankUsername() {
-            assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new CommonVulnerabilities.SafeUserDTO("", "a@b.com", "USER"));
-        }
-
-        @Test
-        @DisplayName("Should throw on null email")
-        void testNullEmail() {
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new CommonVulnerabilities.SafeUserDTO("alice", null, "USER"));
-        }
-
-        @Test
-        @DisplayName("Should throw on null role")
-        void testNullRole() {
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new CommonVulnerabilities.SafeUserDTO("alice", "a@b.com", null));
-        }
-
-        @Test
-        @DisplayName("Should create DTO from map")
-        void testFromMap() {
-            Map<String, String> data = Map.of(
-                    "username", "bob",
-                    "email", "bob@test.com",
-                    "role", "ADMIN"
-            );
-            var dto = CommonVulnerabilities.SafeUserDTO.fromMap(data);
-            assertThat(dto.username()).isEqualTo("bob");
-            assertThat(dto.role()).isEqualTo("ADMIN");
-        }
-
-        @Test
-        @DisplayName("Should use defaults from map when keys missing")
-        void testFromMapDefaults() {
-            var dto = CommonVulnerabilities.SafeUserDTO.fromMap(Map.of("username", "test", "email", "t@t.com"));
-            assertThat(dto.role()).isEqualTo("GUEST");
-        }
-    }
-
-    @Nested
-    @DisplayName("Insecure Data Store")
-    class InsecureDataStoreTest {
-
-        @Test
-        @DisplayName("Should demonstrate insecure plain-text password storage")
-        void testInsecureStore() {
-            var store = new CommonVulnerabilities.InsecureDataStore();
-            store.storePassword("user", "password123");
-            assertThat(store.verifyPassword("user", "password123")).isTrue();
-            assertThat(store.verifyPassword("user", "wrong")).isFalse();
-        }
-
-        @Test
-        @DisplayName("Should return false for non-existent user")
-        void testNonExistentUser() {
-            var store = new CommonVulnerabilities.InsecureDataStore();
-            // password.equals(null) returns false - no NPE
-            assertThat(store.verifyPassword("unknown", "pass")).isFalse();
+        @DisplayName("Without a filter the class's readObject runs before any cast")
+        void unfilteredRuns() throws Exception {
+            try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes(new Housekeeping())))) {
+                Object read = in.readObject();
+                assertThat(read).isNotInstanceOf(Preferences.class);
+            }
+            assertThat(REBUILT.get()).isEqualTo(1);
         }
     }
 }

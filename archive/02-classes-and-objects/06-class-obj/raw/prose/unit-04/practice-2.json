@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A subclass constructor that goes through super",
+  "title": "Count the price cache's writes the same way for every batch",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Constructors are not inherited: a subclass constructor starts by calling a superclass constructor with `super(...)`. The page lists **forgetting to call `super(...)`** as a pitfall. If you leave it out, Java quietly calls the no-argument constructor instead, and the superclass's own checks are skipped. `protected` members of the superclass are visible to the subclass."
+      "text": "The price cache is a `TreeMap` from SKU to price in cents, and the cache dashboard plots how many prices callers write. Other code uses the cache as a `NavigableMap`, so it has to stay a `TreeMap`. Prices arrive one at a time through `put`, and in batches through `putAll`: the nightly reload copies yesterday's sorted snapshot into a fresh cache, and the pricing service sends whatever map it has built."
     },
     {
       "type": "para",
-      "text": "Write `Vehicle` and its nested static subclass `Vehicle.Truck`:"
-    },
-    {
-      "type": "para",
-      "text": "`Vehicle`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`protected Vehicle()` makes an unregistered vehicle, whose plate is `UNREGISTERED`;",
-        "`Vehicle(String plate)` refuses a `null` or blank plate with `IllegalArgumentException`;",
-        "`getPlate()`, and a `protected` field or getter subclasses may use."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "`Truck(String plate, int capacityTonnes)` extends `Vehicle`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "it is registered with the plate through the superclass's checks;",
-        "a capacity below `1` is refused with `IllegalArgumentException`;",
-        "`getCapacity()`, and `describe()` returns `Truck <plate> (<capacity>t)`."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new Vehicle.Truck(\"AB-123\", 12).describe()  -> \"Truck AB-123 (12t)\"\nnew Vehicle.Truck(\" \", 12)                  -> IllegalArgumentException\nnew Vehicle.Truck(\"AB-123\", 0)              -> IllegalArgumentException"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/CountingStore.java`, `put` and `putAll`, so that the cache stores prices exactly as a `TreeMap` does and `writes()` counts one write per entry written, overwrites included, for any batch, sorted or not, into an empty cache or a full one. About six lines in total."
     },
     {
       "type": "heading",
@@ -73,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Vehicle {\n    protected String plate;\n\n    protected Vehicle() {\n        this.plate = \"UNREGISTERED\";\n    }\n\n    public Vehicle(String plate) {\n        if (plate == null || plate.isBlank()) {\n            throw new IllegalArgumentException(\"A plate is required\");\n        }\n        this.plate = plate;\n    }\n\n    public String getPlate() {\n        return plate;\n    }\n\n    public static class Truck extends Vehicle {\n        private final int capacityTonnes;\n\n        public Truck(String plate, int capacityTonnes) {\n            super(plate);\n            if (capacityTonnes < 1) {\n                throw new IllegalArgumentException(\"Capacity must be at least 1 tonne\");\n            }\n            this.capacityTonnes = capacityTonnes;\n        }\n\n        public int getCapacity() {\n            return capacityTonnes;\n        }\n\n        public String describe() {\n            return \"Truck \" + plate + \" (\" + capacityTonnes + \"t)\";\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The price cache: a sorted map from SKU to price that also counts how many entries callers\n * have written, for the cache dashboard. Other code uses it as a NavigableMap, so it stays a\n * TreeMap.\n */\npublic class CountingStore extends TreeMap<String, Long> {\n    private long writes;\n\n    /** Stores one price and counts the write. */\n    @Override\n    public Long put(String sku, Long price) {\n        writes++;\n        return super.put(sku, price);\n    }\n\n    /** Stores every price of the batch and counts one write per entry. */\n    @Override\n    public void putAll(Map<? extends String, ? extends Long> batch) {\n        for (Map.Entry<? extends String, ? extends Long> e : batch.entrySet()) {\n            put(e.getKey(), e.getValue());\n        }\n    }\n\n    /** How many entries callers have written through put and putAll, overwrites included. */\n    public long writes() {\n        return writes;\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Vehicle {\n\n    protected Vehicle() {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public Vehicle(String plate) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public String getPlate() {\n        throw new UnsupportedOperationException(\"write getPlate\");\n    }\n\n    public static class Truck extends Vehicle {\n\n        public Truck(String plate, int capacityTonnes) {\n            super(plate);\n        }\n\n        public int getCapacity() {\n            throw new UnsupportedOperationException(\"write getCapacity\");\n        }\n\n        public String describe() {\n            throw new UnsupportedOperationException(\"write describe\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The price cache: a sorted map from SKU to price that also counts how many entries callers\n * have written, for the cache dashboard. Other code uses it as a NavigableMap, so it stays a\n * TreeMap.\n */\npublic class CountingStore extends TreeMap<String, Long> {\n    private long writes;\n\n    /** Stores one price and counts the write. */\n    @Override\n    public Long put(String sku, Long price) {\n        // TODO: Store the price as a TreeMap does, and count the write.\n        throw new IllegalStateException(\"TODO: put\");\n    }\n\n    /** Stores every price of the batch and counts one write per entry. */\n    @Override\n    public void putAll(Map<? extends String, ? extends Long> batch) {\n        // TODO: Store every price of the batch as a TreeMap does, and count one write per entry,\n        //       whatever kind of map the batch is and whatever this store already holds.\n        throw new IllegalStateException(\"TODO: putAll\");\n    }\n\n    /** How many entries callers have written through put and putAll, overwrites included. */\n    public long writes() {\n        return writes;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 5,
-    "code": 2,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 2,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -104,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "406312d75716f86076b7f045f1eec618e044255cbf276b8d0016a6fcdcfa9369",
-  "starting_code": "package practice;\n\npublic class Vehicle {\n\n    protected Vehicle() {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public Vehicle(String plate) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public String getPlate() {\n        throw new UnsupportedOperationException(\"write getPlate\");\n    }\n\n    public static class Truck extends Vehicle {\n\n        public Truck(String plate, int capacityTonnes) {\n            super(plate);\n        }\n\n        public int getCapacity() {\n            throw new UnsupportedOperationException(\"write getCapacity\");\n        }\n\n        public String describe() {\n            throw new UnsupportedOperationException(\"write describe\");\n        }\n    }\n}\n",
+  "content_sha256": "c373f728df9d13acb3b08685bd5c624362868bd3b84301aab04c859939a572e7",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The price cache: a sorted map from SKU to price that also counts how many entries callers\n * have written, for the cache dashboard. Other code uses it as a NavigableMap, so it stays a\n * TreeMap.\n */\npublic class CountingStore extends TreeMap<String, Long> {\n    private long writes;\n\n    /** Stores one price and counts the write. */\n    @Override\n    public Long put(String sku, Long price) {\n        // TODO: Store the price as a TreeMap does, and count the write.\n        throw new IllegalStateException(\"TODO: put\");\n    }\n\n    /** Stores every price of the batch and counts one write per entry. */\n    @Override\n    public void putAll(Map<? extends String, ? extends Long> batch) {\n        // TODO: Store every price of the batch as a TreeMap does, and count one write per entry,\n        //       whatever kind of map the batch is and whatever this store already holds.\n        throw new IllegalStateException(\"TODO: putAll\");\n    }\n\n    /** How many entries callers have written through put and putAll, overwrites included. */\n    public long writes() {\n        return writes;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-04/practice-2/src/main/java/practice/Vehicle.java",
-    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-04/practice-2/src/test/java/practice/VehicleTest.java",
+    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-04/practice-2/src/main/java/practice/CountingStore.java",
+    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-04/practice-2/src/test/java/practice/CountingStoreTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,19 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.VehicleTest#aTruckIsRegisteredLikeAnyVehicle",
+        "id": "practice.CountingStoreTest#singleWritesAreStoredAndCountedOverwritesIncluded",
         "kind": "main",
-        "says": "A truck keeps its plate and capacity, and describes itself with the plate it inherited."
+        "says": "single writes are stored as a TreeMap stores them and each one is counted, overwrites included"
       },
       {
-        "id": "practice.VehicleTest#aTruckWithABlankPlateIsRefused",
-        "kind": "edge",
-        "says": "The superclass's plate check refuses a truck with a blank plate too."
+        "id": "practice.CountingStoreTest#everyEntryOfABatchIsStoredInOrder",
+        "kind": "main",
+        "says": "every entry of a batch is stored, in key order, whether the batch is sorted or not"
       },
       {
-        "id": "practice.VehicleTest#aTruckNeedsAPositiveCapacity",
+        "id": "practice.CountingStoreTest#aSortedSnapshotLoadedIntoAnEmptyStoreIsCounted",
         "kind": "edge",
-        "says": "A truck whose capacity is not positive is refused with IllegalArgumentException."
+        "says": "a sorted batch loaded into an empty store counts one write per entry, though TreeMap stores it without calling put"
+      },
+      {
+        "id": "practice.CountingStoreTest#aBatchFromAnUnsortedMapIsCountedOncePerEntry",
+        "kind": "edge",
+        "says": "an unsorted batch counts one write per entry, though TreeMap stores it by calling put"
       }
     ],
     "report": {
@@ -150,10 +120,10 @@
     },
     "origin": {
       "path": "06-class-obj/README_2.1.4.md",
-      "section": "Common Pitfalls"
+      "section": "Code Called Through super Still Calls Your Overrides, So a Subclass Depends on Its Superclass's Self-Calls"
     },
     "concepts": [
-      "A subclass constructor must pass its arguments to the right super(...) constructor, or the no-argument one runs and the superclass's checks are skipped."
+      "Superclass code reached through super still calls the subclass's overrides, so a subclass that overrides a method its superclass calls on itself depends on the superclass's undocumented implementation."
     ]
   }
 }

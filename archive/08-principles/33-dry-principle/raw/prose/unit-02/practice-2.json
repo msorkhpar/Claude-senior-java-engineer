@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "One executor lifecycle for every computation",
+  "title": "Keep the stock count right while stock moves",
   "blocks": [
     {
       "type": "heading",
@@ -19,38 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`ExecutorService` needs its whole lifecycle each time: create, submit, `shutdown()`, `awaitTermination`. The page's violation pastes it into `computeSquares` and `computeCubes`, and warns what diverging copies do: one forgets `shutdown()` and leaks threads, another returns results before its tasks complete. Its fix writes the lifecycle **once**, in `ParallelComputation.executeAll`:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ExecutorService executor = Executors.newFixedThreadPool(threadCount);\ntry {\n    List<Future<T>> futures = executor.invokeAll(tasks);\n    ...\n} finally {\n    executor.shutdown();\n    executor.awaitTermination(5, TimeUnit.SECONDS);\n}"
+      "text": "Pickers move stock between the bins of a warehouse all day, and every hour a job compares the warehouse's total with the books. Each bin is thread-safe on its own. The books are right, yet the hourly count sometimes reports a few units missing, and sometimes a few too many, always while stock is being moved."
     },
     {
       "type": "para",
-      "text": "Complete `ParallelComputation`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`executeAll(tasks, threadCount)` runs every task on a pool of `threadCount` threads and returns their results **in task order**, not in the order the tasks happen to finish. A failed task becomes a new `RuntimeException` that wraps the `ExecutionException` from `get()`, as the page's `new RuntimeException(\"Task execution failed\", e)` does, so its cause's cause is the task's exception, even an unchecked one. A `threadCount` of zero or less throws `IllegalArgumentException`, even for an empty task list, and an empty task list with a valid count gives an empty list;",
-        "**the pool is shut down before `executeAll` returns**, so no thread outlives the call. (Since Java 19, `ExecutorService` is `AutoCloseable`, so try-with-resources is fine too.);",
-        "`squares(numbers, threadCount)` and `cubes(numbers, threadCount)` build their tasks and reuse `executeAll`: neither has a lifecycle of its own. (The tests see their results, not how they were computed, so the reuse is the page's lesson rather than a graded step.)"
-      ]
+      "text": "Write `move(...)` and `total()` in `src/main/java/practice/Warehouse.java`, so that a move either happens whole or not at all, and a total taken at any moment, while moves run, equals the stock in the warehouse. About eight lines in total."
     },
     {
       "type": "para",
-      "text": "Examples:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`squares(List.of(1, 2, 3, 200), 1)` is `[1, 4, 9, 40000]`, and `cubes(List.of(2, 3), 1)` is `[8, 27]`;",
-        "with two threads, when the second task finishes before the first, the result is still `[first, second]`;",
-        "once `executeAll` returns, the pool's threads have ended."
-      ]
+      "text": "The tests use bins of their own, which can stop a call partway through, and run a move and a total against each other at that point."
     },
     {
       "type": "heading",
@@ -65,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\n/** The executor lifecycle, written once, and two computations that reuse it. */\npublic final class ParallelComputation {\n\n    private ParallelComputation() {\n    }\n\n    /** Runs every task on a pool of threadCount threads and returns their results in task order. */\n    public static <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount) throws InterruptedException {\n        Objects.requireNonNull(tasks, \"tasks must not be null\");\n        if (threadCount <= 0) {\n            throw new IllegalArgumentException(\"threadCount must be positive\");\n        }\n        ExecutorService executor = Executors.newFixedThreadPool(threadCount);\n        try {\n            List<Future<T>> futures = executor.invokeAll(tasks);\n            List<T> results = new ArrayList<>();\n            for (Future<T> future : futures) {\n                try {\n                    results.add(future.get());\n                } catch (ExecutionException e) {\n                    throw new RuntimeException(\"Task execution failed\", e);\n                }\n            }\n            return results;\n        } finally {\n            executor.shutdown();\n            executor.awaitTermination(5, TimeUnit.SECONDS);\n        }\n    }\n\n    /** The square of each number, computed on threadCount threads. */\n    public static List<Integer> squares(List<Integer> numbers, int threadCount) throws InterruptedException {\n        return executeAll(numbers.stream().<Callable<Integer>>map(n -> () -> n * n).toList(), threadCount);\n    }\n\n    /** The cube of each number, computed on threadCount threads. */\n    public static List<Integer> cubes(List<Integer> numbers, int threadCount) throws InterruptedException {\n        return executeAll(numbers.stream().<Callable<Integer>>map(n -> () -> n * n * n).toList(), threadCount);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\n\n/** Stock in the bins of one warehouse. Every move between bins, and every stock count, goes through this class. */\npublic class Warehouse {\n\n    /** One storage bin. Each bin is thread-safe on its own. */\n    public interface Bin {\n        int count();\n\n        /** Removes qty units if the bin holds that many, and says whether it did. */\n        boolean take(int qty);\n\n        void add(int qty);\n    }\n\n    /** The bin used in production. */\n    public static final class Shelf implements Bin {\n        private int units;\n\n        public Shelf(int units) {\n            this.units = units;\n        }\n\n        @Override\n        public synchronized int count() {\n            return units;\n        }\n\n        @Override\n        public synchronized boolean take(int qty) {\n            if (units < qty) return false;\n            units -= qty;\n            return true;\n        }\n\n        @Override\n        public synchronized void add(int qty) {\n            units += qty;\n        }\n    }\n\n    private final Map<String, Bin> bins;\n\n    public Warehouse(Map<String, Bin> bins) {\n        this.bins = Map.copyOf(bins);\n    }\n\n    public int count(String bin) {\n        return bins.get(bin).count();\n    }\n\n    /** Moves qty units from one bin to another; moves nothing, and returns false, if the source holds fewer. */\n    synchronized boolean move(String from, String to, int qty) {\n        if (!bins.get(from).take(qty)) return false;\n        bins.get(to).add(qty);\n        return true;\n    }\n\n    /** The units in all bins together, for the hourly stock count. */\n    synchronized int total() {\n        int sum = 0;\n        for (Bin bin : bins.values()) sum += bin.count();\n        return sum;\n    }\n}\n"
         }
       ]
     },
@@ -77,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\n/** The executor lifecycle, written once, and two computations that reuse it. */\npublic final class ParallelComputation {\n\n    private ParallelComputation() {\n    }\n\n    /** Runs every task on a pool of threadCount threads and returns their results in task order. */\n    public static <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write executeAll\");\n    }\n\n    /** The square of each number, computed on threadCount threads. */\n    public static List<Integer> squares(List<Integer> numbers, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write squares\");\n    }\n\n    /** The cube of each number, computed on threadCount threads. */\n    public static List<Integer> cubes(List<Integer> numbers, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write cubes\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\n\n/** Stock in the bins of one warehouse. Every move between bins, and every stock count, goes through this class. */\npublic class Warehouse {\n\n    /** One storage bin. Each bin is thread-safe on its own. */\n    public interface Bin {\n        int count();\n\n        /** Removes qty units if the bin holds that many, and says whether it did. */\n        boolean take(int qty);\n\n        void add(int qty);\n    }\n\n    /** The bin used in production. */\n    public static final class Shelf implements Bin {\n        private int units;\n\n        public Shelf(int units) {\n            this.units = units;\n        }\n\n        @Override\n        public synchronized int count() {\n            return units;\n        }\n\n        @Override\n        public synchronized boolean take(int qty) {\n            if (units < qty) return false;\n            units -= qty;\n            return true;\n        }\n\n        @Override\n        public synchronized void add(int qty) {\n            units += qty;\n        }\n    }\n\n    private final Map<String, Bin> bins;\n\n    public Warehouse(Map<String, Bin> bins) {\n        this.bins = Map.copyOf(bins);\n    }\n\n    public int count(String bin) {\n        return bins.get(bin).count();\n    }\n\n    /** Moves qty units from one bin to another; moves nothing, and returns false, if the source holds fewer. */\n    boolean move(String from, String to, int qty) {\n        // TODO\n        throw new IllegalStateException(\"TODO: move\");\n    }\n\n    /** The units in all bins together, for the hourly stock count. */\n    int total() {\n        // TODO\n        throw new IllegalStateException(\"TODO: total\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -86,9 +63,9 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 2,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -96,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9cd9fb357a263b6f7a5967974257d189f3e6e366b3ee8399e25d2194d189ccf9",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\n/** The executor lifecycle, written once, and two computations that reuse it. */\npublic final class ParallelComputation {\n\n    private ParallelComputation() {\n    }\n\n    /** Runs every task on a pool of threadCount threads and returns their results in task order. */\n    public static <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write executeAll\");\n    }\n\n    /** The square of each number, computed on threadCount threads. */\n    public static List<Integer> squares(List<Integer> numbers, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write squares\");\n    }\n\n    /** The cube of each number, computed on threadCount threads. */\n    public static List<Integer> cubes(List<Integer> numbers, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write cubes\");\n    }\n}\n",
+  "content_sha256": "ebf2e4ed6fc22fc0f86d9f2cd44775140e6d54071675b251abae073ec881b8dd",
+  "starting_code": "package practice;\n\nimport java.util.Map;\n\n/** Stock in the bins of one warehouse. Every move between bins, and every stock count, goes through this class. */\npublic class Warehouse {\n\n    /** One storage bin. Each bin is thread-safe on its own. */\n    public interface Bin {\n        int count();\n\n        /** Removes qty units if the bin holds that many, and says whether it did. */\n        boolean take(int qty);\n\n        void add(int qty);\n    }\n\n    /** The bin used in production. */\n    public static final class Shelf implements Bin {\n        private int units;\n\n        public Shelf(int units) {\n            this.units = units;\n        }\n\n        @Override\n        public synchronized int count() {\n            return units;\n        }\n\n        @Override\n        public synchronized boolean take(int qty) {\n            if (units < qty) return false;\n            units -= qty;\n            return true;\n        }\n\n        @Override\n        public synchronized void add(int qty) {\n            units += qty;\n        }\n    }\n\n    private final Map<String, Bin> bins;\n\n    public Warehouse(Map<String, Bin> bins) {\n        this.bins = Map.copyOf(bins);\n    }\n\n    public int count(String bin) {\n        return bins.get(bin).count();\n    }\n\n    /** Moves qty units from one bin to another; moves nothing, and returns false, if the source holds fewer. */\n    boolean move(String from, String to, int qty) {\n        // TODO\n        throw new IllegalStateException(\"TODO: move\");\n    }\n\n    /** The units in all bins together, for the hourly stock count. */\n    int total() {\n        // TODO\n        throw new IllegalStateException(\"TODO: total\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/src/main/java/practice/ParallelComputation.java",
-    "test_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/src/test/java/practice/ParallelComputationTest.java",
+    "main_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/src/main/java/practice/Warehouse.java",
+    "test_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/src/test/java/practice/WarehouseTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -121,29 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ParallelComputationTest#computationsShareOneLifecycle",
+        "id": "practice.WarehouseTest#aMoveTakesFromOneBinAndAddsToTheOther",
         "kind": "main",
-        "says": "squares and cubes reuse executeAll, which returns [a, b] for two tasks on one thread."
+        "says": "a move takes units from one bin and adds them to the other"
       },
       {
-        "id": "practice.ParallelComputationTest#resultsFollowTaskOrderNotFinishingOrder",
-        "kind": "edge",
-        "says": "When the second task finishes first, the results are still in task order."
+        "id": "practice.WarehouseTest#aMoveOfMoreThanTheSourceHoldsMovesNothing",
+        "kind": "main",
+        "says": "a move of more units than the source holds is refused and changes neither bin"
       },
       {
-        "id": "practice.ParallelComputationTest#thePoolIsShutDownBeforeReturning",
-        "kind": "edge",
-        "says": "Once executeAll returns, the pool's thread has ended: the pool was shut down."
+        "id": "practice.WarehouseTest#theTotalAddsUpEveryBin",
+        "kind": "main",
+        "says": "the total is the sum of every bin, before and after a move"
       },
       {
-        "id": "practice.ParallelComputationTest#aFailureKeepsTheTasksOwnException",
+        "id": "practice.WarehouseTest#aTotalTakenDuringAMoveCountsTheMovedUnitsOnce",
         "kind": "edge",
-        "says": "A failed task, even one that throws an unchecked exception, becomes a new RuntimeException wrapping the ExecutionException, whose cause is the task's exception."
+        "says": "a total taken while a move is between its two bins still counts the moved units exactly once"
       },
       {
-        "id": "practice.ParallelComputationTest#theThreadCountIsCheckedFirst",
+        "id": "practice.WarehouseTest#aMoveDuringATotalLeavesTheTotalUnchanged",
         "kind": "edge",
-        "says": "A thread count of 0 is refused even with no tasks: executeAll(List.of(), 0) throws IllegalArgumentException."
+        "says": "a move made while a total is reading the bins doesn't change the total it reports"
       }
     ],
     "report": {
@@ -152,10 +129,10 @@
     },
     "origin": {
       "path": "33-dry-principle/README_8.3.2.md",
-      "section": "Interview Q&A Section"
+      "section": "An Action Across Two Wallets Needs One Owner for Both Balances"
     },
     "concepts": [
-      "Executor lifecycle (create, invokeAll, shutdown, awaitTermination) lives in one reusable method, so no copy forgets shutdown or returns results out of order."
+      "An action or a read across two thread-safe objects is not atomic; the lock for a rule over both belongs to one object that owns both."
     ]
   }
 }

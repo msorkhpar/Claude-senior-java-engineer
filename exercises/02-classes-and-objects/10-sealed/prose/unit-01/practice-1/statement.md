@@ -1,28 +1,14 @@
-The page's own example seals an `Animal` class to three kinds: `Dog`, `Cat`
-and `Bird`. Dogs and cats end the hierarchy, while birds stay open for further
-kinds of bird.
+The parcel service receives tracking webhooks from its carriers. Each payload carries a `"type"`
+field, and the decoder looks that name up in a map to find the record class to decode into. The
+map was written by hand, and when the carriers' `Damaged` events were split into `Crushed` and
+`Soaked`, nobody updated it: for two days every damage report was rejected as an unknown type.
 
-`Zoo` holds that hierarchy as nested classes, still **unsealed**, plus a
-`Parrot` that extends `Bird`. Finish it:
+The payload types already form sealed hierarchies of records, so the decoder should build the map
+from the hierarchy at startup. `of(...)` and `register(...)` are written. Finish the `TODO` in
+`src/main/java/practice/PayloadTypes.java`:
 
-1. Make `Animal` **sealed**, permitting exactly `Dog`, `Cat` and `Bird`.
-2. Give each permitted subclass the modifier its role needs: `Dog` and `Cat`
-   may never be extended, and `Bird` must still allow `Parrot` (and any other
-   bird) to extend it.
-3. Write `static String sound(Animal animal)` with a `switch` over the
-   animal's type:
+- `collect(...)`: add every record class a value of the given type can be.
 
-| animal | sound |
-|---|---|
-| `Dog` | `Woof` |
-| `Cat` | `Meow` |
-| `Parrot` | `Squawk` |
-| any other `Bird` | `Tweet` |
-
-Once `Animal` is sealed, the switch can cover every kind without a `default`.
-
-**Examples**
-
-- `sound(new Dog())` -> `"Woof"`
-- `sound(new Bird())` -> `"Tweet"`
-- `sound(new Parrot())` -> `"Squawk"`
+When you're done, `of(...)` returns every payload record of a hierarchy however it is nested, and
+nothing else. A map it can't make complete is worse than none, so for such a type `of(...)`
+throws `IllegalArgumentException` instead of returning. About eight lines in total.

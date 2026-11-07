@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "An atomic transfer under a ReadWriteLock",
+  "title": "Make the stock-take report add up while transfers run",
   "blocks": [
     {
       "type": "heading",
@@ -19,24 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`ConcurrentHashMap` makes each single-key operation atomic, but not a group of them, and its iterators are only weakly consistent. When two keys must change together, or a snapshot must be exact, the page reaches for a `ReadWriteLock` around a plain `HashMap`:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Atomic multi-key operation -- not possible with ConcurrentHashMap\npublic void transferValue(K fromKey, K toKey) {\n    lock.writeLock().lock();\n    try {\n        V value = map.remove(fromKey);\n        if (value != null) {\n            map.put(toKey, value);\n        }\n    } finally {\n        lock.writeLock().unlock();\n    }\n}"
+      "text": "A chain of about thirty shops keeps one product in `StockLedger`: units per warehouse. Transfer threads move units between warehouses a few times a minute; nothing is ever added or sold here, so the chain's total never changes. The stock-take report prints one line per warehouse on a label printer, which takes about a second per line, and then the total."
     },
     {
       "type": "para",
-      "text": "`StrictMap<K, V>` is given its map and its lock, and `get` and `put` are written. Write:"
+      "text": "Last month's reports printed lines that didn't add up to the total the chain holds, and the auditors flagged every one. Someone suggested locking the ledger while the report prints, but a transfer must not wait half a minute for the printer."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`transfer(fromKey, toKey)`: moves the value of `fromKey` to `toKey`. **The whole move holds the write lock**: it takes the write lock once, and every access to the map it makes, reading the old value included, happens under it, so no reader or writer ever sees the value in both places or in neither. When `fromKey` is absent nothing moves, and `toKey` is not created; `transfer(k, k)` leaves `k` holding its value;",
-        "`snapshot()`: a copy of every entry. **It is taken under the read lock**, not the write lock, so readers may take snapshots side by side, and **a snapshot does not follow later writes**."
-      ]
+      "type": "para",
+      "text": "Finish `src/main/java/practice/StockLedger.java`: hold the stock however you need to (the `ConcurrentHashMap` is only where the team started), and write `move` and `report`. When you're done, every report's lines add up to a total the chain really held, even with transfers running during it, and a transfer never waits for the printer. About twelve lines in total."
     },
     {
       "type": "heading",
@@ -51,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReadWriteLock;\n\n/** A map whose multi-key updates are atomic: every access goes through one ReadWriteLock. */\npublic class StrictMap<K, V> {\n\n    private final Map<K, V> map;\n    private final ReadWriteLock lock;\n\n    /** Wraps the given map; every access to it goes through the given lock. */\n    public StrictMap(Map<K, V> map, ReadWriteLock lock) {\n        this.map = map;\n        this.lock = lock;\n    }\n\n    public V get(K key) {\n        lock.readLock().lock();\n        try {\n            return map.get(key);\n        } finally {\n            lock.readLock().unlock();\n        }\n    }\n\n    public void put(K key, V value) {\n        lock.writeLock().lock();\n        try {\n            map.put(key, value);\n        } finally {\n            lock.writeLock().unlock();\n        }\n    }\n\n    public void transfer(K fromKey, K toKey) {\n        lock.writeLock().lock();\n        try {\n            V value = map.remove(fromKey);\n            if (value != null) {\n                map.put(toKey, value);\n            }\n        } finally {\n            lock.writeLock().unlock();\n        }\n    }\n\n    public Map<K, V> snapshot() {\n        lock.readLock().lock();\n        try {\n            return new HashMap<>(map);\n        } finally {\n            lock.readLock().unlock();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.function.Consumer;\n\n/**\n * Units of one product in each of a chain's warehouses. Transfers move units between warehouses\n * from several threads; the stock-take report lists every warehouse and the total.\n */\npublic class StockLedger {\n\n    /** One line of the report. */\n    public record Line(String warehouse, int units) {}\n\n    private final AtomicReference<Map<String, Integer>> stock;\n\n    public StockLedger(Map<String, Integer> opening) {\n        stock = new AtomicReference<>(Collections.unmodifiableMap(new HashMap<>(opening)));\n    }\n\n    /** Moves units from one warehouse to another. Called by the transfer threads. */\n    public void move(String from, String to, int units) {\n        stock.updateAndGet(current -> {\n            Map<String, Integer> next = new HashMap<>(current);\n            next.merge(from, -units, Integer::sum);\n            next.merge(to, units, Integer::sum);\n            return Collections.unmodifiableMap(next);\n        });\n    }\n\n    /** Hands one line per warehouse to the printer and returns the total of the lines. */\n    public long report(Consumer<Line> printer) {\n        long total = 0;\n        for (Map.Entry<String, Integer> e : stock.get().entrySet()) {\n            printer.accept(new Line(e.getKey(), e.getValue()));\n            total += e.getValue();\n        }\n        return total;\n    }\n}\n"
         }
       ]
     },
@@ -63,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReadWriteLock;\n\n/** A map whose multi-key updates are atomic: every access goes through one ReadWriteLock. */\npublic class StrictMap<K, V> {\n\n    private final Map<K, V> map;\n    private final ReadWriteLock lock;\n\n    /** Wraps the given map; every access to it goes through the given lock. */\n    public StrictMap(Map<K, V> map, ReadWriteLock lock) {\n        this.map = map;\n        this.lock = lock;\n    }\n\n    public V get(K key) {\n        lock.readLock().lock();\n        try {\n            return map.get(key);\n        } finally {\n            lock.readLock().unlock();\n        }\n    }\n\n    public void put(K key, V value) {\n        lock.writeLock().lock();\n        try {\n            map.put(key, value);\n        } finally {\n            lock.writeLock().unlock();\n        }\n    }\n\n    public void transfer(K fromKey, K toKey) {\n        throw new UnsupportedOperationException(\"write transfer\");\n    }\n\n    public Map<K, V> snapshot() {\n        throw new UnsupportedOperationException(\"write snapshot\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Consumer;\n\n/**\n * Units of one product in each of a chain's warehouses. Transfers move units between warehouses\n * from several threads; the stock-take report lists every warehouse and the total.\n */\npublic class StockLedger {\n\n    /** One line of the report. */\n    public record Line(String warehouse, int units) {}\n\n    // How the stock is held is yours to change.\n    private final Map<String, Integer> stock = new ConcurrentHashMap<>();\n\n    public StockLedger(Map<String, Integer> opening) {\n        stock.putAll(opening);\n    }\n\n    /** Moves units from one warehouse to another. Called by the transfer threads. */\n    public void move(String from, String to, int units) {\n        // TODO: move the units.\n        throw new IllegalStateException(\"TODO: move\");\n    }\n\n    /** Hands one line per warehouse to the printer and returns the total of the lines. */\n    public long report(Consumer<Line> printer) {\n        // TODO: print every warehouse's line and return the total.\n        throw new IllegalStateException(\"TODO: report\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -71,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -82,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "1b319fefcc06773cfeca4dd9d7af645c81a31a87299e3419d184a5022056370f",
-  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReadWriteLock;\n\n/** A map whose multi-key updates are atomic: every access goes through one ReadWriteLock. */\npublic class StrictMap<K, V> {\n\n    private final Map<K, V> map;\n    private final ReadWriteLock lock;\n\n    /** Wraps the given map; every access to it goes through the given lock. */\n    public StrictMap(Map<K, V> map, ReadWriteLock lock) {\n        this.map = map;\n        this.lock = lock;\n    }\n\n    public V get(K key) {\n        lock.readLock().lock();\n        try {\n            return map.get(key);\n        } finally {\n            lock.readLock().unlock();\n        }\n    }\n\n    public void put(K key, V value) {\n        lock.writeLock().lock();\n        try {\n            map.put(key, value);\n        } finally {\n            lock.writeLock().unlock();\n        }\n    }\n\n    public void transfer(K fromKey, K toKey) {\n        throw new UnsupportedOperationException(\"write transfer\");\n    }\n\n    public Map<K, V> snapshot() {\n        throw new UnsupportedOperationException(\"write snapshot\");\n    }\n}\n",
+  "content_sha256": "a2f272502e1d20ab7e96530d18b82b5e293263172e512e6a829d60259347dd29",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Consumer;\n\n/**\n * Units of one product in each of a chain's warehouses. Transfers move units between warehouses\n * from several threads; the stock-take report lists every warehouse and the total.\n */\npublic class StockLedger {\n\n    /** One line of the report. */\n    public record Line(String warehouse, int units) {}\n\n    // How the stock is held is yours to change.\n    private final Map<String, Integer> stock = new ConcurrentHashMap<>();\n\n    public StockLedger(Map<String, Integer> opening) {\n        stock.putAll(opening);\n    }\n\n    /** Moves units from one warehouse to another. Called by the transfer threads. */\n    public void move(String from, String to, int units) {\n        // TODO: move the units.\n        throw new IllegalStateException(\"TODO: move\");\n    }\n\n    /** Hands one line per warehouse to the printer and returns the total of the lines. */\n    public long report(Consumer<Line> printer) {\n        // TODO: print every warehouse's line and return the total.\n        throw new IllegalStateException(\"TODO: report\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-3/src/main/java/practice/StrictMap.java",
-    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-3/src/test/java/practice/StrictMapTest.java",
+    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-3/src/main/java/practice/StockLedger.java",
+    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-3/src/test/java/practice/StockLedgerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -107,34 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.StrictMapTest#transferMovesTheValue",
+        "id": "practice.StockLedgerTest#aReportListsEveryWarehouseAfterTheMoves",
         "kind": "main",
-        "says": "After transfer(a, b), b holds 1000 and a is gone."
+        "says": "after some moves, a report lists every warehouse with its units and returns their total"
       },
       {
-        "id": "practice.StrictMapTest#theWholeTransferHoldsTheWriteLock",
+        "id": "practice.StockLedgerTest#aReportAddsUpWhileUnitsMoveDuringIt",
         "kind": "edge",
-        "says": "Both the remove of a and the put of b happen while the write lock is held."
+        "says": "a report printed while units move between warehouses still lines up with one total that the chain really held"
       },
       {
-        "id": "practice.StrictMapTest#anAbsentKeyMovesNothing",
+        "id": "practice.StockLedgerTest#aMoveDoesNotWaitForTheReportToPrint",
         "kind": "edge",
-        "says": "transfer(x, y) with x absent leaves the map as it was, with no y key."
-      },
-      {
-        "id": "practice.StrictMapTest#aSnapshotDoesNotFollowLaterWrites",
-        "kind": "edge",
-        "says": "A snapshot taken before later writes still reads {a=1}."
-      },
-      {
-        "id": "practice.StrictMapTest#aSnapshotIsTakenUnderTheReadLock",
-        "kind": "edge",
-        "says": "Every read the snapshot makes of the map happens while the read lock is held."
-      },
-      {
-        "id": "practice.StrictMapTest#aTransferOntoItselfKeepsTheValue",
-        "kind": "edge",
-        "says": "transfer(a, a) leaves a holding its value."
+        "says": "a move from a transfer thread returns while a report is still printing"
       }
     ],
     "report": {
@@ -143,10 +119,10 @@
     },
     "origin": {
       "path": "35-fail-fast-safe/README_8.5.3.md",
-      "section": "Interview Q&A Section"
+      "section": "A Total That Must Add Up Needs a Snapshot or a Lock, and Size Decides Which"
     },
     "concepts": [
-      "A ReadWriteLock around a HashMap gives atomic multi-key updates and a consistent snapshot, which ConcurrentHashMap's single-key atomic operations do not."
+      "A read that must agree across elements needs a snapshot published whole or a lock held by writers and the reader alike."
     ]
   }
 }

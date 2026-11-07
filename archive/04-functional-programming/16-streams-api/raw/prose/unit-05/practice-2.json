@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Collect a parallel stream without a shared container",
+  "title": "Keep the bank lookups off the common pool",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,28 @@
     },
     {
       "type": "para",
-      "text": "In a parallel stream several threads run the lambdas at once, so a lambda that adds to one shared list races with the others. `collect` avoids that: each chunk fills its own container and the containers are merged afterwards, left before right, so encounter order survives as well."
+      "text": "At the end of the day, the payment service reconciles: it asks the bank for the status of every payment of the day. Each lookup blocks until the bank answers, which can take seconds. Last week someone made the lookups parallel, and since then the card authorisations that the same service answers time out for as long as the reconciliation runs. The authorisations use parallel streams and `CompletableFuture`'s async methods without an executor."
     },
     {
       "type": "para",
-      "text": "Write two static methods in `SafeCollect`. Each receives a stream that may be sequential or parallel:"
+      "text": "Finish `statuses(...)` in `src/main/java/practice/StatusReport.java`. When you're done:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`List<Long> squares(Stream<Integer> numbers)`: each number squared, as a `long`, in encounter order.",
-        "`Map<Character, List<String>> byFirstLetter(Stream<String> words)`: the words grouped by their first letter, each group in encounter order."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`squares(Stream.of(3, 1, 2))`",
-          "`[9, 1, 4]`"
-        ],
-        [
-          "`squares(Stream.of(100000))`",
-          "`[10000000000]`"
-        ],
-        [
-          "`byFirstLetter(Stream.of(\"apple\", \"banana\", \"avocado\"))`",
-          "`{a=[apple, avocado], b=[banana]}`"
-        ]
+        "up to `lookupsAtOnce` lookups wait on the bank at the same time, on threads that belong to the report, and the statuses come back in the order of the ids;",
+        "when the report returns, or fails, the threads it used end;",
+        "a lookup that fails with an unchecked exception makes `statuses` throw an exception of the same type."
       ]
     },
     {
       "type": "para",
-      "text": "A square is exact for every `int`, `Integer.MAX_VALUE` included, and a first letter is taken as written: `'A'` and `'a'` are two groups. The tests also hand both methods large parallel streams and compare the whole result, order included."
+      "text": "About twelve lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests use a bank that answers only when several lookups are waiting on it, and one that fails for a single payment."
     },
     {
       "type": "heading",
@@ -71,7 +55,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Collectors;\nimport java.util.stream.Stream;\n\npublic final class SafeCollect {\n\n    private SafeCollect() {\n    }\n\n    /** Each number squared, as a long, in encounter order; the stream may be parallel. */\n    public static List<Long> squares(Stream<Integer> numbers) {\n        return numbers.map(n -> (long) n * n).toList();\n    }\n\n    /** The words grouped by first letter, each group in encounter order; the stream may be parallel. */\n    public static Map<Character, List<String>> byFirstLetter(Stream<String> words) {\n        return words.collect(Collectors.groupingBy(w -> w.charAt(0)));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ForkJoinPool;\n\n/**\n * The end-of-day reconciliation asks the bank for the status of every payment of the day. Each\n * lookup blocks until the bank answers, which can take seconds. The same service answers card\n * authorisations whose parallel streams and async tasks run on the JVM's common pool.\n */\npublic class StatusReport {\n\n    /** Asks the bank for one payment's status. Blocks until the bank answers; may throw. */\n    public interface BankClient {\n        String status(String paymentId);\n    }\n\n    private final BankClient bank;\n    private final int lookupsAtOnce;\n\n    public StatusReport(BankClient bank, int lookupsAtOnce) {\n        this.bank = bank;\n        this.lookupsAtOnce = lookupsAtOnce;\n    }\n\n    /** The status of every payment, in the order of the ids. */\n    public List<String> statuses(List<String> paymentIds) {\n        ForkJoinPool lookups = new ForkJoinPool(lookupsAtOnce);\n        try {\n            return lookups.submit(() -> paymentIds.parallelStream().map(bank::status).toList()).get();\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            throw new IllegalStateException(\"interrupted while waiting for the bank\", e);\n        } catch (ExecutionException e) {\n            if (e.getCause() instanceof RuntimeException failure) throw failure;\n            if (e.getCause() instanceof Error error) throw error;\n            throw new IllegalStateException(e.getCause());\n        } finally {\n            lookups.shutdown();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +67,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Stream;\n\npublic final class SafeCollect {\n\n    private SafeCollect() {\n    }\n\n    /** Each number squared, as a long, in encounter order; the stream may be parallel. */\n    public static List<Long> squares(Stream<Integer> numbers) {\n        throw new UnsupportedOperationException(\"write squares\");\n    }\n\n    /** The words grouped by first letter, each group in encounter order; the stream may be parallel. */\n    public static Map<Character, List<String>> byFirstLetter(Stream<String> words) {\n        throw new UnsupportedOperationException(\"write byFirstLetter\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\n\n/**\n * The end-of-day reconciliation asks the bank for the status of every payment of the day. Each\n * lookup blocks until the bank answers, which can take seconds. The same service answers card\n * authorisations whose parallel streams and async tasks run on the JVM's common pool.\n */\npublic class StatusReport {\n\n    /** Asks the bank for one payment's status. Blocks until the bank answers; may throw. */\n    public interface BankClient {\n        String status(String paymentId);\n    }\n\n    private final BankClient bank;\n    private final int lookupsAtOnce;\n\n    public StatusReport(BankClient bank, int lookupsAtOnce) {\n        this.bank = bank;\n        this.lookupsAtOnce = lookupsAtOnce;\n    }\n\n    /** The status of every payment, in the order of the ids. */\n    public List<String> statuses(List<String> paymentIds) {\n        // TODO: The lookups block for seconds at a time, and while they do, the card authorisations\n        //       must not lose any of the threads they rely on. Run lookupsAtOnce lookups at a time\n        //       on threads of the report's own, return the statuses in the order of the ids, and\n        //       leave no threads behind. A lookup that fails reaches the caller as the same kind\n        //       of exception.\n        throw new IllegalStateException(\"TODO: statuses\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,9 +75,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -102,11 +86,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f49ff9e8fa5ac24d9e6ac0ea7e60dacb021c83082534c22aa04f3fa322c9f04d",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Stream;\n\npublic final class SafeCollect {\n\n    private SafeCollect() {\n    }\n\n    /** Each number squared, as a long, in encounter order; the stream may be parallel. */\n    public static List<Long> squares(Stream<Integer> numbers) {\n        throw new UnsupportedOperationException(\"write squares\");\n    }\n\n    /** The words grouped by first letter, each group in encounter order; the stream may be parallel. */\n    public static Map<Character, List<String>> byFirstLetter(Stream<String> words) {\n        throw new UnsupportedOperationException(\"write byFirstLetter\");\n    }\n}\n",
+  "content_sha256": "60e96ff9ee001366a39335342d92045a9b25f06a19fb3470242f37867509cd81",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\n/**\n * The end-of-day reconciliation asks the bank for the status of every payment of the day. Each\n * lookup blocks until the bank answers, which can take seconds. The same service answers card\n * authorisations whose parallel streams and async tasks run on the JVM's common pool.\n */\npublic class StatusReport {\n\n    /** Asks the bank for one payment's status. Blocks until the bank answers; may throw. */\n    public interface BankClient {\n        String status(String paymentId);\n    }\n\n    private final BankClient bank;\n    private final int lookupsAtOnce;\n\n    public StatusReport(BankClient bank, int lookupsAtOnce) {\n        this.bank = bank;\n        this.lookupsAtOnce = lookupsAtOnce;\n    }\n\n    /** The status of every payment, in the order of the ids. */\n    public List<String> statuses(List<String> paymentIds) {\n        // TODO: The lookups block for seconds at a time, and while they do, the card authorisations\n        //       must not lose any of the threads they rely on. Run lookupsAtOnce lookups at a time\n        //       on threads of the report's own, return the statuses in the order of the ids, and\n        //       leave no threads behind. A lookup that fails reaches the caller as the same kind\n        //       of exception.\n        throw new IllegalStateException(\"TODO: statuses\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-2/src/main/java/practice/SafeCollect.java",
-    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-2/src/test/java/practice/SafeCollectTest.java",
+    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-2/src/main/java/practice/StatusReport.java",
+    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-2/src/test/java/practice/StatusReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,39 +111,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SafeCollectTest#collectsASequentialStream",
+        "id": "practice.StatusReportTest#returnsEveryStatusInTheOrderOfTheIds",
         "kind": "main",
-        "says": "It squares the numbers and groups the words of a sequential stream."
+        "says": "the report returns one status per payment, in the order of the ids"
       },
       {
-        "id": "practice.SafeCollectTest#squaresKeepOrderInParallel",
+        "id": "practice.StatusReportTest#keepsTheLookupsOffTheCommonPool",
         "kind": "edge",
-        "says": "A parallel stream's squares arrive complete and in encounter order: a shared list filled by forEach loses both."
+        "says": "no lookup runs on a thread of the common ForkJoinPool"
       },
       {
-        "id": "practice.SafeCollectTest#groupsKeepOrderInParallel",
+        "id": "practice.StatusReportTest#runsAsManyLookupsAtOnceAsItIsAllowed",
         "kind": "edge",
-        "says": "Each group of a parallel stream keeps encounter order: groupingBy merges per-chunk maps in order, a concurrent grouping does not."
+        "says": "as many lookups as the report is allowed wait on the bank at the same time"
       },
       {
-        "id": "practice.SafeCollectTest#lettersGroupByValue",
+        "id": "practice.StatusReportTest#aFailedLookupReachesTheCallerAsItself",
         "kind": "edge",
-        "says": "Words that start with the same accented letter share one group: letters are compared with equals, and only small Characters are cached so that == happens to work."
+        "says": "a lookup's unchecked exception reaches the caller with its own type"
       },
       {
-        "id": "practice.SafeCollectTest#synchronizedListStillLosesOrder",
+        "id": "practice.StatusReportTest#leavesNoLookupThreadBehindWhenALookupFails",
         "kind": "edge",
-        "says": "Squares of a parallel stream arrive in encounter order: a synchronized shared list is thread-safe, but forEach still adds in whatever order the threads run."
-      },
-      {
-        "id": "practice.SafeCollectTest#largeSquaresAreExact",
-        "kind": "edge",
-        "says": "Squares of large ints such as Integer.MAX_VALUE are exact longs; a detour through double loses the last digits."
-      },
-      {
-        "id": "practice.SafeCollectTest#lettersAreCaseSensitive",
-        "kind": "edge",
-        "says": "\"Apple\" and \"apple\" go to two groups, 'A' and 'a': the first letter is taken as written."
+        "says": "the threads that ran the lookups end even when a lookup fails"
       }
     ],
     "report": {
@@ -168,11 +142,10 @@
     },
     "origin": {
       "path": "16-streams-api/README_4.4.5.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Running the Stream Inside Your Own ForkJoinPool Works, but No Document Promises It"
     },
     "concepts": [
-      "collect is safe in parallel because each chunk fills its own container and the containers are merged in order.",
-      "A lambda that adds to a shared container races with the other threads of a parallel stream."
+      "A parallel stream started inside a task of your own ForkJoinPool runs in that pool, an undocumented JDK behaviour; another kind of executor does not count, and the pool must be shut down and its failures unwrapped from ExecutionException."
     ]
   }
 }

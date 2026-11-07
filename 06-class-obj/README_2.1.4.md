@@ -1,139 +1,263 @@
 # 2.1.4 Inheritance Basics in Java
 
-Inheritance is a fundamental concept in object-oriented programming (OOP) that allows a class to inherit properties and
-methods from another class. This mechanism promotes code reuse and establishes a relationship between a more general
-class (superclass or parent class) and a more specialized class (subclass or child class).
+`PremiumAccount extends Account` and redeclares `overdraftLimit` as 5,000, yet premium customers
+are refused once they are 1,000 overdrawn. Next to it, a `TreeSet` subclass that counts additions
+for a dashboard counts six when three cities are added from a `List`, and three when they come as
+a `TreeSet`. Neither subclass has a line that looks wrong. Each assumes something about its
+superclass that isn't so.
 
-## Key Concepts
+Dispatch, static hiding and private methods are unit 1.3.1; covariant returns are unit 1.3.2.
 
-1. **Superclass and Subclass**:
-    - A superclass (or base class) is the class being inherited from.
-    - A subclass (or derived class) is the class that inherits from the superclass.
-
-2. **`extends` Keyword**:
-    - Used to create a subclass that inherits from a superclass.
-    - Syntax: `class Subclass extends Superclass { ... }`
-
-3. **Inherited Members**:
-    - Subclasses inherit all non-private members (fields, methods, nested classes) from the superclass.
-    - Constructors are not inherited, but the subclass constructor can call the superclass constructor using `super()`.
-
-4. **Method Overriding**:
-    - Subclasses can provide specific implementations of methods defined in the superclass.
-    - Use `@Override` annotation for clarity and to catch errors.
-
-5. **`super` Keyword**:
-    - Used to refer to the superclass's members or constructor.
-    - Useful when you want to call the superclass version of an overridden method.
-
-6. **Access Modifiers in Inheritance**:
-    - `public` and `protected` members are inherited and accessible in subclasses.
-    - `default` (package-private) members are inherited only if the subclass is in the same package.
-    - `private` members are not inherited.
-
-7. **The Object Class**:
-    - All classes in Java implicitly inherit from `java.lang.Object` if no other superclass is specified.
-
-## Best Practices
-
-1. Use inheritance to model "is-a" relationships.
-2. Favor composition over inheritance when appropriate.
-3. Design for inheritance or prohibit it (make the class `final`).
-4. Don't call overridable methods from constructors (the subclass override runs before the subclass's fields are
-   initialized).
-5. Use the `@Override` annotation when overriding methods.
-
-## Common Pitfalls
-
-1. Overusing inheritance, leading to deep and complex hierarchies.
-2. Breaking encapsulation by exposing internal details of the superclass.
-3. Violating the Liskov Substitution Principle.
-4. Forgetting to call `super()` in subclass constructors when necessary.
-
-## Java 21 Features Relevant to Inheritance
-
-- Sealed Classes (preview feature in earlier versions, standard in Java 17+):
-    - Allow you to restrict which classes can inherit from a superclass.
-    - Useful for creating a closed set of subclasses.
-
-## Interview Insights
-
-- Be prepared to discuss the advantages and disadvantages of inheritance.
-- Understand the difference between inheritance and composition.
-- Know how to use `super` in various contexts.
-- Be familiar with method overriding rules and best practices.
-
-## Q&A Section
-
-Q1: What is the difference between `extends` and `implements` in Java?
-A:
-`extends` is used for class inheritance, where a subclass inherits from a superclass. A class can extend only one
-superclass.
-`implements` is used to implement interfaces. A class can implement multiple interfaces.
-Example:
+## A Field Is Hidden, Not Overridden: the Declared Type Picks Which One Is Read
 
 ```java
-   class Dog extends Animal implements Runnable, Comparable<Dog> {
-       // Dog inherits from Animal and implements Runnable and Comparable interfaces
-   }
+class Account {
+    long overdraftLimit = 1_000;
+    long balance;
+
+    boolean canWithdraw(long amount) {
+        return balance - amount >= -overdraftLimit;
+    }
+}
+
+class PremiumAccount extends Account {
+    long overdraftLimit = 5_000;
+}
 ```
 
-Q2: Can you override private methods in Java?
-A: No, private methods cannot be overridden in Java. They are not inherited by subclasses, so there's no way to override
-them.
-You can, however, define a method with the same name in the subclass, but it will be a new method, not an override.
+With `Account asAccount = premium`, predict the three lines, then read them:
 
-Q3: What is the purpose of the `super` keyword in Java?
-A:
-The `super` keyword in Java is used to refer to the superclass (parent class). It has several uses:
+```text
+premium.overdraftLimit:   5000
+asAccount.overdraftLimit: 1000
+premium.canWithdraw(3_000): false
+```
 
-1. To call the superclass constructor: super();
-2. To access superclass methods: super.methodName();
-3. To access superclass fields: super.fieldName;
-   It's particularly useful when you want to extend the functionality of a parent class method instead of completely
-   replacing it.
+A premium account has two fields named `overdraftLimit`. Only overridable instance methods are
+chosen by the object at run time. The compiler binds a field access to the field of the declared type, and inside
+`Account` that type is `Account`, so `canWithdraw` reads 1,000 whatever the object is. A test that
+checks `premium.overdraftLimit` passes, and customers are refused.
 
-Q4: Explain the concept of method overriding with an example.
-A:
-
-Method overriding occurs when a subclass defines an instance method with the same name and parameters as a method in
-its superclass, and the same or a covariant (subtype) return type. The overridden method in the subclass takes precedence over the superclass method.
-
-Example:
+Put the varying value behind a method the subclass overrides:
 
 ```java
-   class Animal {
-       public void makeSound() {
-           System.out.println("The animal makes a sound");
-       }
-   }
+class Account {
+    long balance;
 
-   class Dog extends Animal {
-       @Override
-       public void makeSound() {
-           System.out.println("The dog barks");
-       }
-   }
+    long overdraftLimit() { return 1_000; }
 
+    boolean canWithdraw(long amount) {
+        return balance - amount >= -overdraftLimit();
+    }
+}
+
+class PremiumAccount extends Account {
+    @Override long overdraftLimit() { return 5_000; }
+}
 ```
 
-In this example, Dog overrides the makeSound() method from Animal, providing its own implementation.
+Now `canWithdraw(3_000)` on a premium account returns `true`.
 
-Q5: What is the Liskov Substitution Principle, and how does it relate to inheritance?
-A:
+<!-- practice 1 -->
 
-   ```text
-   The Liskov Substitution Principle (LSP) states that objects of a superclass should be replaceable with objects of 
-   its subclasses without affecting the correctness of the program. In other words, a subclass should be usable through
-    its base class interface without the need for the user to know the difference.
+## super.m() Calls the Superclass's Version, and Nothing Reaches Past It
 
-   This principle is crucial for inheritance because it ensures that inheritance hierarchies are designed correctly. 
-   Violating LSP can lead to unexpected behavior and bugs when using polymorphism.
+An audit logger extends a JSON logger and wants `Logger`'s plain text. Calling
+`format("card blocked")` on it:
 
-   For example, if you have a Rectangle class and a Square class that extends Rectangle, the Square class should be
-    usable anywhere a Rectangle is expected without causing issues. If changing the width of a Square also changes its 
-   height (to maintain the square property), it violates LSP because it behaves differently from what would be expected of a Rectangle.
-   ```
+```java
+class Logger {
+    String format(String msg) { return msg; }
+}
+
+class JsonLogger extends Logger {
+    @Override String format(String msg) { return "{\"msg\":\"" + msg + "\"}"; }
+}
+
+class AuditLogger extends JsonLogger {
+    @Override String format(String msg) {
+        return "AUDIT " + ((Logger) this).format(msg);   // wants Logger's plain text
+    }
+}
+```
+
+```text
+AuditLogger: java.lang.StackOverflowError
+```
+
+A cast changes the declared type, not the object, so the call dispatches to `AuditLogger.format`
+again, which calls itself. `super.format(msg)` would print `AUDIT {"msg":"card blocked"}`: a
+`super` call is not dispatched on the object. It runs the version the direct superclass has,
+declared there or inherited, here `JsonLogger`'s. `super.super.format(msg)` doesn't compile
+(`<identifier> expected`).
+
+Once `JsonLogger` overrides `format`, no subclass of `JsonLogger` can reach `Logger`'s version. If the plain
+version is needed, `JsonLogger` must offer it under another name.
+
+## Code Called Through super Still Calls Your Overrides, So a Subclass Depends on Its Superclass's Self-Calls
+
+The dashboard's set counts in both methods:
+
+```java
+import java.util.Collection;
+import java.util.TreeSet;
+
+class CountingSet extends TreeSet<String> {
+    int added;
+
+    @Override public boolean add(String s) {
+        added++;
+        return super.add(s);
+    }
+
+    @Override public boolean addAll(Collection<? extends String> c) {
+        added += c.size();
+        return super.addAll(c);
+    }
+}
+```
+
+```text
+addAll(a List) on an empty set:       6
+addAll(a TreeSet) on an empty set:    3
+then, on that set, addAll(2 more):    7
+```
+
+`super.addAll(c)` runs `TreeSet`'s code, but on this object, and the calls that code makes to
+`add` are ordinary virtual calls that reach `CountingSet.add`. For a `List`, `TreeSet.addAll`
+adds the elements one by one through `add`. For a sorted set with the same ordering, added to an
+empty set, it builds the tree directly and calls no `add` at all. Removing the `addAll` override
+("it calls `add` anyway") gives:
+
+```text
+addAll(a List) on an empty set:       3
+addAll(a TreeSet) on an empty set:    0
+```
+
+None of this is in `TreeSet`'s javadoc, so a later JDK may change which method calls which, and the counts change without a
+compile error. This is the fragile base class problem: a subclass that overrides a method its
+superclass calls on itself depends on the superclass's implementation, not its contract.
+
+Wrap the set and forward to it instead, so its internal calls never reach your code (unit 8.4.1
+develops this). Or, for a class you write to be extended, document which methods call which
+and make the rest `final`.
+
+<!-- practice 2 -->
+
+## An Override Can Widen Access but Not Narrow It, So a Subclass Can't Take a Method Away
+
+An escrow account must not be closed by hand, so its author tries to hide `close()`:
+
+```java
+public class Narrow {
+    public static class Account {
+        public void close() { System.out.println("closed"); }
+    }
+
+    public static class EscrowAccount extends Account {
+        @Override void close() { throw new UnsupportedOperationException(); }
+    }
+}
+```
+
+```text
+Narrow.java:7: error: close() in EscrowAccount cannot override close() in Account
+        @Override void close() { throw new UnsupportedOperationException(); }
+                       ^
+  attempting to assign weaker access privileges; was public
+1 error
+```
+
+A caller holding an `Account` compiled against a public `close()` and gets the escrow override at
+run time. Access is checked against the declared type, so a narrower override couldn't
+keep anyone out. Leaving out `@Override` changes nothing: the method still overrides, and the
+same error follows. Widening is allowed: `Object.clone()` is `protected`, `ArrayList.clone()` is
+`public`.
+
+That leaves an override that throws. It compiles, and the failure moves to run time: a loop that
+closes three accounts closes the first, throws at the escrow one, and never reaches the third.
+Code written against `Account` breaks: the Liskov principle, unit 8.1.3.
+
+## protected Reaches a Subclass in Another Package Only Through Its Own Type
+
+```java
+package bank;
+
+public class Account {
+    protected long balance;
+}
+```
+
+```java
+package premium;
+
+import bank.Account;
+
+public class PremiumAccount extends Account {
+    void absorb(PremiumAccount other) { balance += other.balance; }
+
+    void absorb(Account other) { balance += other.balance; }
+}
+```
+
+```text
+premium/PremiumAccount.java:8: error: balance has protected access in Account
+    void absorb(Account other) { balance += other.balance; }
+                                                 ^
+1 error
+```
+
+Outside `bank`, `PremiumAccount` may use `balance` only through references of type
+`PremiumAccount` or its subclasses. Otherwise any class could read any account's balance by
+declaring a subclass. Inside `bank`, every class reads `balance` freely: `protected` includes
+package access, so it exposes more than package-private does.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Fields are hidden, not overridden.** Code in the superclass reads its own field; vary a value
+  through an overridable method.
+- **`super.m()` runs the direct superclass's version.** A cast to a superclass still dispatches
+  to the override, and `super.super` doesn't exist.
+- **Code run through `super` calls your overrides.** A subclass that overrides a self-called
+  method depends on the superclass's implementation, and can break when it changes.
+- **Overrides can't narrow access.** A subclass can only refuse an inherited method at run time,
+  which breaks callers of the superclass.
+- **`protected` works across packages only through the subclass's own type**, and opens the
+  member to the whole package.
+
+## Reference
+
+| Expression | Dispatched on the object? | Reaches |
+|---|---|---|
+| `ref.field` | no | the field of `ref`'s declared type |
+| `ref.method()` | yes | the override in the object's class |
+| `((Base) this).method()` | yes | the override in the object's class |
+| `super.method()` | no | the direct superclass's version, own or inherited |
+
+| Member is | Same package | Subclass in another package | Other code |
+|---|---|---|---|
+| `public` | yes | yes | yes |
+| `protected` | yes | through its own type only | no |
+| package-private | yes | no, and not inherited | no |
+| `private` | no, and not inherited | no | no |
+
+## Challenges
+
+1. `AbstractCollection` documents that its `addAll` goes through `add`; `TreeSet` says nothing. Which
+   other JDK classes document their self-calls, and would you subclass one that doesn't?
+2. You maintain a library class that users already subclass, and you want `addAll` to stop calling
+   `add` for speed. How do you find out whom you would break, and what do you ship instead?
+3. A framework makes your entity extend its base class, and you need a count like the
+   dashboard's. Where does the counter go so a framework upgrade can't change it?
+
+## Design Note: Why Fields Don't Dispatch
+
+Java dispatches overridable instance methods and binds the rest without looking at the object:
+fields, static and private methods, `super` calls. A field read stays one instruction with no lookup, and a superclass's fields keep
+their meaning when a subclass adds one with the same name. The price is this page's opening bug.
+Keep fields `private` and expose behaviour through methods, which a subclass overrides on purpose.
 
 ## Code Examples
 

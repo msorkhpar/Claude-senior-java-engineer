@@ -1,12 +1,8 @@
-When the same Strings are compared again and again, normalise each one once, for example
-trimmed and lower-cased, and compare the normalised forms. A `HashSet` of normalised words
-then counts the different words for you.
+Each of the company's offices prints its staff list from one server. Readers complain: in London
+`bram` comes after `Mira`, in Paris `Élodie` comes after `Gustav`, and the Stockholm office says
+its list is in "German order". Last month a reorder also dropped three people from a list
+because their names matched a colleague's, or differed from it only in case or accents.
 
-Write `count(List<String> words)` in `Distinct`. It returns how many different words the
-list holds, where two words are the same when they differ only in case or in spaces around
-them:
-
-- `count(List.of("apple", "pear", "apple"))` is `2`;
-- `count(List.of("Apple", "APPLE", "apple"))` is `1`;
-- `count(List.of(" pear", "pear "))` is `1`;
-- `count(List.of())` is `0`.
+Finish `sortForDisplay(...)` in `src/main/java/practice/StaffDirectory.java`: every name, in the
+order a reader in the office's locale expects. The server's default locale is not the office's.
+About three lines in total.

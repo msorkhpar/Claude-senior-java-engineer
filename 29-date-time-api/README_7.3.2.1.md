@@ -1,276 +1,218 @@
 # 7.3.2.1. LocalDate, LocalTime, and LocalDateTime
 
-## Concept Explanation
+A customer's first loan instalment was due on 31 January 2026, and her contract says "the last
+day of each month". Her schedule asks for 28 February, 28 March, 28 April and 28 May. The code
+that built it adds one month to the previous due date. Nothing threw, and every date is valid.
 
-`LocalDate`, `LocalTime`, and `LocalDateTime` are the fundamental "local" temporal types in the `java.time` package. The word "local" means they carry no timezone information -- they represent a date, a time, or both as seen on a wall clock or calendar, without any reference to a specific location on Earth.
+`LocalDate` holds a date, `LocalTime` a time of day, `LocalDateTime` both. None of them holds a
+zone or an offset, and all three are immutable values (unit 7.3.2). Every output below comes from
+Java 21 (tzdata 2026b), run with `-Duser.timezone=UTC`; a second run with
+`-Duser.timezone=Asia/Tokyo` printed the same lines, because no example reads the default zone.
 
-**Real-world analogy**: Think of these as what you see on a physical desk calendar (`LocalDate`), a kitchen wall clock (`LocalTime`), or both combined in a paper planner (`LocalDateTime`). None of these physical objects know about timezones -- they just show numbers. The timezone context is implicit (wherever the calendar or clock is physically located).
+## A LocalDateTime Is a Wall-Clock Reading, and the Same One in Two Zones Is Two Moments
 
-- `LocalDate` stores year, month, and day (e.g., 2024-03-15).
-- `LocalTime` stores hour, minute, second, and nanosecond (e.g., 14:30:45.123456789).
-- `LocalDateTime` combines both into a single object (e.g., 2024-03-15T14:30:45).
-
-All three are immutable, thread-safe, and follow ISO-8601 conventions. They use the ISO chronology (Gregorian calendar).
-
-## Key Points to Remember
-
-1. **No timezone** -- these types are timezone-agnostic. `LocalDateTime` is NOT a replacement for `ZonedDateTime`.
-2. **Immutable** -- all modification methods return new instances.
-3. **1-based months** -- January = 1, December = 12 (unlike `Calendar`).
-4. **Value-based equality** -- `equals()` compares the actual date/time values.
-5. **Strict validation** -- `LocalDate.of(2024, 2, 30)` throws `DateTimeException`.
-6. **Nanosecond precision** -- `LocalTime` supports up to nanosecond resolution.
-7. **`LocalDate.datesUntil()`** -- Java 9+ method that returns a `Stream<LocalDate>` for date ranges.
-8. **`TemporalAdjusters`** -- utility for complex calendar operations like "next Monday" or "last day of month".
-
-## Relevant Java 21 Features
-
-- `LocalDate.datesUntil()` (Java 9+) integrates with streams for date range processing.
-- Pattern matching for `switch` can be used with temporal types when combined with accessor methods.
-- Records work naturally with `LocalDate` fields for DTOs: `record Event(String name, LocalDate date) {}`.
-- Virtual threads benefit from immutability -- no synchronization needed when sharing dates across virtual threads.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using `LocalDateTime` for timestamps**:
-   ```java
-   // Problem: No timezone context -- ambiguous for distributed systems
-   LocalDateTime eventTime = LocalDateTime.now();
-
-   // Fix: Use Instant for timestamps, ZonedDateTime for user-facing times
-   Instant eventTime = Instant.now();
-   ```
-
-2. **Forgetting immutability**:
-   ```java
-   // Problem: Ignoring the return value
-   LocalDate date = LocalDate.of(2024, 3, 15);
-   date.plusDays(1); // Return value discarded! date is unchanged
-
-   // Fix: Assign the result
-   LocalDate nextDay = date.plusDays(1);
-   ```
-
-3. **Month-end arithmetic surprises**:
-   ```java
-   // Adding months to the 31st
-   LocalDate jan31 = LocalDate.of(2024, 1, 31);
-   LocalDate feb = jan31.plusMonths(1); // 2024-02-29 (not March 2!)
-   LocalDate mar = feb.plusMonths(1);   // 2024-03-29 (not March 31!)
-   // Round-tripping through plusMonths may change the day
-   ```
-
-4. **Comparing with `==` instead of `equals()`**:
-   ```java
-   // Problem: Reference comparison
-   LocalDate a = LocalDate.of(2024, 3, 15);
-   LocalDate b = LocalDate.of(2024, 3, 15);
-   a == b; // May be false (no caching guarantee)
-
-   // Fix: Use equals() or compareTo()
-   a.equals(b); // true
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use `LocalDate` for business logic that doesn't need time** (birthdays, holidays, deadlines).
-2. **Use `TemporalAdjusters`** for complex calendar calculations rather than manual arithmetic.
-3. **Use `LocalDate.datesUntil()`** for iterating over date ranges instead of manual loops.
-4. **Inject `Clock`** for testability instead of calling `LocalDate.now()` directly.
-5. **Use `DayOfWeek` and `Month` enums** instead of magic numbers for readable code.
-
-## Edge Cases and Their Handling
-
-1. **Leap year handling**: `LocalDate.of(2024, 2, 29)` is valid; `LocalDate.of(2023, 2, 29)` throws `DateTimeException`.
-2. **End-of-month clamping**: `LocalDate.of(2024, 3, 31).plusMonths(1)` returns April 30 (clamped).
-3. **Midnight boundary**: `LocalTime.MIDNIGHT` is `00:00:00`; `LocalTime.MAX` is `23:59:59.999999999`.
-4. **Overflow in business day calculation**: weekends-only ranges yield zero business days.
-5. **Year zero**: `LocalDate` supports year 0 (1 BC in the proleptic Gregorian calendar).
-
-## Interview-specific Insights
-
-Interviewers focus on:
-- Understanding the difference between `LocalDateTime` and `ZonedDateTime`
-- Knowledge of immutability and its benefits
-- Ability to use `TemporalAdjusters` for complex calculations
-- Edge cases around month-end arithmetic and leap years
-- Choosing the right type for a given scenario
-
-## Interview Q&A Section
-
-**Q1: When should you use `LocalDate` vs `LocalDateTime` vs `ZonedDateTime`?**
-
-```text
-A1: Choose based on the semantic meaning of your data:
-
-LocalDate: Use when only the date matters, with no time component.
-Examples: birthdays, public holidays, invoice dates, subscription expiry dates.
-
-LocalDateTime: Use when you need both date and time but the timezone is implicit 
-(all parties are in the same timezone or timezone is irrelevant).
-Examples: local event schedules, appointment times within a single timezone.
-
-ZonedDateTime: Use when timezone context is essential for correctness.
-Examples: international meeting scheduling, flight departure times, converting 
-between user timezones.
-
-Key rule: If your application serves users in multiple timezones or stores data 
-in a distributed system, you almost certainly need Instant (for storage) and 
-ZonedDateTime (for display). LocalDateTime is only appropriate when timezone 
-is truly irrelevant or universally agreed upon.
-```
+A reminders table stores `2026-03-27T09:00` in a `LocalDateTime` column. A job turns it into a
+moment with the zone of the server it runs on:
 
 ```java
-// Birthday -- only date matters
-LocalDate birthday = LocalDate.of(1990, Month.JUNE, 15);
-
-// Doctor appointment -- timezone is implicit (local clinic)
-LocalDateTime appointment = LocalDateTime.of(2024, 3, 15, 14, 30);
-
-// International meeting -- timezone is critical
-ZonedDateTime meeting = ZonedDateTime.of(2024, 3, 15, 14, 30, 0, 0,
-        ZoneId.of("America/New_York"));
-```
-
-**Q2: How does month-end arithmetic work in java.time?**
-
-```text
-A2: When adding months to a date, if the resulting month has fewer days than the 
-original day-of-month, java.time clamps the day to the last valid day of the 
-resulting month. This is called "smart resolution" or "day-of-month clamping."
-
-Examples:
-- January 31 + 1 month = February 29 (leap year) or February 28 (non-leap)
-- March 31 - 1 month = February 29 or 28
-- January 31 + 1 month + 1 month ≠ January 31 + 2 months (potentially)
-
-This means month arithmetic is NOT always reversible:
-date.plusMonths(1).minusMonths(1) may not equal date.
-
-This is by design -- it preserves the invariant that the result is always a 
-valid date, at the cost of mathematical reversibility.
-```
-
-```java
-LocalDate jan31 = LocalDate.of(2024, 1, 31);
-
-// Clamping in action
-LocalDate feb = jan31.plusMonths(1);  // 2024-02-29 (leap year)
-LocalDate mar = feb.plusMonths(1);    // 2024-03-29 (not 31!)
-
-// Not reversible
-LocalDate backToJan = mar.minusMonths(2); // 2024-01-29 (not 31!)
-
-// Direct 2-month addition gives a different result
-LocalDate twoMonths = jan31.plusMonths(2); // 2024-03-31
-```
-
-**Q3: How do you calculate business days between two dates?**
-
-```text
-A3: java.time doesn't have built-in business day support, but you can easily 
-implement it using LocalDate.datesUntil() combined with stream filtering:
-
-1. Generate a stream of dates in the range
-2. Filter out weekends (Saturday and Sunday)
-3. Optionally filter out holidays from a holiday calendar
-4. Count the remaining dates
-
-For adding business days, iterate forward, skipping weekends and holidays.
-```
-
-```java
-// Count business days between two dates
-public long countBusinessDays(LocalDate start, LocalDate end) {
-    return start.datesUntil(end)
-            .filter(d -> d.getDayOfWeek() != DayOfWeek.SATURDAY
-                    && d.getDayOfWeek() != DayOfWeek.SUNDAY)
-            .count();
+LocalDateTime call = LocalDateTime.of(2026, 3, 27, 9, 0);   // the column holds this
+for (String zone : List.of("Europe/Amsterdam", "America/New_York")) {
+    System.out.println(call + " in " + zone + " = " + call.atZone(ZoneId.of(zone)).toInstant());
 }
+try {
+    Instant.from(call);
+} catch (DateTimeException e) {
+    System.out.println(e.getMessage());
+}
+```
 
-// Add N business days to a date
-public LocalDate addBusinessDays(LocalDate start, int days) {
-    LocalDate result = start;
-    int added = 0;
-    while (added < days) {
-        result = result.plusDays(1);
-        if (result.getDayOfWeek() != DayOfWeek.SATURDAY
-                && result.getDayOfWeek() != DayOfWeek.SUNDAY) {
-            added++;
-        }
+```text
+2026-03-27T09:00 in Europe/Amsterdam = 2026-03-27T08:00:00Z
+2026-03-27T09:00 in America/New_York = 2026-03-27T13:00:00Z
+Unable to obtain Instant from TemporalAccessor: 2026-03-27T09:00 of type java.time.LocalDateTime
+```
+
+The two cities' clocks show 09:00 at different moments, here five hours apart, not the usual
+six, because New York had moved its clocks on 8 March and Amsterdam would only on 29 March
+(unit 7.3.2.5). `Instant.from` refuses because
+the value doesn't say which clock it was read from.
+
+Moving the job from the Amsterdam server to a New York one makes every reminder fire five or six
+hours late, and no row changes. Store a moment as an `Instant` (unit 7.3.2.2). Keep a
+`LocalDateTime` for what is meant as a local reading, such as opening hours or an appointment,
+and keep the zone beside it.
+
+## plusMonths Clamps to a Shorter Month's Last Day, So Step From the First Date
+
+The loan schedule, built both ways:
+
+```java
+LocalDate first = LocalDate.of(2026, 1, 31);
+LocalDate chained = first;
+for (int n = 1; n <= 4; n++) {
+    chained = chained.plusMonths(1);                       // from the previous due date
+    System.out.println(n + ": chained " + chained + ", from the first " + first.plusMonths(n));
+}
+System.out.println("plus one month, minus one month: " + first.plusMonths(1).minusMonths(1));
+```
+
+```text
+1: chained 2026-02-28, from the first 2026-02-28
+2: chained 2026-03-28, from the first 2026-03-31
+3: chained 2026-04-28, from the first 2026-04-30
+4: chained 2026-05-28, from the first 2026-05-31
+plus one month, minus one month: 2026-01-28
+```
+
+`plusMonths` changes the month and keeps the day if the new month has it. February 2026 has no
+31st, so the result is clamped to the 28th. Nothing in a `LocalDate` records the 31st, so every
+later step starts from the 28th, and adding a month then subtracting it gives 28 January.
+
+`first.plusMonths(n)` clamps only the month that needs it. Compute each date of a series from
+its first date and its index, never from the previous result. Chained, this customer pays up to
+three days early every month.
+
+## The Last Day of a Month Comes From an Adjuster, Not a Day Number
+
+A second customer's first instalment is due on 28 February 2026, also "the last day of each
+month". Stepping from the first date gives the 28th every month. Compare an adjuster and a fixed
+day number:
+
+```java
+LocalDate first = LocalDate.of(2026, 2, 28);                // the last day of February
+for (int n = 1; n <= 3; n++) {
+    System.out.println(n + ": plusMonths " + first.plusMonths(n)
+            + ", lastDayOfMonth " + first.plusMonths(n).with(TemporalAdjusters.lastDayOfMonth()));
+}
+try {
+    first.plusMonths(2).withDayOfMonth(31);
+} catch (DateTimeException e) {
+    System.out.println("withDayOfMonth(31): " + e.getMessage());
+}
+```
+
+```text
+1: plusMonths 2026-03-28, lastDayOfMonth 2026-03-31
+2: plusMonths 2026-04-28, lastDayOfMonth 2026-04-30
+3: plusMonths 2026-05-28, lastDayOfMonth 2026-05-31
+withDayOfMonth(31): Invalid date 'APRIL 31'
+```
+
+`withDayOfMonth` sets a field and checks the result: April has no 31st, so it throws
+`DateTimeException`, and a schedule job that reaches April stops.
+`TemporalAdjusters.lastDayOfMonth()`, applied with `with(...)`, uses the month's length instead
+of a day number.
+
+A contract is end-of-month when its first date is its month's last day:
+`date.getDayOfMonth() == date.lengthOfMonth()`. A test for day 31 misses the end of every
+30-day month and of February.
+
+<!-- practice 1 -->
+
+## LocalDate.parse and LocalDate.of Refuse Dates That Don't Exist
+
+A partner sends due dates as text. Five lines of its file:
+
+```java
+for (String text : List.of("2026-02-28", "2026-02-29", "2026-04-31", "2026-2-5", "2026-02-28 ")) {
+    try {
+        System.out.println("\"" + text + "\" -> " + LocalDate.parse(text));
+    } catch (DateTimeParseException e) {
+        System.out.println("\"" + text + "\" -> " + e.getMessage());
     }
-    return result;
 }
 ```
 
-**Q4: What are `TemporalAdjusters` and when should you use them?**
-
 ```text
-A4: TemporalAdjusters is a utility class that provides predefined adjusters for 
-common calendar operations. They implement the TemporalAdjuster interface and can 
-be used with the with() method on any temporal type.
-
-Common adjusters:
-- firstDayOfMonth(), lastDayOfMonth()
-- firstDayOfNextMonth(), firstDayOfYear()
-- next(DayOfWeek), previous(DayOfWeek)
-- nextOrSame(DayOfWeek), previousOrSame(DayOfWeek)
-- dayOfWeekInMonth(ordinal, dayOfWeek) -- e.g., third Friday
-
-You can also create custom adjusters for domain-specific logic like 
-"next business day" or "next settlement date."
+"2026-02-28" -> 2026-02-28
+"2026-02-29" -> Text '2026-02-29' could not be parsed: Invalid date 'February 29' as '2026' is not a leap year
+"2026-04-31" -> Text '2026-04-31' could not be parsed: Invalid date 'APRIL 31'
+"2026-2-5" -> Text '2026-2-5' could not be parsed at index 5
+"2026-02-28 " -> Text '2026-02-28 ' could not be parsed, unparsed text found at index 10
 ```
+
+`LocalDate.parse(text)` uses `DateTimeFormatter.ISO_LOCAL_DATE` with its strict resolver: two
+digits for month and day, nothing after, and no date the calendar doesn't have.
+`LocalDate.of(2026, 2, 29)` throws `DateTimeException` for the same reason. Where
+`SimpleDateFormat` turned 30 February into 2 March (unit 7.3.1), the import now stops at the line
+with `DateTimeParseException`. The other two refusals are about format: trim the text, or read
+`2026-2-5` with a pattern of your own (unit 7.3.2.4). A pattern from `ofPattern` resolves
+smartly, not strictly: `uuuu-M-d` reads `2026-4-31` as 30 April. Add
+`withResolverStyle(ResolverStyle.STRICT)`, and keep `uuuu`, since strict `yyyy` refuses even
+`2026-2-5`.
+
+## datesUntil Leaves Out Its End Date
+
+The March report collects the payments of every day from 1 to 31 March:
 
 ```java
-LocalDate date = LocalDate.of(2024, 3, 15);
-
-// Built-in adjusters
-LocalDate lastDay = date.with(TemporalAdjusters.lastDayOfMonth());     // 2024-03-31
-LocalDate nextMon = date.with(TemporalAdjusters.next(DayOfWeek.MONDAY)); // 2024-03-18
-LocalDate thirdFri = date.with(
-        TemporalAdjusters.dayOfWeekInMonth(3, DayOfWeek.FRIDAY));       // 2024-03-15
-
-// Custom adjuster: next business day
-TemporalAdjuster nextBusinessDay = temporal -> {
-    LocalDate d = LocalDate.from(temporal);
-    do {
-        d = d.plusDays(1);
-    } while (d.getDayOfWeek() == DayOfWeek.SATURDAY
-            || d.getDayOfWeek() == DayOfWeek.SUNDAY);
-    return d;
-};
-LocalDate nextBiz = date.with(nextBusinessDay); // 2024-03-18 (Monday)
+LocalDate from = LocalDate.of(2026, 3, 1);
+LocalDate to = LocalDate.of(2026, 3, 31);
+List<LocalDate> days = from.datesUntil(to).toList();
+System.out.println("datesUntil(to): " + days.size() + " days, last " + days.get(days.size() - 1));
+List<LocalDate> all = from.datesUntil(to.plusDays(1)).toList();
+System.out.println("datesUntil(to.plusDays(1)): " + all.size() + " days, last " + all.get(all.size() - 1));
 ```
-
-**Q5: How do you get the quarter of a year from a `LocalDate`?**
 
 ```text
-A5: Java does not have a built-in getQuarter() method on LocalDate, but there 
-are several ways to calculate it:
-
-1. Simple arithmetic: (month - 1) / 3 + 1
-2. Using IsoFields: date.get(IsoFields.QUARTER_OF_YEAR)
-3. Related, but not the quarter number: date.getMonth().firstMonthOfQuarter()
-   returns the first Month of the quarter (e.g., JULY for August)
-
-The IsoFields approach is the most "official" and handles edge cases correctly.
+datesUntil(to): 30 days, last 2026-03-30
+datesUntil(to.plusDays(1)): 31 days, last 2026-03-31
 ```
 
-```java
-LocalDate date = LocalDate.of(2024, 8, 15);
+`datesUntil(end)` excludes `end`, like `subList` or `IntStream.range`, so the report missed the
+31st's payments. For a period given by its first and last day, pass `last.plusDays(1)`. A hotel
+stay already ends on an exclusive date, the check-out day, whose night isn't charged; adding a
+day there bills one night too many.
 
-// Method 1: Arithmetic
-int quarter1 = (date.getMonthValue() - 1) / 3 + 1; // 3
+<!-- practice 2 -->
 
-// Method 2: IsoFields (preferred)
-int quarter2 = date.get(java.time.temporal.IsoFields.QUARTER_OF_YEAR); // 3
+## Summary
 
-// Verification for all quarters
-// Q1: Jan, Feb, Mar (months 1-3)
-// Q2: Apr, May, Jun (months 4-6)
-// Q3: Jul, Aug, Sep (months 7-9)
-// Q4: Oct, Nov, Dec (months 10-12)
-```
+- **A `LocalDateTime` is a wall-clock reading, not a moment.** Turning it into one needs a zone,
+  and two zones give two instants.
+- **`plusMonths` clamps to the last day of a shorter month.** Chained steps drift and don't
+  reverse; compute each date from the first one.
+- **"The last day of the month" is `TemporalAdjusters.lastDayOfMonth()`.** `withDayOfMonth(31)`
+  throws in a 30-day month.
+- **`LocalDate.parse(text)` and `LocalDate.of` refuse impossible dates.** A pattern of your own
+  needs the strict resolver to do the same.
+- **`datesUntil` excludes its end.** An inclusive period needs `last.plusDays(1)`.
+
+## Reference
+
+All from the run in this unit (Java 21):
+
+| Expression | Result |
+|---|---|
+| `LocalTime.of(23, 30).plusHours(2)` | `01:30` (wraps, no date to carry into) |
+| `LocalDateTime.of(2026, 3, 31, 23, 30).plusHours(2)` | `2026-04-01T01:30` |
+| `LocalDate.of(2026, 3, 31).minusMonths(1)` | `2026-02-28` |
+| `LocalDate.of(2028, 2, 29).plusYears(1)` | `2029-02-28` |
+| `YearMonth.of(2028, 2).atEndOfMonth()` | `2028-02-29` |
+| `LocalDate.of(2026, 1, 31).datesUntil(LocalDate.of(2026, 5, 1), Period.ofMonths(1))` | `2026-01-31, 2026-02-28, 2026-03-31, 2026-04-30` (each step from the start) |
+| `LocalDate.of(2026, 3, 15).with(TemporalAdjusters.lastInMonth(DayOfWeek.FRIDAY))` | `2026-03-27` |
+| `LocalTime.parse("24:00")` | `DateTimeParseException` (hour 0–23; `LocalTime.MAX` is `23:59:59.999999999`) |
+| `LocalDateTime.parse("2026-03-27T09:00Z")` | `DateTimeParseException`, unparsed text at index 16 |
+
+## Challenges
+
+1. A rent contract starts on 30 January. Should the March rent be due on the 28th, the 30th or
+   the 31st? Write down the rule your schedule follows and the test that pins it.
+2. A table has a `LocalDateTime` column written by servers in three zones for five years. What
+   would you need to know to turn it into instants, and which rows can't be recovered?
+3. A shop is open from 22:00 to 02:00. Which types hold the opening hours, and how do you decide
+   whether a given moment falls inside them?
+
+## Design Note: Why plusMonths Clamps Instead of Failing
+
+`plusMonths` could have thrown on 31 January plus one month, as `withDayOfMonth(31)` does in
+April. The JDK chose the month's last valid day, as its javadoc says. That suits the common
+case, where "a month later" means "the same day if it exists, otherwise the month's end", and no
+caller has to handle an exception for February.
+
+A clamped date doesn't record that it was clamped, so month steps don't add up or reverse, and
+the bug is a valid, wrong date rather than an exception. A series must keep its first date and
+its own end-of-month rule, since a `LocalDate` holds neither.
 
 ## Code Examples
 

@@ -1,33 +1,13 @@
-The page's pitfall is an area calculation that switches on a type name, so **every new
-shape means editing it**:
+The shipping service prints a manifest for every van that leaves the depot: what the postage
+comes to and when the last parcel arrives. Today it carries `Letter`s and `Box`es. Next quarter
+the freight team adds crates and the courier team adds next-day envelopes, each in its own
+module, and they won't be editing your code to do it.
 
-```java
-double calculateArea(String type, double... dims) {
-    return switch (type) {
-        case "circle" -> Math.PI * dims[0] * dims[0];
-        case "rect" -> dims[0] * dims[1];
-        default -> throw new IllegalArgumentException("Unknown: " + type);
-    };
-}
-```
+Finish the two `TODO`s in `Manifest`, in `src/main/java/practice/Shipping.java`:
 
-Make it open for extension and closed for modification. In `Areas`:
+- `totalCents(...)`: every parcel's base postage, plus 2 % of the declared value of each insured
+  parcel, rounded up to the next cent;
+- `deliveredBy(...)`: the day the last parcel is delivered when they all leave on the given day.
 
-- `Shape` is the extension point: `area()` and `name()`.
-- `Circle(radius)`, `Rectangle(width, height)` and `Triangle(base, height)` are records
-  that compute their own area (`Math.PI * r * r`, `w * h`, `0.5 * b * h`) and name
-  themselves `"Circle"`, `"Rectangle"` and `"Triangle"`.
-- `AreaCalculator.totalArea(shapes)` adds up the areas, and `areaByType(shapes)` sums them
-  per `name()`. It must work, **unchanged**, for a `Shape` written after it, such as the
-  page's `Triangle` was.
-
-The page's edge cases hold: no shapes total `0.0` (and an empty map), a zero-sized shape
-is valid with area `0`, and a negative dimension is rejected with
-`IllegalArgumentException` when the shape is created (`NaN` is not among the inputs). The tests
-grade that a new shape needs no change to the calculator; how the calculator reaches the built-in
-shapes' areas is the page's lesson, not graded beyond that.
-
-For example, `Circle(1)`, `Rectangle(2, 3)` and `Triangle(4, 5)` total `PI + 16`, and
-a new shape written later, a `Square(3)` that names itself `"Box"`, next to
-`Rectangle(2, 3)` totals `15` and groups under `"Box"`. Every dimension of a shape is
-checked, not only the first.
+When you're done, the manifest prices and dates a parcel kind written after it, by any team,
+without a change to `Manifest`. The tests bring kinds of their own. About eight lines in total.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A virtual proxy that loads the image once, on first real use",
+  "title": "Let a metered fare listener be unsubscribed",
   "blocks": [
     {
       "type": "heading",
@@ -19,56 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's virtual proxy stands in for an expensive `RealImageService` and creates it only when it is really needed. The client sees the same `ImageService` interface either way. Its pitfalls section adds a warning: a lazy `if (service == null)` check is a race when threads share the proxy."
+      "text": "The fare service wraps every fare listener in a metered proxy before subscribing it, so the dashboard can show how often each listener is called. Since metering went in, two things are wrong. Closing a price-alert screen calls `unsubscribe` with the same reference that subscribed, and the screen's listener keeps being told about fares. And the dashboard shows `toString`, `equals` and `hashCode` calls next to `fareChanged`."
     },
     {
       "type": "para",
-      "text": "Given: `ImageService` (`display()`, `getFilename()`, `getSize()`). Write `VirtualImageProxy implements ImageService`. The constructor takes the filename and a `loader` (`Function<String, ImageService>`) that builds the real image, so the tests can count loads."
+      "text": "`Metering.metered(...)` already counts calls and passes them to the listener. Finish the two `TODO`s in `src/main/java/practice/Metering.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "The constructor loads nothing, but **a blank filename is refused in the constructor** with `IllegalArgumentException`.",
-        "**`getFilename` does not load the image**: the proxy already knows it.",
-        "`display()` and `getSize()` load the image on first use and delegate to it. **The image is loaded once and reused**, and even when **racing first calls** come from two threads, **they load the image once**.",
-        "`isLoaded()` says whether the real image exists yet."
+        "`isObjectMethod(...)`: which calls the proxy answers itself instead of counting and passing on;",
+        "`objectMethod(...)`: what it answers."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "loads",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`new VirtualImageProxy(\"photo.png\", loader)`",
-          "0",
-          "a proxy"
-        ],
-        [
-          "then `getFilename()`",
-          "0",
-          "`\"photo.png\"`"
-        ],
-        [
-          "then `display()`",
-          "1",
-          "`\"Displaying image: photo.png\"`"
-        ],
-        [
-          "then `getSize()`, `display()`",
-          "still 1",
-          "the real image's answers"
-        ],
-        [
-          "`new VirtualImageProxy(\"  \", loader)`",
-          "0",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a metered listener can be unsubscribed with the reference that subscribed it, a log line that prints it names the listener it meters, and the counts hold only calls made through the `FareListener` interface. About six lines in total."
     },
     {
       "type": "heading",
@@ -83,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Function;\n\npublic final class Images {\n\n    private Images() {\n    }\n\n    public interface ImageService {\n        String display();\n\n        String getFilename();\n\n        long getSize();\n    }\n\n    public static final class VirtualImageProxy implements ImageService {\n\n        private final String filename;\n        private final Function<String, ImageService> loader;\n        private volatile ImageService real;\n\n        public VirtualImageProxy(String filename, Function<String, ImageService> loader) {\n            this.filename = Objects.requireNonNull(filename, \"filename must not be null\");\n            if (filename.isBlank()) {\n                throw new IllegalArgumentException(\"filename must not be blank\");\n            }\n            this.loader = Objects.requireNonNull(loader, \"loader must not be null\");\n        }\n\n        private ImageService real() {\n            ImageService result = real;\n            if (result == null) {\n                synchronized (this) {\n                    result = real;\n                    if (result == null) {\n                        result = loader.apply(filename);\n                        real = result;\n                    }\n                }\n            }\n            return result;\n        }\n\n        /** Whether the real image has been created yet. */\n        public boolean isLoaded() {\n            return real != null;\n        }\n\n        @Override\n        public String display() {\n            return real().display();\n        }\n\n        @Override\n        public String getFilename() {\n            return filename;\n        }\n\n        @Override\n        public long getSize() {\n            return real().getSize();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.lang.reflect.Proxy;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Counts the calls made on any interface, per method name, for the fare service's dashboard.\n * The service wraps every fare listener in a metered proxy before it subscribes it.\n */\npublic final class Metering {\n\n    private Metering() {\n    }\n\n    /** Told whenever the price of a route changes. */\n    public interface FareListener {\n        void fareChanged(String route, long cents);\n    }\n\n    /** The service's subscriber list. */\n    public static final class FareBoard {\n        private final List<FareListener> listeners = new ArrayList<>();\n\n        public void subscribe(FareListener listener) {\n            listeners.add(listener);\n        }\n\n        public boolean unsubscribe(FareListener listener) {\n            return listeners.remove(listener);\n        }\n\n        public void publish(String route, long cents) {\n            for (FareListener listener : List.copyOf(listeners)) listener.fareChanged(route, cents);\n        }\n    }\n\n    /** Returns a proxy of {@code type} that counts each call into {@code counts} and passes it to {@code target}. */\n    public static <T> T metered(T target, Class<T> type, Map<String, Integer> counts) {\n        InvocationHandler handler = (proxy, method, args) -> {\n            if (isObjectMethod(method)) return objectMethod(proxy, method, args, target);\n            counts.merge(method.getName(), 1, Integer::sum);\n            try {\n                return method.invoke(target, args);\n            } catch (InvocationTargetException e) {\n                throw e.getCause();\n            }\n        };\n        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler));\n    }\n\n    /** Whether the proxy should answer this call itself instead of counting it and passing it on. */\n    static boolean isObjectMethod(Method method) {\n        return method.getDeclaringClass() == Object.class;\n    }\n\n    /** The proxy's own answer to a call that isObjectMethod picked out. */\n    static Object objectMethod(Object proxy, Method method, Object[] args, Object target) {\n        return switch (method.getName()) {\n            case \"equals\" -> proxy == args[0];\n            case \"hashCode\" -> System.identityHashCode(proxy);\n            default -> \"metered \" + target;\n        };\n    }\n}\n"
         }
       ]
     },
@@ -95,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.Function;\n\npublic final class Images {\n\n    private Images() {\n    }\n\n    public interface ImageService {\n        String display();\n\n        String getFilename();\n\n        long getSize();\n    }\n\n    public static final class VirtualImageProxy implements ImageService {\n\n        public VirtualImageProxy(String filename, Function<String, ImageService> loader) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        /** Whether the real image has been created yet. */\n        public boolean isLoaded() {\n            throw new UnsupportedOperationException(\"write isLoaded\");\n        }\n\n        @Override\n        public String display() {\n            throw new UnsupportedOperationException(\"write display\");\n        }\n\n        @Override\n        public String getFilename() {\n            throw new UnsupportedOperationException(\"write getFilename\");\n        }\n\n        @Override\n        public long getSize() {\n            throw new UnsupportedOperationException(\"write getSize\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.lang.reflect.Proxy;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Counts the calls made on any interface, per method name, for the fare service's dashboard.\n * The service wraps every fare listener in a metered proxy before it subscribes it.\n */\npublic final class Metering {\n\n    private Metering() {\n    }\n\n    /** Told whenever the price of a route changes. */\n    public interface FareListener {\n        void fareChanged(String route, long cents);\n    }\n\n    /** The service's subscriber list. */\n    public static final class FareBoard {\n        private final List<FareListener> listeners = new ArrayList<>();\n\n        public void subscribe(FareListener listener) {\n            listeners.add(listener);\n        }\n\n        public boolean unsubscribe(FareListener listener) {\n            return listeners.remove(listener);\n        }\n\n        public void publish(String route, long cents) {\n            for (FareListener listener : List.copyOf(listeners)) listener.fareChanged(route, cents);\n        }\n    }\n\n    /** Returns a proxy of {@code type} that counts each call into {@code counts} and passes it to {@code target}. */\n    public static <T> T metered(T target, Class<T> type, Map<String, Integer> counts) {\n        InvocationHandler handler = (proxy, method, args) -> {\n            if (isObjectMethod(method)) return objectMethod(proxy, method, args, target);\n            counts.merge(method.getName(), 1, Integer::sum);\n            try {\n                return method.invoke(target, args);\n            } catch (InvocationTargetException e) {\n                throw e.getCause();\n            }\n        };\n        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler));\n    }\n\n    /** Whether the proxy should answer this call itself instead of counting it and passing it on. */\n    static boolean isObjectMethod(Method method) {\n        // TODO: Some calls reach this handler that no caller of the interface made: a log line\n        //       printing the listener, a list looking for it. Pick out the ones the proxy should\n        //       answer itself, so the dashboard counts only fare calls.\n        throw new IllegalStateException(\"TODO: isObjectMethod\");\n    }\n\n    /** The proxy's own answer to a call that isObjectMethod picked out. */\n    static Object objectMethod(Object proxy, Method method, Object[] args, Object target) {\n        // TODO: Answer those calls so that a metered listener can be unsubscribed with the same\n        //       reference that subscribed it, and so that a log line printing it shows which\n        //       listener it meters.\n        throw new IllegalStateException(\"TODO: objectMethod\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -103,9 +70,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -114,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e0b771b34bccd33baf522e259315304ab5476b9e003bc55662254c7489d92015",
-  "starting_code": "package practice;\n\nimport java.util.function.Function;\n\npublic final class Images {\n\n    private Images() {\n    }\n\n    public interface ImageService {\n        String display();\n\n        String getFilename();\n\n        long getSize();\n    }\n\n    public static final class VirtualImageProxy implements ImageService {\n\n        public VirtualImageProxy(String filename, Function<String, ImageService> loader) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        /** Whether the real image has been created yet. */\n        public boolean isLoaded() {\n            throw new UnsupportedOperationException(\"write isLoaded\");\n        }\n\n        @Override\n        public String display() {\n            throw new UnsupportedOperationException(\"write display\");\n        }\n\n        @Override\n        public String getFilename() {\n            throw new UnsupportedOperationException(\"write getFilename\");\n        }\n\n        @Override\n        public long getSize() {\n            throw new UnsupportedOperationException(\"write getSize\");\n        }\n    }\n}\n",
+  "content_sha256": "a8186a229c72bc3013397a7056fa645d71ab3cd59bde6f80c47a848c9c719184",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.lang.reflect.Proxy;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Counts the calls made on any interface, per method name, for the fare service's dashboard.\n * The service wraps every fare listener in a metered proxy before it subscribes it.\n */\npublic final class Metering {\n\n    private Metering() {\n    }\n\n    /** Told whenever the price of a route changes. */\n    public interface FareListener {\n        void fareChanged(String route, long cents);\n    }\n\n    /** The service's subscriber list. */\n    public static final class FareBoard {\n        private final List<FareListener> listeners = new ArrayList<>();\n\n        public void subscribe(FareListener listener) {\n            listeners.add(listener);\n        }\n\n        public boolean unsubscribe(FareListener listener) {\n            return listeners.remove(listener);\n        }\n\n        public void publish(String route, long cents) {\n            for (FareListener listener : List.copyOf(listeners)) listener.fareChanged(route, cents);\n        }\n    }\n\n    /** Returns a proxy of {@code type} that counts each call into {@code counts} and passes it to {@code target}. */\n    public static <T> T metered(T target, Class<T> type, Map<String, Integer> counts) {\n        InvocationHandler handler = (proxy, method, args) -> {\n            if (isObjectMethod(method)) return objectMethod(proxy, method, args, target);\n            counts.merge(method.getName(), 1, Integer::sum);\n            try {\n                return method.invoke(target, args);\n            } catch (InvocationTargetException e) {\n                throw e.getCause();\n            }\n        };\n        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler));\n    }\n\n    /** Whether the proxy should answer this call itself instead of counting it and passing it on. */\n    static boolean isObjectMethod(Method method) {\n        // TODO: Some calls reach this handler that no caller of the interface made: a log line\n        //       printing the listener, a list looking for it. Pick out the ones the proxy should\n        //       answer itself, so the dashboard counts only fare calls.\n        throw new IllegalStateException(\"TODO: isObjectMethod\");\n    }\n\n    /** The proxy's own answer to a call that isObjectMethod picked out. */\n    static Object objectMethod(Object proxy, Method method, Object[] args, Object target) {\n        // TODO: Answer those calls so that a metered listener can be unsubscribed with the same\n        //       reference that subscribed it, and so that a log line printing it shows which\n        //       listener it meters.\n        throw new IllegalStateException(\"TODO: objectMethod\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-1/src/main/java/practice/Images.java",
-    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-1/src/test/java/practice/ImagesTest.java",
+    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-1/src/main/java/practice/Metering.java",
+    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-1/src/test/java/practice/MeteringTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -139,29 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ImagesTest#loadsOnFirstDisplayAndDelegates",
+        "id": "practice.MeteringTest#passesEveryFareChangeOnAndCountsIt",
         "kind": "main",
-        "says": "Creating the proxy loads nothing; display() loads the real image and returns its answer, and isLoaded() then says true."
+        "says": "each fare change reaches the listener through the proxy and is counted under its method name"
       },
       {
-        "id": "practice.ImagesTest#theFilenameNeedsNoLoad",
+        "id": "practice.MeteringTest#anUnsubscribedListenerHearsNoMoreFares",
         "kind": "edge",
-        "says": "getFilename() answers from the proxy without loading the image."
+        "says": "unsubscribing the metered listener with the reference that subscribed it removes it, so it hears no later fares"
       },
       {
-        "id": "practice.ImagesTest#theImageIsLoadedOnce",
+        "id": "practice.MeteringTest#aLogLineShowsWhichListenerIsMetered",
         "kind": "edge",
-        "says": "display(), getSize() and display() again load the image once and reuse it."
+        "says": "printing the metered listener names the listener it wraps, and returns"
       },
       {
-        "id": "practice.ImagesTest#racingFirstCallsLoadOnce",
+        "id": "practice.MeteringTest#onlyFareCallsAreCounted",
         "kind": "edge",
-        "says": "When a second thread calls display() while the first is still loading, the loader still runs once and both get the same answer."
-      },
-      {
-        "id": "practice.ImagesTest#aBlankFilenameIsRefusedAtOnce",
-        "kind": "edge",
-        "says": "new VirtualImageProxy(\"  \", loader) throws IllegalArgumentException in the constructor, before any load."
+        "says": "subscribing, printing, hashing and unsubscribing the proxy add nothing to the counts"
       }
     ],
     "report": {
@@ -170,12 +132,11 @@
     },
     "origin": {
       "path": "37-structural-patterns/README_9.2.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "equals, hashCode and toString Reach the Handler Too, So the Handler Decides the Proxy's Identity"
     },
     "concepts": [
-      "A proxy implements the same interface as the real subject, so the client cannot tell the two apart.",
-      "A virtual proxy shared between threads must make its lazy creation thread-safe, for example with double-checked locking on a volatile field.",
-      "A virtual proxy creates the expensive real subject only on first real use, answers what it already knows itself, and reuses the subject afterwards."
+      "equals, hashCode and toString reach the handler; forwarding equals to the target makes the proxy unequal to itself, so a list can't remove it, and the handler should answer them itself.",
+      "Whatever the handler does with its proxy argument goes back through invoke, so printing proxy inside the handler recurses until StackOverflowError."
     ]
   }
 }

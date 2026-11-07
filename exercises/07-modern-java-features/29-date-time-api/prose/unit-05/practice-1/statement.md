@@ -1,23 +1,14 @@
-A subscription starts on a date and renews every `term`, a `Period` such as one
-month or one year. "One month" is a calendar amount: from January 15 it is 31
-days, from February 15 it is 29 days in 2024.
+A pharmacy chain puts each filled prescription aside for the customer and sends a reminder every
+evening until it is picked up. Customers choose the time of their reminder, say 19:15, and the
+complaints start every March: the reminders arrive at 20:15. The other rule comes from the
+regulator: a prescription is kept for 24 hours and then goes back on the shelf, and inspectors
+time it.
 
-Write `Subscription.renewals(LocalDate start, Period term, int count)`. It returns
-the first `count` renewal dates, in order. Renewal number `k` is `k` terms after
-`start`.
+`PickupReminders` already builds the reminder list and answers whether a hold has run out.
+Finish the two `TODO`s in `src/main/java/practice/PickupReminders.java`:
 
-| start | term | count | answer |
-|---|---|---|---|
-| `2024-01-15` | `P1M` | 3 | `[2024-02-15, 2024-03-15, 2024-04-15]` |
-| `2024-01-15` | `P3M` | 2 | `[2024-04-15, 2024-07-15]` |
-| `2024-01-15` | `P1M15D` | 2 | `[2024-03-01, 2024-04-14]` |
-| `2024-01-31` | `P1M` | 1 | `[2024-02-29]` |
-| `2024-01-31` | `P1M` | 3 | `[2024-02-29, 2024-03-31, 2024-04-30]` |
-| `2024-02-29` | `P1Y` | 4 | `[2025-02-28, 2026-02-28, 2027-02-28, 2028-02-29]` |
+- `nextReminder(last)`: the reminder after `last`;
+- `releasedAt(heldAt)`: when a prescription put aside at `heldAt` goes back on the shelf.
 
-A month that is too short for the start's day renews on its **last** day: it
-never spills into the following month. And a short month does not pull the
-later renewals earlier: the customer who started on January 31 renews on March
-31, not March 29.
-
-A `count` of 0 gives an empty list.
+Both keep the zone they were given. The pharmacies are in several countries, so the tests use
+zones whose clocks change on different dates. About two lines in total.

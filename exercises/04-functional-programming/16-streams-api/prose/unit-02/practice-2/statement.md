@@ -1,15 +1,12 @@
-`Arrays.stream(int[] array, int from, int to)` streams a slice of a primitive array
-as an `IntStream`, with no boxing. Primitive streams bring numeric terminal
-operations with them: `sum()`, `average()` and `summaryStatistics()`.
+Before planned maintenance, `OutageNotifier` tells the customers of a region, by every channel they
+gave us. Two complaints came in after the last outage: the mail gateway rejected a batch because one
+of its addresses was `null`, and customers were woken at night although they had set quiet hours.
 
-Write `RangeSummary.summarize(int[] values, int from, int to)`. It returns a
-`Summary(long count, long sum, double average)` for the values at indexes `from`
-(inclusive) to `to` (exclusive). The indexes are always valid for the array.
+Finish the two `TODO` methods in `src/main/java/practice/OutageNotifier.java`:
 
-| values | from | to | answer |
-|---|---|---|---|
-| `{3, 1, 4, 1, 5, 9, 2, 6}` | `0` | `8` | `Summary[count=8, sum=31, average=3.875]` |
-| `{3, 1, 4, 1, 5, 9, 2, 6}` | `1` | `4` | `Summary[count=3, sum=6, average=2.0]` |
+- `contacts(segment)`: each customer's email, then phone, customer by customer. Either may be
+  missing. The CRM returns `null`, not an empty list, for a region with no customers;
+- `isQuietHour(quietHours, hour)`: whether `hour` is one of the customer's quiet hours.
 
-An empty slice has a summary too (its average is `0.0`), and a slice of large values
-may add up to more than an `int` holds.
+About five lines in total. When you're done, nothing `null` reaches the gateway, an empty region
+sends nothing without failing, and nobody hears from us during their quiet hours.

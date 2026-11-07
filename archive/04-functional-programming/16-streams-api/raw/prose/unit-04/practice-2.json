@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Check a batch of words, including the empty batch",
+  "title": "Tally a large catalogue's tags without losing or doubling any",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,23 @@
     },
     {
       "type": "para",
-      "text": "`allMatch`, `anyMatch` and `noneMatch` answer a yes-or-no question about a whole stream, and each stops as soon as the answer is known."
+      "text": "A marketplace shows how many listings carry each tag (\"vegan\", \"handmade\", ...). Small shops' numbers are right. For the large catalogues, which are tallied on a parallel stream, the numbers change from one page load to the next, run into the billions, some are negative, and now and then the tally fails with a `ConcurrentModificationException`."
     },
     {
       "type": "para",
-      "text": "Write three static methods in `BatchChecks`:"
+      "text": "`TagTally.Counts` keeps one count per tag and is not thread-safe. Finish the two `TODO`s in `src/main/java/practice/TagTally.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`boolean allLongerThan(List<String> words, int minLength)`: every word has more than `minLength` characters.",
-        "`boolean anyLongerThan(List<String> words, int minLength)`: at least one word has more than `minLength` characters.",
-        "`boolean noneStartsWith(List<String> words, String prefix)`: no word starts with `prefix`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`allLongerThan([\"apple\", \"banana\", \"cherry\"], 4)`",
-          "`true`"
-        ],
-        [
-          "`anyLongerThan([\"apple\", \"banana\", \"cherry\"], 6)`",
-          "`false`"
-        ],
-        [
-          "`noneStartsWith([\"apple\", \"banana\", \"cherry\"], \"b\")`",
-          "`false`"
-        ]
+        "`Counts.addAll(other)`: add another `Counts` into this one;",
+        "`tally(Stream<String>)`: count every tag of the stream into a `Counts`."
       ]
     },
     {
       "type": "para",
-      "text": "A length counts every character, spaces included, and \"starts with\" means `String.startsWith`: case-sensitive, at the very start of the word. A batch may be empty. Decide what each answer is then from what the question means, not from a special case."
+      "text": "The tally must be exact whether its stream is sequential or parallel. About four lines in total."
     },
     {
       "type": "heading",
@@ -72,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class BatchChecks {\n\n    private BatchChecks() {\n    }\n\n    /** Whether every word has more than {@code minLength} characters. */\n    public static boolean allLongerThan(List<String> words, int minLength) {\n        return words.stream().allMatch(w -> w.length() > minLength);\n    }\n\n    /** Whether at least one word has more than {@code minLength} characters. */\n    public static boolean anyLongerThan(List<String> words, int minLength) {\n        return words.stream().anyMatch(w -> w.length() > minLength);\n    }\n\n    /** Whether no word starts with {@code prefix}. */\n    public static boolean noneStartsWith(List<String> words, String prefix) {\n        return words.stream().noneMatch(w -> w.startsWith(prefix));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Stream;\n\n/**\n * Counts how often each tag appears across a shop's product listings. A large catalogue is\n * tallied on a parallel stream.\n */\npublic class TagTally {\n\n    /** Catalogues with at least this many tags are tallied in parallel. */\n    static final int PARALLEL_FROM = 1_000;\n\n    /** A count per tag. Not thread-safe: only one thread at a time may change a Counts. */\n    public static final class Counts {\n        private final Map<String, Integer> byTag = new HashMap<>();\n\n        /** Counts one more occurrence of the tag. */\n        public void add(String tag) {\n            byTag.merge(tag, 1, Integer::sum);\n        }\n\n        /** Adds every count in other to this one; other is left as it was. */\n        public void addAll(Counts other) {\n            other.byTag.forEach((tag, n) -> byTag.merge(tag, n, Integer::sum));\n        }\n\n        public int of(String tag) {\n            return byTag.getOrDefault(tag, 0);\n        }\n\n        public Map<String, Integer> asMap() {\n            return Map.copyOf(byTag);\n        }\n    }\n\n    /** Tallies every tag of the catalogue. */\n    public static Counts tally(List<String> tags) {\n        return tally(tags.size() >= PARALLEL_FROM ? tags.parallelStream() : tags.stream());\n    }\n\n    static Counts tally(Stream<String> tags) {\n        return tags.collect(Counts::new, Counts::add, Counts::addAll);\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class BatchChecks {\n\n    private BatchChecks() {\n    }\n\n    /** Whether every word has more than {@code minLength} characters. */\n    public static boolean allLongerThan(List<String> words, int minLength) {\n        throw new UnsupportedOperationException(\"write allLongerThan\");\n    }\n\n    /** Whether at least one word has more than {@code minLength} characters. */\n    public static boolean anyLongerThan(List<String> words, int minLength) {\n        throw new UnsupportedOperationException(\"write anyLongerThan\");\n    }\n\n    /** Whether no word starts with {@code prefix}. */\n    public static boolean noneStartsWith(List<String> words, String prefix) {\n        throw new UnsupportedOperationException(\"write noneStartsWith\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Stream;\n\n/**\n * Counts how often each tag appears across a shop's product listings. A large catalogue is\n * tallied on a parallel stream.\n */\npublic class TagTally {\n\n    /** Catalogues with at least this many tags are tallied in parallel. */\n    static final int PARALLEL_FROM = 1_000;\n\n    /** A count per tag. Not thread-safe: only one thread at a time may change a Counts. */\n    public static final class Counts {\n        private final Map<String, Integer> byTag = new HashMap<>();\n\n        /** Counts one more occurrence of the tag. */\n        public void add(String tag) {\n            byTag.merge(tag, 1, Integer::sum);\n        }\n\n        /** Adds every count in other to this one; other is left as it was. */\n        public void addAll(Counts other) {\n            // TODO: Add other's counts to this one. A tag both of them have counted must end up\n            //       with both counts.\n            throw new IllegalStateException(\"TODO: addAll\");\n        }\n\n        public int of(String tag) {\n            return byTag.getOrDefault(tag, 0);\n        }\n\n        public Map<String, Integer> asMap() {\n            return Map.copyOf(byTag);\n        }\n    }\n\n    /** Tallies every tag of the catalogue. */\n    public static Counts tally(List<String> tags) {\n        return tally(tags.size() >= PARALLEL_FROM ? tags.parallelStream() : tags.stream());\n    }\n\n    static Counts tally(Stream<String> tags) {\n        // TODO: Count every tag of the stream into a Counts. The stream may be sequential or\n        //       parallel, and the answer must be the same.\n        throw new IllegalStateException(\"TODO: tally\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -94,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -103,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5f7c79a2f1e649f28c2b2df6ccfb465a20a51ab25084e7daf38de4bade977ea7",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class BatchChecks {\n\n    private BatchChecks() {\n    }\n\n    /** Whether every word has more than {@code minLength} characters. */\n    public static boolean allLongerThan(List<String> words, int minLength) {\n        throw new UnsupportedOperationException(\"write allLongerThan\");\n    }\n\n    /** Whether at least one word has more than {@code minLength} characters. */\n    public static boolean anyLongerThan(List<String> words, int minLength) {\n        throw new UnsupportedOperationException(\"write anyLongerThan\");\n    }\n\n    /** Whether no word starts with {@code prefix}. */\n    public static boolean noneStartsWith(List<String> words, String prefix) {\n        throw new UnsupportedOperationException(\"write noneStartsWith\");\n    }\n}\n",
+  "content_sha256": "4dcc956755b560022f3d57cf37b3abdab1464ee83412dde95640163a825186f6",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Stream;\n\n/**\n * Counts how often each tag appears across a shop's product listings. A large catalogue is\n * tallied on a parallel stream.\n */\npublic class TagTally {\n\n    /** Catalogues with at least this many tags are tallied in parallel. */\n    static final int PARALLEL_FROM = 1_000;\n\n    /** A count per tag. Not thread-safe: only one thread at a time may change a Counts. */\n    public static final class Counts {\n        private final Map<String, Integer> byTag = new HashMap<>();\n\n        /** Counts one more occurrence of the tag. */\n        public void add(String tag) {\n            byTag.merge(tag, 1, Integer::sum);\n        }\n\n        /** Adds every count in other to this one; other is left as it was. */\n        public void addAll(Counts other) {\n            // TODO: Add other's counts to this one. A tag both of them have counted must end up\n            //       with both counts.\n            throw new IllegalStateException(\"TODO: addAll\");\n        }\n\n        public int of(String tag) {\n            return byTag.getOrDefault(tag, 0);\n        }\n\n        public Map<String, Integer> asMap() {\n            return Map.copyOf(byTag);\n        }\n    }\n\n    /** Tallies every tag of the catalogue. */\n    public static Counts tally(List<String> tags) {\n        return tally(tags.size() >= PARALLEL_FROM ? tags.parallelStream() : tags.stream());\n    }\n\n    static Counts tally(Stream<String> tags) {\n        // TODO: Count every tag of the stream into a Counts. The stream may be sequential or\n        //       parallel, and the answer must be the same.\n        throw new IllegalStateException(\"TODO: tally\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-04/practice-2/src/main/java/practice/BatchChecks.java",
-    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-04/practice-2/src/test/java/practice/BatchChecksTest.java",
+    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-04/practice-2/src/main/java/practice/TagTally.java",
+    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-04/practice-2/src/test/java/practice/TagTallyTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,29 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BatchChecksTest#checksAFilledBatch",
+        "id": "practice.TagTallyTest#aSmallCatalogueIsTalliedAndCountsCanBeAddedTogether",
         "kind": "main",
-        "says": "It answers all, any and none correctly for a batch of words."
+        "says": "a small catalogue's tags are counted, and adding counts with other tags puts both together"
       },
       {
-        "id": "practice.BatchChecksTest#allOfNothingIsTrue",
+        "id": "practice.TagTallyTest#aLargeCatalogueIsTalliedExactly",
         "kind": "edge",
-        "says": "Every word of an empty batch is long enough: allMatch on an empty stream is true."
+        "says": "a catalogue large enough to be tallied in parallel gets every tag's exact count"
       },
       {
-        "id": "practice.BatchChecksTest#noneOfNothingIsTrue",
+        "id": "practice.TagTallyTest#addingCountsThatShareATagKeepsBothCounts",
         "kind": "edge",
-        "says": "No word of an empty batch starts with the prefix: noneMatch on an empty stream is true."
+        "says": "adding counts that share a tag adds the two counts for that tag"
       },
       {
-        "id": "practice.BatchChecksTest#aPrefixIsMatchedExactlyAtTheStart",
+        "id": "practice.TagTallyTest#aLargeCatalogueLosesNoTag",
         "kind": "edge",
-        "says": "\"cab\" does not start with \"b\", and neither does \"Banana\": the prefix is matched case-sensitively, at the start only."
-      },
-      {
-        "id": "practice.BatchChecksTest#spacesCountTowardsTheLength",
-        "kind": "edge",
-        "says": "\" ab \" has four characters: spaces count towards a word's length."
+        "says": "a catalogue tallied in parallel keeps every occurrence: the counts add up to the number of tags"
       }
     ],
     "report": {
@@ -159,10 +132,11 @@
     },
     "origin": {
       "path": "16-streams-api/README_4.4.4.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "reduce Combines Values; a Mutable Container Goes Through collect"
     },
     "concepts": [
-      "On an empty stream allMatch and noneMatch are true and anyMatch is false."
+      "collect(supplier, accumulator, combiner) gives each chunk its own container from the supplier, and its combiner must merge two containers fully.",
+      "A mutable container passed to reduce as identity is one object shared by every chunk, so a parallel reduce into it loses, duplicates or throws."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Tell a checked exception type from an unchecked one",
+  "title": "Stop an SDK release that would break customers' builds",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Checked exceptions must be caught or declared; unchecked ones need not be. Which kind a type is follows from where it sits in the hierarchy. Write `ExceptionKinds.isChecked(Class<? extends Throwable> type)`."
+      "text": "Customers build their own services against the payments SDK. Last quarter a patch release made one customer's build fail at forty call sites, and the team only heard about it from the customer. Now CI compares every public method of the release candidate with the same method in the last release, and fails the release when the new `throws` clause would stop code that compiled against the last release from compiling."
     },
     {
-      "type": "table",
-      "headers": [
-        "type",
-        "`isChecked`"
-      ],
-      "rows": [
-        [
-          "`IOException.class`",
-          "`true`"
-        ],
-        [
-          "`SQLException.class`",
-          "`true`"
-        ],
-        [
-          "`ClassNotFoundException.class`",
-          "`true`"
-        ],
-        [
-          "`IllegalArgumentException.class`",
-          "`false`"
-        ],
-        [
-          "`NullPointerException.class`",
-          "`false`"
-        ]
+      "type": "para",
+      "text": "`ThrowsDiff.breaking(last, next)` already walks the candidate's throws clause and collects what it finds. Finish the two `TODO`s in `src/main/java/practice/ThrowsDiff.java`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`isChecked(type)`: whether a caller must catch or declare an exception of that type;",
+        "`handledBy(type, declared)`: whether code written against a method that declared `declared` already copes with that type."
       ]
     },
     {
       "type": "para",
-      "text": "The page names two branches of the hierarchy whose members are all unchecked, and \"member\" means any descendant, however deep. Answer as the compiler does: every other throwable type is checked, including `Throwable` itself and a class that extends `Throwable` directly. `Class.isAssignableFrom` answers \"is this type that one or a subtype of it?\"."
+      "text": "When you're done, CI fails a release exactly when a customer's build would, and never for a change their compiler accepts. About six lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests describe two versions of an SDK interface and compare their methods through reflection; `Class.isAssignableFrom` answers \"is this the same type, or a supertype of that one?\"."
     },
     {
       "type": "heading",
@@ -67,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class ExceptionKinds {\n\n    private ExceptionKinds() {\n    }\n\n    /** Whether the compiler forces callers to catch or declare an exception of this type. */\n    public static boolean isChecked(Class<? extends Throwable> type) {\n        return !RuntimeException.class.isAssignableFrom(type) && !Error.class.isAssignableFrom(type);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Compares one public method of the SDK between the last release and the next, and lists what the\n * next release's throws clause would break in a customer's build. CI fails the release when the\n * list for any method is not empty.\n */\npublic final class ThrowsDiff {\n\n    private ThrowsDiff() {\n    }\n\n    /**\n     * The exception types in {@code next}'s throws clause that a customer's code, written against\n     * {@code last}, would no longer compile without. In the order {@code next} declares them.\n     */\n    public static List<Class<?>> breaking(Method last, Method next) {\n        List<Class<?>> found = new ArrayList<>();\n        for (Class<?> type : next.getExceptionTypes()) {\n            if (isChecked(type) && !handledBy(type, last.getExceptionTypes())) {\n                found.add(type);\n            }\n        }\n        return found;\n    }\n\n    /** Whether the compiler makes a caller catch or declare an exception of this type. */\n    static boolean isChecked(Class<?> type) {\n        return !RuntimeException.class.isAssignableFrom(type) && !Error.class.isAssignableFrom(type);\n    }\n\n    /**\n     * Whether code that already compiled against a method declaring {@code declared} also handles\n     * an exception of this type.\n     */\n    static boolean handledBy(Class<?> type, Class<?>[] declared) {\n        for (Class<?> d : declared) {\n            if (d.isAssignableFrom(type)) {\n                return true;\n            }\n        }\n        return false;\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class ExceptionKinds {\n\n    private ExceptionKinds() {\n    }\n\n    /** Whether the compiler forces callers to catch or declare an exception of this type. */\n    public static boolean isChecked(Class<? extends Throwable> type) {\n        throw new UnsupportedOperationException(\"write isChecked\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Compares one public method of the SDK between the last release and the next, and lists what the\n * next release's throws clause would break in a customer's build. CI fails the release when the\n * list for any method is not empty.\n */\npublic final class ThrowsDiff {\n\n    private ThrowsDiff() {\n    }\n\n    /**\n     * The exception types in {@code next}'s throws clause that a customer's code, written against\n     * {@code last}, would no longer compile without. In the order {@code next} declares them.\n     */\n    public static List<Class<?>> breaking(Method last, Method next) {\n        List<Class<?>> found = new ArrayList<>();\n        for (Class<?> type : next.getExceptionTypes()) {\n            if (isChecked(type) && !handledBy(type, last.getExceptionTypes())) {\n                found.add(type);\n            }\n        }\n        return found;\n    }\n\n    /** Whether the compiler makes a caller catch or declare an exception of this type. */\n    static boolean isChecked(Class<?> type) {\n        // TODO: Answer as javac does: true when a method that throws this type must declare it.\n        throw new IllegalStateException(\"TODO: isChecked\");\n    }\n\n    /**\n     * Whether code that already compiled against a method declaring {@code declared} also handles\n     * an exception of this type.\n     */\n    static boolean handledBy(Class<?> type, Class<?>[] declared) {\n        // TODO: True when every customer whose code compiled against a method with this throws\n        //       clause already catches or declares an exception of this type.\n        throw new IllegalStateException(\"TODO: handledBy\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -87,10 +74,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "963cf702da3b8241cae59fec2722c20ace39863db0796568ef56fe91afbeef33",
-  "starting_code": "package practice;\n\npublic final class ExceptionKinds {\n\n    private ExceptionKinds() {\n    }\n\n    /** Whether the compiler forces callers to catch or declare an exception of this type. */\n    public static boolean isChecked(Class<? extends Throwable> type) {\n        throw new UnsupportedOperationException(\"write isChecked\");\n    }\n}\n",
+  "content_sha256": "e08c235ea005286180c633c86d926407b0924082a38ed2f7e68a2e238686bc33",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Method;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Compares one public method of the SDK between the last release and the next, and lists what the\n * next release's throws clause would break in a customer's build. CI fails the release when the\n * list for any method is not empty.\n */\npublic final class ThrowsDiff {\n\n    private ThrowsDiff() {\n    }\n\n    /**\n     * The exception types in {@code next}'s throws clause that a customer's code, written against\n     * {@code last}, would no longer compile without. In the order {@code next} declares them.\n     */\n    public static List<Class<?>> breaking(Method last, Method next) {\n        List<Class<?>> found = new ArrayList<>();\n        for (Class<?> type : next.getExceptionTypes()) {\n            if (isChecked(type) && !handledBy(type, last.getExceptionTypes())) {\n                found.add(type);\n            }\n        }\n        return found;\n    }\n\n    /** Whether the compiler makes a caller catch or declare an exception of this type. */\n    static boolean isChecked(Class<?> type) {\n        // TODO: Answer as javac does: true when a method that throws this type must declare it.\n        throw new IllegalStateException(\"TODO: isChecked\");\n    }\n\n    /**\n     * Whether code that already compiled against a method declaring {@code declared} also handles\n     * an exception of this type.\n     */\n    static boolean handledBy(Class<?> type, Class<?>[] declared) {\n        // TODO: True when every customer whose code compiled against a method with this throws\n        //       clause already catches or declares an exception of this type.\n        throw new IllegalStateException(\"TODO: handledBy\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-04/practice-1/src/main/java/practice/ExceptionKinds.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-04/practice-1/src/test/java/practice/ExceptionKindsTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-04/practice-1/src/main/java/practice/ThrowsDiff.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-04/practice-1/src/test/java/practice/ThrowsDiffTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,24 +110,39 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ExceptionKindsTest#classifiesTheCommonTypes",
+        "id": "practice.ThrowsDiffTest#checkedExceptionsOnAMethodThatDeclaredNoneAreReported",
         "kind": "main",
-        "says": "IOException and SQLException are checked; IllegalArgumentException and NullPointerException are not."
+        "says": "a method that declared nothing and now declares SQLException and TimeoutException reports both, in order"
       },
       {
-        "id": "practice.ExceptionKindsTest#errorsAreUnchecked",
-        "kind": "edge",
-        "says": "Subclasses of Error are unchecked too, though they are not RuntimeExceptions."
+        "id": "practice.ThrowsDiffTest#anUnchangedThrowsClauseBreaksNothing",
+        "kind": "main",
+        "says": "a method whose throws clause did not change reports nothing"
       },
       {
-        "id": "practice.ExceptionKindsTest#deepRuntimeSubclassesAreUnchecked",
+        "id": "practice.ThrowsDiffTest#addedRuntimeExceptionsAreNotReported",
         "kind": "edge",
-        "says": "Any descendant of RuntimeException is unchecked, not only its direct subclasses: NumberFormatException is one."
+        "says": "adding IllegalStateException and a subclass of IllegalArgumentException reports nothing"
       },
       {
-        "id": "practice.ExceptionKindsTest#throwableItselfIsChecked",
+        "id": "practice.ThrowsDiffTest#anAddedErrorIsNotReported",
         "kind": "edge",
-        "says": "Throwable itself, and a class that extends Throwable directly, are checked: only the two unchecked branches are exempt."
+        "says": "adding a subclass of Error reports nothing"
+      },
+      {
+        "id": "practice.ThrowsDiffTest#typesOutsideExceptionAreReported",
+        "kind": "edge",
+        "says": "adding Throwable and a class that extends Throwable directly reports both"
+      },
+      {
+        "id": "practice.ThrowsDiffTest#subclassesOfADeclaredExceptionAreNotReported",
+        "kind": "edge",
+        "says": "declaring subclasses of an exception the last release already declared reports nothing"
+      },
+      {
+        "id": "practice.ThrowsDiffTest#wideningToASuperclassIsReported",
+        "kind": "edge",
+        "says": "replacing a declared exception with its superclass reports the superclass"
       }
     ],
     "report": {
@@ -149,11 +151,11 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.4.md",
-      "section": "Concept Explanation"
+      "section": "Adding a Checked Exception Breaks Every Caller's Source; Adding an Unchecked One Breaks None"
     },
     "concepts": [
-      "Checked exceptions are subclasses of Exception but not of RuntimeException, and must be caught or declared.",
-      "Unchecked exceptions are RuntimeException and Error and all their subclasses."
+      "Adding a checked exception to a method's throws clause breaks every caller's source unless it was already handled through a supertype; adding an unchecked one breaks nothing.",
+      "Every Throwable is checked except RuntimeException, Error and their subclasses, so a class extending Throwable directly is checked."
     ]
   }
 }

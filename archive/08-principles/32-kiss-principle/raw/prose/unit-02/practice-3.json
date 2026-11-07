@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Run tasks in parallel, one virtual thread each",
+  "title": "Fetch the postcode table once, on first use",
   "blocks": [
     {
       "type": "heading",
@@ -19,30 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's KISS answer to \"run a few things in parallel\" is not a reactive framework, and not a hand-tuned `ThreadPoolExecutor`: it is one virtual thread per task, in an executor closed by try-with-resources."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (var task : tasks) {\n        executor.submit(() -> process(task));\n    }\n}"
+      "text": "The shop's checkout asks `PostcodeLookup` for the delivery region of every order. The table of regions comes from the address service, which takes a few seconds to answer and now and then times out, so the lookup fetches it on first use instead of at startup. Right after each deploy, dozens of checkout threads ask at once."
     },
     {
       "type": "para",
-      "text": "Write `runAll(List<Callable<T>> tasks)` in `Tasks`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Every task runs at the same time as the others**: a task that waits until all the tasks have started must not hold the others back, however many tasks there are.",
-        "**Each task runs on a virtual thread**: inside a task, `Thread.currentThread().isVirtual()` is `true`.",
-        "It returns every task's result in the order of `tasks`, whichever finishes first. No tasks give an empty list.",
-        "**A task that throws makes the whole call fail** with the `ExecutionException` its future reports, whose cause is the very exception the task threw. It does not skip that task and return the rest."
-      ]
+      "text": "Write `table()` in `src/main/java/practice/PostcodeLookup.java`, with any fields it needs. When you're done, nothing is fetched until the first call, and the address service is asked once: every caller, including one that arrives while the fetch is still running, gets that same table. If a fetch fails, its caller gets the exception and the next call fetches again. About five lines in total."
     },
     {
       "type": "para",
-      "text": "Example: three tasks returning `\"result1\"`, `\"result2\"` and `\"result3\"` give `[\"result1\", \"result2\", \"result3\"]`."
+      "text": "The tests hold the first fetch open while a second checkout thread calls `table()`."
     },
     {
       "type": "heading",
@@ -57,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\npublic final class Tasks {\n\n    private Tasks() {\n    }\n\n    /** Runs every task on its own virtual thread and returns the results in task order. */\n    public static <T> List<T> runAll(List<Callable<T>> tasks) throws InterruptedException, ExecutionException {\n        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n            List<Future<T>> futures = new ArrayList<>();\n            for (Callable<T> task : tasks) {\n                futures.add(executor.submit(task));\n            }\n            List<T> results = new ArrayList<>();\n            for (Future<T> future : futures) {\n                results.add(future.get());\n            }\n            return results;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Maps postcode districts to delivery regions. The table comes from the address service, which\n * takes a few seconds to answer, so it is fetched on first use rather than at startup. Checkout\n * threads call region(...) on every order.\n */\npublic class PostcodeLookup {\n\n    private final Supplier<Map<String, String>> loader;\n    private Map<String, String> table;\n\n    public PostcodeLookup(Supplier<Map<String, String>> loader) {\n        this.loader = loader;\n    }\n\n    /** The delivery region of a postcode district, or null for one the table doesn't know. */\n    public String region(String district) {\n        return table().get(district);\n    }\n\n    /** The whole table, fetched with the loader on the first call. */\n    public synchronized Map<String, String> table() {\n        if (table == null) table = loader.get();\n        return table;\n    }\n}\n"
         }
       ]
     },
@@ -69,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\npublic final class Tasks {\n\n    private Tasks() {\n    }\n\n    /** Runs every task on its own virtual thread and returns the results in task order. */\n    public static <T> List<T> runAll(List<Callable<T>> tasks) throws InterruptedException, ExecutionException {\n        throw new UnsupportedOperationException(\"write runAll\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Maps postcode districts to delivery regions. The table comes from the address service, which\n * takes a few seconds to answer, so it is fetched on first use rather than at startup. Checkout\n * threads call region(...) on every order.\n */\npublic class PostcodeLookup {\n\n    private final Supplier<Map<String, String>> loader;\n\n    public PostcodeLookup(Supplier<Map<String, String>> loader) {\n        this.loader = loader;\n    }\n\n    /** The delivery region of a postcode district, or null for one the table doesn't know. */\n    public String region(String district) {\n        return table().get(district);\n    }\n\n    /** The whole table, fetched with the loader on the first call. */\n    public Map<String, String> table() {\n        // TODO: Fetch the table with the loader the first time it is needed, and hand the same\n        //       table to every caller after that. Checkout threads call this concurrently, and\n        //       the address service sometimes times out. Add any fields you need.\n        throw new IllegalStateException(\"TODO: table\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -78,9 +63,9 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -88,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7061f0f45450e38189445b30b2be9bab80e298ba773946863df7fdd6c8b2306c",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\npublic final class Tasks {\n\n    private Tasks() {\n    }\n\n    /** Runs every task on its own virtual thread and returns the results in task order. */\n    public static <T> List<T> runAll(List<Callable<T>> tasks) throws InterruptedException, ExecutionException {\n        throw new UnsupportedOperationException(\"write runAll\");\n    }\n}\n",
+  "content_sha256": "b341c37bd3356ba92a734de1654657e6a8fdca3d45b0b69627873cc72470c1a8",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Maps postcode districts to delivery regions. The table comes from the address service, which\n * takes a few seconds to answer, so it is fetched on first use rather than at startup. Checkout\n * threads call region(...) on every order.\n */\npublic class PostcodeLookup {\n\n    private final Supplier<Map<String, String>> loader;\n\n    public PostcodeLookup(Supplier<Map<String, String>> loader) {\n        this.loader = loader;\n    }\n\n    /** The delivery region of a postcode district, or null for one the table doesn't know. */\n    public String region(String district) {\n        return table().get(district);\n    }\n\n    /** The whole table, fetched with the loader on the first call. */\n    public Map<String, String> table() {\n        // TODO: Fetch the table with the loader the first time it is needed, and hand the same\n        //       table to every caller after that. Checkout threads call this concurrently, and\n        //       the address service sometimes times out. Add any fields you need.\n        throw new IllegalStateException(\"TODO: table\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-3/src/main/java/practice/Tasks.java",
-    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-3/src/test/java/practice/TasksTest.java",
+    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-3/src/main/java/practice/PostcodeLookup.java",
+    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-3/src/test/java/practice/PostcodeLookupTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TasksTest#returnsEachResultInTaskOrder",
+        "id": "practice.PostcodeLookupTest#fetchesTheTableOnFirstUseAndKeepsIt",
         "kind": "main",
-        "says": "Three tasks give their three results, in task order; no tasks give []."
+        "says": "nothing is fetched until the first call, which fetches the table once; later calls get the same table"
       },
       {
-        "id": "practice.TasksTest#theTasksRunAtTheSameTime",
+        "id": "practice.PostcodeLookupTest#aCallerArrivingDuringTheLoadGetsTheLoadedTable",
         "kind": "edge",
-        "says": "Four tasks that each wait until all four have started still finish: they run side by side."
+        "says": "a caller that arrives while the first fetch is still running gets the fetched table, never null"
       },
       {
-        "id": "practice.TasksTest#eachTaskRunsOnAVirtualThread",
+        "id": "practice.PostcodeLookupTest#aCallerArrivingDuringTheLoadDoesNotStartAnotherLoad",
         "kind": "edge",
-        "says": "A task asking Thread.currentThread().isVirtual() gets true."
+        "says": "a caller that arrives while the first fetch is still running does not fetch the table a second time"
       },
       {
-        "id": "practice.TasksTest#aFailingTaskFailsTheCall",
+        "id": "practice.PostcodeLookupTest#aLoadThatFailedIsTriedAgainOnTheNextCall",
         "kind": "edge",
-        "says": "A task throwing IllegalStateException makes runAll throw ExecutionException whose cause is that same exception."
+        "says": "when a fetch fails, the caller gets the failure and the next call fetches again"
       }
     ],
     "report": {
@@ -139,10 +124,11 @@
     },
     "origin": {
       "path": "32-kiss-principle/README_8.2.2.md",
-      "section": "Relevant Java 21 Features"
+      "section": "A Double-Checked Flag Can Say Loaded Before the Value Is; a synchronized Getter Can't"
     },
     "concepts": [
-      "Virtual threads make a simple thread-per-task executor, closed by try-with-resources, the KISS way to run tasks in parallel."
+      "With the flag set before the load, a failed load leaves it set and every later call returns null; with the value as its own flag, the next call loads again.",
+      "A double-checked flag kept beside the value can say loaded while the value is null, so a caller during the load gets null; a synchronized getter whose value is its own flag makes it wait."
     ]
   }
 }

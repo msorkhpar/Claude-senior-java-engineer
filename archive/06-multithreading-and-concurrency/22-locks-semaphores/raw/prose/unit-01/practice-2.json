@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A critical section you can cancel",
+  "title": "Answer seat holds within their budget during a re-sync",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's golden rule: release a `ReentrantLock` in a `finally` block, or one exception leaves it held for ever. And unlike `synchronized` or `lock()`, `lockInterruptibly()` lets a thread that is **waiting** for the lock be cancelled with `Thread.interrupt()`: it leaves with `InterruptedException` and does not get the lock."
+      "text": "On the night a big concert goes on sale, the box office re-syncs its seat map every few minutes, and each re-sync keeps the map locked for several seconds. Customers clicking a seat during a re-sync see a spinner until their browser gives up, and the ticket site's error rate goes through the roof. The product owner's ruling: a hold request gets an answer within its budget, even if the answer is \"try again in a moment\"."
     },
     {
       "type": "para",
-      "text": "Write `Exclusive.run(Runnable action)`, which runs `action` while holding the `ReentrantLock` the object was built with:"
+      "text": "Write `hold` in `src/main/java/practice/SeatMap.java`. It does the hold with the `holdLocked` method that is already there, under the map's lock, and answers what `holdLocked` answers. If the map stays locked for longer than the budget passed to the constructor, it answers `BUSY` and changes nothing. A re-sync that ends within the budget must not cost the customer the seat. About six lines."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "It waits for the lock as long as it takes (it never gives up on its own), but a caller interrupted **while it waits** leaves with `InterruptedException` and does not run the action.",
-        "The lock is released after the action, whether the action returns or throws anything at all, an exception or an `Error`; what it throws reaches the caller unchanged."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "situation",
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "lock free",
-          "`run(action)`",
-          "`action` runs holding the lock; the lock is free afterwards"
-        ],
-        [
-          "another thread holds the lock; the caller is interrupted while it waits",
-          "`run(action)`",
-          "throws `InterruptedException`; `action` never runs"
-        ],
-        [
-          "lock free; `action` throws `IllegalStateException`",
-          "`run(action)`",
-          "throws that `IllegalStateException`; the lock is free"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests hold the map's lock themselves to stand in for a re-sync, and send each request from a thread of its own."
     },
     {
       "type": "heading",
@@ -71,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Runs actions one at a time under the lock it is given. */\npublic final class Exclusive {\n\n    private final ReentrantLock lock;\n\n    public Exclusive(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Runs {@code action} holding the lock; a caller interrupted while waiting leaves with InterruptedException. */\n    public void run(Runnable action) throws InterruptedException {\n        lock.lockInterruptibly();\n        try {\n            action.run();\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The seat map of one concert. Customers' hold requests and the box-office re-sync, which can keep\n * the map locked for several seconds, share one lock.\n */\npublic class SeatMap {\n\n    public enum Answer { HELD, TAKEN, BUSY }\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, String> holders = new HashMap<>();\n    private final Duration budget;\n\n    /** @param budget how long a hold request may wait for the map before it answers */\n    public SeatMap(Duration budget) {\n        this.budget = budget;\n    }\n\n    /**\n     * Holds the seat for the customer. Answers HELD or TAKEN, or BUSY when the map stayed locked\n     * for longer than the budget; a BUSY answer changes nothing.\n     */\n    public Answer hold(String seat, String customer) throws InterruptedException {\n        if (!lock.tryLock(budget.toNanos(), TimeUnit.NANOSECONDS)) return Answer.BUSY;\n        try {\n            return holdLocked(seat, customer);\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Does the hold. Call it only while holding the lock. */\n    Answer holdLocked(String seat, String customer) {\n        String holder = holders.putIfAbsent(seat, customer);\n        return holder == null || holder.equals(customer) ? Answer.HELD : Answer.TAKEN;\n    }\n\n    /** Who holds the seat, or null. */\n    public String holder(String seat) {\n        lock.lock();\n        try {\n            return holders.get(seat);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Runs actions one at a time under the lock it is given. */\npublic final class Exclusive {\n\n    private final ReentrantLock lock;\n\n    public Exclusive(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Runs {@code action} holding the lock; a caller interrupted while waiting leaves with InterruptedException. */\n    public void run(Runnable action) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The seat map of one concert. Customers' hold requests and the box-office re-sync, which can keep\n * the map locked for several seconds, share one lock.\n */\npublic class SeatMap {\n\n    public enum Answer { HELD, TAKEN, BUSY }\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, String> holders = new HashMap<>();\n    private final Duration budget;\n\n    /** @param budget how long a hold request may wait for the map before it answers */\n    public SeatMap(Duration budget) {\n        this.budget = budget;\n    }\n\n    /**\n     * Holds the seat for the customer. Answers HELD or TAKEN, or BUSY when the map stayed locked\n     * for longer than the budget; a BUSY answer changes nothing.\n     */\n    public Answer hold(String seat, String customer) throws InterruptedException {\n        // TODO: Do the hold with holdLocked(seat, customer) while holding the lock. A customer must\n        //       get an answer within the budget even while a re-sync keeps the map locked, and a\n        //       re-sync that ends within the budget must not turn the request away.\n        throw new IllegalStateException(\"TODO: hold\");\n    }\n\n    /** Does the hold. Call it only while holding the lock. */\n    Answer holdLocked(String seat, String customer) {\n        String holder = holders.putIfAbsent(seat, customer);\n        return holder == null || holder.equals(customer) ? Answer.HELD : Answer.TAKEN;\n    }\n\n    /** Who holds the seat, or null. */\n    public String holder(String seat) {\n        lock.lock();\n        try {\n            return holders.get(seat);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d1b4cf43db0978839bc1fd22f6d25b1618c54a91e5dd6b868fd8ea55856bd90a",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Runs actions one at a time under the lock it is given. */\npublic final class Exclusive {\n\n    private final ReentrantLock lock;\n\n    public Exclusive(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Runs {@code action} holding the lock; a caller interrupted while waiting leaves with InterruptedException. */\n    public void run(Runnable action) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n",
+  "content_sha256": "5635a1b037418ace9c3fe3e0e38855080e9f570d54f9ccb2ffa4b8c4bdad7457",
+  "starting_code": "package practice;\n\nimport java.time.Duration;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The seat map of one concert. Customers' hold requests and the box-office re-sync, which can keep\n * the map locked for several seconds, share one lock.\n */\npublic class SeatMap {\n\n    public enum Answer { HELD, TAKEN, BUSY }\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, String> holders = new HashMap<>();\n    private final Duration budget;\n\n    /** @param budget how long a hold request may wait for the map before it answers */\n    public SeatMap(Duration budget) {\n        this.budget = budget;\n    }\n\n    /**\n     * Holds the seat for the customer. Answers HELD or TAKEN, or BUSY when the map stayed locked\n     * for longer than the budget; a BUSY answer changes nothing.\n     */\n    public Answer hold(String seat, String customer) throws InterruptedException {\n        // TODO: Do the hold with holdLocked(seat, customer) while holding the lock. A customer must\n        //       get an answer within the budget even while a re-sync keeps the map locked, and a\n        //       re-sync that ends within the budget must not turn the request away.\n        throw new IllegalStateException(\"TODO: hold\");\n    }\n\n    /** Does the hold. Call it only while holding the lock. */\n    Answer holdLocked(String seat, String customer) {\n        String holder = holders.putIfAbsent(seat, customer);\n        return holder == null || holder.equals(customer) ? Answer.HELD : Answer.TAKEN;\n    }\n\n    /** Who holds the seat, or null. */\n    public String holder(String seat) {\n        lock.lock();\n        try {\n            return holders.get(seat);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-2/src/main/java/practice/Exclusive.java",
-    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-2/src/test/java/practice/ExclusiveTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-2/src/main/java/practice/SeatMap.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-2/src/test/java/practice/SeatMapTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ExclusiveTest#runsActionHoldingTheLock",
+        "id": "practice.SeatMapTest#aFreeSeatIsHeldAndASecondCustomerIsTurnedAway",
         "kind": "main",
-        "says": "The action runs while the calling thread holds the lock, and the lock is free afterwards."
+        "says": "with nobody else on the map, a free seat is held and a held seat answers TAKEN to another customer"
       },
       {
-        "id": "practice.ExclusiveTest#waitingCallerCanBeInterrupted",
+        "id": "practice.SeatMapTest#aRequestAnsweredBusyLeavesTheSeatFree",
         "kind": "edge",
-        "says": "A caller waiting for a held lock leaves with InterruptedException when interrupted, without running the action."
+        "says": "while a re-sync keeps the map locked past the budget, the request answers BUSY and holds nothing"
       },
       {
-        "id": "practice.ExclusiveTest#releasesWhenActionThrows",
+        "id": "practice.SeatMapTest#aReSyncThatEndsWithinTheBudgetDoesNotTurnTheRequestAway",
         "kind": "edge",
-        "says": "When the action throws, an exception or an Error, it reaches the caller and the lock is released anyway."
+        "says": "a request that arrives during a re-sync which ends within the budget is served, not answered BUSY"
       },
       {
-        "id": "practice.ExclusiveTest#aLongWaitStillRunsTheAction",
+        "id": "practice.SeatMapTest#aReSyncThatNeverEndsStillGetsTheCustomerAnAnswer",
         "kind": "edge",
-        "says": "run waits for the lock however long it is held (here 6 s), then runs the action; it never gives up on its own."
+        "says": "a request gets an answer while the map stays locked, instead of waiting for the re-sync"
       }
     ],
     "report": {
@@ -153,11 +124,10 @@
     },
     "origin": {
       "path": "22-locks-semaphores/README_6.3.1.md",
-      "section": "Explicit Locking and Unlocking"
+      "section": "lock() Waits Until It Gets the Lock; tryLock and lockInterruptibly Can Give Up"
     },
     "concepts": [
-      "lockInterruptibly() lets a thread waiting for a lock be cancelled by interrupt: it throws InterruptedException and does not get the lock.",
-      "An explicit lock is released in a finally block, so an exception in the critical section cannot leave it held."
+      "A timed tryLock gives a caller a budget and returns whether it got the lock; code that ignores the result runs unguarded and then fails in unlock()."
     ]
   }
 }

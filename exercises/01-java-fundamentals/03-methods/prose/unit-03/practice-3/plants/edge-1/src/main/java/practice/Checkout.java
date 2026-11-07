@@ -1,0 +1,39 @@
+package practice;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/** The shop's checkout: a basket that is filled, placed as an order, and reused. */
+public class Checkout {
+
+    public record Item(String sku, int quantity) { }
+
+    /** An order as it was placed. Billing, packing and the customer's receipt all read it. */
+    public record PlacedOrder(String number, List<Item> items) {
+        public PlacedOrder {
+            if (items.isEmpty()) throw new IllegalArgumentException("an order needs at least one item");
+            items = java.util.Collections.unmodifiableList(items);
+        }
+
+        public int units() {
+            int units = 0;
+            for (Item item : items) units += item.quantity();
+            return units;
+        }
+    }
+
+    /** One basket per till; it is emptied after each order and filled again for the next customer. */
+    public static class Basket {
+        private final List<Item> items = new ArrayList<>();
+
+        public void add(Item item) {
+            items.add(item);
+        }
+
+        public PlacedOrder place(String number) {
+            PlacedOrder order = new PlacedOrder(number, items);
+            items.clear();
+            return order;
+        }
+    }
+}

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "One event per moment",
+  "title": "Refuse batch starts that never happen",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,23 @@
     },
     {
       "type": "para",
-      "text": "Two feeds report the same events, each in its own zone, so one moment can arrive as `2024-03-15T12:00-04:00[America/New_York]` and again as `2024-03-15T16:00Z[Europe/London]`."
+      "text": "Operators type the start of each batch run as a local date and time in the data centre's zone, and `BatchStarts` turns it into the moment the job queue receives. Twice a year the operations team finds a run in the wrong place: in spring a run they set for a time that night started later than they typed, without anyone being asked, and in autumn the nightly export started while the hour it reads was still being written."
     },
     {
       "type": "para",
-      "text": "Write `Events.distinctMoments(List<ZonedDateTime> events)`. It keeps the first event for each **moment on the timeline**, and drops every later event at that same moment, whatever zone or offset it is written in. Events at the same wall-clock time in different zones are different moments. The events it keeps stay in **the order they came in**."
+      "text": "The team's rules for the nights the clocks change:"
     },
     {
-      "type": "table",
-      "headers": [
-        "events",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`12:00 New York`, `13:00 New York`, `12:00 New York`",
-          "`12:00 New York`, `13:00 New York`"
-        ],
-        [
-          "`12:00:00 New York`, `12:00:00.5 New York`",
-          "both: half a second apart is another moment"
-        ],
-        [
-          "`12:00 New York`, `16:00 London`, `16:00Z[UTC]`, `12:00-04:00`",
-          "`12:00 New York`"
-        ],
-        [
-          "`12:00 New York`, `12:00 London`, `12:00 Tokyo`",
-          "all three"
-        ],
-        [
-          "`13:00 New York`, `16:00 London`, `12:00 New York`",
-          "`13:00 New York`, `16:00 London`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "a start at a local time that doesn't happen that night is refused with `IllegalArgumentException`, so the operator picks another;",
+        "a start at a local time that happens twice runs at the second one, after the clocks have gone back, when the hour's data is complete."
       ]
     },
     {
       "type": "para",
-      "text": "(All on 2024-03-15.)"
+      "text": "Every other start runs at the time typed. Finish `startOf` in `src/main/java/practice/BatchStarts.java`. About four lines in total. The data centres include zones whose clocks change by less than an hour."
     },
     {
       "type": "heading",
@@ -71,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.ZonedDateTime;\nimport java.util.ArrayList;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Set;\n\npublic final class Events {\n\n    private Events() {\n    }\n\n    /** The first event at each moment on the timeline, in input order. */\n    public static List<ZonedDateTime> distinctMoments(List<ZonedDateTime> events) {\n        Set<Instant> seen = new HashSet<>();\n        List<ZonedDateTime> kept = new ArrayList<>();\n        for (ZonedDateTime event : events) {\n            if (seen.add(event.toInstant())) {\n                kept.add(event);\n            }\n        }\n        return kept;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.time.ZonedDateTime;\n\n/**\n * Turns the start time an operator types for a batch run, a local date-time in the data\n * centre's zone, into the moment the run is queued for.\n */\npublic class BatchStarts {\n\n    /** The moment the job queue receives for a run the operator set for local in zone. */\n    public static Instant queueAt(LocalDateTime local, ZoneId zone) {\n        return startOf(local, zone).toInstant();\n    }\n\n    /** The start of the run as a ZonedDateTime in the data centre's zone. */\n    static ZonedDateTime startOf(LocalDateTime local, ZoneId zone) {\n        if (zone.getRules().getValidOffsets(local).isEmpty()) {\n            throw new IllegalArgumentException(local + \" does not happen in \" + zone);\n        }\n        return ZonedDateTime.of(local, zone).withLaterOffsetAtOverlap();\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.ZonedDateTime;\nimport java.util.List;\n\npublic final class Events {\n\n    private Events() {\n    }\n\n    /** The first event at each moment on the timeline, in input order. */\n    public static List<ZonedDateTime> distinctMoments(List<ZonedDateTime> events) {\n        throw new UnsupportedOperationException(\"write distinctMoments\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.time.ZonedDateTime;\n\n/**\n * Turns the start time an operator types for a batch run, a local date-time in the data\n * centre's zone, into the moment the run is queued for.\n */\npublic class BatchStarts {\n\n    /** The moment the job queue receives for a run the operator set for local in zone. */\n    public static Instant queueAt(LocalDateTime local, ZoneId zone) {\n        return startOf(local, zone).toInstant();\n    }\n\n    /** The start of the run as a ZonedDateTime in the data centre's zone. */\n    static ZonedDateTime startOf(LocalDateTime local, ZoneId zone) {\n        // TODO: Most local times name exactly one moment. On the nights the clocks change, a\n        //       local time may never happen, or happen twice. Apply the operations team's\n        //       rules for those nights (see the task) and return the start.\n        throw new IllegalStateException(\"TODO: startOf\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,8 +72,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5d1c2496e3a8770b7b45c004f7c518eabe0fd47bff741b261e690ce13f947107",
-  "starting_code": "package practice;\n\nimport java.time.ZonedDateTime;\nimport java.util.List;\n\npublic final class Events {\n\n    private Events() {\n    }\n\n    /** The first event at each moment on the timeline, in input order. */\n    public static List<ZonedDateTime> distinctMoments(List<ZonedDateTime> events) {\n        throw new UnsupportedOperationException(\"write distinctMoments\");\n    }\n}\n",
+  "content_sha256": "5b60b2cb8d4e4454c3a6b3ac6b0e27e5a1d8391e52b4ba8ac82be537fd501e71",
+  "starting_code": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.time.ZonedDateTime;\n\n/**\n * Turns the start time an operator types for a batch run, a local date-time in the data\n * centre's zone, into the moment the run is queued for.\n */\npublic class BatchStarts {\n\n    /** The moment the job queue receives for a run the operator set for local in zone. */\n    public static Instant queueAt(LocalDateTime local, ZoneId zone) {\n        return startOf(local, zone).toInstant();\n    }\n\n    /** The start of the run as a ZonedDateTime in the data centre's zone. */\n    static ZonedDateTime startOf(LocalDateTime local, ZoneId zone) {\n        // TODO: Most local times name exactly one moment. On the nights the clocks change, a\n        //       local time may never happen, or happen twice. Apply the operations team's\n        //       rules for those nights (see the task) and return the start.\n        throw new IllegalStateException(\"TODO: startOf\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-07/practice-2/src/main/java/practice/Events.java",
-    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-07/practice-2/src/test/java/practice/EventsTest.java",
+    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-07/practice-2/src/main/java/practice/BatchStarts.java",
+    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-07/practice-2/src/test/java/practice/BatchStartsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,24 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EventsTest#dropsARepeatedEvent",
+        "id": "practice.BatchStartsTest#anOrdinaryTimeStartsAsWritten",
         "kind": "main",
-        "says": "An event repeated in the same zone is kept once, the first time it appears."
+        "says": "a local time that happens once, including on the day of a clock change, starts as written with the zone's offset"
       },
       {
-        "id": "practice.EventsTest#theSameMomentInAnotherZoneIsADuplicate",
-        "kind": "edge",
-        "says": "Noon in New York, 16:00 in London, 16:00 UTC and 12:00-04:00 are one moment, kept once."
+        "id": "practice.BatchStartsTest#theQueueGetsTheStartsMoment",
+        "kind": "main",
+        "says": "the job queue receives the instant of the start"
       },
       {
-        "id": "practice.EventsTest#theSameWallClockInAnotherZoneIsNot",
+        "id": "practice.BatchStartsTest#aTimeTheClocksSkipIsRefused",
         "kind": "edge",
-        "says": "Noon in New York, noon in London and noon in Tokyo are three different moments."
+        "says": "a local time in a spring-forward gap is refused with IllegalArgumentException instead of being moved"
       },
       {
-        "id": "practice.EventsTest#keepsTheOrderTheyCameIn",
+        "id": "practice.BatchStartsTest#aTimeTheClocksRepeatStartsAtItsSecondOccurrence",
         "kind": "edge",
-        "says": "The kept events stay in their input order, even when a later moment came first."
+        "says": "a local time in an autumn overlap starts at its second occurrence, with the later offset"
+      },
+      {
+        "id": "practice.BatchStartsTest#aSkippedHalfHourIsRefusedToo",
+        "kind": "edge",
+        "says": "a zone whose clocks skip half an hour has a gap too, and a time inside it is refused"
       }
     ],
     "report": {
@@ -153,11 +137,10 @@
     },
     "origin": {
       "path": "29-date-time-api/README_7.3.2.5.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Near a Clock Change a Local Time Can Be Missing or Doubled, and ZonedDateTime Picks One Without Telling You"
     },
     "concepts": [
-      "equals() on ZonedDateTime also compares the zone, so the same moment is found with isEqual() or by comparing toInstant().",
-      "ZoneId.of(\"UTC\") is a region that is not equal to ZoneOffset.UTC, though both name the same moments."
+      "ZonedDateTime.of moves a local time in a gap later by the gap's length and takes the earlier offset in an overlap, without an exception; getValidOffsets tells the cases apart so the code can decide."
     ]
   }
 }

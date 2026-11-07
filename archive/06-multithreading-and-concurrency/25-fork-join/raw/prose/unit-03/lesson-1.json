@@ -18,256 +18,258 @@
       "text": "6.6.1.2. Implementing RecursiveTask for Results-Bearing Tasks"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
-    },
-    {
       "type": "para",
-      "text": "`RecursiveTask<V>` is an abstract class in `java.util.concurrent` that extends `ForkJoinTask<V>`. It is designed for fork/join computations that **produce a result**. You subclass `RecursiveTask<V>`, override the `compute()` method, and implement the recursive decomposition logic."
-    },
-    {
-      "type": "para",
-      "text": "The `compute()` method follows a standard template:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Base case**: If the problem is small enough (below a threshold), solve it sequentially and return the result.",
-        "**Recursive case**: Split the problem, fork one subtask, compute the other inline, join the forked subtask, and combine the results."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Imagine you need to count all the books in a large library. You can divide the library into sections, assign each section to a helper, and then sum up everyone's counts. If a section is small enough, you count it yourself. `RecursiveTask` works the same way -- it recursively divides the problem and combines partial results."
+      "text": "The finance team's month-end job runs on a `ForkJoinPool`, and it raised three tickets in one month. Revenue per region came out different every time the job ran. The count of distinct customers jumped from 150,000 to 2,000,000 after someone lowered the threshold. And one corrupt row made the import log `import failed: null`, then keep the CPUs busy for a while."
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Class Hierarchy"
+      "level": 2,
+      "text": "A Task Returns Its Part of the Answer; Tasks That Write into Shared State Lose It"
+    },
+    {
+      "type": "para",
+      "text": "The revenue report sums 4 million orders per region. Its first version has every leaf add into one map that all tasks share. Since it returns nothing, it is a `RecursiveAction`:"
     },
     {
       "type": "code",
-      "lang": "",
-      "text": "ForkJoinTask<V>       (abstract, implements Future<V>)\n  |\n  +-- RecursiveTask<V>    (abstract, for result-bearing tasks)\n  +-- RecursiveAction     (abstract, for void tasks)\n  +-- CountedCompleter<V> (for tasks with completion triggers)"
+      "lang": "java",
+      "text": "if (to - from <= THRESHOLD) {\n    for (int i = from; i < to; i++) totals.merge(REGIONS[region[i]], cents[i], Long::sum);\n    return;\n}"
+    },
+    {
+      "type": "para",
+      "text": "The second has each task return a map of its own, and the parent merges the two it gets back:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "@Override\nprotected Map<String, Long> compute() {\n    if (to - from <= THRESHOLD) {\n        Map<String, Long> totals = new HashMap<>();\n        for (int i = from; i < to; i++) totals.merge(REGIONS[region[i]], cents[i], Long::sum);\n        return totals;\n    }\n    int mid = (from + to) >>> 1;\n    ByRegion left = new ByRegion(from, mid);\n    left.fork();\n    Map<String, Long> totals = new ByRegion(mid, to).compute();\n    left.join().forEach((r, c) -> totals.merge(r, c, Long::sum));\n    return totals;\n}"
+    },
+    {
+      "type": "para",
+      "text": "Before reading on: the leaves never touch the same order. What does the shared map add up to?"
+    },
+    {
+      "type": "para",
+      "text": "Three runs of each on `ForkJoinPool(8)` (`ex/Shared.java`, Java 21):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "expected total: 18,388,000,000\nshared map, run 1:   8,091,764,762\nshared map, run 2:   java.util.ConcurrentModificationException: java.util.ConcurrentModificationException: java.util.ConcurrentModificationException\nshared map, run 3:   7,354,387,872\nreturned maps, run 1: 18,388,000,000\nreturned maps, run 2: 18,388,000,000\nreturned maps, run 3: 18,388,000,000"
+    },
+    {
+      "type": "para",
+      "text": "The leaves read different orders but write the same four entries. When two workers `merge` into one region at once, both read the old total and one sum overwrites the other: more than half the revenue is gone, a different amount each run. In run 2 a `HashMap` noticed another thread changing it mid-`merge` and threw. The second version shares nothing that changes. A leaf's map belongs to one thread until it returns, and `join()` hands it to the parent, so the merge needs no lock. `join()` returns only once that task's `compute()` has returned, which here is after it has joined its own halves."
+    },
+    {
+      "type": "para",
+      "text": "Making the shared state thread-safe fixes the arithmetic but not the ownership. A `ConcurrentHashMap` or an `AtomicLong` held by the report object adds correctly, and then every report run on that object adds into the same field: the second run starts from the first one's total, and two runs at once mix their sums. A value returned from `compute()` belongs to one invocation."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "The Parent Can Only Combine What Its Halves Return"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Override `compute()` to define the fork/join logic.",
-        "`compute()` must return a value of type `V`.",
-        "Use `fork()` to asynchronously execute a subtask in another thread.",
-        "Use `join()` to wait for and retrieve the result of a forked subtask.",
-        "Use `compute()` (not `fork()`) for one subtask to keep the current thread busy.",
-        "The threshold determines when to switch from parallel to sequential computation.",
-        "`RecursiveTask` is `Serializable` (as is every `ForkJoinTask`), but it is designed for in-process parallelism; serializing tasks is rarely useful.",
-        "Results from subtasks are combined at each level of the recursion tree.",
-        "Exceptions thrown in `compute()` are propagated to the caller via `join()` or `invoke()`, unwrapped."
-      ]
+      "type": "para",
+      "text": "The customer report counts the distinct customers among 2 million orders; there are 150,000 of them. Each leaf collects its customers in a `HashSet`. The first version returns the set's size, and the parent adds the two counts. The second returns the set itself, and the parent merges the two sets (`ex/Distinct.java`):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Set<Long> seen = new SetTask(mid, to, threshold).compute();\nseen.addAll(left.join());\nreturn seen;"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "threshold 2,000,000: counts added   150,000, sets merged 150,000\nthreshold   500,000: counts added   600,000, sets merged 150,000\nthreshold    10,000: counts added 2,000,000, sets merged 150,000"
+    },
+    {
+      "type": "para",
+      "text": "Every leaf's count is right, and their sum is wrong. A customer who ordered in both halves is counted once by each half, and the parent, holding two numbers, can't tell. With one task the answer is right, so a test on a small file passes."
+    },
+    {
+      "type": "para",
+      "text": "The value a task returns must hold enough to combine with its sibling's, so that any split gives the answer one task would. Adding works for sums and row counts, and `max` works for maxima. A distinct count needs the sets. An average needs the sum and the count, not two averages. A median needs the values themselves: no weighting of two medians gives the median of both halves. The most frequent value needs every value's count, since the overall winner can come second in both halves. Choose that type first, then write `compute()`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "A Subtask's Exception Reaches join() as a Copy, and Its Siblings Keep Running"
+    },
+    {
+      "type": "para",
+      "text": "The ledger import parses a million amounts, and row 600,123 says `12O0`, with a letter O. `Long.parseLong` throws in some worker, and the caller catches the exception around `pool.invoke(...)`. The program then follows the cause chain to its end, and counts the rows parsed after the failure happened (`ex/Failure.java`, second of three runs):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "no stop:\n  caught:     java.lang.NumberFormatException\n  getCause(): java.lang.NumberFormatException\n  3 causes down: java.lang.NumberFormatException: For input string: \"12O0\"\n  rows parsed after the bad one: 690,986"
+    },
+    {
+      "type": "para",
+      "text": "The class is right: as unit 6.6.1.1 showed, `join()` and `invoke()` rethrow the task's own type. The object is not the one thrown. When the joining thread isn't the thread that failed, `ForkJoinTask` builds a new exception of the same class, so that the stack trace shows both threads, and keeps the original as its cause. It uses a public constructor taking a `Throwable` if the class has one, and otherwise the no-argument constructor. `NumberFormatException` has no `Throwable` constructor, so the copy has no message, and the log said `null`. A class that has one, such as `IllegalStateException` or the `ConcurrentModificationException` in the first section, gets the original's `toString()` as its message. Each thread the failure crossed added a copy: three here, four in another run. To report the failure, follow `getCause()` while it is the same class."
+    },
+    {
+      "type": "para",
+      "text": "Nothing cancels a task's siblings, and the pool doesn't run a failed task again: it stays failed, and its exception goes to whoever joins it. The parent whose `compute()` threw never joined its forked half, which was still queued, so a worker ran it. `cancel(true)` wouldn't stop a running task either: in a `RecursiveTask` the argument has no effect, and no task is interrupted. When one failure makes the rest worthless, make the tasks check, for example a shared `AtomicBoolean` that a failing leaf sets and every `compute()` reads first (`failed` is `null` in the first run):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "if (failed != null && failed.get()) return 0L;        // another part already failed\n// ... and in the leaf:\n} catch (RuntimeException e) {\n    if (failed != null) failed.set(true);\n    throw e;\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "shared flag:\n  caught:     java.lang.NumberFormatException\n  getCause(): java.lang.NumberFormatException\n  3 causes down: java.lang.NumberFormatException: For input string: \"12O0\"\n  rows parsed after the bad one: 2,995"
+    },
+    {
+      "type": "para",
+      "text": "The rows still parsed belong to leaves that had started before the flag was set."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Splitting Shares the Work Among Workers; It Can't Remove Work the Recursion Repeats"
+    },
+    {
+      "type": "para",
+      "text": "Fibonacci is the textbook `RecursiveTask`: `fib(n)` forks `fib(n - 1)`, computes `fib(n - 2)`, and adds them. Below the cutoff a task calls the plain recursive method instead. `fib(40)` on `ForkJoinPool(8)`, against one thread (`ex/Fib.java`, third of three runs):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "tasks, cutoff  1: fib(40) = 102,334,155  331,160,281 tasks  1,519 ms\ntasks, cutoff 20: fib(40) = 102,334,155       35,421 tasks     98 ms\ntasks, cutoff 30: fib(40) = 102,334,155          287 tasks     94 ms\none thread, recursive: fib(40) = 102,334,155     475 ms\none thread, loop:      fib(40) = 102,334,155       2 us"
+    },
+    {
+      "type": "para",
+      "text": "With a task per call there are 331 million tasks, and the job is three times slower than one thread. With a cutoff it is about five times faster: eight workers sharing the same 331 million calls. The loop does 40 additions, each needing the two results before it, so it can't be split, and it doesn't need to be. The recursion computes `fib(20)` 10,946 times, because the two halves of a split overlap, and the workers can only share that waste. Before parallelising a recursion, check that its subproblems are independent."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
+        "**A task returns its part of the answer.** Leaves that write into a shared map lose updates, and a field made thread-safe still mixes the totals of two runs.",
+        "**The parent can only combine what its halves return.** Return what the combine needs (sets for a distinct count, sum and count for an average), or the answer changes with the threshold.",
+        "**A subtask's exception reaches `join()` as a copy** of the same class with the original as its cause, and the other subtasks keep running unless they check a flag.",
+        "**Splitting shares work; it can't remove work the recursion repeats.** Fork/join speeds up recursive Fibonacci by the number of workers at best, and a loop is far faster still."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**A `RecursiveTask<V>` and its result (Java 21 and 25):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call",
+        "What it does"
+      ],
+      "rows": [
         [
-          "`RecursiveTask` itself has not changed significantly since Java 7, but its ecosystem has evolved:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "Java 21's **pattern matching** can simplify result handling from fork/join tasks.",
-              "**Virtual threads** complement `RecursiveTask` -- use Fork/Join for CPU-bound decomposition, virtual threads for I/O-bound concurrency.",
-              "**Structured Concurrency** (`StructuredTaskScope`) offers an alternative for simple fork/join patterns where you don't need recursive decomposition."
-            ]
-          }
+          "`compute()`",
+          "returns the task's `V`, on the thread that calls it"
+        ],
+        [
+          "`join()`",
+          "returns a forked task's `V`; a failure is rethrown as an unchecked exception of the same class"
+        ],
+        [
+          "`task.invoke()`",
+          "runs `compute()` on the calling thread and returns its `V`"
+        ],
+        [
+          "`get()`",
+          "as `join()`, but a failure comes wrapped in `ExecutionException`"
+        ],
+        [
+          "`cancel(true)` or `cancel(false)` on a `RecursiveTask`",
+          "marks a task that isn't done as cancelled, and `join()` then throws `CancellationException`; a running task is not interrupted and runs to its end"
+        ],
+        [
+          "`isCompletedAbnormally()`",
+          "`true` if the task threw or was cancelled"
+        ],
+        [
+          "`getException()`",
+          "the exception, `CancellationException` if cancelled, or `null`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**What a joining thread receives when another thread threw (ran on 21 and 25):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "The thrown class has",
+        "Rethrown as"
+      ],
+      "rows": [
+        [
+          "a public constructor whose one parameter is `Throwable`",
+          "`new X(original)`; with the usual constructor, its message is `original.toString()`"
+        ],
+        [
+          "a public no-argument constructor, but not the one above",
+          "`new X()` with the original as its cause; message `null`"
+        ],
+        [
+          "neither, or building the copy throws",
+          "the original object"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        [
-          "**Returning mutable shared state from compute()**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: shared mutable list\nprivate List<Integer> sharedResults = new ArrayList<>();\nprotected Long compute() {\n    sharedResults.add(partialResult); // race condition!\n    return sum;\n}"
-          },
-          "**Fix**: Each task should compute and return its own result; combine at join:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "protected Long compute() {\n    if (small) return sequentialSum();\n    left.fork();\n    long rightResult = right.compute();\n    return left.join() + rightResult; // combine immutably\n}"
-          }
-        ],
-        [
-          "**Not handling exceptions from join()**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: nothing here expects join() to throw\nleft.fork();\nlong rightResult = right.compute();\nlong leftResult = left.join(); // rethrows the subtask's RuntimeException or Error"
-          },
-          "**Fix**: Let exceptions propagate, or catch the exception type the subtask throws. `join()` does not wrap it in `ExecutionException` or `CompletionException`; if the subtask ran in another thread, the exception may be a copy of the same type whose `getCause()` is the original:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "try {\n    long leftResult = left.join();\n} catch (ArithmeticException e) {\n    // handle the subtask's failure\n}"
-          }
-        ],
-        "**Using RecursiveTask for I/O-bound operations**: Fork/Join is for CPU work. I/O in `compute()` blocks worker threads.",
-        [
-          "**Forgetting the base case**: Without a proper threshold, recursion never stops.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: infinite recursion\nprotected Long compute() {\n    // missing threshold check!\n    left.fork();\n    return right.compute() + left.join();\n}"
-          }
-        ],
-        "**Threshold too small for Fibonacci-style tasks**: Naive recursive Fibonacci creates an exponential number of tasks. Use a sequential cutoff of at least 20."
+        "The month-end job also reports the median basket. What would a task have to return so that two halves combine into the median, and is it still worth splitting?",
+        "The ledger import should report every bad row, not only the first. Design the result type, and say what it costs in memory when half the file is bad.",
+        "A `LongAdder` per region, created for one run, also gives the right revenue. Measure it against returned maps on 8 workers, and say when each wins."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Choose a sensible threshold**: A common heuristic is `N / (parallelism * 4)` with a minimum of 100-1000 elements.",
-        "**Avoid object allocation in the hot path**: Reuse arrays with index ranges instead of copying subarrays.",
-        "**Use the fork-compute-join pattern**: Fork left, compute right, join left.",
-        "**Keep compute() pure**: Return results rather than mutating shared state.",
-        "**Profile sequential vs. parallel**: Not all problems benefit from parallelism. Small arrays or simple operations may be faster sequentially.",
-        "**Consider using `invokeAll()`** for symmetric splits where you don't need to process one inline."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null input**: Validate in the constructor; throw `IllegalArgumentException` early.",
-        "**Empty input**: Return a sensible default (0 for sum, `Integer.MIN_VALUE` for max, empty array for sort).",
-        "**Single element**: The base case handles this naturally.",
-        "**All identical elements**: The algorithm should work correctly (no assumptions about element uniqueness).",
-        "**Integer overflow**: Use `long` for sums of large `int` arrays.",
-        "**Negative numbers**: Ensure operations like max/min handle negatives correctly (initialize with `Integer.MIN_VALUE`/`Integer.MAX_VALUE`)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Interviewers may ask you to implement a parallel sum, max, search, or sort using `RecursiveTask`.",
-        "Be ready to write the fork-compute-join pattern from memory.",
-        "Know why sequential Fibonacci is better implemented iteratively and when fork/join overhead is justified.",
-        "Understand the recursion tree and how tasks flow through the pool.",
-        "Be able to estimate the number of tasks created for a given input size and threshold."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
+      "text": "Design Note: Why the Result Travels Through join()"
     },
     {
       "type": "para",
-      "text": "**Q1: Walk through implementing a RecursiveTask that sums an array.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: A SumTask extends RecursiveTask<Long> and takes an array with start/end indices:\n\n1. Base case: If (end - start) <= THRESHOLD, sum elements sequentially.\n2. Recursive case:\n   a. Calculate midpoint: mid = start + (end - start) / 2\n   b. Create left subtask: SumTask(array, start, mid)\n   c. Create right subtask: SumTask(array, mid, end)\n   d. Fork left subtask\n   e. Compute right subtask in current thread\n   f. Join left subtask\n   g. Return leftResult + rightResult\n\nThe threshold prevents excessive task creation. For an array of 10,000 elements\nwith a threshold of 1,000, halving creates 31 tasks: 16 leaves of 625 elements\n(a binary tree of depth 4)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class SumTask extends RecursiveTask<Long> {\n    private static final int THRESHOLD = 1000;\n    private final int[] array;\n    private final int start, end;\n\n    public SumTask(int[] array, int start, int end) {\n        this.array = array;\n        this.start = start;\n        this.end = end;\n    }\n\n    @Override\n    protected Long compute() {\n        int length = end - start;\n        if (length <= THRESHOLD) {\n            long sum = 0;\n            for (int i = start; i < end; i++) sum += array[i];\n            return sum;\n        }\n        int mid = start + length / 2;\n        SumTask left = new SumTask(array, start, mid);\n        SumTask right = new SumTask(array, mid, end);\n        left.fork();\n        long rightResult = right.compute();\n        long leftResult = left.join();\n        return leftResult + rightResult;\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How would you implement parallel merge sort with RecursiveTask?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: MergeSortTask extends RecursiveTask<int[]> and returns the sorted subarray:\n\n1. Base case: If array.length <= THRESHOLD, use Arrays.sort() on a copy.\n2. Recursive case:\n   a. Split array into left and right halves\n   b. Create MergeSortTask for each half\n   c. Fork left, compute right, join left\n   d. Merge the two sorted halves into one array\n\nKey design decisions:\n- Copy subarrays for each task (simpler but uses more memory)\n- OR use index-based ranges with an auxiliary array (more efficient)\n- The merge step is O(n) and must be done sequentially for each level\n\nThe merge sort is stable (preserves order of equal elements) and the fork/join\nversion maintains this property because each subtask operates on disjoint ranges."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class MergeSortTask extends RecursiveTask<int[]> {\n    private static final int THRESHOLD = 64;\n    private final int[] array;\n\n    public MergeSortTask(int[] array) {\n        this.array = array;\n    }\n\n    @Override\n    protected int[] compute() {\n        if (array.length <= THRESHOLD) {\n            int[] copy = Arrays.copyOf(array, array.length);\n            Arrays.sort(copy);\n            return copy;\n        }\n        int mid = array.length / 2;\n        MergeSortTask left = new MergeSortTask(Arrays.copyOfRange(array, 0, mid));\n        MergeSortTask right = new MergeSortTask(Arrays.copyOfRange(array, mid, array.length));\n        left.fork();\n        int[] rightSorted = right.compute();\n        int[] leftSorted = left.join();\n        return merge(leftSorted, rightSorted);\n    }\n\n    private int[] merge(int[] a, int[] b) {\n        int[] result = new int[a.length + b.length];\n        int i = 0, j = 0, k = 0;\n        while (i < a.length && j < b.length)\n            result[k++] = (a[i] <= b[j]) ? a[i++] : b[j++];\n        while (i < a.length) result[k++] = a[i++];\n        while (j < b.length) result[k++] = b[j++];\n        return result;\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does exception handling work in RecursiveTask?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Exceptions in RecursiveTask are handled as follows:\n\n1. If compute() throws an unchecked exception, it is captured by the ForkJoinTask.\n2. The exception is re-thrown when join() or get() is called on the task:\n   - join() rethrows it unwrapped (the same RuntimeException or Error type)\n   - get() wraps it in an ExecutionException (checked)\n3. invoke() on the pool also rethrows it unwrapped.\n\nIf the task failed in a different thread from the one calling join()/invoke(), the\nthrown exception may be a fresh copy of the same type, with the original as its cause\n(so the stack trace shows both threads). Use getCause() to reach the original message.\n\nIf a subtask fails, the parent task that calls join() will receive the exception.\nThe other subtask may still complete normally (it is not automatically cancelled).\n\nTo cancel a subtask programmatically, call task.cancel(true). For a ForkJoinTask the\nargument has no effect: a task that is already running is not interrupted.\nTo check if a task completed with an exception, use task.isCompletedAbnormally()."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "RecursiveTask<Long> faultyTask = new RecursiveTask<>() {\n    @Override\n    protected Long compute() {\n        throw new ArithmeticException(\"Division by zero\");\n    }\n};\n\ntry {\n    ForkJoinPool.commonPool().invoke(faultyTask);\n} catch (ArithmeticException e) {\n    // thrown in a pool worker, so this is a copy whose cause is the original\n    Throwable original = e.getCause() != null ? e.getCause() : e;\n    System.out.println(\"Caught: \" + original.getMessage()); // Caught: Division by zero\n}\n\n// Or with submit + join: join() also rethrows the ArithmeticException itself\nvar future = ForkJoinPool.commonPool().submit(faultyTask);\ntry {\n    future.join();\n} catch (ArithmeticException e) {\n    System.out.println(\"join() rethrew: \" + e.getClass().getSimpleName()); // ArithmeticException\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: When is RecursiveTask NOT a good fit?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: RecursiveTask is NOT a good fit in these scenarios:\n\n1. I/O-bound operations: Reading files, network calls, database queries.\n   Fork/Join threads that block on I/O reduce parallelism. Use virtual threads.\n\n2. Small datasets: The overhead of task creation, forking, and joining exceeds\n   the benefit of parallelism. Profile to find the break-even point.\n\n3. Tasks with heavy inter-dependencies: If subtasks need to communicate\n   during execution, Fork/Join's divide-and-conquer model breaks down.\n\n4. Non-decomposable problems: If the problem cannot be split into independent\n   subproblems (e.g., iterative algorithms with loop-carried dependencies),\n   Fork/Join cannot help.\n\n5. Simple embarrassingly parallel problems: For map-style operations without\n   reduction, parallel streams or a simple ExecutorService may be simpler.\n\n6. Tasks requiring ordered execution: Fork/Join tasks execute in unpredictable\n   order. Use a sequential executor if order matters."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD: I/O-bound task in ForkJoinPool\nclass FetchTask extends RecursiveTask<String> {\n    protected String compute() {\n        return httpClient.send(request, handler).body(); // blocks!\n    }\n}\n\n// GOOD: Use virtual threads for I/O\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    List<Future<String>> futures = urls.stream()\n        .map(url -> executor.submit(() -> httpClient.send(request, handler).body()))\n        .toList();\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How many tasks are created for an array of N elements with threshold T?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: For a binary split at the midpoint (the standard approach), every level halves the\nrange until it is <= T, so:\n\n- Depth: d = ceil(log2(N / T))\n- Leaf tasks (base cases): 2^d  (between N/T and 2N/T)\n- Internal tasks (recursive splits): 2^d - 1\n- Total tasks: 2^(d+1) - 1\n\nFor example, N = 10,000 and T = 1,000:\n- Depth: ceil(log2(10)) = 4\n- Leaf tasks: 16 (of 625 elements each)\n- Internal tasks: 15\n- Total: 31 tasks\n\nThis is important for tuning:\n- Too many tasks (small T): excessive overhead from task creation and scheduling\n- Too few tasks (large T): insufficient parallelism, some cores may be idle\n- Guideline: aim for at least parallelism * 4 leaf tasks for good load balancing\n\nThe work-stealing algorithm handles slight imbalances well, so exact balance\nis not required."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Estimating task count\nint n = 10_000;\nint threshold = 1_000;\nint depth = (int) Math.ceil(Math.log((double) n / threshold) / Math.log(2)); // 4\nint leafTasks = 1 << depth; // 16\nint totalTasks = 2 * leafTasks - 1; // 31\n\nSystem.out.printf(\"Array: %d, Threshold: %d%n\", n, threshold);\nSystem.out.printf(\"Leaf tasks: %d, Total tasks: %d, Depth: %d%n\",\n    leafTasks, totalTasks, depth);"
+      "text": "A fork/join task is written so that two halves run with nothing in common: each gets its own range, builds its own value and hands it to one parent through `join()`, once per task. The price is allocation and a combine at every level. A tree of 2,000 tasks builds 2,000 partial maps or sets and merges each into another, and every merge of two sets walks one of them. When the combine gets that expensive, a concurrent structure that all leaves write to may be cheaper, as long as it belongs to one invocation and not to the object that runs it."
     },
     {
       "type": "heading",
@@ -287,17 +289,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 11,
-    "paras": 8,
-    "code": 11,
-    "tables": 0,
-    "lists": 8,
+    "headings": 10,
+    "paras": 19,
+    "code": 9,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "a277c7aa816dd5dbcd8e5cf4745c010d6cbba72926bb7cb4b652219e551af9b3"
+  "content_sha256": "39f5905105ea2dd3d9babc2f62c1db24044cdf794bdeb19c72c38cba4dc877b9"
 }

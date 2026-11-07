@@ -1,386 +1,230 @@
 # 6.5.2. Thread Safety of Common Data Structures
 
-## Concept Explanation
+The ops dashboard counts requests per endpoint and minute in a map that every request thread
+writes. It was a `HashMap`. After a week of low counts, someone wrapped it in
+`Collections.synchronizedMap(...)`. The counts are still low, and the hourly export that walks the
+map now fails with `ConcurrentModificationException`.
 
-Thread safety in the context of collections means that a data structure can be safely accessed and modified by multiple
-threads concurrently without causing data corruption, inconsistent reads, or unexpected exceptions.
+Java has two ways to share a collection: a wrapper that locks each call, and the
+`java.util.concurrent` collections. Neither makes a sequence of your calls atomic. Every output
+below is from Java 21 on a 20-core machine.
 
-Java provides two primary approaches to making collections thread-safe:
+## A Plain HashMap Shared by Writers Loses Entries and Can Hang
 
-1. **Synchronization wrappers** (`Collections.synchronizedXXX()`): Wrap an existing non-thread-safe collection with a
-   synchronized decorator that locks on the wrapper object for every method call.
-2. **Concurrent collections** (`java.util.concurrent` package): Purpose-built data structures designed from the ground
-   up for concurrent access, using fine-grained locking, CAS operations, or copy-on-write semantics.
-
-**Real-world analogy**: Synchronization wrappers are like putting a single-entry turnstile at a library's front door --
-only one person can enter or exit at a time, but the library itself is unchanged. Concurrent collections are like
-redesigning the library with multiple help desks, self-checkout stations, and independent reading rooms -- many people
-can work simultaneously without interfering with each other.
-
-## Key Points to Remember
-
-1. **No standard collection is thread-safe by default**: `ArrayList`, `HashMap`, `HashSet`, `LinkedList` are all
-   non-thread-safe.
-2. **`Collections.synchronizedXXX()` wraps collections with coarse-grained locking**: Every method call acquires the
-   same lock, creating a bottleneck under contention.
-3. **Synchronized wrappers do NOT make iteration thread-safe**: You must manually synchronize on the wrapper during
-   iteration.
-4. **`ConcurrentHashMap`** uses per-bin locking and CAS for fine-grained concurrency; it outperforms synchronized HashMap
-   by orders of magnitude under contention.
-5. **`CopyOnWriteArrayList`** trades write performance for read performance: zero-cost reads, expensive writes.
-6. **Legacy synchronized collections** (`Vector`, `Hashtable`) exist but are generally discouraged in favor of modern
-   alternatives.
-7. **Thread safety != atomic compound operations**: Even with thread-safe collections, "check-then-act" sequences
-   (like `if (!map.containsKey(k)) map.put(k, v)`) require atomic methods like `putIfAbsent()`.
-
-## Relevant Java 21 Features
-
-- **Virtual threads (JEP 444)**: Concurrent collections work well with virtual threads. However, be cautious with
-  `synchronized` blocks inside virtual thread tasks as they pin the carrier thread; prefer `ReentrantLock` instead.
-- **Structured concurrency (Preview)**: When using `StructuredTaskScope`, concurrent collections are often used to
-  aggregate results from subtasks.
-- **Scoped values (Preview, JEP 446)**: Can replace some uses of `ThreadLocal` for sharing immutable data with
-  subtasks in structured concurrency patterns (they are not a replacement for a concurrent collection).
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Iterating a synchronized collection without holding the lock**
-   ```java
-   // BAD: Iterator is not protected by the synchronized wrapper
-   List<String> syncList = Collections.synchronizedList(new ArrayList<>());
-   syncList.add("a");
-   syncList.add("b");
-   for (String s : syncList) { // ConcurrentModificationException possible!
-       System.out.println(s);
-   }
-
-   // FIX: Manually synchronize on the wrapper
-   synchronized (syncList) {
-       for (String s : syncList) {
-           System.out.println(s);
-       }
-   }
-   ```
-
-2. **Assuming synchronized wrappers provide atomic compound operations**
-   ```java
-   // BAD: Race condition between containsKey and put
-   Map<String, Integer> syncMap = Collections.synchronizedMap(new HashMap<>());
-   if (!syncMap.containsKey("key")) { // Thread A checks
-       syncMap.put("key", 1);         // Thread B might have inserted between check and put
-   }
-
-   // FIX: Use ConcurrentHashMap with atomic operations
-   ConcurrentHashMap<String, Integer> concMap = new ConcurrentHashMap<>();
-   concMap.putIfAbsent("key", 1); // Atomic operation
-   ```
-
-3. **Using CopyOnWriteArrayList for write-heavy workloads**
-   ```java
-   // BAD: Each add copies the entire array - O(n) per write
-   CopyOnWriteArrayList<Integer> cowList = new CopyOnWriteArrayList<>();
-   for (int i = 0; i < 100_000; i++) {
-       cowList.add(i); // 100,000 array copies!
-   }
-
-   // FIX: Use synchronizedList or a concurrent queue for write-heavy scenarios
-   List<Integer> syncList = Collections.synchronizedList(new ArrayList<>());
-   ```
-
-4. **Not using the right level of atomicity**
-   ```java
-   // BAD: Two separate atomic operations are NOT collectively atomic
-   ConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();
-   Integer old = map.get("counter"); // Atomic read
-   map.put("counter", old + 1);      // Atomic write, but NOT atomic read-modify-write
-
-   // FIX: Use merge() or compute() for atomic read-modify-write
-   map.merge("counter", 1, Integer::sum); // Atomic increment
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer concurrent collections over synchronized wrappers**: `ConcurrentHashMap` typically offers 10-100x better
-   throughput than `Collections.synchronizedMap()` under contention.
-2. **Use `ConcurrentHashMap.computeIfAbsent()` for lazy initialization**: It is atomic and avoids double-computation.
-3. **Use `CopyOnWriteArrayList` for event listener registries**: The read-heavy, write-rare pattern is a perfect match.
-4. **Measure before choosing**: Profile your application's read/write ratio before selecting a concurrent collection.
-5. **Use `AtomicInteger`/`AtomicLong` with ConcurrentHashMap** for thread-safe counters.
-6. **Avoid holding locks while performing I/O**: This applies to both synchronized wrappers and explicit locks.
-
-## Edge Cases and Their Handling
-
-1. **Empty concurrent collections**: All concurrent collections handle empty state correctly. `ConcurrentHashMap.get()`
-   returns null for missing keys; `CopyOnWriteArrayList.iterator()` on an empty list returns an empty iterator.
-2. **Single-writer / multiple-reader**: If only one thread writes, `CopyOnWriteArrayList` is optimal. If writes come
-   from multiple threads, use `Collections.synchronizedList()` or a `ConcurrentLinkedQueue`.
-3. **Size queries**: `ConcurrentHashMap.size()` may return stale values during concurrent modification. Use
-   `mappingCount()` for a long-valued count that avoids overflow.
-4. **Serialization**: Both synchronized wrappers and concurrent collections are serializable (a wrapper only if its
-   backing collection is). Deserializing a synchronized wrapper gives back a synchronized wrapper around a copy of the
-   backing collection.
-
-## Interview-specific Insights
-
-Interviewers commonly test:
-- The difference between synchronized wrappers and concurrent collections (locking granularity, performance)
-- Why `ConcurrentHashMap` outperforms `Collections.synchronizedMap()`
-- When to use `CopyOnWriteArrayList` vs. `synchronizedList`
-- How to avoid the "check-then-act" race condition
-- Understanding of `volatile`, `synchronized`, and CAS in the context of collection internals
-- Why `Hashtable` and `Vector` are discouraged
-
-## Interview Q&A Section
-
-**Q1: What is the difference between `Collections.synchronizedMap()` and `ConcurrentHashMap`?**
-
-```text
-A1: The key differences are:
-
-1. Locking granularity:
-   - synchronizedMap: Locks the ENTIRE map for every operation (single monitor lock)
-   - ConcurrentHashMap: Locks only individual buckets (bins) or uses CAS operations
-
-2. Performance under contention:
-   - synchronizedMap: All threads compete for one lock -> severe contention bottleneck
-   - ConcurrentHashMap: Multiple threads can read/write different bins simultaneously
-
-3. Iteration safety:
-   - synchronizedMap: Iterator is fail-fast; requires external synchronization during iteration
-   - ConcurrentHashMap: Weakly consistent iterators; never throws ConcurrentModificationException
-
-4. Null handling:
-   - synchronizedMap: Allows null keys and values (delegates to underlying HashMap)
-   - ConcurrentHashMap: Does NOT allow null keys or values
-
-5. Atomic compound operations:
-   - synchronizedMap: putIfAbsent(), compute(), merge() etc. are atomic too (each runs under the
-     one map lock), but every other thread waits while the function runs
-   - ConcurrentHashMap: Provides atomic compute(), merge(), putIfAbsent(), computeIfAbsent(),
-     locking only the affected bin
-
-6. Bulk operations:
-   - synchronizedMap: No parallel bulk operations
-   - ConcurrentHashMap: forEach(), search(), reduce() with parallelism threshold
-```
+Four threads put 25,000 keys each into one `HashMap`; `raceFor` returns how many are still
+running after 2,000 ms:
 
 ```java
-// Synchronized map - coarse-grained locking
-Map<String, Integer> syncMap = Collections.synchronizedMap(new HashMap<>());
-syncMap.put("key", 1);
-// Must synchronize for iteration
-synchronized (syncMap) {
-    syncMap.forEach((k, v) -> System.out.println(k + "=" + v));
-}
-
-// ConcurrentHashMap - fine-grained locking
-ConcurrentHashMap<String, Integer> concMap = new ConcurrentHashMap<>();
-concMap.put("key", 1);
-// Safe iteration without external synchronization
-concMap.forEach((k, v) -> System.out.println(k + "=" + v));
-// Atomic compound operations
-concMap.merge("key", 1, Integer::sum);
+Map<Integer, Integer> sessions = new HashMap<>();
+int stuck = raceFor(4, t -> {
+    for (int i = 0; i < 25_000; i++) sessions.put(t * 25_000 + i, i);   // keys never repeat
+}, 2_000);
 ```
 
-**Q2: How do you safely increment a counter in a ConcurrentHashMap?**
+Five runs:
 
 ```text
-A2: There are several approaches, ranked from best to worst:
-
-1. merge() - Most idiomatic for simple increment:
-   map.merge("counter", 1, Integer::sum);
-   This atomically adds 1 if absent or increments the existing value.
-
-2. compute() - For more complex transformations:
-   map.compute("counter", (k, v) -> v == null ? 1 : v + 1);
-
-3. AtomicInteger values - For high-contention counters:
-   ConcurrentHashMap<String, AtomicInteger> map = new ConcurrentHashMap<>();
-   map.computeIfAbsent("counter", k -> new AtomicInteger(0)).incrementAndGet();
-
-4. LongAdder values - For extremely high contention:
-   ConcurrentHashMap<String, LongAdder> map = new ConcurrentHashMap<>();
-   map.computeIfAbsent("counter", k -> new LongAdder()).increment();
-
-The LongAdder approach has the highest throughput under extreme contention because it distributes 
-the counter across multiple cells to reduce CAS contention.
+run 1: 100000 distinct keys put, size() = 40934, 3 threads still in put() after 2 s
+  a thread ended with java.lang.ClassCastException
+  a thread ended with java.lang.ClassCastException
+  a thread ended with java.lang.ClassCastException
+  a thread ended with java.lang.ClassCastException
+run 2: 100000 distinct keys put, size() = 2690
+run 3: 100000 distinct keys put, size() = 45610, 1 threads still in put() after 2 s
+  a thread ended with java.lang.ClassCastException
+  a thread ended with java.lang.ClassCastException
+  a thread ended with java.lang.ClassCastException
+  a thread ended with java.lang.ClassCastException
+run 4: 100000 distinct keys put, size() = 624
+run 5: 100000 distinct keys put, size() = 75477
 ```
+
+One thread alone keeps every distinct key, colliding or not, but different threads still share the
+map's table. When it fills, `put` moves every entry into a larger one, and threads that link
+entries or resize at the same time overwrite each other's work. Entries vanish without an error. The table is left in a shape that later calls fail on
+(`ClassCastException` from inside `HashMap`) or loop in: those threads were still inside `put()`
+two seconds later, each keeping a core busy, and a request thread caught there never answers.
+`ArrayList`, `HashSet` and the other mutable `java.util` collections break the same way, with lost
+elements and exceptions from inside the collection.
+
+## A Synchronized Wrapper Makes Each Call Atomic, Not a Sequence of Calls
+
+The dashboard's counter, eight threads, 10,000 hits each over four endpoints:
 
 ```java
-ConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();
-
-// Approach 1: merge (best for simple cases)
-map.merge("visits", 1, Integer::sum);
-map.merge("visits", 1, Integer::sum);
-// map.get("visits") == 2
-
-// Approach 2: compute
-map.compute("score", (k, v) -> v == null ? 10 : v + 10);
-
-// Approach 3: AtomicInteger for high-contention
-ConcurrentHashMap<String, AtomicInteger> atomicMap = new ConcurrentHashMap<>();
-atomicMap.computeIfAbsent("counter", k -> new AtomicInteger(0)).incrementAndGet();
-
-// Approach 4: LongAdder for extreme contention
-ConcurrentHashMap<String, java.util.concurrent.atomic.LongAdder> adderMap = new ConcurrentHashMap<>();
-adderMap.computeIfAbsent("counter", k -> new java.util.concurrent.atomic.LongAdder()).increment();
-long count = adderMap.get("counter").sum();
+Integer old = hits.get(e);
+hits.put(e, old == null ? 1 : old + 1);
 ```
 
-**Q3: When should you use CopyOnWriteArrayList vs. Collections.synchronizedList()?**
+and the same count in one call:
+
+```java
+hits.merge(endpoints[i % 4], 1, Integer::sum);
+```
 
 ```text
-A3: The choice depends on the read/write ratio:
-
-CopyOnWriteArrayList:
-- Best when: reads vastly outnumber writes (e.g., 1000:1 ratio)
-- Reads: Lock-free, O(1) array access, no synchronization overhead
-- Writes: O(n) because the entire array is copied
-- Iteration: Returns a snapshot; never throws ConcurrentModificationException
-- Use cases: Listener lists, configuration caches, security policy lists
-
-Collections.synchronizedList():
-- Best when: reads and writes are balanced, or writes are frequent
-- Reads: Requires acquiring a lock (monitor)
-- Writes: O(1) amortized for add (same as ArrayList)
-- Iteration: Must be manually synchronized; throws ConcurrentModificationException on concurrent modification
-- Use cases: General-purpose thread-safe lists, write-heavy workloads
-
-Key decision criteria:
-- Small list + rare writes -> CopyOnWriteArrayList
-- Large list OR frequent writes -> synchronizedList
-- Need safe iteration without locking -> CopyOnWriteArrayList
-- Need high write throughput -> synchronizedList or ConcurrentLinkedQueue
+synchronizedMap   get, then put: 45285 of 80000
+ConcurrentHashMap get, then put: 37417 of 80000
+synchronizedMap   merge:        80000 of 80000
+ConcurrentHashMap merge:        80000 of 80000
 ```
 
+The wrapper locks each `get` and each `put`, and releases the lock between them. Two threads read
+41, both write 42, and one hit is gone. This is the race of unit 6.2.1's flash sale, on a map. Moving
+to `ConcurrentHashMap` changes nothing while the code still makes two calls.
+
+`merge`, `compute`, `computeIfAbsent` and `putIfAbsent` read and write in one call, and both maps
+run each of them atomically. Make every read-modify-write on a shared map one of those calls.
+
+<!-- practice 1 -->
+
+## Walking a Wrapper Is Many Calls: Hold the Wrapper's Lock for the Whole Walk
+
+A report walks a `synchronizedList` of 1,000 events 10,000 times while a writer adds the newest
+event and removes the oldest: once without a lock, once holding the list's lock, once over a
+`CopyOnWriteArrayList`:
+
 ```java
-// CopyOnWriteArrayList - for listener registries (read-heavy)
-CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
-listeners.add(() -> System.out.println("Listener 1"));
-
-// Safe iteration without locks
-for (Runnable r : listeners) {
-    r.run(); // Another thread can safely call listeners.add() here
-}
-
-// synchronizedList - for balanced read/write workloads
-List<String> syncList = Collections.synchronizedList(new ArrayList<>());
-syncList.add("item1"); // Fast write
-
-// MUST synchronize for iteration
-synchronized (syncList) {
-    for (String s : syncList) {
-        System.out.println(s);
-    }
+synchronized (events) {
+    for (String e : events) n++;
 }
 ```
 
-**Q4: What is wrong with Vector and Hashtable? Why are they discouraged?**
-
 ```text
-A4: Vector and Hashtable are legacy synchronized collections from Java 1.0 that are discouraged for 
-several reasons:
-
-1. Coarse-grained synchronization: Every method is synchronized, even when no contention exists. This 
-   causes unnecessary overhead in single-threaded or low-contention scenarios.
-
-2. Compound sequences are not atomic: each method is synchronized, but a sequence such as
-   if (!vector.contains(x)) vector.add(x) is two calls, so it still needs external locking.
-   (Hashtable does get synchronized putIfAbsent(), compute() and merge() since Java 8.)
-
-3. API design: They expose implementation details (e.g., Vector.capacity(), Hashtable.elements()) 
-   and have legacy methods that don't align with the Collections Framework.
-
-4. Iteration: Their Enumeration-based iterators are not fail-fast. Their Collection-based iterators 
-   ARE fail-fast but still require external synchronization.
-
-5. Performance: Under contention, they perform similarly to synchronized wrappers (same bottleneck). 
-   Modern alternatives like ConcurrentHashMap vastly outperform Hashtable.
-
-Modern replacements:
-- Vector -> ArrayList (non-concurrent) or CopyOnWriteArrayList (concurrent)
-- Hashtable -> HashMap (non-concurrent) or ConcurrentHashMap (concurrent)
-- Stack (extends Vector) -> ArrayDeque
+no lock              {ConcurrentModificationException=9997, finished=3}
+synchronized (list)  {finished=10000}
+CopyOnWriteArrayList {finished=10000}
 ```
+
+A for-each loop calls `iterator()`, then `hasNext()` and `next()` per element, and the wrapper
+locks none of them: its `iterator()` hands back the `ArrayList`'s own iterator, which notices the
+change and throws. Only the wrapper's one-call walks, `forEach` and `removeIf`, hold its lock.
+The wrapper's lock is the wrapper object itself, which is why `synchronized (events)` excludes
+every writer that goes through it. Locking anything else, such as `this` of the reporting class,
+excludes nobody.
+
+The lock has a price: every writer waits for the whole walk. A thread that called `add` during a
+locked walk of 2,000,000 elements returned after 37 ms. For a long walk, copy the list
+(`new ArrayList<>(events)` copies through the wrapper's locked `toArray()`) and walk the copy. A
+map's copy (`new HashMap<>(map)`) walks the map, so it goes inside the block. Unit 6.5.3 shows what the
+iterators of the concurrent collections see instead of throwing.
+
+<!-- practice 2 -->
+
+## A Thread-Safe Map Guards Its Entries, Not the Objects Stored in Them
+
+A chat service keeps each room's messages in a `ConcurrentHashMap<String, List<String>>`. Eight
+threads post ten messages each into two rooms, in 1,000 rounds, in three ways:
 
 ```java
-// LEGACY - Avoid these
-Vector<String> vector = new Vector<>();
-Hashtable<String, Integer> hashtable = new Hashtable<>();
+List<String> list = a.get(room);                      // get, put if null
+if (list == null) {
+    list = Collections.synchronizedList(new ArrayList<>());
+    a.put(room, list);
+}
+list.add(msg);
 
-// MODERN replacements
-// For non-concurrent use:
-List<String> list = new ArrayList<>();
-Map<String, Integer> map = new HashMap<>();
+b.computeIfAbsent(room, r -> new ArrayList<>()).add(msg);
 
-// For concurrent use:
-CopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>();
-ConcurrentHashMap<String, Integer> concMap = new ConcurrentHashMap<>();
-
-// For stack:
-Deque<String> stack = new ArrayDeque<>();
-stack.push("item");
-String top = stack.pop();
+c.computeIfAbsent(room, r -> Collections.synchronizedList(new ArrayList<>())).add(msg);
 ```
-
-**Q5: How can you demonstrate a race condition with a non-thread-safe HashMap?**
 
 ```text
-A5: A classic race condition with HashMap occurs when multiple threads perform read-modify-write 
-operations concurrently:
-
-The problem:
-1. Thread A reads counter = 5
-2. Thread B reads counter = 5
-3. Thread A writes counter = 6
-4. Thread B writes counter = 6  (should be 7, but Thread B used stale value)
-
-This results in a "lost update." In extreme cases with HashMap, concurrent structural modifications 
-(like rehashing) can cause infinite loops, corrupted data structures, or even thrown exceptions.
-
-Additional dangers of concurrent HashMap access:
-- During resize, entries can be lost or duplicated
-- The internal linked list/tree structure can become corrupted
-- get() can return wrong values or enter infinite loops (in older Java versions)
-
-This is why you must ALWAYS use ConcurrentHashMap or external synchronization when multiple threads 
-access a map.
+get, put if null                   80000 posted,  263 lost,  0 threads ended with an exception
+computeIfAbsent, ArrayList         80000 posted,  602 lost, 10 threads ended with an exception
+computeIfAbsent, synchronizedList  80000 posted,    0 lost,  0 threads ended with an exception
 ```
 
-```java
-// DANGEROUS: Race condition with HashMap
-Map<String, Integer> unsafeMap = new HashMap<>();
-unsafeMap.put("counter", 0);
+How does the first lose messages when every list is synchronized? Two threads find no list and
+each creates one; the second `put` replaces the first list with the messages already in it.
+`computeIfAbsent` runs the factory at most once per missing key and gives every caller the same
+list.
 
-ExecutorService executor = Executors.newFixedThreadPool(4);
-for (int i = 0; i < 4; i++) {
-    executor.submit(() -> {
-        for (int j = 0; j < 1000; j++) {
-            int current = unsafeMap.get("counter"); // Read
-            unsafeMap.put("counter", current + 1);   // Write (race condition!)
-        }
-    });
-}
-executor.shutdown();
-executor.awaitTermination(10, TimeUnit.SECONDS);
-// Expected: 4000, Actual: often less (lost updates), and it varies from run to run
+The second creates the list once, then eight threads call `add` on one `ArrayList`; over the
+1,000 rounds it threw `ArrayIndexOutOfBoundsException` from inside `add` ten times, ending that
+posting thread. The
+map's atomicity covers finding or creating the entry, and ends before `add` runs. A value that
+threads change after they get it is shared state of its own, and needs its own thread safety: a
+synchronized or concurrent collection, or an `AtomicInteger`. Removing an entry once its value is
+empty has the same gap: a thread that fetched the value before the removal adds to an object the
+map no longer holds. Do the removal and the add inside `compute`, so the entry and its value
+change together.
 
-// SAFE: Using ConcurrentHashMap.merge()
-ConcurrentHashMap<String, Integer> safeMap = new ConcurrentHashMap<>();
-safeMap.put("counter", 0);
+<!-- practice 3 -->
 
-ExecutorService safeExecutor = Executors.newFixedThreadPool(4);
-for (int i = 0; i < 4; i++) {
-    safeExecutor.submit(() -> {
-        for (int j = 0; j < 1000; j++) {
-            safeMap.merge("counter", 1, Integer::sum); // Atomic!
-        }
-    });
-}
-safeExecutor.shutdown();
-safeExecutor.awaitTermination(10, TimeUnit.SECONDS);
-// Always: 4000
+## CopyOnWriteArrayList Copies the Whole Array on Every Write
+
+Each write to a `CopyOnWriteArrayList` copies the array, changes the copy, and publishes it. Reads
+and walks use whichever array was current, with no lock. One thread, 100,000 adds, then 1,000 walks
+of the full list (the synchronized list walked under its lock):
+
+```text
+CopyOnWriteArrayList  100000 adds:  1110 ms   1000 full walks:   55 ms
+SynchronizedRandomAccessList 100000 adds:     2 ms   1000 full walks:  157 ms
 ```
+
+The cost of an add grows with the list: the last one copied 99,999 elements. In return, a walk
+never waits and never throws (unit 6.5.3 shows what it sees).
+
+That fits a list of listeners or routes, read on every event and changed at deploy time. An event
+buffer that grows on every request belongs in a synchronized list or a queue.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **A plain `HashMap` or `ArrayList` shared by writers loses entries** (even with distinct keys),
+  and can throw or hang inside the collection.
+- **A synchronized wrapper makes each call atomic, not a sequence.** A read-modify-write is one
+  call (`merge`, `compute`), on either map.
+- **Walking a wrapper takes many calls.** Hold the wrapper's own lock for the walk, and every
+  writer waits for it.
+- **A thread-safe map guards its entries, not their values.** Create values with
+  `computeIfAbsent`, and make a shared value thread-safe itself.
+- **`CopyOnWriteArrayList` copies on every write.** It suits lists read far more often than
+  written.
+
+## Reference
+
+| | `Collections.synchronizedMap/List` | `ConcurrentHashMap` | `CopyOnWriteArrayList` |
+|---|---|---|---|
+| Locking | the wrapper object, for every call | per bin, for updates; retrievals generally don't lock | one lock, for writes only |
+| `merge`, `compute`, `putIfAbsent` | atomic, under the wrapper's lock | atomic | `addIfAbsent` atomic |
+| Walking while others write | hold `synchronized (wrapper)`, else the backing iterator's behaviour (fail-fast for `ArrayList`, `HashMap`) | weakly consistent, no lock (unit 6.5.3) | snapshot, no lock; `iterator().remove()` throws `UnsupportedOperationException` |
+| `null` keys or values | as the backing collection allows | `NullPointerException` | allowed |
+| `size()` while others write | exact, under the lock | a transient value; `mappingCount()` gives it as a `long` | the current array's length |
+
+**Edge cases (Java 21):**
+
+| Situation | What happens |
+|---|---|
+| `computeIfAbsent` whose function returns `null` | no entry is created, the call returns `null` |
+| `ConcurrentHashMap.computeIfAbsent` whose function updates the same key | `IllegalStateException: Recursive update`; the javadoc forbids updating any other mapping too |
+| `Hashtable`, `Vector` | every method `synchronized`, like a wrapper; `Hashtable` rejects `null` |
+| `synchronized (concurrentHashMap)` held by another thread | `put` and `merge` go ahead |
+
+## Challenges
+
+1. The export must see one consistent minute of counts while 200 threads keep counting. Compare
+   locking a wrapper for the export, copying under the lock, and swapping in a fresh map each
+   minute. What does each cost the request threads?
+2. Replace the `merge` counter with `computeIfAbsent(e, k -> new LongAdder()).increment()` and
+   measure both with 64 threads on one key. When is the difference worth a less obvious type?
+3. A listener registry gets one listener added per user session. At what size does
+   `CopyOnWriteArrayList` stop being the right choice, and what do you use then?
+
+## Design Note: Why a ConcurrentHashMap Can't Be Locked From Outside
+
+A synchronized wrapper locks on itself, so a caller can extend its atomicity: `synchronized (map)`
+around a check and a put makes them one step for every thread that also goes through the wrapper.
+The price is one lock for the whole map, so readers wait for writers and for each other.
+
+`ConcurrentHashMap` gave up that lock to let threads work on different bins at once. Its methods
+never lock the map object, so `synchronized (map)` around a sequence excludes only code that does
+the same. What a caller can't build from outside, the map provides as single calls: `merge`,
+`compute`, `computeIfAbsent`, `putIfAbsent`, `replace(key, old, new)`. A sequence that none of them
+expresses needs your own lock around every access to the map, and then the map's concurrency buys
+nothing.
 
 ## Code Examples
 

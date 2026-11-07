@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Insert during a traversal with ListIterator.add",
+  "title": "Free expired leases without taking a renewed one",
   "blocks": [
     {
       "type": "heading",
@@ -19,28 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The enhanced for loop runs on an iterator, so `list.add(...)` inside it trips the fail-fast check, as in the course's demo:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ListIterator<String> listIt = list.listIterator();\nwhile (listIt.hasNext()) {\n    listIt.next();\n    list.add(\"new\"); // Throws ConcurrentModificationException\n}"
+      "text": "The build farm hands out time-limited leases on shared machines: build agents, GPUs, a plotter. A holder renews its lease before it runs out and releases it when done, and a sweeper thread frees the leases nobody renewed and tells their holders. Two incidents last month: a training job lost its GPU a few milliseconds after renewing it, and a CAD team that had released the plotter got a \"your lease expired\" message for it anyway."
     },
     {
       "type": "para",
-      "text": "A change made through the iterator itself is safe: `ListIterator.add` inserts the element just before the cursor, so the traversal carries on with the next original element and never visits what it inserted."
+      "text": "`LeaseTable` already acquires, renews and releases. Write `sweep(...)` in `src/main/java/practice/LeaseTable.java`: free every lease that ran out at or before `now`, tell its holder, and return the resources it freed."
     },
     {
       "type": "para",
-      "text": "Write `expand(List<String> list, String suffix)` in `Echo`. It inserts, right after each element of the caller's list, a copy of that element with `suffix` appended, in place."
+      "text": "When you're done, a lease renewed while the sweep runs stays with its holder, and only leases the sweep itself freed are reported and returned. About six lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`[\"a\", \"b\"]` with `\"-x\"` becomes `[\"a\", \"a-x\", \"b\", \"b-x\"]`, and `[]` stays `[]`;",
-        "every original element gets its echo, even one that already ends with the suffix, and each duplicate gets its own: `[\"a-x\", \"b\"]` becomes `[\"a-x\", \"a-x-x\", \"b\", \"b-x\"]`, and `[\"a\", \"a-x\", \"a\"]` becomes `[\"a\", \"a-x\", \"a-x\", \"a-x-x\", \"a\", \"a-x\"]`."
-      ]
+      "type": "para",
+      "text": "The tests force the interleaving: they make a holder renew or release its lease just before the sweeper changes that lease in the table, the way it happens when the holder's thread gets there first."
     },
     {
       "type": "heading",
@@ -55,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.ListIterator;\n\npublic final class Echo {\n\n    private Echo() {\n    }\n\n    /** Inserts element + suffix right after each element of the caller's list. */\n    public static void expand(List<String> list, String suffix) {\n        ListIterator<String> it = list.listIterator();\n        while (it.hasNext()) {\n            String current = it.next();\n            it.add(current + suffix);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Hands out time-limited leases on shared resources (a build agent, a GPU, a printer). Holders\n * renew their lease before it runs out and release it when they are done; a sweeper thread frees\n * the leases nobody renewed. Holders renew and release on their own threads, at any time.\n */\npublic class LeaseTable {\n\n    /** A lease is never changed: renewing it puts a new Lease in its place. */\n    public record Lease(String resource, String holder, long expiresAt) {}\n\n    /** Tells a holder that its lease ran out and the resource was given back. */\n    public interface Notifier {\n        void expired(Lease lease);\n    }\n\n    private final ConcurrentHashMap<String, Lease> leases;\n\n    public LeaseTable() {\n        this(new ConcurrentHashMap<>());\n    }\n\n    LeaseTable(ConcurrentHashMap<String, Lease> store) {\n        this.leases = store;\n    }\n\n    /** Takes the resource until {@code expiresAt}, if nobody holds it. */\n    public boolean acquire(String resource, String holder, long expiresAt) {\n        return leases.putIfAbsent(resource, new Lease(resource, holder, expiresAt)) == null;\n    }\n\n    /** Extends the holder's lease to {@code expiresAt}; false if the holder no longer has it. */\n    public boolean renew(String resource, String holder, long expiresAt) {\n        Lease renewed = leases.computeIfPresent(resource,\n                (r, current) -> current.holder().equals(holder) ? new Lease(r, holder, expiresAt) : current);\n        return renewed != null && renewed.holder().equals(holder) && renewed.expiresAt() == expiresAt;\n    }\n\n    /** Gives the resource back; the holder needs no notice. */\n    public void release(String resource, String holder) {\n        leases.computeIfPresent(resource, (r, current) -> current.holder().equals(holder) ? null : current);\n    }\n\n    /** Who holds the resource now, or null. */\n    public Lease holderOf(String resource) {\n        return leases.get(resource);\n    }\n\n    /**\n     * Frees every lease that ran out at or before {@code now}, tells its holder, and returns the\n     * resources it freed.\n     */\n    public List<String> sweep(long now, Notifier notifier) {\n        List<String> freed = new ArrayList<>();\n        for (Lease lease : leases.values()) {\n            if (lease.expiresAt() <= now && leases.remove(lease.resource(), lease)) {\n                freed.add(lease.resource());\n                notifier.expired(lease);\n            }\n        }\n        return freed;\n    }\n}\n"
         }
       ]
     },
@@ -67,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.ListIterator;\n\npublic final class Echo {\n\n    private Echo() {\n    }\n\n    /** Inserts element + suffix right after each element of the caller's list. */\n    public static void expand(List<String> list, String suffix) {\n        throw new UnsupportedOperationException(\"write expand\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Hands out time-limited leases on shared resources (a build agent, a GPU, a printer). Holders\n * renew their lease before it runs out and release it when they are done; a sweeper thread frees\n * the leases nobody renewed. Holders renew and release on their own threads, at any time.\n */\npublic class LeaseTable {\n\n    /** A lease is never changed: renewing it puts a new Lease in its place. */\n    public record Lease(String resource, String holder, long expiresAt) {}\n\n    /** Tells a holder that its lease ran out and the resource was given back. */\n    public interface Notifier {\n        void expired(Lease lease);\n    }\n\n    private final ConcurrentHashMap<String, Lease> leases;\n\n    public LeaseTable() {\n        this(new ConcurrentHashMap<>());\n    }\n\n    LeaseTable(ConcurrentHashMap<String, Lease> store) {\n        this.leases = store;\n    }\n\n    /** Takes the resource until {@code expiresAt}, if nobody holds it. */\n    public boolean acquire(String resource, String holder, long expiresAt) {\n        return leases.putIfAbsent(resource, new Lease(resource, holder, expiresAt)) == null;\n    }\n\n    /** Extends the holder's lease to {@code expiresAt}; false if the holder no longer has it. */\n    public boolean renew(String resource, String holder, long expiresAt) {\n        Lease renewed = leases.computeIfPresent(resource,\n                (r, current) -> current.holder().equals(holder) ? new Lease(r, holder, expiresAt) : current);\n        return renewed != null && renewed.holder().equals(holder) && renewed.expiresAt() == expiresAt;\n    }\n\n    /** Gives the resource back; the holder needs no notice. */\n    public void release(String resource, String holder) {\n        leases.computeIfPresent(resource, (r, current) -> current.holder().equals(holder) ? null : current);\n    }\n\n    /** Who holds the resource now, or null. */\n    public Lease holderOf(String resource) {\n        return leases.get(resource);\n    }\n\n    /**\n     * Frees every lease that ran out at or before {@code now}, tells its holder, and returns the\n     * resources it freed.\n     */\n    public List<String> sweep(long now, Notifier notifier) {\n        // TODO: Free the leases that ran out, tell their holders, and return the resources\n        //       freed. Holders renew and release on their own threads while the sweep runs,\n        //       and a holder must not lose a lease it has just renewed.\n        throw new IllegalStateException(\"TODO: sweep\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -75,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -86,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4a75e8123736fc5bd9028d55f9218e6a8faaaf0da1b19aa0bb1d5ce84f28bb63",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.ListIterator;\n\npublic final class Echo {\n\n    private Echo() {\n    }\n\n    /** Inserts element + suffix right after each element of the caller's list. */\n    public static void expand(List<String> list, String suffix) {\n        throw new UnsupportedOperationException(\"write expand\");\n    }\n}\n",
+  "content_sha256": "3cea5b7b9500e46781e95ba0d24f8764d5cc3c762a888b2783a9056d71caa777",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Hands out time-limited leases on shared resources (a build agent, a GPU, a printer). Holders\n * renew their lease before it runs out and release it when they are done; a sweeper thread frees\n * the leases nobody renewed. Holders renew and release on their own threads, at any time.\n */\npublic class LeaseTable {\n\n    /** A lease is never changed: renewing it puts a new Lease in its place. */\n    public record Lease(String resource, String holder, long expiresAt) {}\n\n    /** Tells a holder that its lease ran out and the resource was given back. */\n    public interface Notifier {\n        void expired(Lease lease);\n    }\n\n    private final ConcurrentHashMap<String, Lease> leases;\n\n    public LeaseTable() {\n        this(new ConcurrentHashMap<>());\n    }\n\n    LeaseTable(ConcurrentHashMap<String, Lease> store) {\n        this.leases = store;\n    }\n\n    /** Takes the resource until {@code expiresAt}, if nobody holds it. */\n    public boolean acquire(String resource, String holder, long expiresAt) {\n        return leases.putIfAbsent(resource, new Lease(resource, holder, expiresAt)) == null;\n    }\n\n    /** Extends the holder's lease to {@code expiresAt}; false if the holder no longer has it. */\n    public boolean renew(String resource, String holder, long expiresAt) {\n        Lease renewed = leases.computeIfPresent(resource,\n                (r, current) -> current.holder().equals(holder) ? new Lease(r, holder, expiresAt) : current);\n        return renewed != null && renewed.holder().equals(holder) && renewed.expiresAt() == expiresAt;\n    }\n\n    /** Gives the resource back; the holder needs no notice. */\n    public void release(String resource, String holder) {\n        leases.computeIfPresent(resource, (r, current) -> current.holder().equals(holder) ? null : current);\n    }\n\n    /** Who holds the resource now, or null. */\n    public Lease holderOf(String resource) {\n        return leases.get(resource);\n    }\n\n    /**\n     * Frees every lease that ran out at or before {@code now}, tells its holder, and returns the\n     * resources it freed.\n     */\n    public List<String> sweep(long now, Notifier notifier) {\n        // TODO: Free the leases that ran out, tell their holders, and return the resources\n        //       freed. Holders renew and release on their own threads while the sweep runs,\n        //       and a holder must not lose a lease it has just renewed.\n        throw new IllegalStateException(\"TODO: sweep\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-02/practice-2/src/main/java/practice/Echo.java",
-    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-02/practice-2/src/test/java/practice/EchoTest.java",
+    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-02/practice-2/src/main/java/practice/LeaseTable.java",
+    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-02/practice-2/src/test/java/practice/LeaseTableTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -111,14 +102,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EchoTest#echoesEachElement",
+        "id": "practice.LeaseTableTest#freesTheLeasesThatRanOutAndKeepsTheOthers",
         "kind": "main",
-        "says": "[a, b] with \"-x\" becomes [a, a-x, b, b-x]."
+        "says": "a sweep frees every lease that ran out, tells each of their holders, returns their resources, and keeps the leases still running"
       },
       {
-        "id": "practice.EchoTest#anElementEndingInTheSuffixIsEchoedToo",
+        "id": "practice.LeaseTableTest#aSweepBeforeAnythingRanOutFreesNothing",
+        "kind": "main",
+        "says": "a sweep before any lease ran out frees nothing and tells nobody"
+      },
+      {
+        "id": "practice.LeaseTableTest#aLeaseRenewedJustAsTheSweeperFreesItStaysWithItsHolder",
         "kind": "edge",
-        "says": "An original element that already ends with the suffix is echoed too: [a-x, b] becomes [a-x, a-x-x, b, b-x]."
+        "says": "a lease its holder renews between the sweeper's check and its removal stays with the holder, with the new expiry"
+      },
+      {
+        "id": "practice.LeaseTableTest#aLeaseReleasedJustAsTheSweeperFreesItIsNotReportedAsExpired",
+        "kind": "edge",
+        "says": "a lease its holder releases between the sweeper's check and its removal is neither returned as freed nor reported to the holder"
       }
     ],
     "report": {
@@ -127,10 +128,10 @@
     },
     "origin": {
       "path": "35-fail-fast-safe/README_8.5.2.md",
-      "section": "8.5.2.1. Fail-Fast Iterators and ConcurrentModificationException"
+      "section": "A Walk Hands Out Entries Read Earlier, So Act on One with remove(key, value)"
     },
     "concepts": [
-      "The for-each loop runs on an iterator, so a change during it goes through the iterator's own methods, such as ListIterator.add(), which keeps the traversal in step."
+      "A walk hands out entries read earlier, even ones removed since, so acting on one with remove(key) can remove a newer value; remove(key, value) removes only if the key still maps to the value checked."
     ]
   }
 }

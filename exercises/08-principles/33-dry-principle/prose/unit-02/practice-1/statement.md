@@ -1,31 +1,13 @@
-The page's most duplicated concurrency code is the lock-try-finally pattern, pasted into
-`deposit()`, `withdraw()` and `getBalance()`:
+Tenants of a search API pay for requests in quota units: a search costs 1, an export 5, and a bulk
+request whatever the pricing service quotes for its rows. Until now each endpoint charged the
+tenant itself, by reading `remaining(tenant)` and writing the new count back with `reset(...)`,
+inside `synchronized (quota)`. The bulk endpoint, written last, did the same without the
+`synchronized` block. Last month a tenant with 10,000 units made requests worth about 13,000.
 
-```java
-lock.lock();
-try { balance += amount; return balance; }
-finally { lock.unlock(); }
-```
+Finish the `TODO`s in `src/main/java/practice/Quota.java`: `tryConsume(...)` and the three
+endpoints of `Quota.Api`. When you're done, no charge is lost, whatever a concurrent search,
+export, bulk request or refund does to the same tenant at the same moment, and a request the
+tenant can't afford is refused without charging anything. About ten lines in total.
 
-Its fix is a `LockExecutor`: the pattern is written **once**, and each caller passes only
-its business logic as a lambda. Complete it:
-
-- `withLock(Supplier<T> action)` acquires the lock, runs the action and returns its
-  result, and releases the lock in a `finally` block, so **the lock is released even when
-  the action throws**;
-- `withLockRun(Runnable action)` does the same for an action with no result;
-- both refuse a `null` action with `NullPointerException` **before** acquiring the lock;
-- `Account` keeps a balance, and every one of its operations (`deposit`, `withdraw` and
-  `getBalance`) goes through its `LockExecutor`. A read is guarded like a write: an
-  operation that skips the shared mechanism is exactly the copy that diverges. `deposit` and
-  `withdraw` return the balance they made, computed while the lock is held.
-
-Examples:
-
-- `withLock(() -> 1234)` returns `1234`, and the action runs while the lock is held;
-- after an action throws `IllegalStateException`, the exception reaches the caller and the
-  lock is free;
-- `withLock(null)` throws `NullPointerException` and never takes the lock;
-- an account opened with `1000` gives `1500` after `deposit(500)`, `1200` after
-  `withdraw(300)`, and `getBalance()` is then `1200`, with the lock taken once per
-  operation.
+The tests stop one request partway, at a point of their choosing, and run another against the same
+tenant before letting the first go on.

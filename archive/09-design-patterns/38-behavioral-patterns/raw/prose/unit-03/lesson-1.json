@@ -18,324 +18,310 @@
       "text": "9.3.3. Command Pattern"
     },
     {
+      "type": "para",
+      "text": "The release-notes editor gained a \"Sort lines\" button, with undo like every other edit. Within a week support has three tickets with the same story: the user sorted, pressed Ctrl+Z, and the document went blank. The sort command's undo is one line, and it passed review."
+    },
+    {
+      "type": "para",
+      "text": "The Command pattern turns a request into an object that holds what to do, to which receiver, and with which arguments. An object can wait in a queue, go into a log, run again after a failure, and keep what it needs to undo itself. The blank document comes from the last of these."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Command Is a Request Held as an Object, So It Can Be Queued, Logged and Run Again"
     },
     {
       "type": "para",
-      "text": "The Command pattern is a behavioral design pattern that turns a request into a stand-alone object that contains all information about the request. This transformation lets you pass requests as method arguments, delay or queue a request's execution, and support undoable operations."
+      "text": "A warehouse service queues stock adjustments and writes each one to an audit log before applying it; each adjustment is a record:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.HashMap;\nimport java.util.Map;\n\nclass Inventory {\n    final Map<String, Integer> stock = new HashMap<>();\n    void add(String sku, int qty) { stock.merge(sku, qty, Integer::sum); }\n}\n\n/** A command as data: what to do, to what, with which arguments. */\nrecord Restock(String sku, int qty) {\n    void applyTo(Inventory inv) { inv.add(sku, qty); }\n}"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of ordering food at a restaurant. You (the client) tell the waiter (invoker) what you want. The waiter writes the order on a slip (command object) and places it on the kitchen counter. The chef (receiver) reads the slip and prepares the food. The order slip decouples you from the chef -- you never interact with the kitchen directly. If you change your mind, you can cancel the order (undo). Multiple orders can be queued and processed in sequence."
+      "text": "The same two adjustments go through the queue once as records, then once as lambdas:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Queue<Restock> records = new ArrayDeque<>();\nrecords.add(new Restock(\"A-17\", 40));\nrecords.add(new Restock(\"B-02\", 5));\nwhile (!records.isEmpty()) {\n    Restock c = records.poll();\n    System.out.println(\"audit: \" + c);\n    c.applyTo(inv);\n}\n\nQueue<Runnable> lambdas = new ArrayDeque<>();\nlambdas.add(() -> inv.add(\"A-17\", 40));\nlambdas.add(() -> inv.add(\"B-02\", 5));\nwhile (!lambdas.isEmpty()) {\n    Runnable c = lambdas.poll();\n    System.out.println(\"audit: \" + c);\n    c.run();\n}\nSystem.out.println(\"stock: \" + new TreeMap<>(inv.stock));\nSystem.out.println(\"records equal: \" + new Restock(\"A-17\", 40).equals(new Restock(\"A-17\", 40)));\nRunnable r1 = () -> inv.add(\"A-17\", 40), r2 = () -> inv.add(\"A-17\", 40);\nSystem.out.println(\"lambdas equal: \" + r1.equals(r2));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "audit: Restock[sku=A-17, qty=40]\naudit: Restock[sku=B-02, qty=5]\naudit: Queued$$Lambda/0x00007c6b6400da30@13221655\naudit: Queued$$Lambda/0x00007c6b6400dc58@2f2c9b19\nstock: {A-17=80, B-02=10}\nrecords equal: true\nlambdas equal: false"
     },
     {
       "type": "para",
-      "text": "The Command pattern consists of these participants:"
+      "text": "Both queues did the work. A lambda is enough when all you do is run it, but its arguments sit in its body or in captured variables that nothing outside can read, so the audit log names a generated class. A lambda has no `equals` of its own, so two identical adjustments are two different objects, and a queue can't drop a duplicate. A `Runnable` also has only `run()`, while a record or class can add `undo()`. When a command must be logged, compared, stored or reversed, make it a record or a class whose fields are its arguments."
+    },
+    {
+      "type": "para",
+      "text": "The JDK's commands are `Runnable` and `Callable`: `ExecutorService.submit` accepts them and runs them later, on a thread it chooses (units 6.4.1 and 6.4.2). A strategy (unit 9.3.1) also packages behaviour, but its caller hands it the data on every call; a listener (unit 9.3.2) is called by a subject when something happens. A command already carries its receiver and arguments, and someone else decides when it runs."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Undo Restores What the Command Saved, So It Must Save a Copy Taken When It Runs"
+    },
+    {
+      "type": "para",
+      "text": "Some commands undo by the inverse operation: an insert is undone by deleting what it inserted. A sort has no inverse, so the command saves the order from before. Here is the editor's sort, with the receiver it works on. Work out what undo puts back before reading the output."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.ArrayList;\nimport java.util.List;\n\nclass Document {\n    private final List<String> lines = new ArrayList<>();\n\n    List<String> lines() { return lines; }\n\n    void replaceAll(List<String> newLines) {\n        lines.clear();\n        lines.addAll(newLines);\n    }\n}\n\ninterface Command {\n    void execute();\n    void undo();\n}\n\nclass SortLines implements Command {\n    private final Document doc;\n    private List<String> before;\n\n    SortLines(Document doc) { this.doc = doc; }\n\n    public void execute() {\n        before = doc.lines();                      // (1)\n        doc.lines().sort(null);\n    }\n\n    public void undo() { doc.replaceAll(before); } // (2)\n}"
+    },
+    {
+      "type": "para",
+      "text": "The editor appends three lines, each through an `AppendLine` command pushed on a `Deque<Command>` history, then runs the sort, pops it and undoes it:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "by reference\n  after sort: [alpha, mu, zeta]\n  after undo: []"
+    },
+    {
+      "type": "para",
+      "text": "`doc.lines()` at (1) returns the document's own list, not a copy. `before` is a second name for that list, so the sort reordered \"the state before\" as well. At (2) undo passes the document its own list: `clear()` empties it, and `addAll` then has nothing to add. A receiver that assigned the field instead (`lines = newLines`) would have kept the sorted order, and undo would have seemed to do nothing. Either way the command saved a reference to the state, not the state."
+    },
+    {
+      "type": "para",
+      "text": "The fix is one line in `execute()`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "before = List.copyOf(doc.lines());         // a copy, taken when the command runs"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "snapshot\n  after sort: [alpha, mu, zeta]\n  after undo: [zeta, alpha, mu]"
+    },
+    {
+      "type": "para",
+      "text": "**Take it in `execute()`, not in the constructor.** A command built now may run later, from a queue or inside a group of commands. In the same program, a sort built after two appends and executed after the third saved `[zeta, alpha]`, so its undo deleted `mu`."
+    },
+    {
+      "type": "para",
+      "text": "**Copy every mutable level.** `List.copyOf` copies the list, which is enough because `String` is immutable. A `Map<String, List<String>>` copied with `new HashMap<>(map)` shares its inner lists: in the run, clearing one live list emptied it in the \"copy\" too. Copy each list as well, or keep immutable values in the receiver so that one copy goes all the way down."
+    },
+    {
+      "type": "para",
+      "text": "A snapshot costs one copy of the state per command on the stack. That is why editors use the inverse where one exists, and cap the history."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Command That Timed Out May Still Have Run, So a Blind Retry Runs It Twice"
+    },
+    {
+      "type": "para",
+      "text": "The checkout service charges a card through a payment client. `Charge` is a record of a key, an account and an amount in cents. The client submits each attempt as a `Callable` to its executor, waits 200 ms for the reply, and retries. On the payment side, the money moves before the reply is sent, and the first reply is held up on the way back (`replies` counts replies; `network` is a latch the program releases after the client's loop):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String charge(Charge c) throws InterruptedException {\n    String receipt = apply(c);                                 // the money moves here\n    if (replies.incrementAndGet() == 1) network.await();      // the first reply is late\n    return receipt;\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Charge charge = new Charge(UUID.randomUUID().toString(), \"acct-9\", 4000);\nfor (int attempt = 1; attempt <= 3; attempt++) {\n    Future<String> reply = net.submit(() -> payments.charge(charge));\n    try {\n        System.out.println(\"  attempt \" + attempt + \": \" + reply.get(200, TimeUnit.MILLISECONDS));\n        break;\n    } catch (TimeoutException e) {\n        System.out.println(\"  attempt \" + attempt + \": timed out\");\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "no key\n  attempt 1: timed out\n  attempt 2: r-2\n  charges applied: 2, balance -80.00"
+    },
+    {
+      "type": "para",
+      "text": "The first attempt didn't fail: the money had moved and its reply was still on the way. A `TimeoutException` from `get` says only that the caller stopped waiting. After a timeout the request may never have arrived, may have been applied with the reply lost, or may still be in progress, and the caller can't tell which. The retry sends the charge as if it were new, and the customer pays 80.00 for a 40.00 order. Cancelling the timed-out `Future` doesn't undo anything: `cancel(true)` interrupts a local thread (unit 6.1.3), and the remote side may already have applied the charge."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "An Idempotency Key Created With the Command Makes the Retry Safe"
+    },
+    {
+      "type": "para",
+      "text": "A command is idempotent when running it twice has the effect of running it once. \"Set the price to 9.99\" is idempotent; \"charge 40.00\" is not. A charge becomes safe to retry when the command carries a key, created once with the command, and the receiver keeps the result of every key it has applied, here in a `ConcurrentHashMap` called `receipts`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String receipt = receipts.computeIfAbsent(c.key(), k -> apply(c));"
+    },
+    {
+      "type": "para",
+      "text": "First the same client sends to this version; then a client builds a new `Charge` inside the loop, so each attempt gets a new key:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "one key per charge\n  attempt 1: timed out\n  attempt 2: r-1\n  charges applied: 1, balance -40.00\nnew key per attempt\n  attempt 1: timed out\n  attempt 2: r-2\n  charges applied: 2, balance -80.00"
+    },
+    {
+      "type": "para",
+      "text": "With one key, the retry found the first attempt's result: one charge, and the caller gets `r-1`, the receipt the lost reply carried. The receiver returns the stored result rather than an error, because whoever retries is the one who never saw the first answer."
+    },
+    {
+      "type": "para",
+      "text": "With a key per attempt, the service saw two different charges. The key names the request, not the attempt: it is created where the intent is (the click on \"Pay\"), and every retry sends the same command object. Deduplicating by content instead, same account and same amount, fails the other way: a customer who really buys two 40.00 items in a minute is charged once."
+    },
+    {
+      "type": "para",
+      "text": "The javadoc of `ConcurrentHashMap.computeIfAbsent` says the function is applied at most once per key, so two attempts that arrive together can't both charge. A `containsKey` check followed by `put` gives no such guarantee. If the function throws, nothing is stored and the next attempt runs it again, so an `apply` that fails after the money moved still charges twice. In production the key store must outlive the process, typically a table with a unique constraint on the key."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Command** (interface): declares the `execute()` method, and optionally `undo()`.",
-        "**ConcreteCommand**: implements the Command interface, holds a reference to the receiver and the parameters needed for the action.",
-        "**Receiver**: the object that performs the actual work when a command is executed.",
-        "**Invoker**: asks the command to carry out the request. It does not know the concrete command type or the receiver.",
-        "**Client**: creates the concrete command and sets its receiver."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "When to Use the Command Pattern"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "When you need to **parameterize objects** with operations (pass actions as arguments).",
-        "When you need to **queue, schedule, or log** operations for later execution.",
-        "When you need to support **undo/redo** functionality.",
-        "When you need to implement **transactional systems** where operations can be rolled back.",
-        "When you want to **decouple the sender** of a request from the object that handles it.",
-        "When you need to implement **macro recording** (grouping multiple operations into one)."
+        "**A command is a request held as an object**, so it can be queued, logged, compared and run again. A lambda runs, but can't be read, compared or undone; `Runnable` and `Callable` are the JDK's commands.",
+        "**Undo restores what the command saved.** Save a copy, not a reference, take it in `execute()`, and copy every mutable level.",
+        "**A timeout doesn't mean the command failed.** It may have run, so a blind retry can run it twice.",
+        "**An idempotency key created with the command makes a retry safe**, when the receiver stores the result per key and returns it again."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "The Command pattern **encapsulates all request details** (receiver, method, arguments) in a single object.",
-        "It enables **undo/redo** by storing the state needed to reverse an operation.",
-        "Commands can be **composed into macros** using the Composite pattern.",
-        "Commands can be **queued and executed later** (deferred execution).",
-        "The invoker is **completely decoupled** from the receiver -- it only knows the Command interface.",
-        "In Java, **lambdas and Runnable** can serve as lightweight commands when undo is not needed.",
-        "The command **stores the state needed for undo** at execution time, not at construction time."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Functional interfaces (Java 8+)**: `Runnable`, `Consumer<T>`, and `Callable<T>` can act as simple commands. For fire-and-forget operations without undo, lambdas are sufficient.",
-        "**Records (Java 16+)**: Immutable command data (parameters, metadata) can be expressed as records.",
-        "**Sealed interfaces (Java 17+)**: When the set of commands is fixed, sealed interfaces enable exhaustive handling via pattern matching.",
-        "**Virtual threads (Java 21)**: Commands queued for asynchronous execution can use virtual threads for lightweight concurrency.",
-        "**Pattern matching for switch (Java 21)**: When processing different command types, pattern matching provides clean dispatching logic."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Evolution Across Java Versions"
+      "type": "para",
+      "text": "**Commands in the JDK (Java 21 javadoc):**"
     },
     {
       "type": "table",
       "headers": [
-        "Version",
-        "Impact on Command Pattern"
+        "Type or call",
+        "What it holds or does"
       ],
       "rows": [
         [
-          "Pre-Java 8",
-          "Required separate classes for every command"
+          "`Runnable.run()`",
+          "no result, no checked exception"
         ],
         [
-          "Java 8",
-          "Lambdas enabled lightweight commands for simple operations"
+          "`Callable<V>.call()`",
+          "returns `V`, may throw `Exception`"
         ],
         [
-          "Java 8",
-          "`CompletableFuture` enabled async command execution with chaining"
+          "`Executor.execute(Runnable)`",
+          "runs the command at some time, on a thread the executor chooses"
         ],
         [
-          "Java 16+",
-          "Records for immutable command parameters"
+          "`ExecutorService.submit(Callable)`",
+          "hands it to the executor and returns a `Future` for the result"
         ],
         [
-          "Java 17+",
-          "Sealed interfaces for closed command hierarchies"
+          "`ScheduledExecutorService.schedule(...)`",
+          "runs it after a delay"
         ],
         [
-          "Java 21",
-          "Virtual threads for scalable async command processing"
+          "`Future.get(timeout, unit)`",
+          "`TimeoutException` when the wait ends; the task keeps running"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**What an undo needs:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Command",
+        "Undo by",
+        "Saves, in `execute()`"
+      ],
+      "rows": [
+        [
+          "insert text at a position",
+          "the inverse: delete it",
+          "nothing beyond its arguments"
+        ],
+        [
+          "delete a range",
+          "the inverse: insert it back",
+          "the deleted text"
+        ],
+        [
+          "sort, deduplicate, clear",
+          "restoring a snapshot",
+          "a copy of the state, every mutable level"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**A retry after a lost reply:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Command",
+        "Effect of the retry"
+      ],
+      "rows": [
+        [
+          "set a value",
+          "the same value again"
+        ],
+        [
+          "change by an amount, no key",
+          "applied twice"
+        ],
+        [
+          "change by an amount, a new key per attempt",
+          "applied twice"
+        ],
+        [
+          "change by an amount, one key, results stored per key",
+          "applied once, the first result returned"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        [
-          "**Forgetting to save state for undo**: The `undo()` method needs the state that existed before `execute()` was called. If you don't capture it during `execute()`, undo will fail.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: no state saved for undo\nclass DeleteCommand implements Command {\n    private TextEditor editor;\n    private int position, length;\n    \n    public void execute() {\n        editor.delete(position, length); // text is gone!\n    }\n    \n    public void undo() {\n        // Can't undo -- we don't know what was deleted!\n    }\n}\n\n// Fix: save deleted text during execute\nclass DeleteCommand implements Command {\n    private String deletedText; // saved for undo\n    \n    public void execute() {\n        deletedText = editor.getContent().substring(position, position + length);\n        editor.delete(position, length);\n    }\n    \n    public void undo() {\n        editor.insert(position, deletedText);\n    }\n}"
-          }
-        ],
-        [
-          "**Calling undo on a command that was never executed**: Guard against this with a state check.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public void undo() {\n    if (deletedText == null) {\n        throw new IllegalStateException(\"Cannot undo: command was never executed\");\n    }\n    editor.insert(position, deletedText);\n}"
-          }
-        ],
-        [
-          "**Not clearing the redo stack after a new command**: When a user executes a new command after undoing some commands, the redo stack should be cleared, otherwise the history becomes inconsistent.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public void executeCommand(Command cmd) {\n    cmd.execute();\n    undoStack.push(cmd);\n    redoStack.clear(); // critical!\n}"
-          }
-        ],
-        "**Macro undo in the wrong order**: When undoing a macro (composite command), commands must be undone in **reverse order** to maintain consistency.",
-        "**Shared mutable state in commands**: If multiple commands reference the same receiver and are executed concurrently, race conditions can occur. Ensure commands are either executed sequentially or the receiver is thread-safe."
+        "Your editor keeps 200 undo steps of a 5 MB document. Compare snapshots, inverse operations, and a snapshot every 20 commands with inverses in between: memory, undo time, and what breaks when an inverse is wrong.",
+        "How long must the payment service keep idempotency keys? What happens to a retry that arrives after its key was purged, and who should choose the window?",
+        "\"Set the price to 9.99\" is retried after a lost reply, and another admin changed the price in between. Is the command still idempotent in the way that matters? What would you add to it?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Keep commands small and focused**: Each command should encapsulate exactly one operation. Complex workflows should use macro commands.",
-        "**Make commands immutable where possible**: Command parameters set at construction should be final. Only undo state captured during execution should be mutable.",
-        [
-          "**Use lambdas for simple fire-and-forget commands**: When undo is not needed, `Runnable` or `Consumer<T>` is sufficient.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Queue<Runnable> queue = new ArrayDeque<>();\nqueue.add(() -> System.out.println(\"Hello\")); // simple lambda command\nqueue.poll().run();\n// A Command with execute(), undo() and description() is not a functional interface,\n// so a lambda cannot be passed where a Command is expected (see LambdaCommand in Q4)."
-          }
-        ],
-        "**Implement the Memento pattern for complex undo**: For receivers with complex state, use the Memento pattern to save and restore snapshots rather than trying to reverse individual operations.",
-        "**Limit undo history size**: Unbounded undo stacks can consume excessive memory. Set a maximum size and discard oldest commands.",
-        "**Serialize commands for persistence**: Commands can be serialized to a log for replay, audit trails, or crash recovery (event sourcing).",
-        "**Use a command queue for batch/deferred execution**: Queue commands and execute them later, in batches, or on a specific thread."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Empty command queue**: `executeAll()` on an empty queue should return 0 or be a no-op, not throw.",
-        "**Undo on empty undo stack**: Return false or throw a descriptive exception -- do not corrupt state.",
-        "**Redo after new command**: After a new command is executed, the redo stack must be cleared.",
-        "**Macro with zero commands**: Reject empty command lists in macro construction.",
-        "**Command that fails mid-execution**: If `execute()` fails partway, the receiver may be in an inconsistent state. Consider transaction-like rollback semantics.",
-        "**Null command references**: Always validate that commands are non-null before execution or enqueuing.",
-        "**Undo of a delete command that was never executed**: The saved text is null; throw `IllegalStateException`."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Commands Are Not Events"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "How to implement undo/redo with the Command pattern",
-        "The difference between Command and Strategy patterns (Command: encapsulates a request including receiver; Strategy: encapsulates an algorithm without receiver)",
-        "Real-world uses: text editors, transaction systems, task schedulers, macro recording, event sourcing",
-        "How lambdas simplify the Command pattern in modern Java",
-        "The relationship between Command and Memento patterns (both deal with state capture)",
-        "How Command supports the Open/Closed Principle"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"How is Command different from Strategy?\" (Command encapsulates a request with a receiver; Strategy encapsulates an algorithm that the context delegates to)",
-        "\"How do you implement redo?\" (Maintain separate undo and redo stacks; redo re-executes a previously undone command)",
-        "\"Can a command be executed more than once?\" (Yes, for replay/retry scenarios, but be careful about idempotency)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the Command pattern and what problem does it solve?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The Command pattern encapsulates a request as an object, containing all the\ninformation needed to perform an action. It decouples the object that invokes the\noperation from the object that knows how to perform it.\n\nProblems it solves:\n1. Undo/Redo: By storing executed commands, you can reverse (undo) and replay\n   (redo) operations.\n2. Deferred execution: Commands can be queued and executed later.\n3. Decoupling: The invoker doesn't need to know anything about the receiver\n   or the operation details.\n4. Logging/Auditing: Commands can be logged for audit trails or replayed\n   for crash recovery.\n5. Macro recording: Multiple commands can be grouped into a composite (macro)\n   command.\n6. Transaction rollback: Failed operations can be undone by reversing the\n   command sequence.\n\nParticipants:\n- Command interface: execute() and undo() methods\n- ConcreteCommand: binds a receiver to an action with parameters\n- Receiver: performs the actual work\n- Invoker: stores and triggers commands\n- Client: creates commands and sets their receivers"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Command interface\ninterface Command {\n    void execute();\n    void undo();\n    String description();\n}\n\n// Receiver\nclass TextEditor {\n    private StringBuilder content = new StringBuilder();\n\n    public void insert(int pos, String text) { content.insert(pos, text); }\n    public void delete(int pos, int len) { content.delete(pos, pos + len); }\n    public String getContent() { return content.toString(); }\n}\n\n// Concrete Command\nclass InsertCommand implements Command {\n    private final TextEditor editor;\n    private final int position;\n    private final String text;\n\n    InsertCommand(TextEditor editor, int position, String text) {\n        this.editor = editor;\n        this.position = position;\n        this.text = text;\n    }\n\n    @Override public void execute() { editor.insert(position, text); }\n    @Override public void undo() { editor.delete(position, text.length()); }\n    @Override public String description() { return \"Insert '\" + text + \"'\"; }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How do you implement undo/redo with the Command pattern?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Undo/redo is implemented using two stacks:\n\n1. Undo stack: stores commands that have been executed (most recent on top)\n2. Redo stack: stores commands that have been undone (most recent on top)\n\nOperations:\n- Execute: run the command, push it onto the undo stack, CLEAR the redo stack\n- Undo: pop from undo stack, call undo(), push onto redo stack\n- Redo: pop from redo stack, call execute(), push onto undo stack\n\nCritical rules:\n- When a NEW command is executed, the redo stack MUST be cleared.\n  This prevents an inconsistent state where old redo commands conflict\n  with the new command.\n- Each command must store enough state in execute() to reverse itself in undo().\n  For example, a DeleteCommand must save the deleted text so it can re-insert it.\n- Macro (composite) commands must undo in REVERSE order.\n\nThe undo/redo stacks can optionally have a maximum size to limit memory usage."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class CommandHistory {\n    private final Deque<Command> undoStack = new ArrayDeque<>();\n    private final Deque<Command> redoStack = new ArrayDeque<>();\n\n    public void executeCommand(Command command) {\n        command.execute();\n        undoStack.push(command);\n        redoStack.clear(); // new command invalidates redo history\n    }\n\n    public boolean undo() {\n        if (undoStack.isEmpty()) return false;\n        Command cmd = undoStack.pop();\n        cmd.undo();\n        redoStack.push(cmd);\n        return true;\n    }\n\n    public boolean redo() {\n        if (redoStack.isEmpty()) return false;\n        Command cmd = redoStack.pop();\n        cmd.execute();\n        undoStack.push(cmd);\n        return true;\n    }\n}\n\n// Usage\nTextEditor editor = new TextEditor();\nCommandHistory history = new CommandHistory();\n\nhistory.executeCommand(new InsertCommand(editor, 0, \"Hello\"));\nhistory.executeCommand(new InsertCommand(editor, 5, \" World\"));\n// editor: \"Hello World\"\n\nhistory.undo();  // editor: \"Hello\"\nhistory.undo();  // editor: \"\"\nhistory.redo();  // editor: \"Hello\""
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is the difference between the Command and Strategy patterns?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: While both patterns encapsulate behavior, they differ fundamentally:\n\nCommand Pattern:\n- Encapsulates a REQUEST (action + receiver + parameters)\n- The command KNOWS its receiver and BINDS to it\n- Supports undo/redo by storing execution state\n- Commands are typically stored, queued, or logged\n- Used for: transactions, undo/redo, task scheduling\n- Example: \"Delete 5 characters from position 3 in this specific document\"\n\nStrategy Pattern:\n- Encapsulates an ALGORITHM (a way to do something)\n- The strategy does NOT know the context -- it's passed data to process\n- No concept of undo (algorithms are stateless transformations)\n- Strategies are interchangeable at runtime\n- Used for: algorithm selection, behavior customization\n- Example: \"Sort this list using bubble sort\" vs. \"Sort using quicksort\"\n\nStructural difference:\n- Command: Command -> Receiver (command holds reference to receiver)\n- Strategy: Context -> Strategy (context holds reference to strategy)\n\nLifecycle difference:\n- Command: typically created, executed once (or undo/redo), then discarded\n- Strategy: typically set once and reused for multiple operations\n\nMemory model:\n- Command: may hold mutable state (for undo)\n- Strategy: should be stateless or immutable"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Command: encapsulates a specific request\nclass InsertCommand implements Command {\n    private final TextEditor editor; // bound to a specific receiver\n    private final String text;\n    private final int position;\n\n    public void execute() { editor.insert(position, text); }\n    public void undo() { editor.delete(position, text.length()); }\n}\n\n// Strategy: encapsulates an algorithm, no receiver binding\ninterface SortStrategy<T extends Comparable<T>> {\n    List<T> sort(List<T> data); // works on any data passed to it\n}\n\nclass BubbleSortStrategy<T extends Comparable<T>> implements SortStrategy<T> {\n    public List<T> sort(List<T> data) {\n        // algorithm implementation -- no specific receiver\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How do lambda expressions simplify the Command pattern in modern Java?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Lambda expressions provide a lightweight way to create commands when you\ndon't need undo functionality or complex state management.\n\nSince Command interfaces with a single method (like Runnable or Consumer) are\nfunctional interfaces, any lambda can serve as a command.\n\nWhen to use lambdas:\n- Fire-and-forget commands (no undo needed)\n- Simple one-line operations\n- Callback-style commands\n- Event handlers\n\nWhen to use full Command classes:\n- When undo/redo is required (need to store state)\n- When the command has multiple methods (execute, undo, description)\n- When the command needs complex initialization or validation\n- When commands need to be serialized or persisted\n\nHybrid approach: Use a LambdaCommand wrapper that accepts lambdas for both\nexecute and undo, providing the best of both worlds."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Simple lambda commands (no undo)\nRunnable printCommand = () -> System.out.println(\"Hello\");\nprintCommand.run();\n\n// LambdaCommand with undo support\nclass LambdaCommand implements Command {\n    private final Runnable executeAction;\n    private final Runnable undoAction;\n    private final String description;\n\n    LambdaCommand(String description, Runnable execute, Runnable undo) {\n        this.description = description;\n        this.executeAction = execute;\n        this.undoAction = undo;\n    }\n\n    public void execute() { executeAction.run(); }\n    public void undo() { undoAction.run(); }\n    public String description() { return description; }\n}\n\n// Usage\nAtomicInteger counter = new AtomicInteger(0);\nCommand increment = new LambdaCommand(\n    \"increment counter\",\n    counter::incrementAndGet,\n    counter::decrementAndGet\n);\n\nCommandHistory history = new CommandHistory();\nhistory.executeCommand(increment); // counter = 1\nhistory.undo();                    // counter = 0\nhistory.redo();                    // counter = 1"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is a Macro Command and how does it work?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: A Macro Command (also called Composite Command) groups multiple commands into\na single command object. When the macro is executed, all its sub-commands execute in\nsequence. When the macro is undone, all sub-commands are undone in REVERSE order.\n\nThis is a combination of the Command pattern and the Composite pattern.\n\nKey characteristics:\n1. Execute: runs all commands in order (first to last)\n2. Undo: undoes all commands in reverse order (last to first)\n3. Atomic intent: the macro represents a single logical operation composed of steps\n4. Can be nested: a macro can contain other macros\n\nUse cases:\n- Text editor macros (record and replay a sequence of edits)\n- Database transactions (group of SQL operations)\n- Build systems (compile, test, package as a single \"build\" command)\n- Batch processing (apply a series of transformations to data)\n\nImportant: undo order matters! If you insert \"Hello\" at position 0 then insert\n\" World\" at position 5, undoing must remove \" World\" first, then \"Hello\" --\notherwise positions would be wrong."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class MacroCommand implements Command {\n    private final List<Command> commands;\n    private final String name;\n\n    MacroCommand(String name, List<Command> commands) {\n        this.name = name;\n        this.commands = new ArrayList<>(commands);\n    }\n\n    @Override\n    public void execute() {\n        for (Command cmd : commands) {\n            cmd.execute();\n        }\n    }\n\n    @Override\n    public void undo() {\n        // Undo in REVERSE order\n        ListIterator<Command> it = commands.listIterator(commands.size());\n        while (it.hasPrevious()) {\n            it.previous().undo();\n        }\n    }\n\n    @Override\n    public String description() {\n        return \"Macro[%s]: %d commands\".formatted(name, commands.size());\n    }\n}\n\n// Usage\nTextEditor editor = new TextEditor();\nMacroCommand helloWorld = new MacroCommand(\"hello-world\", List.of(\n    new InsertCommand(editor, 0, \"Hello\"),\n    new InsertCommand(editor, 5, \" World\")\n));\n\nCommandHistory history = new CommandHistory();\nhistory.executeCommand(helloWorld);  // editor: \"Hello World\"\nhistory.undo();                       // editor: \"\" (both inserts undone)\nhistory.redo();                       // editor: \"Hello World\""
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How does the Command pattern support event sourcing and CQRS?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Event sourcing is an architectural pattern where state changes are stored as\na sequence of events rather than storing the current state directly. The Command\npattern is closely related: a command is a request to change state, and handling it\nproduces the events that are stored. Strictly, event sourcing stores the events\n(facts that happened), not the commands; a log of replayable commands is sometimes\ncalled command sourcing, and the simplified example below stores commands.\n\nHow they relate:\n1. Each state change is represented as a Command object\n2. Commands are stored in an append-only event log\n3. Current state can be rebuilt by replaying all commands from the beginning\n4. The event log serves as a complete audit trail\n\nCQRS (Command Query Responsibility Segregation) separates read and write models:\n- Write side: accepts commands that modify state\n- Read side: serves queries from a denormalized read model\n- Commands update the write model and publish events\n- Read model subscribes to events and updates its projections\n\nBenefits of Command pattern in event sourcing:\n- Complete audit trail of all changes\n- Time travel: rebuild state at any point in time\n- Debugging: replay events to reproduce bugs\n- Scalability: commands can be processed asynchronously\n- Recovery: replay events after a crash to rebuild state\n\nImplementation considerations:\n- Commands must be serializable for persistence\n- Commands should be idempotent for safe replay\n- Consider snapshots to avoid replaying entire history"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Command as an event for event sourcing\ninterface DomainCommand {\n    void execute();\n    String toJson(); // serializable for persistence\n    long timestamp();\n}\n\n// Event store\nclass EventStore {\n    private final List<DomainCommand> events = new ArrayList<>();\n\n    public void append(DomainCommand command) {\n        command.execute();\n        events.add(command);\n    }\n\n    // Rebuild state by replaying all events\n    public void replay(Consumer<DomainCommand> handler) {\n        events.forEach(handler);\n    }\n\n    // Get events after a specific point\n    public List<DomainCommand> getEventsSince(long timestamp) {\n        return events.stream()\n            .filter(e -> e.timestamp() > timestamp)\n            .toList();\n    }\n}\n\n// Command queue for deferred/batch execution\nclass CommandQueue {\n    private final Queue<Command> queue = new LinkedList<>();\n\n    public void enqueue(Command command) { queue.add(command); }\n\n    public int executeAll() {\n        int count = 0;\n        while (!queue.isEmpty()) {\n            queue.poll().execute();\n            count++;\n        }\n        return count;\n    }\n}"
+      "text": "A log of commands can rebuild state by running them again, and some systems do this. The commands then run their validation and side effects a second time: the replay of a `Charge` asks the bank for money again, unless every command is idempotent and its keys survive. Event sourcing logs events instead: \"charged 40.00, receipt r-1\" is a fact that already happened, and replaying it only updates state. The cost is a second type for each operation, a command that may be refused and an event that records what was accepted."
     },
     {
       "type": "heading",
@@ -355,17 +341,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 12,
-    "paras": 11,
+    "headings": 10,
+    "paras": 24,
     "code": 12,
-    "tables": 1,
-    "lists": 10,
+    "tables": 3,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 2,
     "disclosures": 0
   },
-  "content_sha256": "a36b771c7a82f2fb754321f924d131c668e7e8f06e1afd0ae859ad5b0b8ca819"
+  "content_sha256": "7576f14e063dbb6bb402c7e860bae148e6fa22c86b976bd9c50e8272a6833577"
 }

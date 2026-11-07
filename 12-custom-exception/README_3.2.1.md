@@ -1,235 +1,410 @@
 # 3.2.1. Creating Custom Exception Classes
 
-## Concept Explanation
+At 03:10 the settlement alert fires. The log has a message line and two `at` lines:
+`SettlementException: batch not settled`. Which batch? What did the database say? Meanwhile the
+node that retries failed batches logs `java.io.NotSerializableException` instead of the failure
+itself. Someone wrote `SettlementException` in five minutes, with one constructor and one field.
 
-Custom exceptions in Java allow developers to create specific error types tailored to their application's needs. These
-exceptions can carry additional information and provide more meaningful error messages than a general-purpose exception
-such as `RuntimeException`.
+A custom exception is a short class, and each of its lines decides what the person on call can see.
+The examples ran on Java 21.
 
-A custom exception is an ordinary class in the `Throwable` hierarchy. To create one:
+## The Class You Extend Decides Who Must Handle It
 
-1. Create a new class that extends either `Exception` (for a checked exception) or `RuntimeException` (for an unchecked
-   exception). Which one to choose is the subject of [3.2.4](README_3.2.4.md).
-2. Implement constructors that pass the message and, where there is one, the cause up to the superclass.
-3. Optionally, add fields and getters that carry extra information about the error.
-
-Example:
+Extend `Exception` and the exception is checked: every method that lets it escape must declare it,
+or the code doesn't compile. Extend `RuntimeException` and it is unchecked: the compiler asks
+nothing.
 
 ```java
-public class InvalidUserException extends RuntimeException {
-    private final String userId;
+class OrderRejectedException extends Exception {
+    OrderRejectedException(String message) { super(message); }
+}
 
-    public InvalidUserException(String message, String userId) {
-        super(message);
-        this.userId = userId;
-    }
-
-    public String getUserId() {
-        return userId;
+class Checked {
+    static void reject(String orderId) {
+        throw new OrderRejectedException("order " + orderId + " rejected");
     }
 }
 ```
 
-### The standard constructors
+```text
+compile/Checked.java:7: error: unreported exception OrderRejectedException; must be caught or declared to be thrown
+        throw new OrderRejectedException("order " + orderId + " rejected");
+        ^
+1 error
+```
 
-`Throwable` stores two things that every exception should be able to carry: a detail message and a cause (the
-exception that led to this one). `Exception` and `RuntimeException` each offer four public constructors for them, and a
-custom exception usually mirrors the ones it needs:
+Which to choose is a policy question (unit 3.2.4). One choice is wrong
+either way: extending `Throwable` (or `Error`) directly, to mark something as "more serious". A job
+runner usually has a safety net that logs a failed job and moves on to the next:
 
 ```java
-public class ReportGenerationException extends Exception {
-    public ReportGenerationException() {
-        super();
-    }
+class QuotaExceededException extends RuntimeException {
+    QuotaExceededException(String message) { super(message); }
+}
 
-    public ReportGenerationException(String message) {
-        super(message);
-    }
+class QuotaExceeded extends Throwable {                     // extends Throwable directly
+    QuotaExceeded(String message) { super(message); }
+}
+```
 
-    public ReportGenerationException(String message, Throwable cause) {
-        super(message, cause);
-    }
+```java
+interface Job { void run() throws Throwable; }
 
-    public ReportGenerationException(Throwable cause) {
-        super(cause); // the message becomes cause.toString()
+static void runAll(List<Job> jobs) throws Throwable {
+    for (int i = 0; i < jobs.size(); i++) {
+        try {
+            jobs.get(i).run();
+            System.out.println("  job " + i + " done");
+        } catch (Exception e) {                          // the runner's safety net
+            System.out.println("  job " + i + " failed: " + e);
+        }
     }
 }
 ```
 
-The `(message, cause)` constructor is the important one: without it, code that catches a low-level exception and
-throws yours cannot keep the original exception as the cause, and its stack trace is lost.
+Three jobs, the second one over its quota; `main` catches whatever leaves `runAll` and prints
+"runner ended by":
 
-### Adding context
+```text
+extends RuntimeException:
+  job 0 done
+  job 1 failed: QuotaExceededException: tenant t-17 over quota
+  job 2 done
+extends Throwable:
+  job 0 done
+  runner ended by QuotaExceeded: tenant t-17 over quota
+```
 
-A custom exception can carry data that the handler needs, not just a string. Make such fields `final` and set them in
-the constructor, so the exception is immutable once thrown:
+`QuotaExceeded` is not an `Exception`, so the safety net, usually written as `catch (Exception e)`,
+never sees it, and job 2 never runs. `Error` is reserved for problems a program shouldn't try to
+handle, such as `OutOfMemoryError`. A direct subclass of `Throwable` is also checked, so every
+interface it passes through must declare it, as `Job` does here.
+
+## A Wrapper Keeps the Original Failure Only If It Is Given the Cause
+
+`Throwable` stores a detail message and a **cause**, the exception that led to this one.
+`Exception` and `RuntimeException` each have four public constructors for them, and a custom
+exception mirrors the ones its callers need:
 
 ```java
-public class FileProcessingException extends Exception {
-    private final String fileName;
+class SettlementException extends Exception {
+    SettlementException(String message) { super(message); }
+    SettlementException(String message, Throwable cause) { super(message, cause); }
+    SettlementException(Throwable cause) { super(cause); }
+}
+```
 
-    public FileProcessingException(String message, String fileName, Throwable cause) {
-        super(message, cause);
-        this.fileName = fileName;
-    }
+The fourth, `()`, leaves both empty. Pause before the output: the ledger write fails with a
+`SQLException`, and the settlement code catches it and throws a `SettlementException`. What does
+the log show with each constructor?
 
-    public String getFileName() {
-        return fileName;
+```java
+static void settle(long batch, int variant) throws SettlementException {
+    try {
+        writeLedger(batch);
+    } catch (SQLException e) {
+        switch (variant) {
+            case 0 -> throw new SettlementException("batch " + batch + " not settled");
+            case 1 -> throw new SettlementException("batch " + batch + " not settled", e);
+            default -> throw new SettlementException(e);
+        }
     }
 }
 ```
 
-A handler can then react to `e.getFileName()` instead of parsing the message text.
+```text
+SettlementException: batch 42 not settled
+	at Cause.settle(Cause.java:20)
+	at Cause.main(Cause.java:30)
 
-## Key Points to Remember
+SettlementException: batch 42 not settled
+	at Cause.settle(Cause.java:21)
+	at Cause.main(Cause.java:30)
+Caused by: java.sql.SQLException: deadlock detected
+	at Cause.writeLedger(Cause.java:12)
+	at Cause.settle(Cause.java:17)
+	... 1 more
 
-1. A custom exception extends `Exception` (checked) or `RuntimeException` (unchecked). Do not extend `Throwable` or
-   `Error` directly: `catch (Exception e)` does not catch them, and `Error` is meant for JVM-level problems.
-2. Pass the message and the cause to the superclass constructor; do not store them in your own fields.
-3. Extra fields should be `final` and exposed through getters.
-4. `Throwable` implements `Serializable`, so every exception class is serializable. Declare a
-   `private static final long serialVersionUID` if the exception may be serialized (for example by RMI or a
-   distributed cache); `javac -Xlint:serial` warns when it is missing. Fields that are not serializable make
-   serialization fail at run time.
-5. An exception class cannot be generic: `class GenericException<T> extends Exception` is a compile error ("a generic
-   class may not extend java.lang.Throwable"), because a `catch` clause cannot check a type argument at run time.
-6. A record cannot be an exception: records implicitly extend `java.lang.Record` and cannot extend another class.
-
-## Relevant Java Features
-
-- **Java 1.4**: exception chaining — the `(message, cause)` and `(cause)` constructors and `getCause()`.
-- **Java 7**: `Throwable(String message, Throwable cause, boolean enableSuppression, boolean writableStackTrace)`, a
-  protected constructor also available in `Exception` and `RuntimeException`. A subclass can pass
-  `writableStackTrace = false` to skip capturing the stack trace.
-- **Java 17**: sealed classes (JEP 409) can close an exception hierarchy, so the compiler knows every subtype.
-- **Java 21**: pattern matching for `switch` (JEP 441) can then handle a sealed exception hierarchy exhaustively,
-  without a `default` branch.
-
-```java
-public sealed abstract class PaymentException extends Exception
-        permits CardDeclinedException, PaymentTimeoutException {
-    protected PaymentException(String message) {
-        super(message);
-    }
-}
-
-public final class CardDeclinedException extends PaymentException {
-    public CardDeclinedException(String message) {
-        super(message);
-    }
-}
-
-public final class PaymentTimeoutException extends PaymentException {
-    public PaymentTimeoutException(String message) {
-        super(message);
-    }
-}
-
-// Exhaustive: no default branch needed, and adding a new permitted subclass is a compile error here
-static String describe(PaymentException e) {
-    return switch (e) {
-        case CardDeclinedException d -> "declined: " + d.getMessage();
-        case PaymentTimeoutException t -> "retry later";
-    };
-}
-// describe(new CardDeclinedException("insufficient limit")) returns "declined: insufficient limit"
+SettlementException: java.sql.SQLException: deadlock detected
+	at Cause.settle(Cause.java:22)
+	at Cause.main(Cause.java:30)
+Caused by: java.sql.SQLException: deadlock detected
+	at Cause.writeLedger(Cause.java:12)
+	at Cause.settle(Cause.java:17)
+	... 1 more
 ```
 
-## Common Pitfalls and How to Avoid Them
+The first is the 03:10 log line. Without a cause, the deadlock, its SQL state and the frames that
+led to it are gone, and nothing in the program can get them back. A class with only a message
+constructor forces every caller into that shape, so `(message, cause)` is the constructor never to
+leave out. The `(cause)` constructor keeps the chain but takes `cause.toString()` as its message,
+and the batch number is lost. Unit 3.2.2 covers `throw` and rethrowing from a `catch`.
 
-1. **No cause constructor**: the exception cannot wrap the original failure, so the root cause disappears from logs.
-   Always provide `(String message, Throwable cause)` when the exception may be thrown from a `catch` block.
-2. **Duplicating the message in a field**: storing `message` in your own field and overriding `getMessage()` is
-   unnecessary; `super(message)` already does it, and `toString()` and stack traces use it.
-3. **Mutable context fields**: an exception can be caught, logged and rethrown by several layers. Mutable fields let one
-   layer change what another reads. Use `final` fields.
-4. **Extending the wrong class**: extending `Exception` when every caller would just wrap it in a `RuntimeException`
-   adds boilerplate without value; extending `RuntimeException` for a condition callers must handle hides it from the
-   compiler. See [3.2.4](README_3.2.4.md).
+A class without one can still attach a cause once, with `initCause(cause)`, but every caller has
+to remember to (see the Reference).
 
-## Best Practices
+## Context Goes in Final Fields and in the Message
 
-1. End the class name with `Exception` and name the problem, not the place: `InsufficientFundsException`, not
-   `BankAccountException2`.
-2. Provide the constructors the exception needs, and always the `(message, cause)` one.
-3. Carry context as typed, `final` fields with getters.
-4. Consider one base exception per module or domain (for example `PaymentException`) with specific subclasses, so
-   callers can catch either the family or one case.
-
-## Edge Cases and Their Handling
-
-1. **An exception without a stack trace**: for an exception that is thrown very often and whose stack trace is never
-   read (a validation failure mapped straight to a response, for example), the protected four-argument constructor can
-   switch the stack trace off. Only do this when profiling shows exception creation is a real cost.
-
-   ```java
-   public class ValidationException extends RuntimeException {
-       public ValidationException(String message) {
-           super(message, null, false, false); // no suppression, no stack trace
-       }
-   }
-   // new ValidationException("bad").getStackTrace().length == 0
-   ```
-
-2. **Setting the cause later**: `initCause(Throwable)` sets the cause after construction, for exception classes that
-   have no cause constructor. It can be called only once, and not at all if a constructor already set the cause; a
-   second call throws `IllegalStateException`.
-
-## Interview-specific Insights
-
-- Be ready to write a custom exception with the standard constructors from memory.
-- Know why the `(message, cause)` constructor matters (exception chaining keeps the root cause).
-- Know the language restrictions: no generic exception classes, and records cannot be exceptions.
-- Be able to explain how a sealed exception hierarchy works with an exhaustive `switch` in Java 21.
-
-## Interview Q&A
-
-Q1: How would you create a custom checked exception in Java?
-
-A1: Extend `Exception` (not `RuntimeException`) and provide the constructors callers need, passing the message and cause
-to the superclass:
+A handler that needs the order id should read it from a field, not parse it out of the message.
+Two versions of a payment exception, both with an `orderId` field and a getter; the second also
+puts its context in the message:
 
 ```java
-public class CustomCheckedException extends Exception {
-    public CustomCheckedException() {
-        super();
+class PaymentDeclinedException extends Exception {
+    private final String orderId;
+
+    PaymentDeclinedException(String orderId, Throwable cause) {
+        super("payment declined", cause);
+        this.orderId = orderId;
     }
 
-    public CustomCheckedException(String message) {
-        super(message);
+    String getOrderId() { return orderId; }
+}
+
+class PaymentDeclinedWithIdException extends Exception {
+    private final String orderId;
+    private final String reason;
+
+    PaymentDeclinedWithIdException(String orderId, String reason, Throwable cause) {
+        super("payment declined for order " + orderId + ": " + reason, cause);
+        this.orderId = orderId;
+        this.reason = reason;
     }
 
-    public CustomCheckedException(String message, Throwable cause) {
-        super(message, cause);
-    }
-
-    public CustomCheckedException(Throwable cause) {
-        super(cause);
-    }
+    String getOrderId() { return orderId; }
+    String getReason() { return reason; }
 }
 ```
 
-A custom unchecked exception looks the same but extends `RuntimeException`.
+Logged as `"checkout failed: " + e`:
 
-Q2: Why can't an exception class be generic?
+```text
+checkout failed: PaymentDeclinedException: payment declined
+checkout failed: PaymentDeclinedWithIdException: payment declined for order ord-5531: card expired
+```
 
-A2: The compiler rejects `class MyException<T> extends Exception` with "a generic class may not extend
-java.lang.Throwable". A `catch` clause selects a handler by the exception's run-time class, and because of type erasure
-`MyException<String>` and `MyException<Integer>` would be the same class at run time, so `catch (MyException<String> e)`
-could never be checked. Carry the varying data in a field of type `Object` or of a common supertype instead.
+`toString()`, and with it the first line of a stack trace, prints the class name and the
+message. Your fields never appear unless you put them there. So the context goes in twice:
+in typed fields for code, and in the message for people. Build the message in the constructor and
+pass it to `super` rather than keeping a message field of your own, so that `getMessage()`,
+`toString()` and the stack trace agree. Keep the fields `final` with no setters: one exception
+object is caught, logged and rethrown by several layers, and none of them should be able to change
+what the next one reads.
 
-Q3: How do you add extra information to a custom exception?
+<!-- practice 1 -->
 
-A3: Add `final` fields, set them in the constructor alongside `super(message)` or `super(message, cause)`, and expose
-them with getters. For example, `FileProcessingException` in this module's code carries the `fileName` that failed, so
-a handler can use it directly instead of parsing the message.
+## Every Exception Is Serializable, So Its Fields Must Be Too
 
-Q4: Should a custom exception declare a `serialVersionUID`?
+`Throwable` implements `Serializable`, so every exception class is serializable whether you meant
+it or not. Most exceptions are never serialized. The ones that are cross a JVM boundary through
+Java serialization: RMI, and some caches and job frameworks that ship a task's failure back to the
+caller. Here one exception holds the domain object, and a second holds only its id:
 
-A4: Every exception is `Serializable`, because `Throwable` implements it. If instances may be serialized (remote calls,
-some caches and message brokers), declare `private static final long serialVersionUID = 1L;` so that recompiling the
-class does not change its computed serial version, and keep extra fields serializable. `javac -Xlint:serial` reports
-exception classes that lack it.
+```java
+class Order {                                   // a domain object, not Serializable
+    final String id;
+    Order(String id) { this.id = id; }
+}
+
+class OrderFailedException extends Exception {
+    private static final long serialVersionUID = 1L;
+    private final Order order;
+
+    OrderFailedException(Order order, String message) {
+        super(message);
+        this.order = order;
+    }
+}
+
+class OrderIdFailedException extends Exception {
+    private static final long serialVersionUID = 1L;
+    private final String orderId;               // the id, not the object
+
+    OrderIdFailedException(String orderId, String message) {
+        super(message);
+        this.orderId = orderId;
+    }
+
+    String getOrderId() { return orderId; }
+}
+```
+
+Each is written to an `ObjectOutputStream` and read back:
+
+```text
+Exception is Serializable: true
+Order field:   java.io.NotSerializableException: Order
+orderId field: stock check failed, order ord-5531
+```
+
+The first failure never arrives: the code shipping it gets a `NotSerializableException` about
+`Order` instead, which is what the retry node logged at 03:10. Marking the field `transient` silences the error, but a transient field isn't
+written and reading doesn't run the constructor, so it arrives as `null`. Keep ids, codes and amounts in exceptions, not connections, sessions or entities. The
+cause chain is serialized too, so a cause with such a field fails the same way.
+
+The `serialVersionUID` matters on a rolling deploy, when the two sides run different releases.
+Without it, the version is computed from the class's shape, so adding a field changes it. Here
+release 1 of `StockException` writes one and release 2, with one more field, reads it, first
+without a declared `serialVersionUID` and then with one:
+
+```text
+no serialVersionUID, release 1 writes, release 2 reads:
+java.io.InvalidClassException: StockException; local class incompatible: stream classdesc serialVersionUID = 2416996496418282543, local class serialVersionUID = 999212421213874131
+serialVersionUID = 1L, release 1 writes, release 2 reads:
+read: StockException: out of stock: SKU-0091
+```
+
+With `private static final long serialVersionUID = 1L;` in both releases, the new field reads as its default and the failure arrives. `Throwable`'s own `serialVersionUID` covers
+only `Throwable`; each subclass needs its own. `javac -Xlint:serial` warns about a missing one, and
+about a field whose type isn't serializable.
+
+<!-- practice 2 -->
+
+## An Exception Class Can't Be Generic
+
+A `RejectedException<T>` that carries the rejected value as a `T` looks natural. The compiler
+refuses it:
+
+```java
+class RejectedException<T> extends RuntimeException {
+    final T payload;
+    RejectedException(T payload) { this.payload = payload; }
+}
+```
+
+```text
+compile/Generic.java:1: error: a generic class may not extend java.lang.Throwable
+class RejectedException<T> extends RuntimeException {
+                                   ^
+1 error
+```
+
+A `catch` clause picks its handler by the exception's class at run time. After erasure,
+`RejectedException<String>` and `RejectedException<Integer>` are the same class, so
+`catch (RejectedException<String> e)` could never be checked. The rule also covers an inner
+(non-static) class declared inside a generic class, which is implicitly generic too; a `static`
+nested class compiles. Carry the value in a field of type `Object` or of a common supertype. A
+record can't be an exception either, because it already extends `java.lang.Record`.
+
+<!-- practice 4 -->
+
+## Filling In the Stack Trace Is Most of the Cost; Skip It Only Where Nobody Reads the Trace
+
+The stack trace is captured when the exception object is created: the constructor calls
+`fillInStackTrace()`, which walks the thread's stack. Some code throws exceptions as ordinary
+control flow, such as a rules engine where every rule that doesn't apply throws a miss and the
+engine tries the next. There the walk is paid on every miss, and nobody reads the trace.
+
+`Throwable` has a protected four-argument constructor, `(message, cause, enableSuppression,
+writableStackTrace)`, which `Exception` and `RuntimeException` pass on. With
+`writableStackTrace = false` no trace is captured. The older way overrides `fillInStackTrace()`:
+
+```java
+class NoMatchException extends RuntimeException {           // the usual kind
+    NoMatchException(String message) { super(message); }
+}
+
+class CheapNoMatchException extends RuntimeException {      // no stack trace, no suppression
+    CheapNoMatchException(String message) { super(message, null, false, false); }
+}
+
+class FillNoMatchException extends RuntimeException {       // the older way: skip the fill
+    FillNoMatchException(String message) { super(message); }
+    @Override public synchronized Throwable fillInStackTrace() { return this; }
+}
+```
+
+Each was created, thrown and caught 200,000 times at three stack depths, reading only the message,
+on one laptop. The times are per exception:
+
+```text
+ 10 frames deep: with trace    493 ns   writableStackTrace=false   7 ns   fillInStackTrace overridden  14 ns
+100 frames deep: with trace  2,124 ns   writableStackTrace=false   7 ns   fillInStackTrace overridden  14 ns
+500 frames deep: with trace  8,687 ns   writableStackTrace=false   6 ns   fillInStackTrace overridden  14 ns
+```
+
+With a trace, each frame adds roughly 17 ns here, and a request handled inside a framework is
+often hundreds of frames deep. Read the numbers as orders of
+magnitude, not a benchmark: this is a loop timed with `System.nanoTime`, not JMH, and the cheap
+versions likely owe part of their speed to the JIT compiling the throw and the catch into one
+method.
+
+What you give up shows in the log. The whole output of `printStackTrace()` for the cheap one:
+
+```text
+printStackTrace of the cheap one:
+CheapNoMatchException: no rule matched
+```
+
+So keep a cheap exception inside the code that throws and catches it.
+When the miss has to leave as a real failure, throw an ordinary exception with the miss as its
+cause. And switch the trace off only after a profiler shows `fillInStackTrace` in a hot path.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **The superclass decides checked or unchecked.** Extending `Throwable` or `Error` directly
+  escapes every `catch (Exception e)` safety net.
+- **`(message, cause)` is the constructor never to leave out.** A wrapper without the cause loses
+  the original exception and its frames for good.
+- **Context goes in `final` fields and in the message.** Logs print the message, not the fields.
+- **Every exception is serializable.** Keep its fields serializable, and declare a
+  `serialVersionUID` so that the other release can still read it.
+- **An exception class can't be generic**, nor can an inner class of a generic class or a record
+  be an exception.
+- **A stack trace costs time that grows with stack depth.** Switch it off only for exceptions that
+  never leave the code that catches them, and only after profiling.
+
+## Reference
+
+**`Exception`'s constructors** (the same for `RuntimeException`, Java 21):
+
+| Constructor | `getMessage()` | `getCause()` | `initCause(c)` afterwards |
+|---|---|---|---|
+| `()` | `null` | `null` | allowed, once |
+| `(String message)` | `message` | `null` | allowed, once |
+| `(String message, Throwable cause)` | `message` | `cause` | `IllegalStateException`, even when `cause` was `null` |
+| `(Throwable cause)` | `cause.toString()`, or `null` when `cause` is `null` | `cause` | `IllegalStateException` |
+| `protected (message, cause, enableSuppression, writableStackTrace)` | `message` | `cause` | `IllegalStateException` |
+
+**A trace switched off** (Java 21):
+
+| Call | `writableStackTrace = false` | `fillInStackTrace()` overridden |
+|---|---|---|
+| `getStackTrace()` | empty | empty |
+| `setStackTrace(t)` | ignored | sets it |
+| `addSuppressed(s)` | ignored when `enableSuppression` is `false` | records it |
+
+**What the compiler refuses:**
+
+| Declaration | Result |
+|---|---|
+| `class E<T> extends Exception` | error: a generic class may not extend `java.lang.Throwable` |
+| an inner class extending `Exception` inside `class Batch<T>` | the same error; a `static` nested class compiles |
+| `record E(String id) extends RuntimeException` | error: `'{' expected` (a record has no `extends` clause) |
+| `catch (X e)` where `X` is a type parameter | error: unexpected type; `throws X` is allowed |
+
+## Challenges
+
+1. Your service's exceptions reach clients as JSON error bodies and reach the log. Which context
+   belongs in the message, which only in fields, and which (a card number, an email address) in
+   neither?
+2. A library throws an exception that holds a JDBC `Connection` in a field, and your job framework
+   serializes failures. Where do you translate it, and what do you keep?
+3. Measure the stack depth at the point where one of your services throws its most common
+   exception. Is the trace worth what it costs there?
+
+## Design Note: Why the Trace Is Taken in the Constructor
+
+The JVM records the trace when the exception is created, not when it is thrown, so the trace
+points at the `new`, wherever the `throw` is (unit 3.2.2). So every exception
+pays for its trace, whether anyone reads it or not, and a class that is created often pays most.
+Java 7 added the four-argument constructor so that such a class can opt out without overriding
+`fillInStackTrace()`. It is `protected`: the decision belongs to whoever writes the exception
+class, who knows whether the exception will ever reach a log, and not to the code that throws it.
+For almost every exception the default is the right choice, because a failure is rare and its
+trace is what tells you where it happened.
 
 ## Code Examples
 

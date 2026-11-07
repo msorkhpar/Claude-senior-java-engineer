@@ -1,743 +1,494 @@
 # 5.2.3. Proper Synchronization to Ensure Memory Visibility
 
-## Concept Explanation
+The shipping service reloads its rate table every five minutes. A scheduler thread builds a new
+`RateTable`, fills it from the rates service and assigns it to a plain field, `rates`; every request
+thread reads that field to price a parcel. In review, someone asks for `volatile`. The author answers
+that a reference write is atomic, so a request sees either the old table or the new one, and that two
+years of load tests never priced a parcel at zero.
 
-Proper synchronization means applying the correct mechanism at the right scope to guarantee that all threads see a
-consistent view of shared state. This section brings together the happens-before rules and the synchronization
-mechanisms into actionable patterns.
+Both facts are true, and the field is still a bug. Handing an object to another thread takes a
+happens-before edge (unit 5.2.1) from the writes that build it to the reads that use it, unless the
+object is built so that it needs none.
 
-**Real-world analogy**: Proper synchronization is like a well-run restaurant kitchen. Each station (thread) has its
-own workspace (thread-local memory). The expediter (memory model) ensures dishes are handed off at well-defined
-moments (synchronization points). Without the expediter (unsynchronized code), a waiter might pick up a half-finished
-dish or miss an order entirely.
+## A Reference Written Without an Edge Can Arrive Before the Writes That Built the Object
 
-### The Four Core Problems Proper Synchronization Solves
+The JLS makes every read and write of a reference atomic (JLS 17.7): a reader gets the old reference
+or the new one, never half of each. That says nothing about the object behind it. The scheduler
+thread writes the table's fields and then the reference, and with no edge between those writes and
+the request thread's reads, the JLS lets the request thread see the reference without the fields.
+It may read them at their default values, `null`, `0` or `false`, which every field holds before a
+constructor writes it. It may also keep reading the old reference for as long as it runs, because
+the JIT may read a plain field once (unit 6.2.2).
 
-1. **Stale reads (visibility failure)**: Thread A writes `x = 1`, but Thread B still reads `x = 0` because a value
-   is held in a register (e.g. a read hoisted out of a loop by the JIT) or the accesses were reordered. Fix: use
-   `volatile` or `synchronized`.
-
-2. **Data races (atomicity failure)**: Thread A reads, modifies, and writes back, while Thread B does the same
-   concurrently. The two operations interleave and produce a wrong result. Fix: use `synchronized` or `AtomicXxx`.
-
-3. **Reordering surprises**: The CPU or JIT compiler reorders instructions for performance. A write that appears
-   first in source code may physically execute after another write, breaking the expected causal chain. Fix:
-   use `volatile` (release/acquire ordering around the volatile access) or `VarHandle` with appropriate ordering
-   modes.
-
-4. **Unsafe publication**: An object reference is made visible to other threads before its constructor finishes,
-   allowing readers to see partially initialized state. Fix: use `volatile` for the reference, `synchronized`,
-   static initializer, or `final` fields.
-
-### Pattern Catalog for Ensuring Memory Visibility
-
-#### Pattern 1: Volatile Flag for Cooperative Cancellation
-
-The most common single-variable publish pattern. A single writer sets a `volatile boolean` flag; multiple readers
-poll it. No compounding, no atomicity requirement — `volatile` is exactly right.
+We tried to catch the half-built case. One class, with one `final` field and one plain one:
 
 ```java
-class StoppableTask implements Runnable {
-    private volatile boolean running = true;
+final class Rate {
+    final int zone;                 // final: JLS 17.5 guarantees it through a race
+    long centsPerKg;                // plain: no guarantee
 
-    void stop() { running = false; } // volatile write — seen by the next read of 'running'
+    Rate(int zone, long centsPerKg) {
+        this.zone = zone;
+        this.centsPerKg = centsPerKg;
+    }
+}
+```
 
-    @Override
-    public void run() {
-        while (running) { // volatile read — always fresh
-            doWork();
+In each of five rounds, the main thread creates 20 million rates and stores each reference into an array slot with a plain
+write. A reader thread reads each slot with an opaque read (`VarHandle.getOpaque`), which the JIT must
+perform every time but which orders nothing, waits if the writer hasn't reached the slot yet, and
+checks both fields:
+
+```java
+Thread reader = new Thread(() -> {
+    for (int i = 0; i < n; i++) {
+        Object o = SLOT.getOpaque(slots, i);  // no ordering, and the JIT can't hoist it
+        if (o == null) {
+            seen[2]++;                        // got here before the writer
+            while ((o = SLOT.getOpaque(slots, i)) == null) Thread.onSpinWait();
         }
+        Rate r = (Rate) o;
+        if (r.zone == 0) seen[0]++;
+        if (r.centsPerKg == 0) seen[1]++;
     }
-}
-```
-
-#### Pattern 2: Synchronized Counter (Check-then-Act)
-
-When the operation is compound (read + modify + write), `volatile` is insufficient. Use `synchronized` or
-`AtomicInteger`.
-
-```java
-// synchronized version
-class SynchronizedCounter {
-    private int count = 0;
-    synchronized void increment() { count++; }
-    synchronized int get() { return count; }
-}
-
-// AtomicInteger version (lock-free, often faster under contention)
-class AtomicCounter {
-    private final AtomicInteger count = new AtomicInteger();
-    void increment() { count.incrementAndGet(); }
-    int get() { return count.get(); }
-}
-```
-
-#### Pattern 3: Safe Publication of Immutable Objects
-
-An immutable object (all `final` fields, no mutation after construction) needs to be safely published exactly once.
-After safe publication, readers need zero synchronization.
-
-```java
-// Producer
-volatile ImmutableConfig config; // volatile for safe publication
-
-void updateConfig(String newHost, int newPort) {
-    config = new ImmutableConfig(newHost, newPort); // atomic reference replacement
-}
-
-// Consumer — no synchronization needed after reading the reference
-void useConfig() {
-    ImmutableConfig c = config; // one volatile read
-    connect(c.host(), c.port()); // all final fields are visible
-}
-```
-
-#### Pattern 4: CountDownLatch / CyclicBarrier for Staged Initialization
-
-When multiple threads must complete setup before any consumer reads the results, use a `CountDownLatch`. The
-`await()` call provides happens-before from all `countDown()` calls.
-
-```java
-CountDownLatch ready = new CountDownLatch(1);
-int[] result = {0};
-
-Thread producer = new Thread(() -> {
-    result[0] = compute(); // writes result
-    ready.countDown();     // happens-before ready.await() returns
 });
-
-Thread consumer = new Thread(() -> {
-    try {
-        ready.await();     // blocks until countdown; then all producer writes visible
-    } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return;
-    }
-    System.out.println(result[0]); // guaranteed to see computed result
-});
+reader.start();
+for (int i = 0; i < n; i++) {
+    slots[i] = new Rate(i % 9 + 1, 400 + i % 300);   // a plain write of the reference
+}
 ```
-
-#### Pattern 5: Using `java.util.concurrent` Collections
-
-`ConcurrentHashMap`, `CopyOnWriteArrayList`, and `LinkedBlockingQueue` all have well-defined happens-before
-guarantees documented in the java.util.concurrent package javadoc. Using these eliminates the need to write your
-own synchronization for data structures.
-
-### Choosing the Right Mechanism
-
-| Requirement | Mechanism |
-|---|---|
-| Single variable, one writer, multiple readers | `volatile` |
-| Counter: concurrent increments/decrements | `AtomicInteger` / `AtomicLong` |
-| Compound check-then-act on multiple variables | `synchronized` block |
-| Object construction safety | `final` fields + safe publication |
-| Read-heavy, write-rare map/set/list | `CopyOnWriteArrayList`, `ConcurrentHashMap` |
-| Producer-consumer queue | `LinkedBlockingQueue`, `ArrayBlockingQueue` |
-| Staged multi-thread completion | `CountDownLatch`, `CyclicBarrier` |
-| Async results | `CompletableFuture`, `Future` |
-| Lock-free custom algorithms | `VarHandle` with RELEASE/ACQUIRE |
-
-## Key Points to Remember
-
-1. **Default state is no visibility guarantee** — all shared mutable state needs explicit synchronization.
-2. **Use the weakest synchronization that is correct**: `volatile` < `AtomicXxx` < a lock (`synchronized` or
-   `ReentrantLock` — same memory semantics; `ReentrantLock` only adds features such as tryLock and fairness).
-3. **Every shared mutable variable must be consistently protected by the same mechanism/lock**.
-4. **`java.util.concurrent` abstractions are preferred over rolling your own** — they are correct, tested, and optimized.
-5. **Thread confinement (no sharing) is the strongest safety guarantee** — if state is never shared, it needs no sync.
-6. **Stack confinement** (local variables inside a method, not passed anywhere) is always thread-safe.
-7. **Immutable shared state** needs only safe publication — once published, reads are free.
-8. **Stateless classes** (no instance fields) are always thread-safe.
-
-## Relevant Java 21 Features
-
-- **Java 5+**: `java.util.concurrent` package — the gold standard for concurrent programming in Java.
-- **Java 8**: `CompletableFuture` — provides happens-before through `thenApply`, `thenCompose`, etc.
-- **Java 9**: `VarHandle` for fine-grained memory ordering in lock-free algorithms.
-- **Java 16+**: `record` types are shallowly immutable (all fields are `private final`; a mutable component such as a
-  `List` stays mutable) — ideal for safe publication.
-- **Java 21 (Structured Concurrency, JEP 453)**: `StructuredTaskScope` provides happens-before from all child task
-  completions to the joiner, making safe multi-threaded result aggregation straightforward.
-- **Java 21 (Virtual Threads, JEP 444)**: Prefer `ReentrantLock` over `synchronized` in virtual-thread code to
-  avoid pinning the carrier thread.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Partial synchronization** — Protecting writes but not reads (or vice versa) creates a data race.
-
-   ```java
-   // Broken: write is synchronized, read is not
-   class PartialSync {
-       private int value;
-       synchronized void write(int v) { value = v; }
-       int read() { return value; } // unsynchronized — data race!
-   }
-   ```
-
-   ```java
-   // Fix: synchronize all accesses consistently
-   class FullSync {
-       private int value;
-       synchronized void write(int v) { value = v; }
-       synchronized int read() { return value; } // same lock, full visibility
-   }
-   ```
-
-2. **Using thread-unsafe collections for shared state** — `ArrayList`, `HashMap`, `HashSet` are NOT thread-safe.
-
-   ```java
-   // Broken: ArrayList shared across threads without synchronization
-   List<String> shared = new ArrayList<>();
-   executor.submit(() -> shared.add("item")); // may corrupt internal array
-   ```
-
-   ```java
-   // Fix: use thread-safe alternatives
-   List<String> safe = new CopyOnWriteArrayList<>();           // or
-   List<String> synced = Collections.synchronizedList(new ArrayList<>()); // or
-   BlockingQueue<String> queue = new LinkedBlockingQueue<>();
-   ```
-
-3. **Locking but on different objects** — see 5.2.2 pitfall #1.
-
-4. **Forgetting to declare volatile for publication** — A reference stored without synchronization may be seen
-   partially (or not at all) by other threads.
-
-   ```java
-   // Broken: reference publication without happens-before
-   class BrokenPublisher {
-       MyObject obj;  // not volatile
-       void init() { obj = new MyObject(); } // Thread A
-       void use()  { obj.doWork(); }          // Thread B may see null or uninitialized
-   }
-   ```
-
-   ```java
-   // Fix: volatile for the reference
-   class SafePublisher {
-       volatile MyObject obj;
-       void init() { obj = new MyObject(); }  // volatile write
-       void use()  { MyObject o = obj; if (o != null) o.doWork(); } // volatile read
-   }
-   ```
-
-5. **Spinning on non-volatile flags** — Without `volatile`, the JIT may hoist the flag read out of the loop,
-   creating an infinite loop even after the flag is set by another thread.
-
-   ```java
-   // Broken: JIT may optimize away the loop condition check
-   class BrokenStop {
-       boolean stop = false; // NOT volatile
-       void run() { while (!stop) { } } // JIT may compile to: if (!stop) while(true);
-       void stop() { stop = true; }
-   }
-   ```
-
-   ```java
-   // Fix: volatile prevents hoisting
-   class CorrectStop {
-       volatile boolean stop = false;
-       void run() { while (!stop) { } } // re-reads stop every iteration
-       void stop() { stop = true; }
-   }
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Thread confinement first**: Design components so that mutable state is owned by a single thread. Use message
-   passing or immutable data to communicate between threads.
-
-2. **Prefer immutability**: Once initialized, immutable objects can be freely shared. Use `record` types, final
-   classes, and builder patterns to construct immutable objects.
-
-3. **Use `java.util.concurrent` building blocks**: `CountDownLatch`, `CyclicBarrier`, `Phaser`, `Semaphore`,
-   `CompletableFuture`, and concurrent collections are well-tested and handle all happens-before correctly.
-
-4. **Minimize lock scope**: Hold locks for the shortest time possible. Move non-critical computation outside the
-   synchronized block.
-
-5. **Lock ordering to prevent deadlocks**: Always acquire multiple locks in a consistent order (e.g., alphabetical
-   by lock name). Alternatively, use `tryLock()` with a timeout.
-
-6. **Prefer `ReentrantReadWriteLock` for read-heavy workloads**: Multiple readers can hold the read lock
-   simultaneously; writers get exclusive access. Dramatically reduces contention vs `synchronized`.
-
-7. **Test concurrent code**: Use `CountDownLatch`/`CyclicBarrier` to synchronize test threads to a start line,
-   then verify results. Use stress-testing tools like JCStress or consciously run tests with many threads.
-
-## Edge Cases and Their Handling
-
-1. **Interrupted threads and synchronization**: When a thread waiting in `wait()`, `sleep()`, `join()`,
-   `lockInterruptibly()` or `Condition.await()` is interrupted, it throws `InterruptedException`. (A thread blocked
-   entering a `synchronized` block or in `lock.lock()` is not interruptible.) Always restore the interrupt flag or
-   re-throw.
-
-2. **AtomicReference.compareAndSet**: CAS (Compare-And-Set) operations in `AtomicReference` behave as volatile
-   reads and writes — they establish happens-before.
-
-3. **ThreadLocal — no sharing needed**: `ThreadLocal` gives each thread its own copy of a variable. No
-   synchronization needed if the value is never shared. Perfect for per-thread contexts (e.g., database connections).
-
-4. **Fork/Join task stealing**: When `ForkJoinTask` B steals work from A, the fork/join framework guarantees (as
-   java.util.concurrent documents for its classes — the JLS itself says nothing about tasks) that A's writes before
-   the fork are visible to B. B's writes are visible to A after `join()`.
-
-5. **CompletableFuture composition**: Each stage in a `CompletableFuture` chain establishes happens-before from the
-   completion of one stage to the start of the next. Results flow safely through the chain.
-
-## Interview-specific Insights
-
-Interviewers look for:
-- Ability to identify the correct synchronization mechanism for a given scenario.
-- Knowledge of what `java.util.concurrent` offers and why to prefer it over raw `synchronized`.
-- Understanding of thread confinement, immutability, and safe publication as alternatives to runtime locking.
-- Ability to reason about and fix common visibility bugs (non-volatile flags, partial sync, etc.).
-- Knowledge of deadlock causes and how lock ordering prevents them.
-
-**Common tricky questions**:
-- "How do you stop a thread safely?" (Volatile flag or interrupt protocol — never `Thread.stop()`.)
-- "Is `Collections.synchronizedList` completely thread-safe?" (For single operations yes; compound operations
-  like iterate-then-modify still need external synchronization.)
-- "What is the difference between `ConcurrentHashMap` and `Collections.synchronizedMap`?" (`ConcurrentHashMap`
-  uses CAS and per-bin locking (Java 8+; segments were Java 5–7), allowing lock-free reads and concurrent writes to
-  different bins; `synchronizedMap` wraps every method in `synchronized` on one mutex — one lock for all.)
-- "When would you use `ReadWriteLock`?" (When reads are frequent and writes are rare — read lock allows concurrent
-  readers; write lock is exclusive.)
-
-## Interview Q&A Section
-
-**Q1: How do you safely stop a thread in Java?**
 
 ```text
-A1: The correct way to stop a thread is cooperative cancellation:
-1. Use a volatile boolean flag — the thread checks it periodically and exits when set.
-2. Use Thread.interrupt() — the thread checks isInterrupted() or catches InterruptedException.
-
-NEVER use Thread.stop() — it was deprecated in Java 1.2 because it releases all monitors held
-by the thread, potentially leaving objects in inconsistent state. Since Java 20 it no longer
-works at all: it throws UnsupportedOperationException.
-
-The volatile flag approach:
-- Works for threads in a computation loop.
-- Must be volatile to prevent JIT from caching the flag value.
-
-The interrupt approach:
-- Also wakes threads blocked in wait(), sleep(), join(), and interruptible NIO channel I/O.
-  Classic java.io blocking reads (e.g. socket InputStream.read()) do NOT respond to interrupt.
-- The thread must cooperate: check isInterrupted() in loops, or catch InterruptedException.
-- Best practice: restore the interrupt flag with Thread.currentThread().interrupt() if you
-  catch InterruptedException but cannot propagate it.
+round 1: 20,000,000 rates, 2,276,738 read as soon as written: zone==0 0, centsPerKg==0 0
+round 2: 20,000,000 rates, 2,064,368 read as soon as written: zone==0 0, centsPerKg==0 0
+round 3: 20,000,000 rates, 2,401,396 read as soon as written: zone==0 0, centsPerKg==0 0
+round 4: 20,000,000 rates, 2,292,359 read as soon as written: zone==0 0, centsPerKg==0 0
+round 5: 20,000,000 rates, 2,668,244 read as soon as written: zone==0 0, centsPerKg==0 0
 ```
 
+Of 100 million racy publications, the reader reached more than ten million slots before the writer
+and spun until the reference appeared, and it never saw a field at its default. A half-built object
+is allowed by the JLS and was not observed here. A test that passes says nothing about the next JIT
+or the next CPU.
+
+> **Hardware differs.** These runs were on x86-64 with Java 21. x86 processors are documented to
+> keep one store from passing another, which leaves the reordering to the JIT; processors with a
+> weaker memory model, such as ARM, leave the race more room. We didn't run on ARM, so the result
+> there is unknown.
+
+What a half-built table would cost: a request that reads the table's rates before they arrive
+answers "no rate for FR" for a country that has one.
+
+## Safe Publication Is an Edge From the Object's Construction to the Read of Its Reference
+
+Every safe way to hand over an object has the same shape. The writer builds the object, then does a
+release action: a volatile write, an unlock, a `put` into a concurrent collection. The reader does the
+matching acquire (a volatile read, a lock, a `get` or `take`) and only then reads the object's
+fields. The construction comes before the release in the writer's program order, the release
+happens-before the acquire, and the acquire comes before the field reads, so by transitivity the
+reader sees the object as it was built. These are the idioms, from a program in which each one
+handed a rate table to another thread:
+
 ```java
-// Approach 1: volatile flag
-class StoppableWorker implements Runnable {
-    private volatile boolean cancelled = false;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicReference;
 
-    public void cancel() { cancelled = true; }
+/** A mutable table: only a safe publication makes its contents visible to another thread. */
+final class RateTable {
+    final Map<String, Long> centsPerKg = new HashMap<>();
 
-    @Override
-    public void run() {
-        while (!cancelled) { // re-reads volatile every iteration
-            processNextItem();
-        }
-        cleanup();
+    static RateTable load(long fr) {
+        RateTable t = new RateTable();
+        t.centsPerKg.put("DE", 450L);
+        t.centsPerKg.put("FR", fr);
+        return t;
     }
 }
 
-// Approach 2: interrupt protocol (handles blocking operations)
-class InterruptibleWorker implements Runnable {
-    @Override
-    public void run() {
-        try {
-            while (!Thread.currentThread().isInterrupted()) {
-                doWork();
-                Thread.sleep(100); // throws InterruptedException if interrupted
+final class Holder {
+    static final RateTable STARTUP = RateTable.load(520L);              // static initializer
+
+    volatile RateTable current;                                      // volatile field
+    final AtomicReference<RateTable> latest = new AtomicReference<>(); // AtomicReference
+
+    private RateTable guarded;                                       // a lock, on both sides
+    synchronized void put(RateTable t) { guarded = t; }
+    synchronized RateTable get() { return guarded; }
+
+    final ConcurrentMap<String, RateTable> byRegion = new ConcurrentHashMap<>(); // concurrent map
+    final BlockingQueue<RateTable> handoff = new LinkedBlockingQueue<>();      // blocking queue
+}
+```
+
+For the opening's reload, a `volatile` field costs a
+request one volatile read and never makes it wait for the scheduler. `AtomicReference` does the same
+and adds `compareAndSet` for writers that race each other. The lock works too, but every request then
+takes it and waits whenever a reload holds it. A concurrent map fits tables kept per region, and a
+queue fits an object handed to one consumer. Unit 5.2.2 quotes each class's javadoc promise.
+
+The reader must take the same path: a request that reads
+`guarded` without the lock gets no edge, even though the writer locked (unit 5.1.3). And the edge
+covers the writes made before the release: a change to the table after it is published needs an
+edge of its own (unit 5.3.3).
+
+### A Static Initializer Publishes to Every Thread, and Fails for Every Thread
+
+A class is initialized once, under a lock that every thread using the class synchronizes on
+(JLS 12.4.2). A thread that finds the initializer running in another thread waits for it, so
+whatever the initializer wrote during initialization is visible to every user of the class with no `volatile` at all. Here
+the initializer holds while it calls the rates service, a request arrives meanwhile, and a second
+class's initializer fails:
+
+```java
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+
+public class ClassInit {
+    static final CountDownLatch loading = new CountDownLatch(1);
+    static final CountDownLatch loaded = new CountDownLatch(1);
+
+    static final class Rates {
+        static final Map<String, Long> CENTS_PER_KG;
+        static {
+            loading.countDown();
+            await(loaded);                                    // the call to the rates service
+            CENTS_PER_KG = Map.of("DE", 450L, "FR", 520L, "NL", 410L);
+        }
+    }
+
+    static final class FailedRates {
+        static final Map<String, Long> CENTS_PER_KG = fetch();
+        static Map<String, Long> fetch() {
+            throw new IllegalStateException("rates service timed out");
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        Thread startup = new Thread(() -> System.out.println("startup sees " + Rates.CENTS_PER_KG.size() + " rates"));
+        startup.start();
+        loading.await();                                      // startup is inside the initializer
+        Thread request = new Thread(() -> System.out.println("request sees FR=" + Rates.CENTS_PER_KG.get("FR")));
+        request.start();
+        request.join(300);
+        System.out.println("request 300 ms later: alive=" + request.isAlive() + ", state=" + request.getState());
+        loaded.countDown();
+        startup.join();
+        request.join();
+
+        for (int call = 1; call <= 2; call++) {
+            try {
+                FailedRates.CENTS_PER_KG.get("DE");
+            } catch (Throwable t) {
+                System.out.println("call " + call + ": " + t);
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt(); // restore interrupt status
-        } finally {
-            cleanup();
         }
     }
+
+    static void await(CountDownLatch latch) {
+        try { latch.await(); } catch (InterruptedException e) { throw new IllegalStateException(e); }
+    }
 }
-
-// Usage
-Thread worker = new Thread(new InterruptibleWorker());
-worker.start();
-// ... later ...
-worker.interrupt(); // signal cancellation
-worker.join();      // wait for clean exit
 ```
-
----
-
-**Q2: What is thread confinement and when should you use it?**
 
 ```text
-A2: Thread confinement means restricting access to mutable state so that only ONE thread ever
-accesses it at a time. No sharing means no synchronization needed.
-
-Three forms of thread confinement:
-1. Ad-hoc confinement: The programmer ensures by convention that only one thread accesses the
-   state. Fragile — relies on discipline, not enforced by the language.
-
-2. Stack confinement: Local variables inside a method are on the thread's stack and cannot be
-   accessed by other threads (unless you pass references elsewhere). This is the safest form.
-
-3. ThreadLocal<T>: Each thread gets its own independent copy of the variable. Used for
-   per-thread resources like database connections, SimpleDateFormat instances, or request contexts.
-
-When to use:
-- When the state is naturally per-thread (e.g., a JDBC connection, a random number generator seed).
-- When you want to avoid synchronization overhead entirely.
-- When implementing thread pools where each task has its own state.
-
-Limitations:
-- ThreadLocal values are tied to thread lifetime; in thread pools, they persist across tasks
-  unless explicitly cleared (threadLocal.remove()).
-- Can cause memory leaks if ThreadLocal references are held in ClassLoader hierarchies.
+request 300 ms later: alive=true, state=RUNNABLE
+request sees FR=520
+startup sees 3 rates
+call 1: java.lang.ExceptionInInitializerError
+call 2: java.lang.NoClassDefFoundError: Could not initialize class ClassInit$FailedRates
 ```
+
+The request waited, then saw the whole map. While it waited, `getState()` said `RUNNABLE`, and a
+thread dump (`jcmd <pid> Thread.print`) of the same wait showed `RUNNABLE` with the line `- waiting
+on the Class initialization monitor for ...`. A startup stuck in an initializer shows up only in
+those frames.
+
+A class whose initializer threw is marked as failed and is never initialized
+again: the first caller gets `ExceptionInInitializerError`, and every later use in that class loader
+gets `NoClassDefFoundError` (on Java 21 its cause names the first exception). If the rates service
+times out once during startup, pricing fails until the process restarts. Keep static initializers to
+work that can't fail, and load anything remote into a `volatile` field that a retry can set again.
+The lazy holder idiom, a nested class whose only member is the static field, runs the initializer at
+the first use of that class (JLS 12.4.1) and fails the same way.
+
+## final Fields Are Guaranteed Through a Race, and Nothing Else in the Object Is
+
+`final` has a guarantee beyond the edges of unit 5.2.1 (JLS 17.5). An object is completely
+initialized when its constructor finishes, and a thread that sees a reference to it only after that
+"is guaranteed to see the correctly initialized values for that object's final fields", even when
+the reference arrived through a data race. The guarantee extends to the objects and arrays reached
+through a final field, which the reader sees at least as up to date as the field: a `final Map`
+filled in the constructor arrives filled.
+
+In `Rate`, a reader that got the reference through the plain slot is guaranteed `zone`, not
+`centsPerKg`. The run saw both, so only the JLS separates them. `String` relies on it: JLS 17.5 gives it as the example of an object
+that its final fields keep immutable without synchronization, so a string handed over through a race
+reads the same in every thread.
+
+The guarantee is about the object's own fields, not the field that holds the reference. The
+opening's `rates` can't be `final`, because the scheduler reassigns it; it needs one of the idioms
+above. And it covers only what the constructor wrote before it finished, which leaves two ways to
+lose it: a constructor that hands out `this` before it finishes, and a final field that points at
+something changed afterwards.
+
+## A Constructor That Lets this Escape Hands Out an Object Before It Is Built
+
+### Spot the Problem: Registered on the Last Line
+
+A metrics library samples every gauge once when it is registered, as a baseline. Each gauge registers
+itself on the last line of the base class's constructor, and every field is `final`:
 
 ```java
-// Stack confinement — naturally safe
-public List<String> processItems(List<String> input) {
-    List<String> result = new ArrayList<>(); // stack-confined (local variable)
-    for (String item : input) {
-        result.add(item.trim().toUpperCase()); // no synchronization needed
-    }
-    return result; // escapes here, but as a local reference, not shared
-}
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
-// ThreadLocal — per-thread copy
-class DateParser {
-    // SimpleDateFormat is NOT thread-safe; ThreadLocal gives each thread its own copy
-    private static final ThreadLocal<SimpleDateFormat> FORMAT =
-        ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
+/** Records each gauge it is given, and samples it once as a baseline. */
+final class Registry {
+    final List<Gauge> gauges = new ArrayList<>();
 
-    public Date parse(String date) throws ParseException {
-        return FORMAT.get().parse(date); // each thread uses its own formatter
-    }
-
-    // IMPORTANT: in thread pools, remove when done to prevent leaks
-    public void cleanup() { FORMAT.remove(); }
-}
-
-// In a web framework context (Servlet per-request context)
-class RequestContext {
-    private static final ThreadLocal<String> currentUserId = new ThreadLocal<>();
-
-    public static void setUserId(String id) { currentUserId.set(id); }
-    public static String getUserId() { return currentUserId.get(); }
-    public static void clear() { currentUserId.remove(); } // call in finally block
-}
-```
-
----
-
-**Q3: What is the difference between ConcurrentHashMap and Collections.synchronizedMap?**
-
-```text
-A3: Both provide thread-safe Map implementations, but they differ significantly in performance
-and granularity.
-
-Collections.synchronizedMap(map):
-- Wraps every method in synchronized(this) — one big lock for the entire map.
-- All concurrent operations are serialized — one thread at a time.
-- Simple iteration (entrySet().iterator()) is NOT thread-safe — you must synchronize externally.
-- Better when you need to iterate or perform compound operations under a single lock.
-
-ConcurrentHashMap:
-- Uses fine-grained locking (Java 7: 16 segments; Java 8+: CAS + per-bucket synchronization).
-- Multiple threads can read and write to different buckets concurrently.
-- Reads (get) are non-blocking — no locking at all.
-- Provides atomic compound operations: putIfAbsent, computeIfAbsent, merge, compute.
-- Iteration (entrySet().iterator()) is weakly consistent — sees state at some point during iteration, no ConcurrentModificationException.
-- Higher throughput under concurrent access.
-
-Rule of thumb: Prefer ConcurrentHashMap for high-concurrency scenarios. Use synchronizedMap
-only when you need to wrap an existing non-thread-safe map or need external locking for
-compound operations involving the map.
-```
-
-```java
-// synchronizedMap: external lock required for compound operations
-Map<String, Integer> syncMap = Collections.synchronizedMap(new HashMap<>());
-
-// Compound check-then-act: must synchronize externally
-synchronized (syncMap) { // MUST synchronize manually for compound ops
-    if (!syncMap.containsKey("key")) {
-        syncMap.put("key", 1);
+    void register(Gauge g) {
+        gauges.add(g);
+        System.out.println("baseline " + g.name() + " = " + g.value());
     }
 }
 
-// Iteration: must synchronize on the map itself
-synchronized (syncMap) {
-    for (Map.Entry<String, Integer> entry : syncMap.entrySet()) {
-        System.out.println(entry.getKey() + "=" + entry.getValue());
-    }
-}
+abstract class Gauge {
+    private final String name;
 
-// ConcurrentHashMap: atomic compound operations built in
-Map<String, Integer> concMap = new ConcurrentHashMap<>();
-
-// Atomic putIfAbsent — no external lock needed
-concMap.putIfAbsent("key", 1);
-
-// Atomic computeIfAbsent — create value only if key absent
-concMap.computeIfAbsent("counter", k -> 0);
-
-// Atomic merge — combine existing and new value
-concMap.merge("count", 1, Integer::sum); // increment atomically
-
-// Weakly-consistent iteration — no ConcurrentModificationException
-for (Map.Entry<String, Integer> entry : concMap.entrySet()) {
-    System.out.println(entry.getKey() + "=" + entry.getValue());
-}
-```
-
----
-
-**Q4: How do you use CountDownLatch and CyclicBarrier to coordinate threads?**
-
-```text
-A4: Both are synchronization utilities in java.util.concurrent that allow threads to wait for
-each other at specific points. They differ in reusability and direction of waiting.
-
-CountDownLatch:
-- One-shot barrier: initialized with a count; decremented by countDown(), awaited by await().
-- The latch CANNOT be reset; use for one-time events (initialization complete, signal to start).
-- Happens-before: all countDown() calls hb await() returning.
-- Use cases: start signal (count=1, start when latch opens), wait for N tasks to complete.
-
-CyclicBarrier:
-- Reusable: automatically resets after all parties reach the barrier.
-- All parties call await(); the last arrival triggers the optional barrier action.
-- Happens-before: actions before each party's await() hb the barrier action, which hb the
-  actions after await() returns in every party.
-- Use cases: iterative algorithms where all threads must complete phase N before starting N+1.
-```
-
-```java
-// CountDownLatch: parallel task initialization then start
-class ParallelInit {
-    void run() throws InterruptedException {
-        int workers = 4;
-        CountDownLatch initDone = new CountDownLatch(workers); // count = 4
-        CountDownLatch startSignal = new CountDownLatch(1);    // count = 1
-
-        for (int i = 0; i < workers; i++) {
-            new Thread(() -> {
-                try {
-                    initializeWorker();      // do setup
-                    initDone.countDown();    // signal: I am ready
-                    startSignal.await();     // wait for start signal
-                    doWork();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }).start();
-        }
-
-        initDone.await();        // wait until all workers are initialized
-        System.out.println("All workers ready, starting...");
-        startSignal.countDown(); // release all workers simultaneously
-    }
-}
-
-// CyclicBarrier: phased computation
-class PhasedComputation {
-    private final CyclicBarrier barrier;
-    private final int[][] data;
-
-    PhasedComputation(int threads, int[][] data) {
-        this.data = data;
-        this.barrier = new CyclicBarrier(threads, () -> {
-            // Barrier action: runs once all threads arrive, before next phase
-            System.out.println("Phase complete, starting next...");
-        });
-    }
-
-    void runPhase(int threadId) throws Exception {
-        for (int phase = 0; phase < 3; phase++) {
-            processPartition(threadId, phase); // do phase N work
-            barrier.await(); // wait for all threads to finish phase N
-            // barrier action has run; all writes from phase N are visible
-            // safe to read other threads' phase N results in phase N+1
-        }
-    }
-}
-```
-
----
-
-**Q5: What is the safe publication of objects and why is it important?**
-
-```text
-A5: Safe publication means making an object reference visible to other threads in a way that
-guarantees they see the object's complete, fully initialized state.
-
-Without safe publication, the JIT compiler and CPU can reorder:
-1. The writes to the object's fields (inside the constructor).
-2. The write of the reference to the shared variable.
-
-A reading thread may see the reference (non-null) before the fields are initialized,
-causing it to observe partially initialized state — a very subtle and hard-to-reproduce bug.
-
-The four safe publication mechanisms:
-1. Static initializer: class loading lock guarantees initialization hb first access.
-2. volatile field for the reference: volatile write of reference hb volatile reads.
-3. final field: a thread that gets the reference after construction sees the constructor's
-   final-field values (JLS 17.5 — its own guarantee, not happens-before).
-4. synchronized: monitor lock rule ensures visibility.
-
-Unsafely published objects: using a plain field (not volatile, not final, not set in a static
-initializer, not guarded by a lock) to share an object reference between threads. The reading thread may see null or a
-partially initialized object.
-
-Best practice: prefer immutable objects (all final fields) + safe publication of the reference.
-Once published, they require ZERO synchronization on the read path.
-```
-
-```java
-// Unsafe publication — data race on 'obj' reference
-class UnsafePublisher {
-    Object obj;                         // plain field, no synchronization
-
-    void publish() { obj = new Object(); }  // Thread A writes
-    void consume() { obj.hashCode(); }      // Thread B reads — MAY SEE null!
-}
-
-// Safe publication pattern 1: volatile reference
-class SafePublisherVolatile {
-    volatile Object obj;                     // volatile reference
-
-    void publish() { obj = new Object(); }   // volatile write: hb any subsequent read
-    void consume() {
-        Object ref = obj;                    // volatile read
-        if (ref != null) ref.hashCode();     // safe — sees initialized object
-    }
-}
-
-// Safe publication pattern 2: synchronized
-class SafePublisherSynchronized {
-    Object obj;
-
-    synchronized void publish() { obj = new Object(); } // lock hb subsequent lock
-    synchronized void consume() { if (obj != null) obj.hashCode(); }
-}
-
-// Safe publication pattern 3: final + immutable + static
-class SafePublisherStatic {
-    // Static initializer: class loading lock ensures this is safe
-    private static final Object SHARED = new Object();
-
-    static Object get() { return SHARED; } // always safely initialized
-}
-
-// Safe publication pattern 4: final field (best for immutable objects)
-final class SafeImmutable {
-    final String name;
-    final int value;
-
-    SafeImmutable(String name, int value) {
+    protected Gauge(String name, Registry registry) {
         this.name = name;
-        this.value = value;
+        registry.register(this);                 // the last line: the gauge looks ready
     }
-    // Once a thread has the reference, name and value are visible without additional
-    // synchronization — the final-field guarantee holds even if the reference was
-    // shared through a data race (patterns 1-3 are still needed for the reference itself).
+
+    String name() { return name; }
+
+    abstract long value();
+}
+
+final class QueueDepth extends Gauge {
+    private final BlockingQueue<?> queue;
+
+    QueueDepth(BlockingQueue<?> queue, Registry registry) {
+        super("orders.queue.depth", registry);
+        this.queue = queue;
+    }
+
+    @Override
+    long value() { return queue.size(); }
+}
+
+class Escape {
+    public static void main(String[] args) {
+        BlockingQueue<String> orders = new ArrayBlockingQueue<>(100);
+        orders.add("order-1");
+        orders.add("order-2");
+        Registry registry = new Registry();
+        try {
+            new QueueDepth(orders, registry);
+        } catch (NullPointerException e) {
+            System.out.println(e.getMessage());
+        }
+        System.out.println("the registry holds " + registry.gauges.size() + " gauge: " + registry.gauges.get(0).name());
+    }
 }
 ```
 
----
-
-**Q6: How do you reason about thread safety of a class from first principles?**
+The queue holds two orders. What does the registry print?
 
 ```text
-A6: A systematic framework for analyzing thread safety:
-
-Step 1 — Identify shared mutable state.
-  - Instance fields accessed from multiple threads.
-  - Static fields. Mutable objects reachable from those fields.
-  - Exclude: local variables (stack-confined), ThreadLocal, immutable fields.
-
-Step 2 — Identify the invariants that must hold.
-  - E.g., for a BoundedList: size >= 0 && size <= capacity.
-  - Invariants that span multiple fields need atomic enforcement.
-
-Step 3 — Check that every access to shared mutable state is properly synchronized.
-  - Every read AND write must be protected by the same lock (or volatile, Atomic, etc.).
-  - Partial protection (sync writes, unsync reads) still creates data races.
-
-Step 4 — Check for compound actions that need atomicity.
-  - check-then-act (if(x==null) x = new Foo())
-  - read-modify-write (x++)
-  - These require a single synchronized block, not separate synchronized methods.
-
-Step 5 — Check for safe publication.
-  - How does the object reference reach other threads?
-  - Is it via volatile field, static init, synchronized, or final field?
-
-Step 6 — Check for liveness issues.
-  - Could deadlock occur (two threads waiting for each other's locks)?
-  - Could starvation occur (a thread never gets the lock)?
-  - Could livelock occur (threads keep retrying but make no progress)?
+Cannot invoke "java.util.concurrent.BlockingQueue.size()" because "this.queue" is null
+the registry holds 1 gauge: orders.queue.depth
 ```
+
+A subclass constructor runs its superclass constructor before it assigns its own fields (JLS 12.5),
+so `Gauge`'s last line is not `QueueDepth`'s. The registry got `this` while `queue` was still `null`
+and read a `final` field at its default. The exception ended the constructor, yet the registry kept
+the gauge, an object whose construction never finished. All of that happened on one thread. A registry that samples on its own thread is worse off: it saw the reference before the
+constructor finished, and JLS 17.5 promises such a thread nothing about any field.
+
+Java 21's compiler checks for this. `javac -Xlint:this-escape` warns "when a constructor invokes a
+method that could be overriden in an external subclass" (its help text). With `Gauge` public:
+
+```text
+metrics/Gauge.java:8: warning: [this-escape] possible 'this' escape before subclass is fully initialized
+        registry.register(this);
+                          ^
+1 warning
+```
+
+On the file above, where `Gauge` is package-private, it printed nothing: no subclass in another
+package can extend it, so the lint doesn't look. An escape within one package goes unreported.
+
+The fix is to finish building before anyone can see the object. The constructor only assigns
+(`Gauge`'s now takes just the name), and a factory registers what the constructor returned:
 
 ```java
-// Full example — analyzing and fixing a thread-safety issue
-// BROKEN: not thread-safe
-class UnsafeStack<T> {
-    private Object[] elements = new Object[16]; // Step 1: shared mutable state
-    private int size = 0;                       // Step 1: shared mutable state
-
-    @SuppressWarnings("unchecked")
-    T pop() {
-        // Step 4: compound action — check size THEN access element
-        // Without atomicity: another thread may pop between our check and access
-        if (size == 0) throw new EmptyStackException();
-        T result = (T) elements[--size]; // read-modify-write on size
-        elements[size] = null;
-        return result;
-    }
-
-    void push(T item) {
-        ensureCapacity();
-        elements[size++] = item; // read-modify-write on size
-    }
-
-    private void ensureCapacity() {
-        if (elements.length == size) elements = Arrays.copyOf(elements, size * 2);
-    }
+private QueueDepth(BlockingQueue<?> queue) {
+    super("orders.queue.depth");
+    this.queue = queue;
 }
 
-// FIXED: synchronized methods ensure atomicity + visibility
-class SafeStack<T> {
-    private Object[] elements = new Object[16];
-    private int size = 0;
+static QueueDepth register(BlockingQueue<?> queue, Registry registry) {
+    QueueDepth gauge = new QueueDepth(queue);         // every constructor has finished
+    registry.register(gauge);
+    return gauge;
+}
+```
 
-    @SuppressWarnings("unchecked")
-    synchronized T pop() {
-        if (size == 0) throw new EmptyStackException();
-        T result = (T) elements[--size];
-        elements[size] = null;
-        return result;
+```text
+baseline orders.queue.depth = 2
+```
+
+`this` escapes in less visible ways too, with the same fix. A constructor that starts a thread gives
+it an edge for the writes before `start()` only (unit 5.2.1), not for the assignments after it. A
+lambda or an inner-class listener that uses a field captures `this`, so subscribing it from a
+constructor publishes the object. So does adding `this` to a static collection.
+
+<!-- practice 1 -->
+
+## Immutable Objects Need No Edge; Effectively Immutable Ones Need One Safe Publication
+
+| Kind | What it is | To share it |
+|---|---|---|
+| immutable | every field `final`, `this` doesn't escape, nothing reachable changes after construction | any reference, even a racy one |
+| effectively immutable | may have plain fields, but nobody changes it after publishing it | one safe publication, then no locks |
+| mutable | changes after publication | a safe publication, and a lock or a thread-safe class for every later access (unit 5.3.3) |
+
+The `RateTable` of the idioms fills a `HashMap` and is never touched again: effectively immutable.
+Behind a `volatile` field it is correct, and requests read it without a lock. To survive a racy
+reference too, it must become immutable, and a `record` is not enough on its own:
+
+```java
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public class Copies {
+
+    record Zone(String name, List<String> countries) {}
+
+    record ViewZone(String name, List<String> countries) {
+        ViewZone { countries = Collections.unmodifiableList(countries); }
     }
 
-    synchronized void push(T item) {
-        ensureCapacity();
-        elements[size++] = item;
+    record CopiedZone(String name, List<String> countries) {
+        CopiedZone { countries = List.copyOf(countries); }
     }
 
-    synchronized int size() { return size; }
+    public static void main(String[] args) {
+        List<String> loading = new ArrayList<>(List.of("DE", "FR"));
+        Zone zone = new Zone("EU-1", loading);
+        ViewZone view = new ViewZone("EU-1", loading);
+        CopiedZone copied = new CopiedZone("EU-1", loading);
 
-    private void ensureCapacity() {
-        if (elements.length == size)
-            elements = Arrays.copyOf(elements, size * 2);
+        loading.add("NL");                                   // the loader goes on filling its list
+
+        System.out.println("record:              " + zone.countries());
+        System.out.println("unmodifiableList:    " + view.countries());
+        System.out.println("List.copyOf:         " + copied.countries());
+        try {
+            copied.countries().add("PL");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("copied.countries().add(\"PL\"): " + e);
+        }
     }
 }
 ```
+
+```text
+record:              [DE, FR, NL]
+unmodifiableList:    [DE, FR, NL]
+List.copyOf:         [DE, FR]
+copied.countries().add("PL"): java.lang.UnsupportedOperationException
+```
+
+A record's fields are final, but `Zone`'s list is the loader's list, and the loader's `add` came
+after the constructor. JLS 17.5 covers the list as it was when the constructor finished, so a
+request that got the zone through a race may see two countries, three, or an `ArrayList` in the
+middle of growing. `Collections.unmodifiableList` is a read-only view of the same list, not a copy.
+`List.copyOf` copies inside the constructor, so the copy is reached through a final field and nobody
+can change it. A map of lists needs every inner list copied as well: copying only the outer map
+leaves the inner lists shared.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Summary
+
+- **An atomic reference write is not a safe handoff.** Without an edge, a reader may get the
+  reference and see the object's fields at their defaults. The JLS allows it; 100 million racy
+  publications on x86 didn't show it, so a test can't stand in for the edge.
+- **Safe publication is a release by the writer after construction and the matching acquire by the
+  reader:** a `volatile` or `AtomicReference` field, one lock on both sides, a concurrent collection,
+  a static initializer. A static initializer that throws fails every later use of its class.
+- **`final` fields are guaranteed through a race**, with what they reach as of the end of the
+  constructor. Plain fields of the same object are not.
+- **A constructor that lets `this` escape gives up that guarantee**, and even on one thread shows a
+  subclass's final fields at their defaults. Build first, then register or start.
+- **Immutable objects can be shared through any reference; effectively immutable ones need one safe
+  publication.** A record holding a caller's list is neither until it copies the list.
+
+## Reference
+
+**Publication idioms:**
+
+| Writer publishes with | Reader must use | Source of the edge |
+|---|---|---|
+| a static initializer | any use of the class | JLS 12.4.2, the initialization lock |
+| a write to a `volatile` field | a read of that field | JLS 17.4.4 |
+| `AtomicReference.set`, `compareAndSet` | `AtomicReference.get` | `java.util.concurrent.atomic` package docs: volatile memory effects |
+| a write while holding monitor `m` | a read while holding `m` | JLS 17.4.4 |
+| `put`/`add`/`offer` into a `java.util.concurrent` collection | `get`/`take`/`poll` of that element | `java.util.concurrent` package docs, "Memory Consistency Properties" |
+| writes before `Thread.start()` | the started thread | JLS 17.4.4 |
+
+**What a reader of a racily published object is guaranteed (JLS 17.5):**
+
+| Field or object | Guaranteed value |
+|---|---|
+| a `final` field, object not escaped | the value the constructor wrote |
+| an object or array reached through that field | its state when the constructor finished, or later |
+| a plain field of the same object | none: the default or the written value |
+| anything changed after the constructor finished | none |
+| any field, if the reader saw `this` before the constructor finished | none |
+
+**Class initialization (Java 21, observed):**
+
+| Situation | What happens |
+|---|---|
+| another thread is running the initializer | the caller waits; its state reads `RUNNABLE`, its dump frame `waiting on the Class initialization monitor` |
+| the initializer threw | first use: `ExceptionInInitializerError`; every later use: `NoClassDefFoundError: Could not initialize class ...` |
+
+## Challenges
+
+1. The rates service is down for the first minute after a deploy. Design the startup of the
+   shipping service so that it serves requests with the last known table meanwhile, and say which
+   idiom publishes each table.
+2. A JSON library builds your immutable DTOs by setting `final` fields through reflection after the
+   constructor has run. Read JLS 17.5.3: what must the library do for a thread that receives such an
+   object to see its fields, and what would you rather do?
+3. Find a class in your codebase that registers `this` or starts a thread in its constructor. Run
+   `javac -Xlint:this-escape` over it. Does the compiler see it, and what would a factory change for
+   its callers?
+
+## Design Note: Why final Got Its Own Guarantee
+
+Before Java 5 the memory model gave final fields no special treatment. The JSR-133 FAQ's example is
+`String`, which then kept an offset into a shared character array: a thread could see a substring's
+offset first as its default, 0, and later as 4, so `"/tmp"` could read first as `"/usr"`. JSR-133
+fixed it by freezing final fields when the constructor ends, which lets an immutable class skip
+synchronization entirely.
+
+The freeze is tied to the constructor. Nothing the constructor lets out early and nothing changed
+later through a final reference is covered, so an immutable class needs both: no escape, and copies
+of whatever it was handed.
 
 ## Code Examples
 

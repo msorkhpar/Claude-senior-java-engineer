@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Does this write happen-before that read?",
+  "title": "Make the reconciliation report count only shards that finished",
   "blocks": [
     {
       "type": "heading",
@@ -19,99 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page defines happens-before by six rules: **program order** inside one thread, the **monitor lock** rule, the **volatile variable** rule, the **thread start** and **thread join** rules, and **transitivity**. If A happens-before B, B is guaranteed to see A's writes. Two actions with no happens-before between them are unordered, even if one ran earlier on the clock."
+      "text": "The nightly reconciliation splits the ledger into shards and matches each shard on a thread of its own. Finance wants the report at 06:00 whatever happens, so the job has a budget: when it runs out, the report goes out with whatever has finished. Twice this month the report's total matched no rerun of the same night, and once the job sat waiting on one stuck shard until an operator killed it."
     },
     {
       "type": "para",
-      "text": "A trace is the list of actions one run performed, in the order they ran. Each `Action` has the thread that did it, a `Kind`, and a `target`:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "kind",
-        "target"
-      ],
-      "rows": [
-        [
-          "`READ`, `WRITE`",
-          "a plain variable's name"
-        ],
-        [
-          "`VOLATILE_READ`, `VOLATILE_WRITE`",
-          "a volatile variable's name"
-        ],
-        [
-          "`LOCK`, `UNLOCK`",
-          "a monitor's name"
-        ],
-        [
-          "`START`, `JOIN`",
-          "the name of the thread being started or joined"
-        ]
-      ]
+      "text": "`ShardReport.run(...)` already starts the shards; each one adds its matched amounts to its own slot of a plain `long[]`. Finish `collect(...)` in `src/main/java/practice/ShardReport.java`."
     },
     {
       "type": "para",
-      "text": "Write `HappensBefore.happensBefore(List<Action> trace, int a, int b)`. It returns `true` when the action at index `a` happens-before the action at index `b` by the six rules, and `false` otherwise (an action does not happen-before itself). An edge from a synchronization rule only runs forward in the trace: an unlock reaches the locks of the same monitor **after** it, and a volatile write reaches the reads of the same variable **after** it. `START t` happens-before every action of thread `t`; every action of thread `t` happens-before a later `JOIN t`."
+      "text": "When you're done, the report is ready by the deadline even if a shard is stuck, it totals the subtotals of the shards that finished, and it lists by index every shard that hadn't, counting nothing from them. Keep the subtotals in the plain array. About seven lines in total."
     },
     {
       "type": "para",
-      "text": "The page's own flag example, with `ready` volatile:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "#",
-        "thread",
-        "action"
-      ],
-      "rows": [
-        [
-          "0",
-          "T1",
-          "`WRITE data`"
-        ],
-        [
-          "1",
-          "T1",
-          "`VOLATILE_WRITE ready`"
-        ],
-        [
-          "2",
-          "T2",
-          "`VOLATILE_READ ready`"
-        ],
-        [
-          "3",
-          "T2",
-          "`READ data`"
-        ]
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "a, b",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`0, 1`",
-          "`true` (program order)"
-        ],
-        [
-          "`1, 2`",
-          "`true` (volatile rule)"
-        ],
-        [
-          "`0, 3`",
-          "`true` (transitivity)"
-        ],
-        [
-          "`3, 0`",
-          "`false`"
-        ]
-      ]
+      "text": "The tests hold some shards partway through their work until the test is over."
     },
     {
       "type": "heading",
@@ -126,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns whether trace[a] happens-before trace[b] by the six rules. */\n    public static boolean happensBefore(List<Action> trace, int a, int b) {\n        int n = trace.size();\n        boolean[][] hb = new boolean[n][n];\n        for (int i = 0; i < n; i++) {\n            for (int j = 0; j < n; j++) {\n                hb[i][j] = i != j && edge(trace.get(i), i, trace.get(j), j);\n            }\n        }\n        for (int k = 0; k < n; k++) {          // transitivity: close the relation\n            for (int i = 0; i < n; i++) {\n                if (!hb[i][k]) {\n                    continue;\n                }\n                for (int j = 0; j < n; j++) {\n                    if (hb[k][j]) {\n                        hb[i][j] = true;\n                    }\n                }\n            }\n        }\n        return hb[a][b];\n    }\n\n    private static boolean edge(Action x, int i, Action y, int j) {\n        if (x.thread().equals(y.thread())) {\n            return i < j;                                   // program order\n        }\n        if (x.kind() == Kind.START && x.target().equals(y.thread())) {\n            return true;                                    // thread start\n        }\n        if (y.kind() == Kind.JOIN && y.target().equals(x.thread())) {\n            return i < j;                                   // thread join\n        }\n        if (i > j) {\n            return false;\n        }\n        if (x.kind() == Kind.UNLOCK && y.kind() == Kind.LOCK) {\n            return x.target().equals(y.target());           // monitor lock\n        }\n        if (x.kind() == Kind.VOLATILE_WRITE && y.kind() == Kind.VOLATILE_READ) {\n            return x.target().equals(y.target());           // volatile variable\n        }\n        return false;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The nightly reconciliation. Each shard of the ledger is matched on a thread of its own, and the\n * report is due when the budget runs out, whether or not every shard has finished by then.\n */\npublic class ShardReport {\n\n    /** Matches one shard of the ledger, passing each matched amount, in cents, to {@code add}. */\n    public interface Shard {\n        void reconcile(LongConsumer add) throws InterruptedException;\n    }\n\n    /** The total of the shards that finished, and the indexes of the shards that didn't. */\n    public record Report(long totalCents, List<Integer> unfinished) {\n    }\n\n    public static Report run(List<Shard> shards, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        long[] subtotals = new long[shards.size()];           // one plain slot per shard\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < shards.size(); i++) {\n            int slot = i;\n            Shard shard = shards.get(i);\n            Thread t = new Thread(() -> {\n                try {\n                    shard.reconcile(amount -> subtotals[slot] += amount);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            }, \"shard-\" + i);\n            t.setDaemon(true);                                // an overrunning shard can't keep the JVM up\n            threads.add(t);\n        }\n        threads.forEach(Thread::start);\n        return collect(threads, subtotals, deadline);\n    }\n\n    /**\n     * Builds the report from the shards' threads and their subtotals, by the deadline (a\n     * {@link System#nanoTime()} value).\n     */\n    static Report collect(List<Thread> threads, long[] subtotals, long deadline) throws InterruptedException {\n        long total = 0;\n        List<Integer> unfinished = new ArrayList<>();\n        for (int i = 0; i < threads.size(); i++) {\n            if (threads.get(i).join(Duration.ofNanos(deadline - System.nanoTime()))) {\n                total += subtotals[i];\n            } else {\n                unfinished.add(i);\n            }\n        }\n        return new Report(total, unfinished);\n    }\n}\n"
         }
       ]
     },
@@ -138,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns whether trace[a] happens-before trace[b] by the six rules. */\n    public static boolean happensBefore(List<Action> trace, int a, int b) {\n        throw new UnsupportedOperationException(\"write happensBefore\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The nightly reconciliation. Each shard of the ledger is matched on a thread of its own, and the\n * report is due when the budget runs out, whether or not every shard has finished by then.\n */\npublic class ShardReport {\n\n    /** Matches one shard of the ledger, passing each matched amount, in cents, to {@code add}. */\n    public interface Shard {\n        void reconcile(LongConsumer add) throws InterruptedException;\n    }\n\n    /** The total of the shards that finished, and the indexes of the shards that didn't. */\n    public record Report(long totalCents, List<Integer> unfinished) {\n    }\n\n    public static Report run(List<Shard> shards, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        long[] subtotals = new long[shards.size()];           // one plain slot per shard\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < shards.size(); i++) {\n            int slot = i;\n            Shard shard = shards.get(i);\n            Thread t = new Thread(() -> {\n                try {\n                    shard.reconcile(amount -> subtotals[slot] += amount);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            }, \"shard-\" + i);\n            t.setDaemon(true);                                // an overrunning shard can't keep the JVM up\n            threads.add(t);\n        }\n        threads.forEach(Thread::start);\n        return collect(threads, subtotals, deadline);\n    }\n\n    /**\n     * Builds the report from the shards' threads and their subtotals, by the deadline (a\n     * {@link System#nanoTime()} value).\n     */\n    static Report collect(List<Thread> threads, long[] subtotals, long deadline) throws InterruptedException {\n        // TODO: A shard that is still running when the deadline passes must not hold the report\n        //       up, and the report must not count anything from it: list it as unfinished.\n        //       Count the subtotal of every shard that finished.\n        throw new IllegalStateException(\"TODO: collect\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -148,7 +68,7 @@
     "headings": 3,
     "paras": 4,
     "code": 1,
-    "tables": 3,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -157,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ac389454234f13c6a400e24dac5d5342aabd45ef746d5ac81292c376c8994d70",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns whether trace[a] happens-before trace[b] by the six rules. */\n    public static boolean happensBefore(List<Action> trace, int a, int b) {\n        throw new UnsupportedOperationException(\"write happensBefore\");\n    }\n}\n",
+  "content_sha256": "d85ad6d87350dcb3f54dea5ad9e0d1172b5f18f4405efef0b9c1762d1fa0332d",
+  "starting_code": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The nightly reconciliation. Each shard of the ledger is matched on a thread of its own, and the\n * report is due when the budget runs out, whether or not every shard has finished by then.\n */\npublic class ShardReport {\n\n    /** Matches one shard of the ledger, passing each matched amount, in cents, to {@code add}. */\n    public interface Shard {\n        void reconcile(LongConsumer add) throws InterruptedException;\n    }\n\n    /** The total of the shards that finished, and the indexes of the shards that didn't. */\n    public record Report(long totalCents, List<Integer> unfinished) {\n    }\n\n    public static Report run(List<Shard> shards, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        long[] subtotals = new long[shards.size()];           // one plain slot per shard\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < shards.size(); i++) {\n            int slot = i;\n            Shard shard = shards.get(i);\n            Thread t = new Thread(() -> {\n                try {\n                    shard.reconcile(amount -> subtotals[slot] += amount);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            }, \"shard-\" + i);\n            t.setDaemon(true);                                // an overrunning shard can't keep the JVM up\n            threads.add(t);\n        }\n        threads.forEach(Thread::start);\n        return collect(threads, subtotals, deadline);\n    }\n\n    /**\n     * Builds the report from the shards' threads and their subtotals, by the deadline (a\n     * {@link System#nanoTime()} value).\n     */\n    static Report collect(List<Thread> threads, long[] subtotals, long deadline) throws InterruptedException {\n        // TODO: A shard that is still running when the deadline passes must not hold the report\n        //       up, and the report must not count anything from it: list it as unfinished.\n        //       Count the subtotal of every shard that finished.\n        throw new IllegalStateException(\"TODO: collect\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-1/src/main/java/practice/HappensBefore.java",
-    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-1/src/test/java/practice/HappensBeforeTest.java",
+    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-1/src/main/java/practice/ShardReport.java",
+    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-1/src/test/java/practice/ShardReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -182,34 +102,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HappensBeforeTest#followsTheRules",
+        "id": "practice.ShardReportTest#totalsEveryShardWhenAllFinishInTime",
         "kind": "main",
-        "says": "It finds happens-before through program order, a volatile write and read, thread start and thread join."
+        "says": "when every shard finishes within the budget, the report totals all their subtotals and lists none as unfinished"
       },
       {
-        "id": "practice.HappensBeforeTest#programOrderStaysInItsThread",
+        "id": "practice.ShardReportTest#aShardStillRunningAtTheDeadlineIsListedAndNotCounted",
         "kind": "edge",
-        "says": "Two actions in different threads with no synchronization between them are unordered, however they ran."
+        "says": "a shard still running at the deadline is listed as unfinished, and none of the amounts it had matched so far is counted"
       },
       {
-        "id": "practice.HappensBeforeTest#volatileNeedsTheSameVariable",
+        "id": "practice.ShardReportTest#aBudgetAlreadySpentStillProducesAReport",
         "kind": "edge",
-        "says": "A volatile write orders only the later reads of that same variable."
+        "says": "with no budget left, the report is produced at once and lists every shard still running"
       },
       {
-        "id": "practice.HappensBeforeTest#lockNeedsTheSameMonitor",
+        "id": "practice.ShardReportTest#aShardThatNeverFinishesDoesNotHoldTheReportPastItsBudget",
         "kind": "edge",
-        "says": "An unlock orders only the later locks of that same monitor."
-      },
-      {
-        "id": "practice.HappensBeforeTest#chainsThroughSeveralThreads",
-        "kind": "edge",
-        "says": "Happens-before is transitive, so a chain through a lock and then a volatile reaches a third thread."
-      },
-      {
-        "id": "practice.HappensBeforeTest#synchronizationEdgesRunOnlyForward",
-        "kind": "edge",
-        "says": "An unlock reaches only the locks after it and a volatile write only the reads after it, never an earlier lock or read."
+        "says": "a shard that never finishes doesn't hold the report past its budget"
       }
     ],
     "report": {
@@ -218,12 +128,11 @@
     },
     "origin": {
       "path": "18-happens-before/README_5.2.1.md",
-      "section": "The Six Core Happens-before Rules"
+      "section": "A Read Is Guaranteed to See a Write Only If the Write Happens-Before It"
     },
     "concepts": [
-      "Program order orders the actions of one thread only, never actions across threads.",
-      "Happens-before is built from six rules: program order, monitor lock, volatile variable, thread start, thread join and transitivity.",
-      "Transitivity chains edges, so a plain write before a volatile write is visible after a later read of that volatile."
+      "A thread's writes happen-before another thread's return from join only when the join returns because the thread ended; a join that timed out gives no edge.",
+      "A read is guaranteed to see another thread's write only if the write happens-before it; without an edge the read is a data race and may return an older value."
     ]
   }
 }

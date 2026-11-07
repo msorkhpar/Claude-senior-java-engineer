@@ -1,23 +1,21 @@
-A class loader follows the **parent delegation model**: asked for a class, it
-first asks its parent, and only when the parent cannot load it does it define
-the class itself. A class's runtime identity is its name **plus** the loader
-that defined it. A `null` parent means the bootstrap loader.
+The report server runs exporters that customers write themselves. Each plugin arrives as a jar
+built with everything it was compiled against: the server's plugin API and the libraries the
+customer tested with, which are often older or newer than the server's own copies.
 
-Write `BytesLoader extends ClassLoader`. `new BytesLoader(parent, classes)`
-gets a parent (possibly `null`) and a map from binary class name to the bytes
-of a `.class` file.
+Two attempts have shipped so far. The first gave every plugin its own `URLClassLoader` with no
+link to the server, and the server could no longer use a single plugin: every one failed with
+`ClassCastException` on the line that hands it to the scheduler. The second made the server's
+loader the parent, and a customer's ledger export began formatting numbers the way the server's
+version of their formatting library does, not the way the version in their jar does.
 
-- `loadClass(name)` asks the parent chain first, and defines the class from
-  the map only when no parent can load it.
-- One loader defines a name **once**: asking again returns the same `Class`.
-- Two loaders that each define the same bytes hold two different classes.
-- A name that no parent and no map entry knows fails with
-  `ClassNotFoundException`.
+`PluginLoader` already knows what the jar holds (`inBundle`), which classes are the server's API
+(`isApi`), and how to define a class from the jar (`defineFromBundle`). Finish the `TODO` in
+`src/main/java/practice/PluginLoader.java`: `loadClass(...)`, which decides what each class name the
+plugin uses resolves to.
 
-| loaders | call | result |
-|---|---|---|
-| `a = new BytesLoader(null, {Plugin})` | `a.loadClass("...Plugin")` | a new class, defined by `a` |
-| `a` | `a.loadClass("java.lang.String")` | `String.class` (bootstrap) |
-| `child = new BytesLoader(a, {Plugin})` | `child.loadClass("...Plugin")` | the class defined by `a` |
-| `a` and `b`, both `(null, {Plugin})` | load `Plugin` from each | two classes, same name |
-| `a` | `a.loadClass("practice.Missing")` | `ClassNotFoundException` |
+When you're done, the server can use every plugin through the API types it knows, each plugin runs
+on the library versions in its own jar, and anything the jar doesn't carry, the JDK included, comes
+from the server. About eight lines in total.
+
+The tests build a plugin jar in memory from compiled classes, so its classes have the same names as
+classes the server already has.

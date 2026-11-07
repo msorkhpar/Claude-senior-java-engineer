@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Build a fail-fast iterator on modCount",
+  "title": "Refuse a bad shipment where the feed hands it over",
   "blocks": [
     {
       "type": "heading",
@@ -19,26 +19,23 @@
     },
     {
       "type": "para",
-      "text": "`ArrayList`, `HashMap` and the other `java.util` collections keep an `int` field, `modCount`, that moves on every structural change. Their iterators copy it when they are created, and check it on each iterator operation. The page shows the shape, simplified from `ArrayList`:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "private class Itr implements Iterator<E> {\n    int expectedModCount = modCount; // snapshot at creation\n\n    public E next() {\n        checkForComodification(); // compare modCount == expectedModCount\n        // ... return next element\n    }\n\n    public void remove() {\n        checkForComodification();\n        // ... remove element from underlying list\n        expectedModCount = modCount; // re-sync after iterator's own modification\n    }\n\n    final void checkForComodification() {\n        if (modCount != expectedModCount)\n            throw new ConcurrentModificationException();\n    }\n}"
+      "text": "The warehouse takes shipments from a carrier's feed in the afternoon, and the dispatch run prints the pallet sheets at night. Last week the dispatch run stopped on a shipment with no destination, and nobody could tell which feed message it came from. The week before, a shipment of zero parcels printed a sheet with nothing on it, and a pallet left unlabelled."
     },
     {
       "type": "para",
-      "text": "`TinyList<E>` is a small growable list. Its `add`, `get`, `size` and `removeAt` are written, and `add` and `removeAt` already move `modCount`. Write `iterator()`:"
+      "text": "`Shipment` already stores what the feed sends and prints its routing code. Finish the two `TODO`s in `src/main/java/practice/Shipment.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "it returns the elements in order; `hasNext()` is `false` at the end, and `next()` there throws `NoSuchElementException`;",
-        "**the fail-fast check**: the iterator copies `modCount` when it is created. After any structural change made through the list, not through the iterator, the next `next()` throws `ConcurrentModificationException`. The check comes first in `next()`, before the end-of-list check, and it counts changes, not sizes: an `add` followed by a `removeAt` still trips it, and so does a change made before the first `next()`;",
-        "**`remove()` keeps the iterator in step**: it removes the element `next()` last returned, and iteration then carries on with the element after it, with no exception. `remove()` makes the same check first: after an outside change it throws `ConcurrentModificationException` and removes nothing;",
-        "`remove()` with no `next()` before it, or twice for one `next()`, throws `IllegalStateException` and removes nothing."
+        "`requireFields(...)`: a shipment needs a tracking id that isn't blank, a destination, and between 1 and 20 parcels;",
+        "`labelsToKeep(...)`: the labels the shipment stores."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, a shipment the dispatch run couldn't handle is refused when the feed creates it: a missing value with a `NullPointerException`, a present but unusable one with an `IllegalArgumentException`. Every label is present, and the feed can't change an accepted shipment's labels afterwards. About six lines in total."
     },
     {
       "type": "heading",
@@ -53,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.NoSuchElementException;\nimport java.util.Objects;\n\n/** A small growable list whose iterator is fail-fast. The list part is written; write iterator(). */\npublic class TinyList<E> implements Iterable<E> {\n\n    private Object[] items = new Object[4];\n    private int size;\n    /** Moves on every structural change: add and removeAt. */\n    private int modCount;\n\n    public void add(E item) {\n        if (size == items.length) {\n            items = Arrays.copyOf(items, size * 2);\n        }\n        items[size++] = item;\n        modCount++;\n    }\n\n    @SuppressWarnings(\"unchecked\")\n    public E get(int index) {\n        Objects.checkIndex(index, size);\n        return (E) items[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public void removeAt(int index) {\n        Objects.checkIndex(index, size);\n        System.arraycopy(items, index + 1, items, index, size - index - 1);\n        items[--size] = null;\n        modCount++;\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        return new Iterator<>() {\n            private int cursor;\n            private int lastReturned = -1;\n            private int expectedModCount = modCount;\n\n            @Override\n            public boolean hasNext() {\n                return cursor < size;\n            }\n\n            @Override\n            public E next() {\n                checkForComodification();\n                if (cursor >= size) {\n                    throw new NoSuchElementException();\n                }\n                lastReturned = cursor++;\n                return get(lastReturned);\n            }\n\n            @Override\n            public void remove() {\n                if (lastReturned < 0) {\n                    throw new IllegalStateException(\"remove() needs a next() first\");\n                }\n                checkForComodification();\n                removeAt(lastReturned);\n                cursor = lastReturned;\n                lastReturned = -1;\n                expectedModCount = modCount;\n            }\n\n            private void checkForComodification() {\n                if (modCount != expectedModCount) {\n                    throw new ConcurrentModificationException();\n                }\n            }\n        };\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Locale;\nimport java.util.Objects;\n\n/** A shipment as the warehouse accepts it from a carrier's feed. The dispatch run reads it hours later. */\npublic record Shipment(String trackingId, String destination, int parcels, List<String> labels) {\n\n    public Shipment {\n        requireFields(trackingId, destination, parcels);\n        labels = labelsToKeep(labels);\n    }\n\n    /**\n     * TODO: refuse, here, a shipment the dispatch run could not handle: no tracking id or a blank\n     * one, no destination, or a parcel count outside 1..20.\n     */\n    static void requireFields(String trackingId, String destination, int parcels) {\n        Objects.requireNonNull(trackingId, \"trackingId\");\n        Objects.requireNonNull(destination, \"destination\");\n        if (trackingId.isBlank())\n            throw new IllegalArgumentException(\"trackingId is blank\");\n        if (parcels < 1 || parcels > 20)\n            throw new IllegalArgumentException(\"parcels \" + parcels + \" is not in 1..20\");\n    }\n\n    /**\n     * TODO: the label list this shipment stores. Every label must be present, and the list must\n     * stay as it was when the shipment was accepted.\n     */\n    static List<String> labelsToKeep(List<String> labels) {\n        return List.copyOf(labels);\n    }\n\n    /** The line the dispatch run prints on the pallet sheet. */\n    public String routingCode() {\n        return destination.toUpperCase(Locale.ROOT) + \"/\" + trackingId + \"/\" + parcels;\n    }\n}\n"
         }
       ]
     },
@@ -65,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.NoSuchElementException;\nimport java.util.Objects;\n\n/** A small growable list whose iterator is fail-fast. The list part is written; write iterator(). */\npublic class TinyList<E> implements Iterable<E> {\n\n    private Object[] items = new Object[4];\n    private int size;\n    /** Moves on every structural change: add and removeAt. */\n    private int modCount;\n\n    public void add(E item) {\n        if (size == items.length) {\n            items = Arrays.copyOf(items, size * 2);\n        }\n        items[size++] = item;\n        modCount++;\n    }\n\n    @SuppressWarnings(\"unchecked\")\n    public E get(int index) {\n        Objects.checkIndex(index, size);\n        return (E) items[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public void removeAt(int index) {\n        Objects.checkIndex(index, size);\n        System.arraycopy(items, index + 1, items, index, size - index - 1);\n        items[--size] = null;\n        modCount++;\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        throw new UnsupportedOperationException(\"write iterator\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Locale;\n\n/** A shipment as the warehouse accepts it from a carrier's feed. The dispatch run reads it hours later. */\npublic record Shipment(String trackingId, String destination, int parcels, List<String> labels) {\n\n    public Shipment {\n        requireFields(trackingId, destination, parcels);\n        labels = labelsToKeep(labels);\n    }\n\n    /**\n     * TODO: refuse, here, a shipment the dispatch run could not handle: no tracking id or a blank\n     * one, no destination, or a parcel count outside 1..20.\n     */\n    static void requireFields(String trackingId, String destination, int parcels) {\n        throw new IllegalStateException(\"TODO: refuse a shipment the dispatch run could not handle\");\n    }\n\n    /**\n     * TODO: the label list this shipment stores. Every label must be present, and the list must\n     * stay as it was when the shipment was accepted.\n     */\n    static List<String> labelsToKeep(List<String> labels) {\n        throw new IllegalStateException(\"TODO: the labels this shipment keeps\");\n    }\n\n    /** The line the dispatch run prints on the pallet sheet. */\n    public String routingCode() {\n        return destination.toUpperCase(Locale.ROOT) + \"/\" + trackingId + \"/\" + parcels;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -73,8 +70,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -84,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "44551540c8a492a0c3fb0eccda2f4428555df735ca84242a6d24dc9df17b1b5c",
-  "starting_code": "package practice;\n\nimport java.util.Arrays;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.NoSuchElementException;\nimport java.util.Objects;\n\n/** A small growable list whose iterator is fail-fast. The list part is written; write iterator(). */\npublic class TinyList<E> implements Iterable<E> {\n\n    private Object[] items = new Object[4];\n    private int size;\n    /** Moves on every structural change: add and removeAt. */\n    private int modCount;\n\n    public void add(E item) {\n        if (size == items.length) {\n            items = Arrays.copyOf(items, size * 2);\n        }\n        items[size++] = item;\n        modCount++;\n    }\n\n    @SuppressWarnings(\"unchecked\")\n    public E get(int index) {\n        Objects.checkIndex(index, size);\n        return (E) items[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public void removeAt(int index) {\n        Objects.checkIndex(index, size);\n        System.arraycopy(items, index + 1, items, index, size - index - 1);\n        items[--size] = null;\n        modCount++;\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        throw new UnsupportedOperationException(\"write iterator\");\n    }\n}\n",
+  "content_sha256": "df580ac4fe671b486ca650e1521d874a268c73b37ac85b43c1585cf4942f1329",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Locale;\n\n/** A shipment as the warehouse accepts it from a carrier's feed. The dispatch run reads it hours later. */\npublic record Shipment(String trackingId, String destination, int parcels, List<String> labels) {\n\n    public Shipment {\n        requireFields(trackingId, destination, parcels);\n        labels = labelsToKeep(labels);\n    }\n\n    /**\n     * TODO: refuse, here, a shipment the dispatch run could not handle: no tracking id or a blank\n     * one, no destination, or a parcel count outside 1..20.\n     */\n    static void requireFields(String trackingId, String destination, int parcels) {\n        throw new IllegalStateException(\"TODO: refuse a shipment the dispatch run could not handle\");\n    }\n\n    /**\n     * TODO: the label list this shipment stores. Every label must be present, and the list must\n     * stay as it was when the shipment was accepted.\n     */\n    static List<String> labelsToKeep(List<String> labels) {\n        throw new IllegalStateException(\"TODO: the labels this shipment keeps\");\n    }\n\n    /** The line the dispatch run prints on the pallet sheet. */\n    public String routingCode() {\n        return destination.toUpperCase(Locale.ROOT) + \"/\" + trackingId + \"/\" + parcels;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/src/main/java/practice/TinyList.java",
-    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/src/test/java/practice/TinyListTest.java",
+    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/src/main/java/practice/Shipment.java",
+    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/src/test/java/practice/ShipmentTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -109,29 +106,39 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TinyListTest#iteratesInOrder",
+        "id": "practice.ShipmentTest#aCompleteShipmentIsAcceptedAsSent",
         "kind": "main",
-        "says": "The iterator returns a, b, c in order and then reports the end."
+        "says": "a complete shipment is accepted with its values, labels and routing code as sent"
       },
       {
-        "id": "practice.TinyListTest#aWriteOutsideTheIteratorFailsTheNextNext",
-        "kind": "edge",
-        "says": "After list.add(\"d\") in the middle of a traversal, the next next() throws ConcurrentModificationException."
+        "id": "practice.ShipmentTest#theSmallestAndTheLargestShipmentsAreAccepted",
+        "kind": "main",
+        "says": "shipments of 1 and of 20 parcels are accepted"
       },
       {
-        "id": "practice.TinyListTest#iteratorRemoveKeepsTheIteratorInStep",
+        "id": "practice.ShipmentTest#aShipmentWithNoDestinationIsRefusedWhenTheFeedCreatesIt",
         "kind": "edge",
-        "says": "Removing b and c through the iterator visits all four elements and leaves [a, d]."
+        "says": "a missing destination is refused by the constructor, not later when the routing code is printed"
       },
       {
-        "id": "practice.TinyListTest#removeAlsoChecksForOutsideChanges",
+        "id": "practice.ShipmentTest#aBlankTrackingIdIsRefused",
         "kind": "edge",
-        "says": "After list.add(\"c\") outside the iterator, remove() throws ConcurrentModificationException and removes nothing."
+        "says": "an empty or blank tracking id is refused, not only a null one"
       },
       {
-        "id": "practice.TinyListTest#removeNeedsANextBeforeIt",
+        "id": "practice.ShipmentTest#aShipmentOfNoParcelsOrTooManyIsRefused",
         "kind": "edge",
-        "says": "remove() before any next(), or twice for one next(), throws IllegalStateException."
+        "says": "a parcel count of 0, 21 or a negative number is refused"
+      },
+      {
+        "id": "practice.ShipmentTest#theFeedChangingItsListAfterwardsDoesNotChangeTheShipment",
+        "kind": "edge",
+        "says": "the shipment keeps its own copy of the labels, so the feed changing its list later changes nothing"
+      },
+      {
+        "id": "practice.ShipmentTest#aMissingLabelIsRefusedWhenTheFeedCreatesTheShipment",
+        "kind": "edge",
+        "says": "a null label, or no label list at all, is refused by the constructor"
       }
     ],
     "report": {
@@ -140,11 +147,12 @@
     },
     "origin": {
       "path": "35-fail-fast-safe/README_8.5.1.md",
-      "section": "Fail-Fast Iterators"
+      "section": "A Check in the Constructor Puts the Caller in the Trace"
     },
     "concepts": [
-      "A fail-fast iterator copies the collection's modCount when it is created, and next() throws ConcurrentModificationException once a structural change made outside the iterator moves it.",
-      "Iterator.remove() removes the element next() last returned, re-syncs the iterator's expected count, and throws IllegalStateException without a preceding next()."
+      "Checking arguments in the constructor (null, blank, range) throws while the code that holds the bad value is on the stack, so the trace names the caller.",
+      "A constructor check on a list holds only if the object keeps its own copy: an unmodifiable view shows the caller's later changes, and List.copyOf copies and rejects null elements.",
+      "A value that is present but out of range fails nowhere: the code that uses it computes a wrong result."
     ]
   }
 }

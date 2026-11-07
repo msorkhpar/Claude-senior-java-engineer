@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Fold steps into one Function with andThen and with compose",
+  "title": "Keep the newest reading of each sensor",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,23 @@
     },
     {
       "type": "para",
-      "text": "`f.andThen(g)` runs `f` first and then `g`: it is `g(f(x))`. `f.compose(g)` runs `g` first and then `f`: it is `f(g(x))`. Mixing the two up is a classic trap."
+      "text": "The greenhouse dashboard reads its sensors from a message queue in batches. Since the queue started delivering more than one reading per sensor in a batch, the dashboard page fails to load; and since a new sensor was installed without calibration, it fails for every batch that contains that sensor. When it does load, the operators sometimes see a vent at an angle it left minutes ago."
     },
     {
       "type": "para",
-      "text": "Write two methods in `Pipeline`. Each folds a list of `UnaryOperator<T>` steps into one `Function<T, T>`:"
+      "text": "`Readings.dashboard(...)` already formats the page. Finish the two `TODO`s in `src/main/java/practice/Readings.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`inOrder(steps)` runs the steps first to last (`andThen` is the natural tool).",
-        "`inReverse(steps)` runs them last to first (`compose` is the natural tool)."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "steps",
-        "input",
-        "`inOrder`",
-        "`inReverse`"
-      ],
-      "rows": [
-        [
-          "`x -> x * 2`, `x -> x + 3`",
-          "`5`",
-          "`13`",
-          "`16`"
-        ],
-        [
-          "`String::trim`, `s -> s + \"!\"`",
-          "`\" hi \"`",
-          "`\"hi!\"`",
-          "`\"hi !\"`"
-        ]
+        "`latestBySensor(...)`: one entry per sensor, the reading that was taken last;",
+        "`unitBySensor(...)`: one entry per sensor that has a unit; an uncalibrated sensor has none."
       ]
     },
     {
       "type": "para",
-      "text": "A list may be empty. A step may return `null`; the step after it must not be handed that `null`, and the result is `null`. Any exception a step throws, a `NullPointerException` included, reaches the caller unchanged. The function is fixed when it is built: changing the list afterwards does not change it."
+      "text": "A batch can hold any number of readings of a sensor, in any order. About six lines in total."
     },
     {
       "type": "heading",
@@ -73,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\nimport java.util.function.UnaryOperator;\n\npublic final class Pipeline {\n\n    private Pipeline() {\n    }\n\n    /** Returns one function running the steps first to last; a null result skips the remaining steps. */\n    public static <T> Function<T, T> inOrder(List<UnaryOperator<T>> steps) {\n        Function<T, T> result = Function.identity();\n        for (UnaryOperator<T> step : steps) {\n            result = result.andThen(skipNull(step));\n        }\n        return result;\n    }\n\n    /** Returns one function running the steps last to first; a null result skips the remaining steps. */\n    public static <T> Function<T, T> inReverse(List<UnaryOperator<T>> steps) {\n        Function<T, T> result = Function.identity();\n        for (UnaryOperator<T> step : steps) {\n            result = result.compose(skipNull(step));\n        }\n        return result;\n    }\n\n    private static <T> Function<T, T> skipNull(UnaryOperator<T> step) {\n        return t -> t == null ? null : step.apply(t);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\nimport java.util.function.BinaryOperator;\nimport java.util.function.Function;\nimport java.util.stream.Collectors;\n\n/**\n * Builds the greenhouse dashboard from one batch of sensor readings. The batch comes from a\n * message queue: a sensor can report several times in one batch, and a reading that was retried\n * can arrive after a newer one.\n */\npublic class Readings {\n\n    /** One measurement. {@code unit} is null while the sensor hasn't been calibrated. */\n    public record Reading(String sensor, double value, String unit, long takenAt) {}\n\n    /** One dashboard line per sensor, in sensor order: its latest value and, if known, its unit. */\n    public static List<String> dashboard(List<Reading> batch) {\n        Map<String, String> units = unitBySensor(batch);\n        return new TreeMap<>(latestBySensor(batch)).values().stream()\n                .map(r -> r.sensor() + \": \" + r.value() + \" \" + units.getOrDefault(r.sensor(), \"(uncalibrated)\"))\n                .toList();\n    }\n\n    /** The most recent reading of each sensor in the batch, by the time it was taken. */\n    static Map<String, Reading> latestBySensor(List<Reading> batch) {\n        return batch.stream().collect(Collectors.toMap(Reading::sensor, Function.identity(),\n                BinaryOperator.maxBy(Comparator.comparingLong(Reading::takenAt))));\n    }\n\n    /** The unit each sensor reports in. A sensor that has no unit yet has no entry. */\n    static Map<String, String> unitBySensor(List<Reading> batch) {\n        return batch.stream()\n                .filter(r -> r.unit() != null)\n                .collect(Collectors.toMap(Reading::sensor, Reading::unit, (first, again) -> first));\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\nimport java.util.function.UnaryOperator;\n\npublic final class Pipeline {\n\n    private Pipeline() {\n    }\n\n    /** Returns one function running the steps first to last; a null result skips the remaining steps. */\n    public static <T> Function<T, T> inOrder(List<UnaryOperator<T>> steps) {\n        throw new UnsupportedOperationException(\"write inOrder\");\n    }\n\n    /** Returns one function running the steps last to first; a null result skips the remaining steps. */\n    public static <T> Function<T, T> inReverse(List<UnaryOperator<T>> steps) {\n        throw new UnsupportedOperationException(\"write inReverse\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Builds the greenhouse dashboard from one batch of sensor readings. The batch comes from a\n * message queue: a sensor can report several times in one batch, and a reading that was retried\n * can arrive after a newer one.\n */\npublic class Readings {\n\n    /** One measurement. {@code unit} is null while the sensor hasn't been calibrated. */\n    public record Reading(String sensor, double value, String unit, long takenAt) {}\n\n    /** One dashboard line per sensor, in sensor order: its latest value and, if known, its unit. */\n    public static List<String> dashboard(List<Reading> batch) {\n        Map<String, String> units = unitBySensor(batch);\n        return new TreeMap<>(latestBySensor(batch)).values().stream()\n                .map(r -> r.sensor() + \": \" + r.value() + \" \" + units.getOrDefault(r.sensor(), \"(uncalibrated)\"))\n                .toList();\n    }\n\n    /** The most recent reading of each sensor in the batch, by the time it was taken. */\n    static Map<String, Reading> latestBySensor(List<Reading> batch) {\n        // TODO: One entry per sensor, holding the reading that was taken last. Readings of one\n        //       sensor can arrive in any order.\n        throw new IllegalStateException(\"TODO: latestBySensor\");\n    }\n\n    /** The unit each sensor reports in. A sensor that has no unit yet has no entry. */\n    static Map<String, String> unitBySensor(List<Reading> batch) {\n        // TODO: One entry per calibrated sensor, holding its unit. A sensor reports in one unit,\n        //       however many readings it sends.\n        throw new IllegalStateException(\"TODO: unitBySensor\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -104,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "379dca3477e857e06d1273f58d2346cb1dfe9f92a1ef8e0212dd52149f225efb",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\nimport java.util.function.UnaryOperator;\n\npublic final class Pipeline {\n\n    private Pipeline() {\n    }\n\n    /** Returns one function running the steps first to last; a null result skips the remaining steps. */\n    public static <T> Function<T, T> inOrder(List<UnaryOperator<T>> steps) {\n        throw new UnsupportedOperationException(\"write inOrder\");\n    }\n\n    /** Returns one function running the steps last to first; a null result skips the remaining steps. */\n    public static <T> Function<T, T> inReverse(List<UnaryOperator<T>> steps) {\n        throw new UnsupportedOperationException(\"write inReverse\");\n    }\n}\n",
+  "content_sha256": "d7188e25cedf02fd79210d89b9e1fd937d7113aee8fd814e7b4b03220d00e2f4",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Builds the greenhouse dashboard from one batch of sensor readings. The batch comes from a\n * message queue: a sensor can report several times in one batch, and a reading that was retried\n * can arrive after a newer one.\n */\npublic class Readings {\n\n    /** One measurement. {@code unit} is null while the sensor hasn't been calibrated. */\n    public record Reading(String sensor, double value, String unit, long takenAt) {}\n\n    /** One dashboard line per sensor, in sensor order: its latest value and, if known, its unit. */\n    public static List<String> dashboard(List<Reading> batch) {\n        Map<String, String> units = unitBySensor(batch);\n        return new TreeMap<>(latestBySensor(batch)).values().stream()\n                .map(r -> r.sensor() + \": \" + r.value() + \" \" + units.getOrDefault(r.sensor(), \"(uncalibrated)\"))\n                .toList();\n    }\n\n    /** The most recent reading of each sensor in the batch, by the time it was taken. */\n    static Map<String, Reading> latestBySensor(List<Reading> batch) {\n        // TODO: One entry per sensor, holding the reading that was taken last. Readings of one\n        //       sensor can arrive in any order.\n        throw new IllegalStateException(\"TODO: latestBySensor\");\n    }\n\n    /** The unit each sensor reports in. A sensor that has no unit yet has no entry. */\n    static Map<String, String> unitBySensor(List<Reading> batch) {\n        // TODO: One entry per calibrated sensor, holding its unit. A sensor reports in one unit,\n        //       however many readings it sends.\n        throw new IllegalStateException(\"TODO: unitBySensor\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-03/practice-1/src/main/java/practice/Pipeline.java",
-    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-03/practice-1/src/test/java/practice/PipelineTest.java",
+    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-03/practice-1/src/main/java/practice/Readings.java",
+    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-03/practice-1/src/test/java/practice/ReadingsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,29 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PipelineTest#inOrderRunsFirstToLastAndInReverseLastToFirst",
+        "id": "practice.ReadingsTest#oneReadingPerSensorGivesThatReadingAndItsUnit",
         "kind": "main",
-        "says": "inOrder runs the first step first; inReverse runs the last step first."
+        "says": "with one reading per sensor, each sensor maps to that reading and its unit, and the dashboard shows them"
       },
       {
-        "id": "practice.PipelineTest#noStepsIsTheIdentity",
+        "id": "practice.ReadingsTest#aSensorThatReportsSeveralTimesGetsOneEntry",
         "kind": "edge",
-        "says": "With no steps, both functions hand back their input itself."
+        "says": "a sensor that reports several times in a batch gets one entry, not an exception"
       },
       {
-        "id": "practice.PipelineTest#aNullResultEndsThePipeline",
+        "id": "practice.ReadingsTest#aRetriedReadingThatArrivesLateDoesNotHideANewerOne",
         "kind": "edge",
-        "says": "When a step returns null, the later steps are skipped and the result is null, with no NullPointerException."
+        "says": "the reading kept is the one taken last, not the one that arrived last"
       },
       {
-        "id": "practice.PipelineTest#aStepsOwnExceptionReachesTheCaller",
+        "id": "practice.ReadingsTest#anUncalibratedSensorHasNoUnitButStillShowsItsLatestValue",
         "kind": "edge",
-        "says": "A step that itself throws, even a NullPointerException, is not silenced: the same exception reaches the caller."
-      },
-      {
-        "id": "practice.PipelineTest#laterListChangesDoNotChangeTheFunction",
-        "kind": "edge",
-        "says": "The function is fixed when it is built: adding a step to the list afterwards changes nothing."
+        "says": "a sensor with no unit is left out of the unit map instead of failing the batch"
       }
     ],
     "report": {
@@ -160,13 +132,11 @@
     },
     "origin": {
       "path": "14-functional-interfaces/README_4.2.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Collectors.toMap Throws on a Duplicate Key or a null Value Until You Say What to Do"
     },
     "concepts": [
-      "f.andThen(g) runs f first and then g on its result, which is g(f(x)).",
-      "f.compose(g) runs g first and then f on its result, which is f(g(x)).",
-      "A step that returns null hands null to the next step, so a chain has to guard against it.",
-      "UnaryOperator is a Function from a type to that same type."
+      "A merge function that keeps the value seen last is wrong when input arrives out of order; BinaryOperator.maxBy with a Comparator keeps the one the data says is newest.",
+      "Collectors.toMap throws IllegalStateException on a duplicate key unless given a merge function, and NullPointerException on a null value even with one, so nulls are handled before the collector."
     ]
   }
 }

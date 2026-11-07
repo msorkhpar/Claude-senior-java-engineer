@@ -1,120 +1,230 @@
 # 2.4.3. Limitations and Use Cases for Records
 
-Records in Java provide a concise way to create immutable data carrier classes. However, they come with certain
-limitations and are best suited for specific use cases. Understanding these limitations and appropriate use cases is
-crucial for effective utilization of records in Java programming.
+The billing team turns `Invoice` into a record to drop its boilerplate. The class extends an
+`Audited` base, caches its total in a field, and is loaded by an ORM. The first build fails on the
+header, the second on the cache, and once it compiles, the ORM can't load it.
 
-## Limitations of Records
+## A Record Extends Only java.lang.Record, and Nothing Extends It
 
-1. **Immutability**: Records are implicitly final and their fields are final by default. This means you cannot modify
-   the state of a record after creation.
-
-2. **Inheritance Restrictions**: Records cannot extend other classes (except `java.lang.Record`), and they are
-   implicitly final, so they cannot be extended.
-
-3. **Limited Customization**: While you can add methods to records, you cannot add instance fields beyond those declared
-   in the record header.
-
-4. **No Default No-Arg Constructor**: Records do not provide a default no-argument constructor.
-
-5. **Serialization Constraints**: Records use a different serialization mechanism compared to regular classes, which may
-   cause issues with existing serialization frameworks.
-
-6. **No Compatibility with Frameworks Requiring Default Constructor**: Some frameworks that rely on default
-   constructors (e.g., certain ORM tools) may not work well with records.
-
-## Use Cases for Records
-
-1. **Data Transfer Objects (DTOs)**: Ideal for transferring data between different layers of an application.
-
-2. **Value Objects**: Perfect for representing immutable values in domain-driven design.
-
-3. **API Responses**: Useful for creating structured responses in REST APIs.
-
-4. **Configuration Objects**: Suitable for holding configuration settings.
-
-5. **Tuple-like Data Structures**: Excellent for representing small, fixed sets of related data.
-
-6. **Immutable Data Models**: Appropriate for scenarios where data should not change after creation.
-
-7. **Pattern Matching**: Records work well with pattern matching in switch expressions.
-
-## Best Practices
-
-1. Use records for small, simple data carriers.
-2. Avoid using records for complex domain objects with behavior.
-3. Consider records for immutable data structures.
-4. Utilize records in functional programming paradigms.
-
-## Common Pitfalls
-
-1. Attempting to add mutable fields to records.
-2. Trying to extend or inherit from records.
-3. Using records with frameworks that expect default constructors or setter methods.
-
-## Interview Insights
-
-- Be prepared to discuss the trade-offs between records and traditional classes.
-- Understand scenarios where records are more appropriate than regular classes.
-- Know how to implement custom methods or override default behavior in records when necessary.
-
-## Q&A Section
-
-Q1: What are the main limitations of using records in Java?
+javac 21 on three attempts to fit `Invoice` into a hierarchy:
 
 ```text
-A1: The main limitations of records in Java include:
-1. Immutability: Records are implicitly final and their fields are final by default.
-2. Inheritance restrictions: Records cannot extend other classes (except java.lang.Record) and cannot be extended.
-3. Limited customization: You cannot add instance fields beyond those declared in the record header.
-4. No default no-arg constructor: Records do not provide a default constructor without arguments.
-5. Serialization constraints: Records use a different serialization mechanism, which may cause issues with some existing frameworks.
-6. Incompatibility with frameworks requiring default constructors: Some ORM tools or frameworks that rely on default constructors may not work well with records.
+Invoice.java:5: error: '{' expected
+record Invoice(String number, long totalCents) extends Audited {}
+                                              ^
+Invoice.java:3: error: cannot inherit from final Invoice
+class CreditNote extends Invoice {
+                         ^
+Invoice.java:1: error: modifier abstract not allowed here
+abstract record Invoice(String number, long totalCents) {}
+         ^
 ```
 
-Q2: In what scenarios would you recommend using a record instead of a traditional class?
+A record has no `extends` clause: its superclass is always `java.lang.Record`. It is implicitly
+`final`, so it can't be `abstract` either. Its state is exactly its components, which lets the
+generated `equals` compare them and `new Invoice(i.number(), i.totalCents())` rebuild an equal
+copy. A superclass or a subclass would add state those methods can't see.
 
-```text
-A2: Records are recommended in the following scenarios:
-1. Data Transfer Objects (DTOs): For transferring data between application layers.
-2. Value Objects: Representing immutable values in domain-driven design.
-3. API Responses: Creating structured responses in REST APIs.
-4. Configuration Objects: Holding application or component configuration settings.
-5. Tuple-like Data Structures: Representing small, fixed sets of related data.
-6. Immutable Data Models: Scenarios where data should not change after creation.
-7. Pattern Matching: When working with switch expressions and pattern matching.
-
-Records are particularly useful when you need a simple, immutable data carrier without complex behavior. They reduce boilerplate code and provide a clear, concise way to represent data.
-```
-
-Q3: Can you provide an example of a record and how it might be used in a real-world scenario?
+Turn `Audited` into an interface; the accessors implement its methods:
 
 ```java
-public record PersonDTO(String name, int age, String email) {
-    // Custom constructor with validation
-    public PersonDTO {
-        if (name == null || name.isEmpty()) {
-            throw new IllegalArgumentException("Name cannot be null or empty");
-        }
-        if (age < 0) {
-            throw new IllegalArgumentException("Age cannot be negative");
-        }
-        if (email == null || !email.contains("@")) {
-            throw new IllegalArgumentException("Invalid email format");
-        }
-    }
-
-    // Custom method
-    public boolean isAdult() {
-        return age >= 18;
-    }
+interface Audited {
+    long createdAtMillis();
+    default boolean olderThan(long millis, long nowMillis) { return nowMillis - createdAtMillis() > millis; }
 }
 
-// Usage
-PersonDTO person = new PersonDTO("John Doe", 30, "john@example.com");
-System.out.println(person.name()); // John Doe
-System.out.println(person.isAdult()); // true
+record Invoice(String number, long totalCents, long createdAtMillis) implements Audited {}
 ```
+
+```java
+Invoice inv = new Invoice("I-7", 4_200, 1_000);
+System.out.println(inv + " older than 1s at t=5000: " + inv.olderThan(1_000, 5_000));
+```
+
+```text
+Invoice[number=I-7, totalCents=4200, createdAtMillis=1000] older than 1s at t=5000: true
+```
+
+The cost is repetition: every `Audited` record declares `createdAtMillis` itself.
+
+<!-- practice 3 -->
+
+## A Record's Only Instance State Is Its Header
+
+javac refuses the old class's cache field, and any instance initializer:
+
+```text
+Invoice.java:4: error: field declaration must be static
+    private long totalCents = -1;                    // cache, filled on first call
+                 ^
+  (consider replacing field with record component)
+Invoice.java:2: error: instance initializers not allowed in records
+```
+
+The error says to make it static. What do two bills print?
+
+```java
+import java.util.List;
+
+record Bill(String number, List<Long> lineCents) {
+    private static long totalCents = -1;            // javac asked for static, so...
+
+    long totalCents() {
+        if (totalCents < 0) totalCents = lineCents.stream().mapToLong(Long::longValue).sum();
+        return totalCents;
+    }
+}
+```
+
+```java
+Bill a = new Bill("B-1", List.of(1_000L, 250L));
+Bill b = new Bill("B-2", List.of(90_000L));
+System.out.println("B-1 total: " + a.totalCents());
+System.out.println("B-2 total: " + b.totalCents());
+```
+
+```text
+B-1 total: 1250
+B-2 total: 1250
+```
+
+A static field belongs to the class, so the first bill's total became every bill's. Compute a derived value in a method on each call; if that is too slow, make it a
+component the constructor checks, or use a class. State that changes, such as a retry count, lives
+outside the record, for example in a map keyed by it.
+
+## A Framework That Builds an Object Empty, Then Fills It, Can't Build a Record
+
+Many ORMs create an object with its no-arg constructor, then set its fields by reflection.
+Jakarta Persistence requires an entity to have a public or protected no-arg constructor, a class
+that isn't `final`, and persistent fields that aren't `final`. A record and its fields are final.
+A no-arg constructor can be added, but it can only delegate with placeholder values:
+
+```java
+record Customer(String name, String email) {
+    Customer() { this(null, null); }                // a no-arg constructor must delegate
+}
+```
+
+What a framework then does, with `record Point(int x, int y)` for comparison:
+
+```java
+// Point and Customer are nested in a class Limits
+Point.class.getDeclaredConstructor();                           // throws
+Customer c = Customer.class.getDeclaredConstructor().newInstance();
+Field name = Customer.class.getDeclaredField("name");
+name.setAccessible(true);
+name.set(c, "Jane Doe");                                        // throws
+```
+
+```text
+Point no-arg constructor: java.lang.NoSuchMethodException: Limits$Point.<init>()
+Customer() built: Customer[name=null, email=null]
+set name: Can not set final java.lang.String field Limits$Customer.name to java.lang.String
+```
+
+`setAccessible(true)` lets reflection write a final instance field of an ordinary class, but not of a
+record. The way in is the canonical constructor, with every value at once.
+`getRecordComponents()` gives the components' names and types in header order:
+
+```java
+RecordComponent[] comps = Customer.class.getRecordComponents();
+Class<?>[] types = Arrays.stream(comps).map(RecordComponent::getType).toArray(Class<?>[]::new);
+Constructor<Customer> canonical = Customer.class.getDeclaredConstructor(types);
+System.out.println("components: " + Arrays.stream(comps).map(RecordComponent::getName).toList());
+System.out.println("built: " + canonical.newInstance("Jane Doe", "jane@example.com"));
+```
+
+```text
+components: [name, email]
+built: Customer[name=Jane Doe, email=jane@example.com]
+```
+
+Mappers that support records work this way, and the constructor's checks run on every row. The
+entity stays a class; a record carries what is read out of it.
+
+<!-- practice 1 -->
+
+## Keep a Class for Identity, Changing State, or Many Optional Parts
+
+A record's `equals` compares components. Two different visitors with the same name and birth date
+check in at two gates:
+
+```java
+record Visitor(String name, String birthDate) {}
+```
+
+```java
+Set<Visitor> inside = new HashSet<>();
+boolean north = inside.add(new Visitor("Jane Doe", "1990-04-01"));    // at the north gate
+boolean south = inside.add(new Visitor("Jane Doe", "1990-04-01"));    // a different person, south gate
+```
+
+```text
+north added: true, south added: false, visitors inside: 1
+```
+
+The two objects are distinct but equal, so the second `add` returns false and the set of who is inside counts one person. A visitor or an account stays the same thing while its data changes. That is identity, and it needs a class
+whose `equals` uses an id, or none. Changing a record makes a new copy, and every other holder of
+the old one keeps the old state.
+
+A record's canonical constructor is positional, and with four `int` components a swap compiles:
+
+```java
+record PoolConfig(int minSize, int maxSize, int idleTimeoutSeconds, int maxWaitMillis) {}
+```
+
+```java
+// meant: min 2, max 20, idle 300 s, wait 500 ms
+PoolConfig c = new PoolConfig(2, 20, 500, 300);
+System.out.println(c);
+```
+
+```text
+PoolConfig[minSize=2, maxSize=20, idleTimeoutSeconds=500, maxWaitMillis=300]
+```
+
+With many components, or many optional ones,
+put a builder class or named factory methods in front of the record.
+
+Records fit DTOs and API responses, values such as money, map keys, several results returned
+together, and messages taken apart with record patterns (unit 1.5.3).
+
+<!-- practice 2 -->
+
+## Summary
+
+- **A record extends only `java.lang.Record` and is `final`.** Shared shape goes into an interface.
+- **A record's only instance state is its header.** A static "cache" is shared by every instance.
+- **A framework that constructs empty, then sets fields, can't build a record.** Build it through
+  the canonical constructor.
+- **Identity, changing state and many optional parts call for a class**, or a builder.
+
+## Reference
+
+**What a record body may declare (javac 21):**
+
+| Declaration | Allowed |
+|---|---|
+| static fields, static initializers, static and instance methods, nested types | yes |
+| `implements`, type parameters | yes |
+| a non-canonical constructor | only if it starts with `this(...)` |
+| `extends`, `abstract`, instance fields, instance initializers | no |
+
+## Challenges
+
+1. Your events share six components. Compare repeating them in every record with one
+   `Envelope(EventId id, Instant at, Payload p)` that wraps a sealed `Payload`. What does each do
+   to pattern matching?
+2. A costly derived value is read in a sort comparator. Measure recomputing it against storing it
+   as a checked component.
+3. A row mapper builds records through the canonical constructor. What should it do with a
+   missing column for an `int` component?
+
+## Design Note: Why a Record Is Closed
+
+A record promises that its state is its components and nothing else, so `equals`, `hashCode`,
+`toString`, deconstruction and serialization are derived from the header and agree. The cost is that a record can't join a class
+hierarchy, be filled lazily, or be an entity.
 
 ## Code Examples
 

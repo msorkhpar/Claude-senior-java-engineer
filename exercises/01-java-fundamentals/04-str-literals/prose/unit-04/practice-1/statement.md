@@ -1,10 +1,11 @@
-`==` asks whether two variables refer to the same object; `equals()` asks whether two
-Strings hold the same characters. Two equal literals happen to share one object, so `==`
-can look right in a quick test, and then fail for a String read or built at run time.
+Every time a customer presses Save in the profile editor, the audit log lists the fields the save
+changed, and the customer gets a "your profile was updated" mail naming them. Since the editor
+was rewritten, the log lists fields that nobody touched, and saving a profile with its website
+cleared fails with an exception instead of being logged.
 
-Write `accepts(String expected, String typed)` in `Login`. It says whether the typed text is
-exactly the expected one. Neither argument is `null`.
+The stored values come from the database as `String`s. The editor hands over each submitted value
+as whatever `CharSequence` it keeps the text in. An empty field is `null`, on either side.
 
-- `accepts("s3cret", "s3cret")` is `true`, and `accepts("s3cret", "secret")` is `false`;
-- `accepts("s3cret", new String("s3cret"))` is `true`, and so is a typed text assembled
-  character by character.
+`ProfileAudit.changedFields(...)` already walks the fields. Finish the `TODO` in `changed(...)` in
+`src/main/java/practice/ProfileAudit.java`: a field changed when its text is different, when it
+was empty and now has text, or when it had text and is now empty. About four lines in total.

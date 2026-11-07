@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Trace the order of try, catch and finally",
+  "title": "Ship the metrics the buffer collected",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The `finally` block runs after the `try` and `catch` blocks whether an exception was thrown or not, and even when the `try` block exits with `return`."
+      "text": "A service records metric lines into a `MetricsBuffer`. Every ten seconds a shipper thread calls `drain()` and sends the list it gets back to the metrics collector. Since the last release the collector's graphs for this service are flat, though the shipper logs a shipment every ten seconds and the buffer never grows."
     },
     {
       "type": "para",
-      "text": "Write `Flow.run(IntSupplier body, List<String> log)`. It records what runs, in order, in `log`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`\"try\"` as the `try` block starts, then it evaluates `body` and returns its value;",
-        "when `body` throws an `IllegalStateException` (or any subclass of it), `\"catch \" + e.getMessage()` (a missing message prints as `null`), and `run` returns `-1`;",
-        "`\"finally\"` from a `finally` block."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Anything else `body` throws (another exception, an `Error`, even a checked exception smuggled out of the lambda) is not caught: it leaves `run`, and `\"finally\"` is still recorded."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "body",
-        "returns",
-        "log"
-      ],
-      "rows": [
-        [
-          "throws `IllegalStateException(\"boom\")`",
-          "`-1`",
-          "`[\"try\", \"catch boom\", \"finally\"]`"
-        ],
-        [
-          "returns `7`",
-          "`7`",
-          "`[\"try\", \"finally\"]`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Page Q2's own example is a `try` that returns while a `finally` still prints. Check every way out of your method."
+      "text": "Finish `drain()` in `src/main/java/practice/MetricsBuffer.java`: it hands over the lines recorded since the last drain, and leaves the buffer collecting a new batch. About three lines."
     },
     {
       "type": "heading",
@@ -75,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.IntSupplier;\n\npublic final class Flow {\n\n    private Flow() {\n    }\n\n    /** Evaluates {@code body}, recording \"try\", \"catch <message>\" and \"finally\" in {@code log}. */\n    public static int run(IntSupplier body, List<String> log) {\n        try {\n            log.add(\"try\");\n            return body.getAsInt();\n        } catch (IllegalStateException e) {\n            log.add(\"catch \" + e.getMessage());\n            return -1;\n        } finally {\n            log.add(\"finally\");\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Collects metric lines between two shipments. Every ten seconds a shipper thread calls drain()\n * and sends the batch it returns to the collector; recording goes on into the next batch.\n */\npublic class MetricsBuffer {\n\n    private List<String> pending = new ArrayList<>();\n\n    /** Adds one line to the batch being collected. */\n    public synchronized void record(String line) {\n        pending.add(line);\n    }\n\n    /** How many lines wait for the next drain. */\n    public synchronized int pendingCount() {\n        return pending.size();\n    }\n\n    /** Hands over the lines recorded since the last drain, and starts a new batch. */\n    public synchronized List<String> drain() {\n        try {\n            return pending;\n        } finally {\n            pending = new ArrayList<>();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.IntSupplier;\n\npublic final class Flow {\n\n    private Flow() {\n    }\n\n    /** Evaluates {@code body}, recording \"try\", \"catch <message>\" and \"finally\" in {@code log}. */\n    public static int run(IntSupplier body, List<String> log) {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Collects metric lines between two shipments. Every ten seconds a shipper thread calls drain()\n * and sends the batch it returns to the collector; recording goes on into the next batch.\n */\npublic class MetricsBuffer {\n\n    private List<String> pending = new ArrayList<>();\n\n    /** Adds one line to the batch being collected. */\n    public synchronized void record(String line) {\n        pending.add(line);\n    }\n\n    /** How many lines wait for the next drain. */\n    public synchronized int pendingCount() {\n        return pending.size();\n    }\n\n    /** Hands over the lines recorded since the last drain, and starts a new batch. */\n    public synchronized List<String> drain() {\n        // TODO: Return the batch collected so far, and leave the buffer collecting a new one.\n        //       The shipper sends the returned list after this method returns, while record()\n        //       goes on adding lines.\n        throw new IllegalStateException(\"TODO: drain\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a263460557dd246248d9337be53fdccaf62f455fdc56d4aeccd813d4e649b8a1",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.IntSupplier;\n\npublic final class Flow {\n\n    private Flow() {\n    }\n\n    /** Evaluates {@code body}, recording \"try\", \"catch <message>\" and \"finally\" in {@code log}. */\n    public static int run(IntSupplier body, List<String> log) {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n",
+  "content_sha256": "c0101c4e8461d1c0096a86b25edf8b07ffeeaddf95e18a3f04e8ec646fdd3b0e",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Collects metric lines between two shipments. Every ten seconds a shipper thread calls drain()\n * and sends the batch it returns to the collector; recording goes on into the next batch.\n */\npublic class MetricsBuffer {\n\n    private List<String> pending = new ArrayList<>();\n\n    /** Adds one line to the batch being collected. */\n    public synchronized void record(String line) {\n        pending.add(line);\n    }\n\n    /** How many lines wait for the next drain. */\n    public synchronized int pendingCount() {\n        return pending.size();\n    }\n\n    /** Hands over the lines recorded since the last drain, and starts a new batch. */\n    public synchronized List<String> drain() {\n        // TODO: Return the batch collected so far, and leave the buffer collecting a new one.\n        //       The shipper sends the returned list after this method returns, while record()\n        //       goes on adding lines.\n        throw new IllegalStateException(\"TODO: drain\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-2/src/main/java/practice/Flow.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-2/src/test/java/practice/FlowTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-2/src/main/java/practice/MetricsBuffer.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-2/src/test/java/practice/MetricsBufferTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,19 +94,14 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FlowTest#aFailureRunsCatchThenFinally",
+        "id": "practice.MetricsBufferTest#aDrainLeavesTheBufferCollectingANewBatch",
         "kind": "main",
-        "says": "A handled failure runs the try, then the catch, then the finally."
+        "says": "after a drain the buffer holds no lines, and lines recorded afterwards wait for the next drain"
       },
       {
-        "id": "practice.FlowTest#finallyRunsWhenTheTryReturns",
+        "id": "practice.MetricsBufferTest#theShipperReceivesTheLinesOfTheBatchItDrained",
         "kind": "edge",
-        "says": "A return in the try block does not skip the finally block: it runs before the method returns."
-      },
-      {
-        "id": "practice.FlowTest#finallyRunsWhenAnUncaughtExceptionLeaves",
-        "kind": "edge",
-        "says": "An exception no catch handles still runs the finally block on its way out."
+        "says": "the list a drain returns holds the lines recorded before it, and only those"
       }
     ],
     "report": {
@@ -152,11 +110,10 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.3.md",
-      "section": "Interview Q&A Section"
+      "section": "A return Fixes Its Value Before finally Runs, but the Object Can Still Change"
     },
     "concepts": [
-      "A return in the try block does not skip finally: it runs before the method returns.",
-      "The finally block runs after the try and catch blocks whether or not an exception was thrown or caught."
+      "return passes a reference to the object, so finally that mutates the object (clear()) changes what the caller receives, while reassigning the variable does not."
     ]
   }
 }

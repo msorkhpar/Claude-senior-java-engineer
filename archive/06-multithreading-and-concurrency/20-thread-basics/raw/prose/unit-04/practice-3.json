@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A gate that waits in a loop",
+  "title": "Return from start() when the index worker is ready",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,27 @@
     },
     {
       "type": "para",
-      "text": "A thread in `Object.wait()` is `WAITING`: it has released the monitor and waits for a signal. But it \"can wake up spuriously without being notified\", which is why the page says `wait()` belongs **in a loop that re-checks the condition**. The same loop makes a signal that came before the wait harmless."
+      "text": "The search service starts an `IndexWorker` at boot and sends it the first search terms as soon as `start()` returns. The worker can't index anything before it has loaded its synonym table. Usually that takes a few milliseconds, but when the configuration is being reloaded at the same moment, the loader has to wait for the configuration's lock, and on a cold cache it computes for seconds. On those boots the first terms meet a worker with no table."
     },
     {
       "type": "para",
-      "text": "Write `Gate`, which uses **the `Gate` object itself** as its monitor:"
+      "text": "`IndexWorker` already starts its thread, loads the table on it and indexes what it is sent. Finish the two `TODO`s in `src/main/java/practice/IndexWorker.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`void pass()` returns at once if the gate is open. While it is closed, the thread waits on the gate's monitor, and it returns only once the gate is open. It declares `throws InterruptedException`.",
-        "`void open()` opens the gate for good and wakes every waiting thread."
+        "`signalReady()`: called on the worker's thread once its table is loaded;",
+        "`awaitReady()`: called by `start()`, returns once the worker is ready to index."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "situation",
-        "result"
-      ],
-      "rows": [
-        [
-          "`pass()` while the gate is closed",
-          "the thread is `WAITING`"
-        ],
-        [
-          "another thread calls `open()`",
-          "the waiting thread returns from `pass()`"
-        ],
-        [
-          "two threads wait, then `open()`",
-          "both return from `pass()`"
-        ],
-        [
-          "a thread is woken while the gate is still closed",
-          "it waits again"
-        ],
-        [
-          "`open()`, then `pass()`",
-          "`pass()` returns at once"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, `start()` returns once the table is loaded, however long the loader takes and whatever it waits for. About four lines in total, a field included."
+    },
+    {
+      "type": "para",
+      "text": "The tests hold the loader back, once behind a lock and once in a long computation, and check whether the table was loaded at the moment `start()` returned."
     },
     {
       "type": "heading",
@@ -75,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Gate {\n\n    private boolean open;\n\n    /** Returns once the gate is open, waiting on this gate's monitor while it is closed. */\n    public synchronized void pass() throws InterruptedException {\n        while (!open) {\n            wait();\n        }\n    }\n\n    /** Opens the gate for good and wakes every waiting thread. */\n    public synchronized void open() {\n        open = true;\n        notifyAll();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.function.Consumer;\n\n/**\n * Indexes search terms on a thread of its own. Before it can index anything it loads its\n * synonym table, which can take a while; the search service calls start() at boot and sends the\n * first terms as soon as start() returns.\n */\npublic class IndexWorker {\n\n    /** Loads the synonym table: may wait for a lock or compute for a while. */\n    public interface Loader {\n        Map<String, String> load() throws InterruptedException;\n    }\n\n    private final Loader loader;\n    private final Consumer<String> index;\n    private final BlockingQueue<String> terms = new LinkedBlockingQueue<>();\n    private final CountDownLatch ready = new CountDownLatch(1);\n    private volatile Map<String, String> synonyms;\n    private Thread thread;\n\n    public IndexWorker(Loader loader, Consumer<String> index) {\n        this.loader = loader;\n        this.index = index;\n    }\n\n    /** Starts the worker and returns once it is ready to index. */\n    public void start() throws InterruptedException {\n        thread = new Thread(this::run, \"index-worker\");\n        thread.setDaemon(true);\n        thread.start();\n        awaitReady();\n    }\n\n    /** Whether the synonym table has been loaded. */\n    public boolean loaded() {\n        return synonyms != null;\n    }\n\n    public void submit(String term) {\n        terms.add(term);\n    }\n\n    public void stop() {\n        if (thread != null) thread.interrupt();\n    }\n\n    private void run() {\n        try {\n            synonyms = loader.load();\n            signalReady();\n            while (true) {\n                String term = terms.take();\n                index.accept(synonyms.getOrDefault(term, term));\n            }\n        } catch (InterruptedException e) {\n            // stopped\n        }\n    }\n\n    /** Called on the worker's thread once the synonym table is loaded. */\n    void signalReady() {\n        ready.countDown();\n    }\n\n    /** Called by start() on the caller's thread: returns once the worker is ready to index. */\n    void awaitReady() throws InterruptedException {\n        ready.await();\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Gate {\n\n    /** Returns once the gate is open, waiting on this gate's monitor while it is closed. */\n    public void pass() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write pass\");\n    }\n\n    /** Opens the gate for good and wakes every waiting thread. */\n    public void open() {\n        throw new UnsupportedOperationException(\"write open\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.function.Consumer;\n\n/**\n * Indexes search terms on a thread of its own. Before it can index anything it loads its\n * synonym table, which can take a while; the search service calls start() at boot and sends the\n * first terms as soon as start() returns.\n */\npublic class IndexWorker {\n\n    /** Loads the synonym table: may wait for a lock or compute for a while. */\n    public interface Loader {\n        Map<String, String> load() throws InterruptedException;\n    }\n\n    private final Loader loader;\n    private final Consumer<String> index;\n    private final BlockingQueue<String> terms = new LinkedBlockingQueue<>();\n    private volatile Map<String, String> synonyms;\n    private Thread thread;\n\n    public IndexWorker(Loader loader, Consumer<String> index) {\n        this.loader = loader;\n        this.index = index;\n    }\n\n    /** Starts the worker and returns once it is ready to index. */\n    public void start() throws InterruptedException {\n        thread = new Thread(this::run, \"index-worker\");\n        thread.setDaemon(true);\n        thread.start();\n        awaitReady();\n    }\n\n    /** Whether the synonym table has been loaded. */\n    public boolean loaded() {\n        return synonyms != null;\n    }\n\n    public void submit(String term) {\n        terms.add(term);\n    }\n\n    public void stop() {\n        if (thread != null) thread.interrupt();\n    }\n\n    private void run() {\n        try {\n            synonyms = loader.load();\n            signalReady();\n            while (true) {\n                String term = terms.take();\n                index.accept(synonyms.getOrDefault(term, term));\n            }\n        } catch (InterruptedException e) {\n            // stopped\n        }\n    }\n\n    /** Called on the worker's thread once the synonym table is loaded. */\n    void signalReady() {\n        // TODO: Let start() know that the worker is ready to index.\n        throw new IllegalStateException(\"TODO: signalReady\");\n    }\n\n    /** Called by start() on the caller's thread: returns once the worker is ready to index. */\n    void awaitReady() throws InterruptedException {\n        // TODO: Return once the worker is ready to index, and not before: the service sends the\n        //       first terms as soon as start() returns.\n        throw new IllegalStateException(\"TODO: awaitReady\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -106,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "1f3442ef128ed2424dd63b5486916d3d44fd4a829d9e91bb08a297e03b434dc5",
-  "starting_code": "package practice;\n\npublic final class Gate {\n\n    /** Returns once the gate is open, waiting on this gate's monitor while it is closed. */\n    public void pass() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write pass\");\n    }\n\n    /** Opens the gate for good and wakes every waiting thread. */\n    public void open() {\n        throw new UnsupportedOperationException(\"write open\");\n    }\n}\n",
+  "content_sha256": "d7a192636367da2e4c0032ecbb845d28d82d42450ee8b817c10f12d71a5e9890",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.function.Consumer;\n\n/**\n * Indexes search terms on a thread of its own. Before it can index anything it loads its\n * synonym table, which can take a while; the search service calls start() at boot and sends the\n * first terms as soon as start() returns.\n */\npublic class IndexWorker {\n\n    /** Loads the synonym table: may wait for a lock or compute for a while. */\n    public interface Loader {\n        Map<String, String> load() throws InterruptedException;\n    }\n\n    private final Loader loader;\n    private final Consumer<String> index;\n    private final BlockingQueue<String> terms = new LinkedBlockingQueue<>();\n    private volatile Map<String, String> synonyms;\n    private Thread thread;\n\n    public IndexWorker(Loader loader, Consumer<String> index) {\n        this.loader = loader;\n        this.index = index;\n    }\n\n    /** Starts the worker and returns once it is ready to index. */\n    public void start() throws InterruptedException {\n        thread = new Thread(this::run, \"index-worker\");\n        thread.setDaemon(true);\n        thread.start();\n        awaitReady();\n    }\n\n    /** Whether the synonym table has been loaded. */\n    public boolean loaded() {\n        return synonyms != null;\n    }\n\n    public void submit(String term) {\n        terms.add(term);\n    }\n\n    public void stop() {\n        if (thread != null) thread.interrupt();\n    }\n\n    private void run() {\n        try {\n            synonyms = loader.load();\n            signalReady();\n            while (true) {\n                String term = terms.take();\n                index.accept(synonyms.getOrDefault(term, term));\n            }\n        } catch (InterruptedException e) {\n            // stopped\n        }\n    }\n\n    /** Called on the worker's thread once the synonym table is loaded. */\n    void signalReady() {\n        // TODO: Let start() know that the worker is ready to index.\n        throw new IllegalStateException(\"TODO: signalReady\");\n    }\n\n    /** Called by start() on the caller's thread: returns once the worker is ready to index. */\n    void awaitReady() throws InterruptedException {\n        // TODO: Return once the worker is ready to index, and not before: the service sends the\n        //       first terms as soon as start() returns.\n        throw new IllegalStateException(\"TODO: awaitReady\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-3/src/main/java/practice/Gate.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-3/src/test/java/practice/GateTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-3/src/main/java/practice/IndexWorker.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-3/src/test/java/practice/IndexWorkerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,34 +110,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.GateTest#aWaiterPassesOnceTheGateOpens",
+        "id": "practice.IndexWorkerTest#indexesTermsWithTheirSynonymsOnceStarted",
         "kind": "main",
-        "says": "A thread in pass() waits while the gate is closed and goes on once another thread opens it."
+        "says": "after start() returns, submitted terms are indexed with their synonyms"
       },
       {
-        "id": "practice.GateTest#aClosedGateHoldsAWaiterInWaiting",
+        "id": "practice.IndexWorkerTest#startReturnsOnlyOnceTheTableIsLoadedWhenLoadingWaitsForALock",
         "kind": "edge",
-        "says": "While the gate is closed, the waiting thread is WAITING: it neither spins nor sleeps."
+        "says": "start() doesn't return while the worker is still waiting for a lock it needs to load its table"
       },
       {
-        "id": "practice.GateTest#aWakeupWithoutOpenDoesNotLetItThrough",
+        "id": "practice.IndexWorkerTest#startReturnsOnlyOnceTheTableIsLoadedWhenLoadingComputesForAWhile",
         "kind": "edge",
-        "says": "A wakeup while the gate is still closed, like a spurious one, sends the waiter back to waiting."
-      },
-      {
-        "id": "practice.GateTest#anOpenGateDoesNotWait",
-        "kind": "edge",
-        "says": "pass() on a gate that is already open returns at once."
-      },
-      {
-        "id": "practice.GateTest#openWakesEveryWaiter",
-        "kind": "edge",
-        "says": "open() wakes every waiting thread, so two threads waiting at the closed gate both go through."
-      },
-      {
-        "id": "practice.GateTest#waitsOnTheGateItself",
-        "kind": "edge",
-        "says": "The waiting thread waits on the Gate object's own monitor, not on a private lock."
+        "says": "start() doesn't return while the worker is still building its table"
       }
     ],
     "report": {
@@ -167,11 +131,10 @@
     },
     "origin": {
       "path": "20-thread-basics/README_6.1.4.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "getState() Is a Snapshot: Coordinate with join() or a Latch, Never by Polling a State"
     },
     "concepts": [
-      "Object.wait() can wake spuriously, so it is called in a loop that re-checks the condition.",
-      "A thread in wait() is WAITING and has released the monitor, unlike a BLOCKED thread that never had it."
+      "getState() is a snapshot that doesn't say where a thread waits and can change between two reads, so readiness is signalled with a latch and completion with join(), never by polling a state or sleeping."
     ]
   }
 }

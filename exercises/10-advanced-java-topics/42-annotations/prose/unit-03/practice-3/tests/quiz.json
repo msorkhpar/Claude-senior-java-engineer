@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "10-advanced-java-topics",
+    "42-annotations"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "ordinal": 3,
+  "title": "Check yourself: retention policies",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-invisible-attribute",
+        "stem": "A teammate's `@RateLimit(perMinute = 60)` sits on `ApiController.search()`. `javap -v` on `ApiController.class` lists it, with `perMinute=60`, under `RuntimeInvisibleAnnotations`. At start-up the rate limiter calls `search.getAnnotation(RateLimit.class)`. What does it get?",
+        "options": [
+          {
+            "id": "a",
+            "text": "`null`, since the attribute the annotation was written to is one reflection doesn't read",
+            "correct": true,
+            "says": "RuntimeInvisibleAnnotations holds CLASS-retained annotations: in the class file, values included, but never returned by reflection"
+          },
+          {
+            "id": "b",
+            "text": "`null`, since the compiler discarded the annotation before it wrote the class file",
+            "correct": false,
+            "says": "a discarded (SOURCE) annotation would not appear in javap's output at all; this one is in the class file"
+          },
+          {
+            "id": "c",
+            "text": "The annotation with `perMinute=60`, since it is in the class file the JVM loads",
+            "correct": false,
+            "says": "being in the class file is not enough: only RuntimeVisibleAnnotations reaches reflection"
+          },
+          {
+            "id": "d",
+            "text": "The annotation with `perMinute` at its default, since values of such annotations are not kept",
+            "correct": false,
+            "says": "the class file keeps the values (javap prints perMinute=60), and reflection returns nothing at all"
+          }
+        ],
+        "origin": {
+          "path": "42-annotations/README_10.4.3.md",
+          "section": "SOURCE Stops at the Compiler, CLASS Stops in the Class File, Only RUNTIME Reaches Reflection"
+        }
+      },
+      {
+        "id": "q-library-upgrade",
+        "stem": "Version 3.0 of an in-house metrics library changes `@Timed` from CLASS to RUNTIME. The checkout service upgrades to 3.0 and redeploys, but its `checkout-core` jar, whose classes carry `@Timed`, was built last month against 2.x and is not rebuilt. What does the metrics agent's `getAnnotation(Timed.class)` return on `checkout-core`'s methods?",
+        "options": [
+          {
+            "id": "a",
+            "text": "`null` until `checkout-core` is rebuilt, since its class files still record `@Timed` as invisible",
+            "correct": true,
+            "says": "javac chose the attribute when it compiled checkout-core, from the retention Timed had then; the 3.0 release doesn't rewrite those class files"
+          },
+          {
+            "id": "b",
+            "text": "`null` until the agent is rebuilt, since its own class files still record `Timed` as CLASS",
+            "correct": false,
+            "says": "the reading side's compile doesn't matter; the annotated class's class file and Timed's current retention do"
+          },
+          {
+            "id": "c",
+            "text": "The annotation, since reflection decides visibility from the `Timed` class it loads at run time",
+            "correct": false,
+            "says": "reflection does check Timed's current retention, but only for annotations the class file holds as visible; these are recorded as invisible"
+          },
+          {
+            "id": "d",
+            "text": "The annotation, since the JVM moves the entry to the visible attribute when it loads `checkout-core`",
+            "correct": false,
+            "says": "the JVM never rewrites class files; the entry stays where javac put it"
+          }
+        ],
+        "origin": {
+          "path": "42-annotations/README_10.4.3.md",
+          "section": "javac Applies Retention When It Compiles the Annotated Class, and Reflection Checks It Again"
+        }
+      },
+      {
+        "id": "q-provided-jar",
+        "stem": "The reporting service compiles against `audit-api.jar`, which declares `@AuditTrail` with RUNTIME retention, and marks the jar `provided`. The new application-server image doesn't supply it. At start-up a scanner calls `getDeclaredAnnotations()` on each service class and registers every class whose annotations include one named `AuditTrail`. What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The service classes load and none is registered, since annotations whose type can't be loaded are left out of the result",
+            "correct": true,
+            "says": "reflection drops an annotation whose type it can't load, with no exception or warning; the classes load and run"
+          },
+          {
+            "id": "b",
+            "text": "The service classes load and all are registered, since the annotation is still in their class files",
+            "correct": false,
+            "says": "the entry is still in the class file, but reflection can't build an annotation of a type it can't load, so it returns none"
+          },
+          {
+            "id": "c",
+            "text": "Start-up fails with `NoClassDefFoundError` as the service classes load, since their class files refer to the missing type",
+            "correct": false,
+            "says": "the JVM loads a class without loading its annotation types; the classes load and their methods run"
+          },
+          {
+            "id": "d",
+            "text": "Start-up fails with `NoClassDefFoundError` as the scanner reads the annotations, since each must be resolved to be returned",
+            "correct": false,
+            "says": "reflection skips the unloadable annotation silently; NoClassDefFoundError comes only from code that names the missing type itself"
+          }
+        ],
+        "origin": {
+          "path": "42-annotations/README_10.4.3.md",
+          "section": "A RUNTIME Annotation Whose Class Is Missing at Run Time Disappears Without an Error"
+        }
+      },
+      {
+        "id": "q-missing-element-class",
+        "stem": "`@Fallback(to = LegacyPricing.class, attempts = 2)`, with RUNTIME retention, is on `PriceClient.quote()`. In the deployed image `Fallback.class` is present but `LegacyPricing.class` was removed. Code calls `getAnnotation(Fallback.class)` on `quote`, prints `attempts()`, then calls `to()`. What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "`getAnnotation` returns `null`, so `attempts()` is never reached, since a class the annotation names can't be loaded",
+            "correct": false,
+            "says": "the annotation's own type is present, so reflection returns it; only the missing element fails, and only when read"
+          },
+          {
+            "id": "b",
+            "text": "`getAnnotation` throws `TypeNotPresentException`, so `attempts()` is never reached, since the annotation can't be built",
+            "correct": false,
+            "says": "the annotation is built; the exception is deferred to the element that names the missing class"
+          },
+          {
+            "id": "c",
+            "text": "`attempts()` returns 2 and `to()` throws `TypeNotPresentException`, since only that element names the missing class",
+            "correct": true,
+            "says": "the page's run printed times=3 and then threw TypeNotPresentException from the Class-valued element; the AnnotatedElement javadoc specifies it"
+          },
+          {
+            "id": "d",
+            "text": "`attempts()` returns 2 and `to()` returns `null`, since an element naming a missing class is left unset",
+            "correct": false,
+            "says": "a Class-valued element whose class is missing throws TypeNotPresentException when read; it never returns null"
+          }
+        ],
+        "origin": {
+          "path": "42-annotations/README_10.4.3.md",
+          "section": "A RUNTIME Annotation Whose Class Is Missing at Run Time Disappears Without an Error"
+        }
+      }
+    ]
+  }
+}

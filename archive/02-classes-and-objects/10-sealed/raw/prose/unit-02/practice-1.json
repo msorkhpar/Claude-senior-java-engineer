@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Would the compiler let this class extend that one?",
+  "title": "Register every class an event can be, or refuse to start",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page lists which classes may extend which:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "a `sealed` class permits exactly the subclasses it names in `permits`, or, with no `permits` clause, exactly the subclasses declared in its own file; any other class trying to extend it fails with `class is not allowed to extend sealed class: <Name>`;",
-        "a `final` class may not be extended at all (`cannot inherit from final <Name>`);",
-        "a `non-sealed` class, like any plain class, may be extended by anyone."
-      ]
+      "text": "The event bus writes a type id into every message it sends and reads it back to pick the class to decode into. A message whose class has no id fails, and it fails in production, at the first message of that class. So at startup `TypeRegistry.of(Event.class)` registers every class a message can have at run time, by walking the sealed hierarchy under `Event`."
     },
     {
       "type": "para",
-      "text": "Write `static String verdict(Class<?> parent, Class<?> candidate)` that answers, from `parent`'s declaration read by reflection, whether the compiler would accept `candidate` as a **direct** subclass of `parent`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "return `null` when it would be accepted;",
-        "return `\"cannot inherit from final \" + parent's simple name` when `parent` is final;",
-        "return `\"class is not allowed to extend sealed class: \" + parent's simple name` when `parent` is sealed and does not permit `candidate`."
-      ]
+      "text": "Last month a team added a class to the hierarchy that the registry never saw, and the first message of that class was lost. The registry should never start in a state where that can happen."
     },
     {
       "type": "para",
-      "text": "Only `parent`'s own declaration decides. `Class.isSealed()` and `Class.getPermittedSubclasses()` see both explicit and implicit permits."
+      "text": "Finish `collect(Class<?> type)` in `src/main/java/practice/TypeRegistry.java`. When you're done, `of(root)` registers exactly the classes a value of `root` can have, and it throws `IllegalArgumentException`, naming the class, when the hierarchy lets in classes that no list names. About eight lines in total."
     },
     {
       "type": "para",
-      "text": "**Examples** (with `sealed class Shape permits Circle`, `final class Circle extends Shape`)"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`verdict(Shape.class, Circle.class)` -> `null`",
-        "`verdict(Shape.class, Square.class)` -> `\"class is not allowed to extend sealed class: Shape\"`",
-        "`verdict(Circle.class, Square.class)` -> `\"cannot inherit from final Circle\"`"
-      ]
+      "text": "The tests build their own hierarchies, with records, classes and interfaces at more than one level."
     },
     {
       "type": "heading",
@@ -73,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Modifier;\nimport java.util.Arrays;\n\npublic class Inheritance {\n\n    public static String verdict(Class<?> parent, Class<?> candidate) {\n        if (Modifier.isFinal(parent.getModifiers())) {\n            return \"cannot inherit from final \" + parent.getSimpleName();\n        }\n        if (parent.isSealed() && !Arrays.asList(parent.getPermittedSubclasses()).contains(candidate)) {\n            return \"class is not allowed to extend sealed class: \" + parent.getSimpleName();\n        }\n        return null;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * The event codec writes a type id with every message and reads it back to pick the class. At\n * startup it registers every class a message can be at run time, so it never meets a class it\n * has no id for.\n */\npublic class TypeRegistry {\n\n    private final List<Class<?>> registered = new ArrayList<>();\n\n    /** Registers every class a value of {@code root} can have at run time. */\n    public static TypeRegistry of(Class<?> root) {\n        TypeRegistry registry = new TypeRegistry();\n        registry.collect(root);\n        return registry;\n    }\n\n    /** The registered classes, in no particular order. */\n    public List<Class<?>> registered() {\n        return List.copyOf(registered);\n    }\n\n    /** The id the codec writes for a value: its class's simple name. */\n    public String typeId(Object value) {\n        if (!registered.contains(value.getClass())) {\n            throw new IllegalStateException(\"no type id for \" + value.getClass().getName());\n        }\n        return value.getClass().getSimpleName();\n    }\n\n    /**\n     * Registers {@code type} if a value can have exactly this class, then whatever can stand\n     * below it. A message whose class the codec has no id for fails in production, so when this\n     * hierarchy lets in classes the registry can't know about, refuse at startup with an\n     * IllegalArgumentException that names the class where it happens.\n     */\n    void collect(Class<?> type) {\n        int modifiers = type.getModifiers();\n        if (!type.isInterface() && !Modifier.isAbstract(modifiers)) {\n            registered.add(type);\n        }\n        if (type.isSealed()) {\n            for (Class<?> sub : type.getPermittedSubclasses()) {\n                collect(sub);\n            }\n        } else if (!Modifier.isFinal(modifiers)) {\n            throw new IllegalArgumentException(type.getName() + \" is open: classes nobody registered can extend it\");\n        }\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Inheritance {\n\n    /** null if candidate may directly extend parent, else the compiler's message. */\n    public static String verdict(Class<?> parent, Class<?> candidate) {\n        throw new UnsupportedOperationException(\"write verdict\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * The event codec writes a type id with every message and reads it back to pick the class. At\n * startup it registers every class a message can be at run time, so it never meets a class it\n * has no id for.\n */\npublic class TypeRegistry {\n\n    private final List<Class<?>> registered = new ArrayList<>();\n\n    /** Registers every class a value of {@code root} can have at run time. */\n    public static TypeRegistry of(Class<?> root) {\n        TypeRegistry registry = new TypeRegistry();\n        registry.collect(root);\n        return registry;\n    }\n\n    /** The registered classes, in no particular order. */\n    public List<Class<?>> registered() {\n        return List.copyOf(registered);\n    }\n\n    /** The id the codec writes for a value: its class's simple name. */\n    public String typeId(Object value) {\n        if (!registered.contains(value.getClass())) {\n            throw new IllegalStateException(\"no type id for \" + value.getClass().getName());\n        }\n        return value.getClass().getSimpleName();\n    }\n\n    /**\n     * Registers {@code type} if a value can have exactly this class, then whatever can stand\n     * below it. A message whose class the codec has no id for fails in production, so when this\n     * hierarchy lets in classes the registry can't know about, refuse at startup with an\n     * IllegalArgumentException that names the class where it happens.\n     */\n    void collect(Class<?> type) {\n        // TODO: register what belongs here, walk on, or refuse.\n        throw new IllegalStateException(\"TODO: collect\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -96,7 +69,7 @@
     "paras": 4,
     "code": 1,
     "tables": 0,
-    "lists": 3,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -104,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3e76b765bc08cac89a81cdd5db7920e4e14b9e036ce6863697147533c72ee115",
-  "starting_code": "package practice;\n\npublic class Inheritance {\n\n    /** null if candidate may directly extend parent, else the compiler's message. */\n    public static String verdict(Class<?> parent, Class<?> candidate) {\n        throw new UnsupportedOperationException(\"write verdict\");\n    }\n}\n",
+  "content_sha256": "9e4ac60b4707f6d939c77e10a317c6458cad7e67e059e46e727b0478266eace9",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * The event codec writes a type id with every message and reads it back to pick the class. At\n * startup it registers every class a message can be at run time, so it never meets a class it\n * has no id for.\n */\npublic class TypeRegistry {\n\n    private final List<Class<?>> registered = new ArrayList<>();\n\n    /** Registers every class a value of {@code root} can have at run time. */\n    public static TypeRegistry of(Class<?> root) {\n        TypeRegistry registry = new TypeRegistry();\n        registry.collect(root);\n        return registry;\n    }\n\n    /** The registered classes, in no particular order. */\n    public List<Class<?>> registered() {\n        return List.copyOf(registered);\n    }\n\n    /** The id the codec writes for a value: its class's simple name. */\n    public String typeId(Object value) {\n        if (!registered.contains(value.getClass())) {\n            throw new IllegalStateException(\"no type id for \" + value.getClass().getName());\n        }\n        return value.getClass().getSimpleName();\n    }\n\n    /**\n     * Registers {@code type} if a value can have exactly this class, then whatever can stand\n     * below it. A message whose class the codec has no id for fails in production, so when this\n     * hierarchy lets in classes the registry can't know about, refuse at startup with an\n     * IllegalArgumentException that names the class where it happens.\n     */\n    void collect(Class<?> type) {\n        // TODO: register what belongs here, walk on, or refuse.\n        throw new IllegalStateException(\"TODO: collect\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-02/practice-1/src/main/java/practice/Inheritance.java",
-    "test_path": "practice/02-classes-and-objects/10-sealed/prose/unit-02/practice-1/src/test/java/practice/InheritanceTest.java",
+    "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-02/practice-1/src/main/java/practice/TypeRegistry.java",
+    "test_path": "practice/02-classes-and-objects/10-sealed/prose/unit-02/practice-1/src/test/java/practice/TypeRegistryTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,24 +102,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.InheritanceTest#aPermittedSubclassIsAccepted",
+        "id": "practice.TypeRegistryTest#registersEveryKindOfAClosedHierarchy",
         "kind": "main",
-        "says": "A subclass a sealed class permits, explicitly or implicitly, is accepted, and so is any subclass of a plain class."
+        "says": "every record and final class permitted by a sealed interface is registered, and the interface itself is not"
       },
       {
-        "id": "practice.InheritanceTest#anUnlistedClassIsRejected",
-        "kind": "edge",
-        "says": "A class a sealed class does not permit is rejected with the page's compiler message."
+        "id": "practice.TypeRegistryTest#registersTheSubclassesOfAnAbstractRoot",
+        "kind": "main",
+        "says": "the final subclasses of an abstract sealed root are registered, and the abstract root is not"
       },
       {
-        "id": "practice.InheritanceTest#aFinalClassAcceptsNoSubclass",
+        "id": "practice.TypeRegistryTest#refusesAClassBranchAnyoneCanExtend",
         "kind": "edge",
-        "says": "No class may extend a final class."
+        "says": "a non-sealed class below a sealed root makes the registry refuse, naming that class"
       },
       {
-        "id": "practice.InheritanceTest#aNonSealedClassAcceptsAnySubclass",
+        "id": "practice.TypeRegistryTest#registersASealedClassThatHasInstancesOfItsOwn",
         "kind": "edge",
-        "says": "A non-sealed class accepts any subclass, though its own parent is sealed."
+        "says": "a sealed class that is not abstract is registered itself, as well as its permitted subclasses"
+      },
+      {
+        "id": "practice.TypeRegistryTest#acceptsASealedBranchBelowTheRoot",
+        "kind": "edge",
+        "says": "a sealed subclass keeps the hierarchy closed: its permitted subclasses are registered and nothing is refused"
+      },
+      {
+        "id": "practice.TypeRegistryTest#refusesAnInterfaceBranchAnyoneCanImplement",
+        "kind": "edge",
+        "says": "a non-sealed interface below a sealed root makes the registry refuse, naming that interface"
       }
     ],
     "report": {
@@ -155,11 +138,12 @@
     },
     "origin": {
       "path": "10-sealed/README_2.5.2.md",
-      "section": "Declaring Permitted Subclasses"
+      "section": "non-sealed Reopens One Branch, and Subtypes Nobody Listed Arrive Through Its Case"
     },
     "concepts": [
-      "Permitted subclasses are listed in a permits clause or, with none, are exactly the subclasses declared in the same file.",
-      "A class that a sealed type does not permit, or that extends a final class, is rejected by the compiler."
+      "A non-sealed subclass or subinterface lets any class extend it, so the set of classes below a sealed root is no longer known.",
+      "A sealed subclass keeps the hierarchy closed below it: only its own permitted subclasses can extend it.",
+      "A sealed subclass that is not abstract has instances of its own, so covering its permitted subclasses does not cover it."
     ]
   }
 }

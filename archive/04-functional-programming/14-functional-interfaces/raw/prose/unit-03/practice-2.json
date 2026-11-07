@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Slugify titles with a pipeline of small Functions",
+  "title": "Take a user offline when their last connection closes",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A data-cleaning pipeline is a chain of small, named `Function<String, String>` steps joined with `andThen`; each step can be tested alone and the whole thing can be handed to `Stream.map`."
+      "text": "The chat service shows a green dot next to everyone who is online. A user counts as online while at least one of their connections (phone, laptop, another tab) is open. Connection events arrive on many threads at once, and the gateway sometimes sends a disconnect twice, or for a user it never reported as connected."
     },
     {
       "type": "para",
-      "text": "Write `Slugs.slugifier()`. It returns a `Function<String, String>` that turns a title into a URL slug, built from these steps: lower-case the text, remove every character that is not `a-z`, `0-9`, whitespace or `-`, trim, turn each run of whitespace into one space, and replace each space with `-`. Choose an order that gives the answers below."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "title",
-        "slug"
-      ],
-      "rows": [
-        [
-          "`\"  Hello, World!  \"`",
-          "`\"hello-world\"`"
-        ],
-        [
-          "`\"Java 21 Features!!!\"`",
-          "`\"java-21-features\"`"
-        ],
-        [
-          "`\"  My   Blog   Post  \"`",
-          "`\"my-blog-post\"`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Look closely at a title like `\"Hello, World !\"`. A `null` title has no slug: return `\"\"`. Lower-casing is `toLowerCase(Locale.ROOT)`, and the kept characters are exactly the ASCII letters `a-z` and digits `0-9` (plus whitespace and `-` before the last steps): `é` and `_` are removed. Hyphens already in a title are kept as they are; the tests use no title with a hyphen next to whitespace or at either end."
+      "text": "`Presence` keeps an open-connection count per user in a `ConcurrentHashMap`, and `online()` lists the users that have an entry. Finish the two `TODO`s in `src/main/java/practice/Presence.java`: `connect(user)` and `disconnect(user)`, each one call on the map. When you're done, a user whose last connection closes disappears from `online()`, and a disconnect nobody can match leaves the map as it was. About two lines in total."
     },
     {
       "type": "heading",
@@ -63,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.function.Function;\n\npublic final class Slugs {\n\n    private Slugs() {\n    }\n\n    /** Returns a function turning a title into a lower-case, hyphen-joined slug; null gives \"\". */\n    public static Function<String, String> slugifier() {\n        Function<String, String> nullToEmpty = s -> s == null ? \"\" : s;\n        Function<String, String> lower = s -> s.toLowerCase(java.util.Locale.ROOT);\n        Function<String, String> removeSpecialChars = s -> s.replaceAll(\"[^a-z0-9\\\\s-]\", \"\");\n        Function<String, String> trim = String::trim;\n        Function<String, String> collapseSpaces = s -> s.replaceAll(\"\\\\s+\", \" \");\n        Function<String, String> spaceToHyphen = s -> s.replace(\" \", \"-\");\n        return nullToEmpty\n                .andThen(lower)\n                .andThen(removeSpecialChars)\n                .andThen(trim)\n                .andThen(collapseSpaces)\n                .andThen(spaceToHyphen);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Tracks who is online in a chat service. A user can have several connections open at once\n * (phone, laptop, a second tab), and counts as online while at least one of them is open.\n * Connection events arrive on many threads, and the gateway sometimes repeats a disconnect.\n */\npublic class Presence {\n\n    private final Map<String, Integer> openConnections = new ConcurrentHashMap<>();\n\n    /** The users who are online now, in name order. */\n    public SortedSet<String> online() {\n        return new TreeSet<>(openConnections.keySet());\n    }\n\n    /** How many connections the user has open now. */\n    public int connectionsOf(String user) {\n        return openConnections.getOrDefault(user, 0);\n    }\n\n    /** One more connection of this user is open. */\n    void connect(String user) {\n        openConnections.merge(user, 1, Integer::sum);\n    }\n\n    /** One connection of this user has closed. */\n    void disconnect(String user) {\n        openConnections.computeIfPresent(user, (name, open) -> open > 1 ? open - 1 : null);\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.Function;\n\npublic final class Slugs {\n\n    private Slugs() {\n    }\n\n    /** Returns a function turning a title into a lower-case, hyphen-joined slug; null gives \"\". */\n    public static Function<String, String> slugifier() {\n        throw new UnsupportedOperationException(\"write slugifier\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Tracks who is online in a chat service. A user can have several connections open at once\n * (phone, laptop, a second tab), and counts as online while at least one of them is open.\n * Connection events arrive on many threads, and the gateway sometimes repeats a disconnect.\n */\npublic class Presence {\n\n    private final Map<String, Integer> openConnections = new ConcurrentHashMap<>();\n\n    /** The users who are online now, in name order. */\n    public SortedSet<String> online() {\n        return new TreeSet<>(openConnections.keySet());\n    }\n\n    /** How many connections the user has open now. */\n    public int connectionsOf(String user) {\n        return openConnections.getOrDefault(user, 0);\n    }\n\n    /** One more connection of this user is open. */\n    void connect(String user) {\n        // TODO: Record the new connection, in one atomic step on the map: two of a user's\n        //       devices can connect at the same moment.\n        throw new IllegalStateException(\"TODO: connect\");\n    }\n\n    /** One connection of this user has closed. */\n    void disconnect(String user) {\n        // TODO: Record the closed connection, in one atomic step on the map. When the user's\n        //       last connection closes, they are no longer online.\n        throw new IllegalStateException(\"TODO: disconnect\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -83,9 +58,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -94,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b256157db7f6e34184dc233467e2c4aa2dd96f5493cdd2ff44f7aadf58f840dc",
-  "starting_code": "package practice;\n\nimport java.util.function.Function;\n\npublic final class Slugs {\n\n    private Slugs() {\n    }\n\n    /** Returns a function turning a title into a lower-case, hyphen-joined slug; null gives \"\". */\n    public static Function<String, String> slugifier() {\n        throw new UnsupportedOperationException(\"write slugifier\");\n    }\n}\n",
+  "content_sha256": "c34a089fd1dbb4f3c844397a93f93a345f235a4ceaf0eb65eab4a9d7a3690766",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Tracks who is online in a chat service. A user can have several connections open at once\n * (phone, laptop, a second tab), and counts as online while at least one of them is open.\n * Connection events arrive on many threads, and the gateway sometimes repeats a disconnect.\n */\npublic class Presence {\n\n    private final Map<String, Integer> openConnections = new ConcurrentHashMap<>();\n\n    /** The users who are online now, in name order. */\n    public SortedSet<String> online() {\n        return new TreeSet<>(openConnections.keySet());\n    }\n\n    /** How many connections the user has open now. */\n    public int connectionsOf(String user) {\n        return openConnections.getOrDefault(user, 0);\n    }\n\n    /** One more connection of this user is open. */\n    void connect(String user) {\n        // TODO: Record the new connection, in one atomic step on the map: two of a user's\n        //       devices can connect at the same moment.\n        throw new IllegalStateException(\"TODO: connect\");\n    }\n\n    /** One connection of this user has closed. */\n    void disconnect(String user) {\n        // TODO: Record the closed connection, in one atomic step on the map. When the user's\n        //       last connection closes, they are no longer online.\n        throw new IllegalStateException(\"TODO: disconnect\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-03/practice-2/src/main/java/practice/Slugs.java",
-    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-03/practice-2/src/test/java/practice/SlugsTest.java",
+    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-03/practice-2/src/main/java/practice/Presence.java",
+    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-03/practice-2/src/test/java/practice/PresenceTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,29 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SlugsTest#slugifiesOrdinaryTitles",
+        "id": "practice.PresenceTest#aUserIsOnlineWhileAnyOfTheirConnectionsIsOpen",
         "kind": "main",
-        "says": "Titles become lower-case, hyphen-joined slugs without punctuation."
+        "says": "connections are counted per user, and a user with an open connection stays online"
       },
       {
-        "id": "practice.SlugsTest#runsOfSpacesBecomeOneHyphen",
+        "id": "practice.PresenceTest#closingTheLastConnectionTakesTheUserOffline",
         "kind": "edge",
-        "says": "Several spaces in a row become a single hyphen."
+        "says": "when the last connection closes the user's entry goes, so they are no longer online"
       },
       {
-        "id": "practice.SlugsTest#noStrayHyphenAtTheEnds",
+        "id": "practice.PresenceTest#aRepeatedDisconnectChangesNothing",
         "kind": "edge",
-        "says": "Punctuation beside a space leaves no hyphen at either end."
-      },
-      {
-        "id": "practice.SlugsTest#nullBecomesAnEmptySlug",
-        "kind": "edge",
-        "says": "A null title gives an empty slug instead of a NullPointerException."
-      },
-      {
-        "id": "practice.SlugsTest#onlyAsciiLettersAndDigitsAreKept",
-        "kind": "edge",
-        "says": "Accented letters and underscores are not a-z or 0-9, so they are removed."
+        "says": "a disconnect for a user with no open connection adds nothing to the map"
       }
     ],
     "report": {
@@ -150,10 +115,11 @@
     },
     "origin": {
       "path": "14-functional-interfaces/README_4.2.3.md",
-      "section": "Interview Q&A Section"
+      "section": "A Remapping Function That Returns null Removes the Entry"
     },
     "concepts": [
-      "Small named steps joined with andThen make a pipeline that is easy to read, test and reorder."
+      "Map.merge stores the given value for an absent key without calling the function.",
+      "A remapping function given to compute, computeIfPresent or merge removes the entry when it returns null; returning the old value leaves the entry as it is."
     ]
   }
 }

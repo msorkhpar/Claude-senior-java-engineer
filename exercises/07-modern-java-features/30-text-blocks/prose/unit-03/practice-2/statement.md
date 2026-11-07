@@ -1,29 +1,14 @@
-The page offers two methods that bring the text block rules to any string:
-`stripIndent()` applies the compiler's incidental whitespace algorithm (where a
-blank last line counts, like a closing delimiter on its own line), and
-`indent(n)` adds `n` spaces to every line. Its best practices use them together
-to place generated code at the right depth.
+The pipeline file of the monorepo is generated: each step runs a shell script kept in `ci/`, and
+the generator copies the script into the step's YAML `run: |` block. The generated file is checked
+in and compared byte for byte with the previous one, and a YAML linter that rejects any line ending
+in whitespace runs before every merge. The scripts are edited by many people, on Linux, macOS and
+Windows, some pasted from indented documentation. Each edit made the generated file change in
+ways nobody intended.
 
-Write `Snippet.nest(String code, int level)`. `code` is a snippet pasted with
-any indentation and any line endings. Return it re-based at `level`:
+Finish `runBlock(...)` in `src/main/java/practice/PipelineStep.java`. `render(...)` already puts
+what it returns under `run: |`.
 
-- the snippet's common indentation is removed, its inner indentation kept, and
-  spaces at the end of each line are removed;
-- a **blank** line (empty, or only spaces, the last line included) takes no
-  part in the common indentation;
-- every non-blank line is then indented by `4 * level` spaces, and a blank
-  line stays **empty**;
-- every line ends with `\n`, the last one included, and line endings are `\n`
-  only.
-
-| code (`⏎` is `\n`) | level | answer |
-|---|---|---|
-| `··a⏎····b` | `1` | `····a⏎······b⏎` |
-| `··a⏎⏎··b` | `1` | `····a⏎⏎····b⏎` |
-| `··a⏎··b` | `0` | `a⏎b⏎` |
-| `····a⏎··⏎····b` | `0` | `a⏎⏎b⏎` |
-| `··a\r\n··b` | `1` | `····a⏎····b⏎` |
-| `··a···⏎··b` | `1` | `····a⏎····b⏎` |
-
-(`·` is a space.) `level` is never negative, and `code` has at least one
-non-blank line.
+When you're done, every script line sits six spaces in, keeping its indentation relative to the
+script's other lines; the result is the same whether or not the file ends with a line break and
+whichever line endings it uses; and nothing the linter rejects reaches the file. Every line of the
+result, the last one included, ends with `\n`. About four lines in total.

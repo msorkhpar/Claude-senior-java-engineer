@@ -1,18 +1,10 @@
-The page's first pitfall: calling `list.remove(...)` inside a for-each loop
-over an `ArrayList` throws `ConcurrentModificationException`. Its Q2 ranks the
-safe ways to remove while iterating. Mind the page's other warnings too: a
-forward index loop that removes shifts the next element under the cursor, and
-a `CopyOnWriteArrayList` iterator throws `UnsupportedOperationException` from
-`remove()`.
+Partner messages wait in an outbox until they are sent, and each has a deadline after which it is
+no longer worth sending. Every few seconds the sender calls `dropExpired(now)` before it sends the
+rest. The batch sender keeps its outbox in an `ArrayList`; the live sender, whose list other
+threads read while it sends, keeps it in a `CopyOnWriteArrayList`. Both go through the same
+`Outbox` class, and its callers keep their own reference to the list, so the expired messages must
+leave that very list.
 
-Write `Purge.removeAll(List<String> list, String target)`. It removes, **in
-place**, every element whose text equals `target`, keeps the other elements in
-order, and returns how many it removed. `list` may be an `ArrayList` or a
-`CopyOnWriteArrayList`.
-
-| list | target | answer | list after |
-|---|---|---|---|
-| `[a, b, c, b, d]` | `"b"` | `2` | `[a, c, d]` |
-| `[b, b, a]` | `"b"` | `2` | `[a]` |
-| `[a, c]` | `"b"` | `0` | `[a, c]` |
-| `CopyOnWriteArrayList [a, b, c, b]` | `"b"` | `2` | `[a, c]` |
+Finish `dropExpired(long now)` in `src/main/java/practice/Outbox.java`: drop every message whose
+deadline is at or before `now`, keep the others in order, and return how many were dropped. It has
+to work on both senders' lists. About three lines.

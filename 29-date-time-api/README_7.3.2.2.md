@@ -1,293 +1,256 @@
 # 7.3.2.2. Instant and Timestamps
 
-## Concept Explanation
+A document service answers the first edit of every new document with `409 Conflict`, and the
+second edit of the same document always goes through. Creating a document stamps it with
+`updatedAt = Instant.now()` and returns the stamp to the client. An edit sends the stamp back, and
+the save rejects it unless it equals the `updatedAt` column. Nobody else touched the document.
 
-`Instant` represents a single instantaneous point on the timeline, measured in seconds and nanoseconds from the Unix epoch (1970-01-01T00:00:00Z). It is the machine-readable equivalent of a timestamp -- it knows exactly when something happened, without any human-readable calendar or timezone context.
+Every output below is from Java 21 (tzdata 2026b), run with `-Duser.timezone=UTC`. The code names
+every zone it uses, and apart from the one timing run, the outputs are the same under
+`-Duser.timezone=Asia/Kolkata`.
 
-**Real-world analogy**: Think of `Instant` as the number on a universal atomic clock that counts seconds since a fixed starting point. Everyone on Earth agrees on the same count at the same moment, regardless of their local time. To convert this count to a wall clock reading (like "2:30 PM in New York"), you need to apply a timezone -- which is exactly what `ZonedDateTime` does.
+## An Instant Is Seconds and Nanoseconds Counted From 1970-01-01T00:00Z
 
-`Instant` is the recommended type for:
-- Recording when events occurred (audit logs, created/updated timestamps)
-- Measuring elapsed time between events
-- Storing timestamps in databases
-- Communicating timestamps in APIs (serialized as ISO-8601 with "Z" suffix)
-
-## Key Points to Remember
-
-1. **Always UTC** -- `Instant` is inherently in UTC. No timezone ambiguity.
-2. **Epoch-based** -- measured as seconds + nanoseconds from 1970-01-01T00:00:00Z.
-3. **Nanosecond precision** -- can represent up to 10^9 nanoseconds within each second.
-4. **Immutable** -- all operations return new instances.
-5. **Cannot directly access calendar fields** -- no `getMonth()`, `getDayOfWeek()`, etc. You need to convert to `ZonedDateTime` first.
-6. **`Instant.now()`** uses the system clock; inject `Clock` for testability.
-7. **Comparable** -- natural ordering is chronological.
-8. **`Instant.EPOCH`** -- constant representing 1970-01-01T00:00:00Z.
-9. **`Instant.MIN` and `Instant.MAX`** -- extreme boundaries of representable range.
-
-## Relevant Java 21 Features
-
-- `Instant` is fully stable since Java 8 with no breaking changes through Java 21.
-- Virtual threads commonly use `Instant` for timeout and scheduling logic.
-- `Clock.instant()` provides testable access to the current time in virtual thread scenarios.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using `Instant` for human-readable display**:
-   ```java
-   // Problem: Instant.toString() shows UTC, not local time
-   Instant now = Instant.now();
-   System.out.println(now); // 2024-03-15T18:30:00Z -- always UTC
-
-   // Fix: Convert to ZonedDateTime for display
-   ZonedDateTime local = now.atZone(ZoneId.of("America/New_York"));
-   System.out.println(local); // 2024-03-15T14:30-04:00[America/New_York]
-   ```
-
-2. **Losing nanosecond precision in conversions**:
-   ```java
-   // Problem: toEpochMilli() truncates nanoseconds
-   Instant precise = Instant.ofEpochSecond(100, 999_999_999);
-   long millis = precise.toEpochMilli(); // Loses sub-millisecond precision
-
-   // Fix: Use getEpochSecond() + getNano() for full precision
-   long seconds = precise.getEpochSecond();
-   int nanos = precise.getNano();
-   ```
-
-3. **Arithmetic overflow with very large values**:
-   ```java
-   // Problem: Adding extreme values may overflow
-   Instant.MAX.plusSeconds(1); // Throws DateTimeException
-
-   // Fix: Check bounds before arithmetic
-   ```
-
-4. **Confusing `Instant` with `LocalDateTime`**:
-   ```java
-   // Problem: Using LocalDateTime.now() for timestamps
-   LocalDateTime ldt = LocalDateTime.now(); // No timezone!
-
-   // Fix: Use Instant.now() for timestamps
-   Instant timestamp = Instant.now(); // Unambiguous
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use `Instant` for all timestamp storage** in databases, logs, and APIs.
-2. **Convert to `ZonedDateTime` only at the presentation layer** for user display.
-3. **Use `Duration` for arithmetic** rather than raw millisecond math.
-4. **Use `truncatedTo()` to normalize precision** (e.g., truncate to seconds for comparison).
-5. **Use `Clock.fixed()` for deterministic testing** of time-dependent code.
-
-## Edge Cases and Their Handling
-
-1. **Pre-epoch instants**: `Instant.ofEpochSecond(-1)` represents one second before the epoch.
-2. **Nanosecond boundary**: `Instant.ofEpochSecond(0, 999_999_999)` is the last nanosecond of the epoch second.
-3. **Overflow on `toEpochMilli()`**: Very large or small `Instant` values may overflow `long` when converted to millis.
-4. **Leap seconds**: Java's `Instant` uses a "smoothed" scale that does not model individual leap seconds.
-
-## Interview-specific Insights
-
-Interviewers test:
-- Understanding of `Instant` vs. `LocalDateTime` vs. `ZonedDateTime`
-- Knowledge of epoch time and its significance
-- Awareness of precision limitations in conversions
-- Best practices for timestamp storage in distributed systems
-
-## Interview Q&A Section
-
-**Q1: Why should you use `Instant` instead of `System.currentTimeMillis()`?**
-
-```text
-A1: While both give you a point in time, Instant offers several advantages:
-
-1. Type safety: Instant is a strongly-typed object, not a raw long. This prevents 
-   mixing up timestamps with other long values (durations, IDs, etc.).
-
-2. Nanosecond precision: Instant supports up to nanosecond resolution, while 
-   currentTimeMillis() is limited to milliseconds.
-
-3. Richer API: Instant provides methods for arithmetic (plus, minus), comparison 
-   (isBefore, isAfter), and conversion (atZone, toEpochMilli).
-
-4. Testability: Instant.now(Clock) allows injecting a test clock, while 
-   System.currentTimeMillis() is not mockable without bytecode manipulation.
-
-5. Integration: Instant works seamlessly with Duration, ZonedDateTime, and 
-   DateTimeFormatter.
-
-Use System.currentTimeMillis() only in performance-critical code where even object 
-creation overhead matters (extremely rare).
-
-Note: both Instant.now() and System.currentTimeMillis() read the wall clock, which 
-can jump (NTP corrections, manual changes). For measuring elapsed time precisely, 
-System.nanoTime() is the monotonic clock intended for that job.
-```
+An `Instant` holds two numbers: a `long` of seconds since the epoch, and an `int` of nanoseconds
+within that second, from 0 to 999,999,999. It has no zone and no calendar.
 
 ```java
-// Old way: raw milliseconds
-long startMillis = System.currentTimeMillis();
-doWork();
-long elapsedMillis = System.currentTimeMillis() - startMillis;
-
-// Modern way: typed and testable
-Instant start = Instant.now();
-doWork();
-Duration elapsed = Duration.between(start, Instant.now());
-System.out.println("Elapsed: " + elapsed.toMillis() + " ms");
+Instant stamp = Instant.parse("2026-03-14T09:30:00.123456789Z");
+Instant early = Instant.parse("1969-12-31T23:59:59.5Z");
+for (Instant t : List.of(stamp, early)) {
+    System.out.println(t + "  seconds=" + t.getEpochSecond() + " nanos=" + t.getNano()
+            + " millis=" + t.toEpochMilli());
+}
 ```
-
-**Q2: How do you convert between `Instant` and `LocalDateTime`?**
 
 ```text
-A2: Converting between Instant and LocalDateTime always requires a timezone because 
-LocalDateTime has no timezone context:
-
-Instant -> LocalDateTime: You must specify which timezone to interpret the instant in.
-LocalDateTime -> Instant: You must specify which timezone the local time is in.
-
-This requirement is by design -- it forces developers to be explicit about timezones, 
-preventing subtle bugs in timezone-sensitive applications.
+2026-03-14T09:30:00.123456789Z  seconds=1773480600 nanos=123456789 millis=1773480600123
+1969-12-31T23:59:59.500Z  seconds=-1 nanos=500000000 millis=-500
 ```
+
+Half a second before the epoch is second -1 plus half a second, because the nanosecond part never
+goes negative. Writing it as `getEpochSecond() + "." + getNano()` gives `-1.500000000`, which reads
+as -1.5 s. `toEpochMilli()` drops the digits below the millisecond, rounding towards the past.
+
+An epoch number on the wire carries no unit. A carrier's webhook sends `"ts": 1773480600`, in
+seconds, to a handler written for milliseconds:
 
 ```java
-// Instant to LocalDateTime (must provide timezone)
-Instant instant = Instant.parse("2024-03-15T18:30:00Z");
-
-LocalDateTime nyTime = LocalDateTime.ofInstant(instant, ZoneId.of("America/New_York"));
-// 2024-03-15T14:30:00 (EDT = UTC-4)
-
-LocalDateTime tokyoTime = LocalDateTime.ofInstant(instant, ZoneId.of("Asia/Tokyo"));
-// 2024-03-16T03:30:00 (JST = UTC+9)
-
-// LocalDateTime to Instant (must provide timezone)
-LocalDateTime local = LocalDateTime.of(2024, 3, 15, 14, 30);
-Instant fromNY = local.atZone(ZoneId.of("America/New_York")).toInstant();
-Instant fromTokyo = local.atZone(ZoneId.of("Asia/Tokyo")).toInstant();
-// fromNY and fromTokyo are different instants!
+long ts = 1773480600L;                       // the partner's "ts" field, in seconds
+System.out.println("ofEpochSecond(ts):        " + Instant.ofEpochSecond(ts));
+System.out.println("ofEpochMilli(ts):         " + Instant.ofEpochMilli(ts));
+System.out.println("ofEpochSecond(ts * 1000): " + Instant.ofEpochSecond(ts * 1000));
 ```
-
-**Q3: What precision does `Instant` support and when does it matter?**
 
 ```text
-A3: Instant supports nanosecond precision, storing time as:
-- Epoch seconds (long): The whole seconds since 1970-01-01T00:00:00Z
-- Nano adjustment (int): 0 to 999,999,999 nanoseconds within that second
-
-Precision matters when:
-1. Measuring very short durations (benchmarks, performance profiling)
-2. Ordering events that occur within the same millisecond
-3. Generating unique identifiers based on timestamps
-4. High-frequency trading or real-time systems
-
-Precision is lost when:
-- Converting to epoch milliseconds via toEpochMilli() -- truncates to milliseconds
-- Interacting with databases that store timestamps with lower precision
-- Using legacy Date (millisecond precision only)
-
-The resolution of Instant.now() depends on the platform clock: on Linux with 
-Java 15+ it reports nanosecond digits, on other platforms it may be microseconds 
-or coarser. Resolution is not accuracy -- the clock is not truly nanosecond-accurate.
+ofEpochSecond(ts):        2026-03-14T09:30:00Z
+ofEpochMilli(ts):         1970-01-21T12:38:00.600Z
+ofEpochSecond(ts * 1000): +58169-05-12T20:00:00Z
 ```
+
+Nothing throws. Read as milliseconds, today's events land in January 1970, and a 90-day cleanup
+deletes them that night. Read the other way (third line), they never expire. Put the unit in the
+field's name or the contract (`tsMillis`), and call the factory that matches it.
+
+## Instant.parse Accepts Only Text That Names Its Offset
+
+`Instant.parse` reads the ISO form with a `Z` or a numeric offset, and converts an offset to UTC.
+Without one it refuses:
 
 ```java
-// Full nanosecond precision
-Instant precise = Instant.ofEpochSecond(1710523800, 123_456_789);
-System.out.println(precise.getEpochSecond()); // 1710523800
-System.out.println(precise.getNano());         // 123456789
-
-// Precision loss in conversion
-long millis = precise.toEpochMilli(); // Truncated to milliseconds
-Instant fromMillis = Instant.ofEpochMilli(millis);
-// fromMillis.getNano() = 123_000_000 (lost sub-ms precision)
-
-// Truncation for comparison
-Instant a = Instant.ofEpochSecond(100, 500_000_000);
-Instant b = Instant.ofEpochSecond(100, 999_000_000);
-a.truncatedTo(ChronoUnit.SECONDS).equals(
-        b.truncatedTo(ChronoUnit.SECONDS)); // true -- same second
-```
-
-**Q4: How should you store timestamps in a database?**
-
-```text
-A4: Best practices for timestamp storage:
-
-1. Store as UTC (Instant): Always store the UTC instant in the database. This 
-   avoids timezone ambiguity and makes global queries straightforward.
-
-2. Column type: Use TIMESTAMP WITH TIME ZONE (or equivalent). This stores the 
-   UTC value and allows the database to handle timezone conversion if needed.
-
-3. Conversion flow:
-   - Application receives user input -> Convert to Instant/UTC
-   - Store Instant in database
-   - Retrieve Instant from database
-   - Convert to user's timezone for display
-
-4. Never store LocalDateTime in a timestamp column unless the timezone is 
-   universally agreed upon and documented.
-
-5. For JDBC/JPA, use Instant or OffsetDateTime as the Java type mapped to 
-   TIMESTAMP WITH TIME ZONE columns.
-```
-
-```java
-// Storing: Convert to Instant before persisting
-ZonedDateTime userInput = ZonedDateTime.of(2024, 3, 15, 14, 30, 0, 0,
-        ZoneId.of("America/New_York"));
-Instant toStore = userInput.toInstant();
-// Store toStore in DB column of type TIMESTAMP WITH TIME ZONE
-
-// Retrieving: Convert from Instant to user's timezone for display
-Instant fromDb = // ... read from database
-ZonedDateTime userDisplay = fromDb.atZone(ZoneId.of("America/New_York"));
-```
-
-**Q5: What is the difference between `Instant.now()` and `Clock.instant()`?**
-
-```text
-A5: Functionally, Instant.now() delegates to the system clock and returns the 
-current instant. Clock.instant() does the same but on a specific Clock instance.
-
-The key difference is testability:
-
-- Instant.now() always uses the real system clock -- hard to test
-- Clock.instant() uses whatever Clock you provide -- easy to test
-
-By injecting a Clock into your code, you can:
-1. Use Clock.fixed() for deterministic tests
-2. Use Clock.offset() to simulate different times
-3. Use Clock.tick() to control precision
-
-This is the recommended approach for any time-dependent business logic.
-```
-
-```java
-// Production code with injectable Clock
-public class EventService {
-    private final Clock clock;
-
-    public EventService(Clock clock) {
-        this.clock = clock;
-    }
-
-    public Instant recordEvent() {
-        return Instant.now(clock);
+for (String text : List.of("2026-03-14T09:30:00Z", "2026-03-14T10:30:00+01:00", "2026-03-14T10:30:00")) {
+    try {
+        System.out.println(text + "  ->  " + Instant.parse(text));
+    } catch (DateTimeParseException e) {
+        System.out.println(text + "  ->  " + e.getMessage());
     }
 }
-
-// In production
-EventService service = new EventService(Clock.systemUTC());
-
-// In tests
-Clock fixedClock = Clock.fixed(
-        Instant.parse("2024-03-15T12:00:00Z"),
-        ZoneOffset.UTC);
-EventService testService = new EventService(fixedClock);
-Instant result = testService.recordEvent();
-// result is always 2024-03-15T12:00:00Z -- deterministic!
 ```
+
+```text
+2026-03-14T09:30:00Z  ->  2026-03-14T09:30:00Z
+2026-03-14T10:30:00+01:00  ->  2026-03-14T09:30:00Z
+2026-03-14T10:30:00  ->  Text '2026-03-14T10:30:00' could not be parsed at index 19
+```
+
+Text without an offset is a wall-clock reading (unit 7.3.2.1), and it names a different moment in
+every zone, so `Instant` won't guess. A depot in Amsterdam sends its scanner's local time, and the
+quick fix appends `Z`:
+
+```java
+String scan = "2026-03-14T10:30:00";         // local time at the Amsterdam depot
+System.out.println("scan + \"Z\":     " + Instant.parse(scan + "Z"));
+System.out.println("scan in its zone: "
+        + LocalDateTime.parse(scan).atZone(ZoneId.of("Europe/Amsterdam")).toInstant());
+```
+
+```text
+scan + "Z":     2026-03-14T10:30:00Z
+scan in its zone: 2026-03-14T09:30:00Z
+```
+
+Appending `Z` declares the text UTC, and every scan lands an hour late, two in summer. A parcel
+scanned before the 18:00 cut-off shows as scanned after it. The receiver has to be told the
+sender's zone. Local times that fall in a DST gap or overlap are unit 7.3.2.5.
+
+<!-- practice 1 -->
+
+## A Timestamp Survives a Store Only at the Store's Precision
+
+On Java 21 on Linux, `Instant.now()` fills the nanoseconds:
+
+```java
+int finerThanMicros = 0, finerThanMillis = 0;
+long smallestStep = Long.MAX_VALUE;
+Instant prev = Instant.now();
+for (int i = 0; i < 1_000_000; i++) {
+    Instant now = Instant.now();
+    if (now.getNano() % 1_000 != 0) finerThanMicros++;
+    if (now.getNano() % 1_000_000 != 0) finerThanMillis++;
+    long step = Duration.between(prev, now).toNanos();
+    if (step > 0 && step < smallestStep) smallestStep = step;
+    prev = now;
+}
+System.out.println("Instant.now(), 1,000,000 calls:");
+System.out.println("  with digits below the millisecond: " + finerThanMillis);
+System.out.println("  with digits below the microsecond: " + finerThanMicros);
+System.out.println("  smallest step between two calls:   " + smallestStep + " ns");
+```
+
+```text
+Instant.now(), 1,000,000 calls:
+  with digits below the millisecond: 999999
+  with digits below the microsecond: 998945
+  smallest step between two calls:   20 ns
+```
+
+The counts change from run to run and machine to machine. `Instant.now()` reads
+`Clock.systemUTC()`, whose javadoc promises only "the best available system clock", possibly
+`System.currentTimeMillis()`. Many stores are coarser, such as a column of epoch milliseconds or a
+`java.util.Date` (unit 7.3.3). The document service's create and first save, on a fixed clock
+(unit 7.3.2):
+
+```java
+Clock clock = Clock.fixed(Instant.parse("2026-03-14T09:30:00.123456789Z"), ZoneOffset.UTC);
+
+Instant created = Instant.now(clock);        // returned to the client with the new document
+long column = created.toEpochMilli();        // what a millisecond column keeps
+Instant stored = Instant.ofEpochMilli(column);
+System.out.println("client sends back: " + created);
+System.out.println("column holds:      " + stored);
+System.out.println("equal: " + created.equals(stored) + ", apart by "
+        + Duration.between(stored, created).toNanos() + " ns");
+```
+
+```text
+client sends back: 2026-03-14T09:30:00.123456789Z
+column holds:      2026-03-14T09:30:00.123Z
+equal: false, apart by 456789 ns
+```
+
+The client holds the value from memory, the column a truncated copy, and `equals` compares
+nanoseconds. After the 409 the client reloads, so its second edit carries the column's stamp.
+Truncate where the stamp is made, so the value in memory is the one the store keeps:
+
+```java
+Instant stamped = Instant.now(clock).truncatedTo(ChronoUnit.MILLIS);
+System.out.println("truncated when stamped, equal: "
+        + stamped.equals(Instant.ofEpochMilli(stamped.toEpochMilli())));
+```
+
+```text
+truncated when stamped, equal: true
+```
+
+`Clock.tickMillis(zone)` gives a clock that does the same for every reading. Truncating further, to
+`SECONDS`, is not safer: two edits in the same second get the same stamp, and a check by stamp lets
+the stale one overwrite the other.
+
+<!-- practice 2 -->
+
+## An Instant Has No Calendar, So Months Need a Zone
+
+A subscription renews one month after payment. The payment is an `Instant`:
+
+```java
+Instant paid = Instant.parse("2026-01-30T23:30:00Z");
+System.out.println("plus(1, DAYS):    " + paid.plus(1, ChronoUnit.DAYS));
+try {
+    paid.plus(1, ChronoUnit.MONTHS);
+} catch (UnsupportedTemporalTypeException e) {
+    System.out.println("plus(1, MONTHS):  " + e.getMessage());
+}
+try {
+    paid.get(ChronoField.MONTH_OF_YEAR);
+} catch (UnsupportedTemporalTypeException e) {
+    System.out.println("get(MONTH_OF_YEAR): " + e.getMessage());
+}
+
+System.out.println("plus(30, DAYS):   " + paid.plus(30, ChronoUnit.DAYS));
+for (String zone : List.of("UTC", "Asia/Tokyo")) {
+    ZonedDateTime there = paid.atZone(ZoneId.of(zone));
+    System.out.println(zone + ": paid " + there.toLocalDateTime() + ", renews "
+            + there.plusMonths(1).toInstant());
+}
+```
+
+```text
+plus(1, DAYS):    2026-01-31T23:30:00Z
+plus(1, MONTHS):  Unsupported unit: Months
+get(MONTH_OF_YEAR): Unsupported field: MonthOfYear
+plus(30, DAYS):   2026-03-01T23:30:00Z
+UTC: paid 2026-01-30T23:30, renews 2026-02-28T23:30:00Z
+Asia/Tokyo: paid 2026-01-31T08:30, renews 2026-02-27T23:30:00Z
+```
+
+The length of a month depends on which month it is, and the date depends on the zone. Added in UTC,
+this renewal lands on 1 March, 08:30 in Tokyo; added in Tokyo, on 28 February. `DAYS` works only
+because the javadoc defines it as 86,400 seconds, which is not a calendar day across a DST change
+(unit 7.3.2.3).
+
+The usual workaround, `plus(30, DAYS)`, renews this payment on 1 March. Add the month in the
+customer's zone and convert back.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **An `Instant` is epoch seconds plus nanoseconds.** An epoch number read in the wrong unit
+  gives a wrong instant, and nothing throws.
+- **`Instant.parse` needs a `Z` or an offset.** Text without one names no moment; appending `Z`
+  misreads the sender's local time as UTC.
+- **A stored timestamp keeps only the store's precision.** Truncate when you stamp, to the store's
+  unit and no coarser, or equality fails after the round trip.
+- **An `Instant` has no months.** Add them in the customer's zone, then convert back.
+
+## Reference
+
+| Call (Java 21) | Behaviour |
+|---|---|
+| `ofEpochSecond(s)`, `ofEpochSecond(s, nanoAdjustment)`, `ofEpochMilli(ms)` | build from epoch numbers; the adjustment may be negative or over a second |
+| `getEpochSecond()`, `getNano()` | seconds (negative before 1970) and 0 to 999,999,999 nanoseconds |
+| `toEpochMilli()` | drops sub-millisecond digits towards the past; `ArithmeticException` on `long` overflow |
+| `Instant.parse(text)` | `ISO_INSTANT`: seconds required, 0 to 9 fraction digits, `Z` or an offset (converted to UTC); a trailing `[Europe/Amsterdam]` is refused |
+| `toString()` | always `Z`, always seconds, 0, 3, 6 or 9 fraction digits |
+| `plus`/`minus` with a `ChronoUnit` | `NANOS` to `DAYS` (`DAYS` = 86,400 s); `WEEKS` and longer throw |
+| `truncatedTo(unit)` | up to `DAYS` (UTC midnight); a larger unit throws |
+
+## Challenges
+
+1. A service's database keeps microseconds and its event stream milliseconds. Which precision do
+   you stamp with, and where do you enforce it?
+2. A feed sends epoch numbers with no unit, and you can't change it. Can you tell seconds from
+   milliseconds by size, and for which dates would that guess fail?
+3. NTP can move the clock behind `Instant.now()`. What do you use to time a request, and why?
+
+## Design Note: A Day Is Always 86,400 Seconds
+
+The `Instant` javadoc defines the Java time-scale: every day has exactly 86,400 seconds, and on a
+day with a leap second that second is spread over the day's last 1,000 seconds (UTC-SLS). So
+`Instant` can't name 23:59:60, and an interval across a leap second is a second shorter than atomic
+time says. In exchange, an `Instant` converts to any date by integer arithmetic, with no table
+of leap seconds. The javadoc doesn't require the system clock to perform the spreading, so around
+a leap second `Instant.now()` does whatever the operating system does.
 
 ## Code Examples
 

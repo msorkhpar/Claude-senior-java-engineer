@@ -1,21 +1,13 @@
-The page's `LinkedList` implements both `List` and `Deque`: adding or removing
-at **either end** is O(1), and the page recommends `ArrayDeque` for the same
-queue and stack work. A `Deque` has two families of end methods: one throws
-when the deque is empty, the other returns `null`.
+Tenant settings are read by every request thread and changed from the admin page, so they live in
+a `ConcurrentHashMap`. Tenants can now **clear** a setting, and that is not the same as never
+setting it: a tenant who clears the invoice footer wants no footer, while a tenant who never set
+one gets the platform's default footer.
 
-Write the class `Tasks`, a line of task names:
+Finish the three `TODO` methods in `src/main/java/practice/TenantSettings.java`:
 
-- `add(String task)` puts a task at the **back** of the line.
-- `urgent(String task)` puts a task at the **front**, so it is served before
-  everything already waiting. The newest urgent task goes first of all.
-- `next()` removes and returns the task at the front, or `null` when the line
-  is empty.
-- `last()` returns the task at the back of the whole line (urgent tasks included) without removing it, or `null` when
-  the line is empty.
+- `encode(value)`: what to store for a value the tenant set, `null` included;
+- `decode(stored)`: the tenant's value back from what `encode` stored;
+- `isSet(name)`: whether the tenant ever set the setting, cleared or not.
 
-| calls | answer |
-|---|---|
-| `add("a")`, `add("b")`, `add("c")`, then `next()` three times | `"a"`, `"b"`, `"c"` |
-| `add("a")`, `urgent("u")`, then `next()` twice | `"u"`, `"a"` |
-| `urgent("x")`, `urgent("y")`, then `next()` twice | `"y"`, `"x"` |
-| `next()` on a new line | `null` |
+Any text a tenant types must read back exactly as typed, whatever it is. About five lines in total.
+The tests use one thread.

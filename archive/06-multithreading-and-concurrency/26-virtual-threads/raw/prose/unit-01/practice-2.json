@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Fan out on a virtual thread per task",
+  "title": "Stop building a schema checker for every upload",
   "blocks": [
     {
       "type": "heading",
@@ -19,55 +19,27 @@
     },
     {
       "type": "para",
-      "text": "With virtual threads a blocking task no longer needs a pooled thread: the page's advice is one new virtual thread per task, from `Executors.newVirtualThreadPerTaskExecutor()` in a `try`-with-resources block, whose `close()` waits for every task. A fixed pool of virtual threads is the pitfall to avoid: it caps how many tasks run at once, exactly like a pool of platform threads."
+      "text": "Partners upload order documents, and the upload service checks each one against the partner schema before accepting it. A `Checker` compiles the schema when it is built, which costs a lot of CPU and memory, and it keeps state between calls, so one thread at a time may use it. The service used to run uploads on a pool of 16 platform threads and kept one checker per pool thread. It now runs every upload on a virtual thread of its own, and at the last partner deadline the instances spent more CPU building checkers than checking documents."
     },
     {
       "type": "para",
-      "text": "Write `Fanout.fetchAll(List<String> keys, Function<String, String> fetch)`:"
+      "text": "Operations has settled on a limit: the service may hold at most `max` checkers. Finish the two `TODO`s in `src/main/java/practice/SchemaChecks.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "It calls `fetch` once per key, each call on its **own virtual thread**, and all the calls run **at the same time** (no cap on how many).",
-        "It returns the results in key order, after every call has finished."
+        "`borrow()`: hands out a checker for one upload;",
+        "`check(document)`: checks one document on the calling upload's thread."
       ]
     },
     {
       "type": "para",
-      "text": "The tests see that each call runs on a virtual thread and that every call is in flight at once; whether a thread is ever reused for a later call is not something they can force, so use the page's executor anyway."
+      "text": "When you're done, any number of uploads in flight build at most `max` checkers, an upload that finds them all busy waits for one, no checker is ever used by two uploads at once, and a document that makes its checker throw doesn't leave the service short of a checker. About twelve lines in total, including the fields you add."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "If a call throws, `fetchAll` throws an `ExecutionException` whose cause is that exception."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "keys",
-        "fetch",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`[\"a\", \"b\", \"c\"]`",
-          "`k -> k.toUpperCase()`",
-          "`[\"A\", \"B\", \"C\"]`"
-        ],
-        [
-          "1000 keys",
-          "each call waits until all 1000 have started",
-          "1000 results"
-        ],
-        [
-          "`[\"a\", \"b\"]`",
-          "throws `IllegalStateException` on `\"b\"`",
-          "`ExecutionException`, cause the `IllegalStateException`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests send each upload on a virtual thread of its own, count the checkers built, and hold checks in progress to see who uses which checker."
     },
     {
       "type": "heading",
@@ -82,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.function.Function;\n\npublic final class Fanout {\n\n    private Fanout() {\n    }\n\n    /** Runs every fetch at once, each on its own virtual thread; results in key order. */\n    public static List<String> fetchAll(List<String> keys, Function<String, String> fetch)\n            throws InterruptedException, ExecutionException {\n        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {\n            List<Future<String>> futures = new ArrayList<>();\n            for (String key : keys) {\n                futures.add(executor.submit(() -> fetch.apply(key)));\n            }\n            List<String> results = new ArrayList<>();\n            for (Future<String> future : futures) {\n                results.add(future.get());\n            }\n            return results;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.Supplier;\n\n/**\n * Checks the documents partners upload against the partner schema. The upload service runs every\n * request on a virtual thread of its own and calls check() there.\n */\npublic class SchemaChecks {\n\n    /**\n     * Checks documents against the compiled schema. Building one compiles the schema, which takes\n     * a lot of CPU and memory. A checker keeps state between calls: one thread at a time only.\n     */\n    public interface Checker {\n        /** True when the document is valid; IllegalArgumentException when it can't be read at all. */\n        boolean check(String document);\n    }\n\n    private final Supplier<Checker> factory;\n    private final int max;\n    private final BlockingQueue<Checker> idle = new LinkedBlockingQueue<>();\n    private final AtomicInteger built = new AtomicInteger();\n\n    /** factory builds a new checker; max is the most checkers the service may ever hold. */\n    public SchemaChecks(Supplier<Checker> factory, int max) {\n        this.factory = factory;\n        this.max = max;\n    }\n\n    /** Checks one document, on the calling thread. */\n    public boolean check(String document) throws InterruptedException {\n        Checker checker = borrow();\n        try {\n            return checker.check(document);\n        } finally {\n            idle.put(checker);\n        }\n    }\n\n    /** A checker that nobody else is using until the caller is done with it. */\n    Checker borrow() throws InterruptedException {\n        Checker checker = idle.poll();\n        if (checker != null) return checker;\n        if (built.incrementAndGet() <= max) return factory.get();\n        built.decrementAndGet();\n        return idle.take();\n    }\n}\n"
         }
       ]
     },
@@ -94,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutionException;\nimport java.util.function.Function;\n\npublic final class Fanout {\n\n    private Fanout() {\n    }\n\n    /** Runs every fetch at once, each on its own virtual thread; results in key order. */\n    public static List<String> fetchAll(List<String> keys, Function<String, String> fetch)\n            throws InterruptedException, ExecutionException {\n        throw new UnsupportedOperationException(\"write fetchAll\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * Checks the documents partners upload against the partner schema. The upload service runs every\n * request on a virtual thread of its own and calls check() there.\n */\npublic class SchemaChecks {\n\n    /**\n     * Checks documents against the compiled schema. Building one compiles the schema, which takes\n     * a lot of CPU and memory. A checker keeps state between calls: one thread at a time only.\n     */\n    public interface Checker {\n        /** True when the document is valid; IllegalArgumentException when it can't be read at all. */\n        boolean check(String document);\n    }\n\n    private final Supplier<Checker> factory;\n    private final int max;\n\n    /** factory builds a new checker; max is the most checkers the service may ever hold. */\n    public SchemaChecks(Supplier<Checker> factory, int max) {\n        this.factory = factory;\n        this.max = max;\n    }\n\n    /** Checks one document, on the calling thread. */\n    public boolean check(String document) throws InterruptedException {\n        // TODO: Check the document with a checker from borrow(). Every request must leave the\n        //       service able to serve the requests after it.\n        throw new IllegalStateException(\"TODO: check\");\n    }\n\n    /** A checker that nobody else is using until the caller is done with it. */\n    Checker borrow() throws InterruptedException {\n        // TODO: Hand out a checker for one request. The service may never hold more than `max`\n        //       checkers, whatever the number of requests in flight, and a request that finds them\n        //       all busy waits for one.\n        throw new IllegalStateException(\"TODO: borrow\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -102,10 +74,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 2,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -113,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "8515915bbe4d1b09015cafd68886e9b87cd41862026c87608bc80b6b2d815c6e",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutionException;\nimport java.util.function.Function;\n\npublic final class Fanout {\n\n    private Fanout() {\n    }\n\n    /** Runs every fetch at once, each on its own virtual thread; results in key order. */\n    public static List<String> fetchAll(List<String> keys, Function<String, String> fetch)\n            throws InterruptedException, ExecutionException {\n        throw new UnsupportedOperationException(\"write fetchAll\");\n    }\n}\n",
+  "content_sha256": "10f47a72c2d63c1a42d77e1f85657e7229c5675fc33f5a1d1f719bf1186d09ea",
+  "starting_code": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * Checks the documents partners upload against the partner schema. The upload service runs every\n * request on a virtual thread of its own and calls check() there.\n */\npublic class SchemaChecks {\n\n    /**\n     * Checks documents against the compiled schema. Building one compiles the schema, which takes\n     * a lot of CPU and memory. A checker keeps state between calls: one thread at a time only.\n     */\n    public interface Checker {\n        /** True when the document is valid; IllegalArgumentException when it can't be read at all. */\n        boolean check(String document);\n    }\n\n    private final Supplier<Checker> factory;\n    private final int max;\n\n    /** factory builds a new checker; max is the most checkers the service may ever hold. */\n    public SchemaChecks(Supplier<Checker> factory, int max) {\n        this.factory = factory;\n        this.max = max;\n    }\n\n    /** Checks one document, on the calling thread. */\n    public boolean check(String document) throws InterruptedException {\n        // TODO: Check the document with a checker from borrow(). Every request must leave the\n        //       service able to serve the requests after it.\n        throw new IllegalStateException(\"TODO: check\");\n    }\n\n    /** A checker that nobody else is using until the caller is done with it. */\n    Checker borrow() throws InterruptedException {\n        // TODO: Hand out a checker for one request. The service may never hold more than `max`\n        //       checkers, whatever the number of requests in flight, and a request that finds them\n        //       all busy waits for one.\n        throw new IllegalStateException(\"TODO: borrow\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-01/practice-2/src/main/java/practice/Fanout.java",
-    "test_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-01/practice-2/src/test/java/practice/FanoutTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-01/practice-2/src/main/java/practice/SchemaChecks.java",
+    "test_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-01/practice-2/src/test/java/practice/SchemaChecksTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -138,29 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FanoutTest#returnsResultsInKeyOrder",
+        "id": "practice.SchemaChecksTest#manyUploadsAtOnceEachGetTheirVerdict",
         "kind": "main",
-        "says": "fetchAll returns one result per key, in key order."
+        "says": "twenty-five uploads checked at the same time each get the right verdict"
       },
       {
-        "id": "practice.FanoutTest#allFetchesAreInFlightAtOnce",
+        "id": "practice.SchemaChecksTest#neverMoreCheckersThanTheLimit",
         "kind": "edge",
-        "says": "A thousand fetches that each wait for all the others still finish: every fetch runs at the same time."
+        "says": "twelve uploads, each on its own virtual thread, build no more checkers than the limit of three"
       },
       {
-        "id": "practice.FanoutTest#eachFetchRunsOnItsOwnVirtualThread",
+        "id": "practice.SchemaChecksTest#anUnreadableDocumentDoesNotCostTheServiceItsChecker",
         "kind": "edge",
-        "says": "Each fetch runs on its own virtual thread."
+        "says": "with a limit of one checker, an upload whose document can't be read fails, and the next upload is still checked"
       },
       {
-        "id": "practice.FanoutTest#aFailedFetchFailsTheCall",
+        "id": "practice.SchemaChecksTest#noCheckerServesTwoUploadsAtOnce",
         "kind": "edge",
-        "says": "When a fetch throws, fetchAll throws an ExecutionException caused by it."
-      },
-      {
-        "id": "practice.FanoutTest#noCapEvenAtScale",
-        "kind": "edge",
-        "says": "2500 calls are all in flight at once: no pool size caps them, however large."
+        "says": "while three uploads are being checked at once, no checker is in use by two of them"
       }
     ],
     "report": {
@@ -169,12 +136,10 @@
     },
     "origin": {
       "path": "26-virtual-threads/README_6.7.1.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "One Thread per Task Means Nothing Per-Thread Is Reused: Pool the Expensive Object, Not the Thread"
     },
     "concepts": [
-      "Virtual threads are daemon threads, so work started on them must be waited for or the program may end first.",
-      "Virtual threads are not pooled: a fixed pool of them caps concurrency exactly like a pool of platform threads.",
-      "Executors.newVirtualThreadPerTaskExecutor() starts a new virtual thread for every task, and closing it in try-with-resources waits for all of them."
+      "The expensive, non-thread-safe object is pooled with a bound, borrowed per task and given back on every path, while each task keeps its own virtual thread."
     ]
   }
 }

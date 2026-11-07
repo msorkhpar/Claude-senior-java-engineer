@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Wrap a long line with continuations",
+  "title": "Load moved fixtures exactly as javac read them",
   "blocks": [
     {
       "type": "heading",
@@ -19,61 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's best practice for a very long single-line string is the line continuation escape: a `\\` at the end of a text block line suppresses the line break, so the source reads well and the value stays one line. Its example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "String singleLine = \"\"\"\n        This is one \\\n        continuous \\\n        line.\"\"\";\n// \"This is one continuous line.\""
+      "text": "The integration tests of the catalogue service kept their expected responses as text blocks, two hundred of them, and the test classes became unreadable. The team moved each block's body into a fixture file, byte for byte: everything after the line of the opening `\"\"\"`, up to the closing `\"\"\"`. Some bodies hold escapes, some hold Unicode escapes such as `\\u00e9` that their authors used to keep the sources in ASCII, and the files are checked out with CRLF line endings on Windows."
     },
     {
       "type": "para",
-      "text": "Write `LongLine.source(String sentence, int width)`. `sentence` is words separated by single spaces (no quote, no backslash, no leading or trailing space). Return the text block source for it:"
+      "text": "A fixture is only useful if it loads as exactly the string the text block had. Finish the two `TODO`s in `src/main/java/practice/FixtureLoader.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "the opening `\"\"\"`, then `\\n`;",
-        "the sentence split into pieces, filled greedily: each piece takes as many whole words as fit in `width` characters, a word longer than `width` takes a piece of its own and is **never cut**;",
-        "the space where the sentence breaks stays at the end of the piece before it, and **counts** towards its width (a piece of exactly `width` characters fits);",
-        "each piece indented by eight spaces; every piece but the last ends with `\\` and `\\n`, the last ends with the closing `\"\"\"`."
+        "`unicodeEscapes(text)`: the text with each Unicode escape replaced by its character, as javac does when it reads a source file;",
+        "`load(body)`: the string javac made of a text block with this body."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "sentence",
-        "width",
-        "answer (`·` is a space, `⏎` is `\\n`)"
-      ],
-      "rows": [
-        [
-          "`This is one continuous line.`",
-          "`15`",
-          "`\"\"\"⏎········This·is·one·\\⏎········continuous·\\⏎········line.\"\"\"`"
-        ],
-        [
-          "`This is one continuous line.`",
-          "`12`",
-          "the same"
-        ],
-        [
-          "`This is one continuous line.`",
-          "`11`",
-          "`\"\"\"⏎········This·is·\\⏎········one·\\⏎········continuous·\\⏎········line.\"\"\"`"
-        ],
-        [
-          "`a supercalifragilistic word`",
-          "`8`",
-          "`\"\"\"⏎········a·\\⏎········supercalifragilistic·\\⏎········word\"\"\"`"
-        ],
-        [
-          "`short`",
-          "`20`",
-          "`\"\"\"⏎········short\"\"\"`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, every fixture loads as the value javac gave its block, on Linux and on Windows. About fifteen lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests compare with values that javac 21 produced from the same bodies."
     },
     {
       "type": "heading",
@@ -88,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class LongLine {\n\n    private static final String DELIMITER = \"\\\"\\\"\\\"\";\n    private static final String INDENT = \"        \";\n\n    private LongLine() {\n    }\n\n    /** Returns text block source whose value is {@code sentence}, wrapped at {@code width} with line continuations. */\n    public static String source(String sentence, int width) {\n        String[] words = sentence.split(\" \");\n        List<String> pieces = new ArrayList<>();\n        StringBuilder piece = new StringBuilder();\n        for (int i = 0; i < words.length; i++) {\n            String word = i < words.length - 1 ? words[i] + \" \" : words[i];\n            if (piece.length() > 0 && piece.length() + word.length() > width) {\n                pieces.add(piece.toString());\n                piece.setLength(0);\n            }\n            piece.append(word);\n        }\n        pieces.add(piece.toString());\n        StringBuilder source = new StringBuilder(DELIMITER).append('\\n');\n        for (int i = 0; i < pieces.size(); i++) {\n            boolean last = i == pieces.size() - 1;\n            source.append(INDENT).append(pieces.get(i)).append(last ? DELIMITER : \"\\\\\\n\");\n        }\n        return source.toString();\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Loads test fixtures that used to be text blocks in the test sources. Each fixture file holds a\n * block's body exactly as it was written: everything after the line of the opening delimiter, up\n * to the closing delimiter.\n */\npublic class FixtureLoader {\n\n    /** The string javac made of a text block with this body. */\n    public static String load(String body) {\n        return unicodeEscapes(body).stripIndent().translateEscapes();\n    }\n\n    /** The text with every Unicode escape replaced by its character, as javac does it. */\n    static String unicodeEscapes(String text) {\n        StringBuilder out = new StringBuilder();\n        for (int i = 0; i < text.length(); i++) {\n            char c = text.charAt(i);\n            if (c == '\\\\' && i + 1 < text.length() && text.charAt(i + 1) == '\\\\') {\n                out.append(\"\\\\\\\\\");                          // an escaped backslash starts nothing\n                i++;\n            } else if (c == '\\\\' && i + 1 < text.length() && text.charAt(i + 1) == 'u') {\n                int hex = i + 1;\n                while (text.charAt(hex) == 'u') hex++;\n                out.append((char) Integer.parseInt(text.substring(hex, hex + 4), 16));\n                i = hex + 3;\n            } else {\n                out.append(c);\n            }\n        }\n        return out.toString();\n    }\n}\n"
         }
       ]
     },
@@ -100,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class LongLine {\n\n    private LongLine() {\n    }\n\n    /** Returns text block source whose value is {@code sentence}, wrapped at {@code width} with line continuations. */\n    public static String source(String sentence, int width) {\n        throw new UnsupportedOperationException(\"write source\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Loads test fixtures that used to be text blocks in the test sources. Each fixture file holds a\n * block's body exactly as it was written: everything after the line of the opening delimiter, up\n * to the closing delimiter.\n */\npublic class FixtureLoader {\n\n    /** The string javac made of a text block with this body. */\n    public static String load(String body) {\n        // TODO: Give the fixture the value its text block had: the same steps javac takes, in\n        //       the same order.\n        throw new IllegalStateException(\"TODO: load\");\n    }\n\n    /** The text with every Unicode escape replaced by its character, as javac does it. */\n    static String unicodeEscapes(String text) {\n        // TODO: Fixture authors wrote characters such as \\u00e9 as Unicode escapes. Replace each\n        //       one the way javac does when it reads a source file.\n        throw new IllegalStateException(\"TODO: unicodeEscapes\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -108,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
-    "tables": 1,
+    "paras": 4,
+    "code": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -119,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e14277b0eda0110b934e864974a4a836087df18902ba7be0f50d392b3503309a",
-  "starting_code": "package practice;\n\npublic final class LongLine {\n\n    private LongLine() {\n    }\n\n    /** Returns text block source whose value is {@code sentence}, wrapped at {@code width} with line continuations. */\n    public static String source(String sentence, int width) {\n        throw new UnsupportedOperationException(\"write source\");\n    }\n}\n",
+  "content_sha256": "ac66b9d024d545174fe7aa2f8f55296c8229c911f8693b0771607ad8c1d6b89e",
+  "starting_code": "package practice;\n\n/**\n * Loads test fixtures that used to be text blocks in the test sources. Each fixture file holds a\n * block's body exactly as it was written: everything after the line of the opening delimiter, up\n * to the closing delimiter.\n */\npublic class FixtureLoader {\n\n    /** The string javac made of a text block with this body. */\n    public static String load(String body) {\n        // TODO: Give the fixture the value its text block had: the same steps javac takes, in\n        //       the same order.\n        throw new IllegalStateException(\"TODO: load\");\n    }\n\n    /** The text with every Unicode escape replaced by its character, as javac does it. */\n    static String unicodeEscapes(String text) {\n        // TODO: Fixture authors wrote characters such as \\u00e9 as Unicode escapes. Replace each\n        //       one the way javac does when it reads a source file.\n        throw new IllegalStateException(\"TODO: unicodeEscapes\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-04/practice-3/src/main/java/practice/LongLine.java",
-    "test_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-04/practice-3/src/test/java/practice/LongLineTest.java",
+    "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-04/practice-3/src/main/java/practice/FixtureLoader.java",
+    "test_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-04/practice-3/src/test/java/practice/FixtureLoaderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -144,24 +110,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LongLineTest#wrapsAfterSpaces",
+        "id": "practice.FixtureLoaderTest#aFixtureCheckedOutWithWindowsLineEndingsLoadsAsWritten",
         "kind": "main",
-        "says": "The sentence is split after spaces into source lines that end with \\, each keeping the space it breaks at, and the last line ends with the closing delimiter."
+        "says": "a JSON fixture with CRLF line endings, an escape and relative indentation loads with LF endings, the escape interpreted and the indentation kept"
       },
       {
-        "id": "practice.LongLineTest#aLineMayFillTheWidthExactly",
-        "kind": "edge",
-        "says": "A source line whose text is exactly width characters long still fits."
+        "id": "practice.FixtureLoaderTest#aFixtureClosedOnItsLastLineLoadsAsWritten",
+        "kind": "main",
+        "says": "a fixture whose closing delimiter followed its last line loads without a final line break"
       },
       {
-        "id": "practice.LongLineTest#theBreakingSpaceCountsTowardsTheWidth",
+        "id": "practice.FixtureLoaderTest#unicodeEscapesBecomeTheirCharacters",
         "kind": "edge",
-        "says": "The space kept at the end of a piece counts towards its width."
+        "says": "Unicode escapes become their characters, and an escaped backslash from one then starts an ordinary escape"
       },
       {
-        "id": "practice.LongLineTest#aLongWordIsNeverSplit",
+        "id": "practice.FixtureLoaderTest#paddingAndCarriageReturnsSurvive",
         "kind": "edge",
-        "says": "A word longer than the width gets a line of its own and is never cut."
+        "says": "spaces kept by \\s and carriage returns written as \\r are in the loaded value"
+      },
+      {
+        "id": "practice.FixtureLoaderTest#anEscapedBackslashStartsNoUnicodeEscape",
+        "kind": "edge",
+        "says": "a backslash written as \\\\ before a u stays a backslash followed by the letters"
+      },
+      {
+        "id": "practice.FixtureLoaderTest#aUnicodeLineBreakCountsWhenTheIndentationIsMeasured",
+        "kind": "edge",
+        "says": "a line break written as a Unicode escape starts a new line before the indentation is measured"
       }
     ],
     "report": {
@@ -170,10 +146,10 @@
     },
     "origin": {
       "path": "30-text-blocks/README_7.4.4.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "translateEscapes() Interprets Escapes in a String That Arrives at Run Time"
     },
     "concepts": [
-      "Line continuation writes a very long single-line value across several readable source lines."
+      "Reproducing a text block's value from its body means translating Unicode escapes first (an escaped backslash starts none), then stripping indentation, then interpreting escapes."
     ]
   }
 }

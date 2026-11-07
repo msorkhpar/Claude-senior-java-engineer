@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Does one action happen-before another?",
+  "title": "Let checkout read exchange rates while the table reloads",
   "blocks": [
     {
       "type": "heading",
@@ -19,85 +19,31 @@
     },
     {
       "type": "para",
-      "text": "The page says the Java Memory Model reasons about **actions** and a **happens-before** order over them: if action X happens-before action Y, X's writes are visible to Y. Its Q2 answer lists the edges:"
+      "text": "Checkout prices every basket in euros through `RateTable`, which loads exchange rates from the rate store on first use and again after each `refresh()`. A full load takes a few seconds."
+    },
+    {
+      "type": "para",
+      "text": "Two incidents shaped what is wanted. The first version held a lock while it loaded, and after every refresh the checkout threads queued behind the load: p99 latency jumped by four seconds. The fix for that answered some baskets with \"no rate for NOK\" for as long as a load was running."
+    },
+    {
+      "type": "para",
+      "text": "Finish the two `TODO`s in `src/main/java/practice/RateTable.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "**Program order**: in one thread, an earlier action happens-before a later one.",
-        "**Monitor lock**: an unlock of a monitor happens-before every *later* lock of that *same* monitor.",
-        "**Volatile**: a write to a volatile field happens-before every *later* read of that field.",
-        "**Thread start**: `t.start()` happens-before every action of thread `t`.",
-        "**Thread join**: every action of thread `t` happens-before `t.join()` returning."
+        "`table()`: return the current table, loading it if there is none;",
+        "`load()`: one full load from the store."
       ]
     },
     {
       "type": "para",
-      "text": "Happens-before is **transitive**."
+      "text": "When you're done, a lookup never waits for a load another thread started (two threads loading at the same time is acceptable, as both get the same rates), a lookup never sees a table that is missing rates the store has, and the map `rates()` hands to the end-of-day report can't be used to change the rates every other caller sees. About eight lines in total."
     },
     {
       "type": "para",
-      "text": "Write `HappensBefore.happensBefore(List<Action> trace, int x, int y)`. The `trace` is one execution: every action of every thread, in the order they happened. Each `Action` names its thread, its `Kind` and its target: a variable for reads and writes, a monitor for `LOCK`/`UNLOCK`, and a thread name for `START`/`JOIN`. Return whether action `trace.get(x)` happens-before action `trace.get(y)`. An action does not happen-before itself."
-    },
-    {
-      "type": "para",
-      "text": "The page's `HappensBeforeDemo`, as a trace:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "#",
-        "thread",
-        "action"
-      ],
-      "rows": [
-        [
-          "0",
-          "A",
-          "`WRITE value`"
-        ],
-        [
-          "1",
-          "A",
-          "`VOLATILE_WRITE ready`"
-        ],
-        [
-          "2",
-          "B",
-          "`VOLATILE_READ ready`"
-        ],
-        [
-          "3",
-          "B",
-          "`READ value`"
-        ]
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "x, y",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`0, 3`",
-          "`true` (program order, the volatile edge, program order)"
-        ],
-        [
-          "`3, 0`",
-          "`false`"
-        ],
-        [
-          "`0, 1`",
-          "`true`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "With `ready` a plain field (`WRITE ready` and `READ ready`), `0, 3` is `false`."
+      "text": "The tests hold the store in the middle of a load and make lookups from other threads meanwhile."
     },
     {
       "type": "heading",
@@ -112,7 +58,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Deque;\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { WRITE, READ, VOLATILE_WRITE, VOLATILE_READ, LOCK, UNLOCK, START, JOIN }\n\n    /** One action: the thread that performs it, what it does, and what it does it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Whether {@code trace.get(x)} happens-before {@code trace.get(y)} in this execution. */\n    public static boolean happensBefore(List<Action> trace, int x, int y) {\n        int n = trace.size();\n        List<List<Integer>> next = new ArrayList<>();\n        for (int i = 0; i < n; i++) {\n            next.add(new ArrayList<>());\n        }\n        for (int i = 0; i < n; i++) {\n            Action a = trace.get(i);\n            for (int j = 0; j < n; j++) {\n                if (i == j) {\n                    continue;\n                }\n                Action b = trace.get(j);\n                boolean later = j > i;\n                boolean edge = (a.thread().equals(b.thread()) && j > i)\n                        || (a.kind() == Kind.UNLOCK && b.kind() == Kind.LOCK && j > i && a.target().equals(b.target()))\n                        || (a.kind() == Kind.VOLATILE_WRITE && b.kind() == Kind.VOLATILE_READ && later\n                                && a.target().equals(b.target()))\n                        || (a.kind() == Kind.START && b.thread().equals(a.target()))\n                        || (b.kind() == Kind.JOIN && a.thread().equals(b.target()));\n                if (edge) {\n                    next.get(i).add(j);\n                }\n            }\n        }\n        boolean[] seen = new boolean[n];\n        Deque<Integer> todo = new ArrayDeque<>(next.get(x));\n        while (!todo.isEmpty()) {\n            int i = todo.pop();\n            if (i == y) {\n                return true;\n            }\n            if (!seen[i]) {\n                seen[i] = true;\n                todo.addAll(next.get(i));\n            }\n        }\n        return false;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.function.BiConsumer;\n\n/**\n * Exchange rates for the checkout, in millionths of a euro: a USD rate of 921_400 means\n * 1 USD = 0.9214 EUR. The table is loaded from the rate store on first use, and again on the\n * first lookup after every refresh().\n */\npublic class RateTable {\n\n    /** The rate store. A full load streams every rate to the sink and takes a few seconds. */\n    public interface RateStore {\n        void load(BiConsumer<String, Long> sink);\n    }\n\n    private final RateStore store;\n    private volatile Map<String, Long> table;          // null until loaded, and again after refresh()\n\n    public RateTable(RateStore store) {\n        this.store = store;\n    }\n\n    /** The rate of one currency. */\n    public long rate(String currency) {\n        Long rate = table().get(currency);\n        if (rate == null) throw new IllegalArgumentException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Every rate, for the end-of-day report. */\n    public Map<String, Long> rates() {\n        return table();\n    }\n\n    /** Called when the store has new rates: the next lookup loads them. */\n    public void refresh() {\n        table = null;\n    }\n\n    /** The current table, loaded if there is none. */\n    Map<String, Long> table() {\n        Map<String, Long> t = table;\n        if (t == null) {\n            t = load();\n            table = t;\n        }\n        return t;\n    }\n\n    /** One full load from the store. */\n    Map<String, Long> load() {\n        Map<String, Long> rates = new HashMap<>();\n        store.load(rates::put);\n        return Map.copyOf(rates);\n    }\n}\n"
         }
       ]
     },
@@ -124,7 +70,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { WRITE, READ, VOLATILE_WRITE, VOLATILE_READ, LOCK, UNLOCK, START, JOIN }\n\n    /** One action: the thread that performs it, what it does, and what it does it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Whether {@code trace.get(x)} happens-before {@code trace.get(y)} in this execution. */\n    public static boolean happensBefore(List<Action> trace, int x, int y) {\n        throw new UnsupportedOperationException(\"write happensBefore\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.function.BiConsumer;\n\n/**\n * Exchange rates for the checkout, in millionths of a euro: a USD rate of 921_400 means\n * 1 USD = 0.9214 EUR. The table is loaded from the rate store on first use, and again on the\n * first lookup after every refresh().\n */\npublic class RateTable {\n\n    /** The rate store. A full load streams every rate to the sink and takes a few seconds. */\n    public interface RateStore {\n        void load(BiConsumer<String, Long> sink);\n    }\n\n    private final RateStore store;\n    private volatile Map<String, Long> table;          // null until loaded, and again after refresh()\n\n    public RateTable(RateStore store) {\n        this.store = store;\n    }\n\n    /** The rate of one currency. */\n    public long rate(String currency) {\n        Long rate = table().get(currency);\n        if (rate == null) throw new IllegalArgumentException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Every rate, for the end-of-day report. */\n    public Map<String, Long> rates() {\n        return table();\n    }\n\n    /** Called when the store has new rates: the next lookup loads them. */\n    public void refresh() {\n        table = null;\n    }\n\n    /** The current table, loaded if there is none. */\n    Map<String, Long> table() {\n        // TODO: Return the table, loading it if there is none. A load takes seconds, and checkout\n        //       threads must not wait for a load another thread started: two threads loading at\n        //       once is fine. Whatever a lookup gets must hold every rate the store has.\n        throw new IllegalStateException(\"TODO: table\");\n    }\n\n    /** One full load from the store. */\n    Map<String, Long> load() {\n        // TODO: Load every rate from the store. The result is shared by every checkout thread\n        //       and handed to the report, so no caller may be able to change it for the others.\n        throw new IllegalStateException(\"TODO: load\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -134,7 +80,7 @@
     "headings": 3,
     "paras": 5,
     "code": 1,
-    "tables": 2,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -143,11 +89,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "34cbadbd73c0a7b4a079e073709fd76f353bd3439e8a516f7c272ec79f969feb",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { WRITE, READ, VOLATILE_WRITE, VOLATILE_READ, LOCK, UNLOCK, START, JOIN }\n\n    /** One action: the thread that performs it, what it does, and what it does it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Whether {@code trace.get(x)} happens-before {@code trace.get(y)} in this execution. */\n    public static boolean happensBefore(List<Action> trace, int x, int y) {\n        throw new UnsupportedOperationException(\"write happensBefore\");\n    }\n}\n",
+  "content_sha256": "3ea55dc4cd002064e88f6da8ffbfd2177959062b825b41876d40bd3dc241b101",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.function.BiConsumer;\n\n/**\n * Exchange rates for the checkout, in millionths of a euro: a USD rate of 921_400 means\n * 1 USD = 0.9214 EUR. The table is loaded from the rate store on first use, and again on the\n * first lookup after every refresh().\n */\npublic class RateTable {\n\n    /** The rate store. A full load streams every rate to the sink and takes a few seconds. */\n    public interface RateStore {\n        void load(BiConsumer<String, Long> sink);\n    }\n\n    private final RateStore store;\n    private volatile Map<String, Long> table;          // null until loaded, and again after refresh()\n\n    public RateTable(RateStore store) {\n        this.store = store;\n    }\n\n    /** The rate of one currency. */\n    public long rate(String currency) {\n        Long rate = table().get(currency);\n        if (rate == null) throw new IllegalArgumentException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Every rate, for the end-of-day report. */\n    public Map<String, Long> rates() {\n        return table();\n    }\n\n    /** Called when the store has new rates: the next lookup loads them. */\n    public void refresh() {\n        table = null;\n    }\n\n    /** The current table, loaded if there is none. */\n    Map<String, Long> table() {\n        // TODO: Return the table, loading it if there is none. A load takes seconds, and checkout\n        //       threads must not wait for a load another thread started: two threads loading at\n        //       once is fine. Whatever a lookup gets must hold every rate the store has.\n        throw new IllegalStateException(\"TODO: table\");\n    }\n\n    /** One full load from the store. */\n    Map<String, Long> load() {\n        // TODO: Load every rate from the store. The result is shared by every checkout thread\n        //       and handed to the report, so no caller may be able to change it for the others.\n        throw new IllegalStateException(\"TODO: load\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/src/main/java/practice/HappensBefore.java",
-    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/src/test/java/practice/HappensBeforeTest.java",
+    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/src/main/java/practice/RateTable.java",
+    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/src/test/java/practice/RateTableTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -168,34 +114,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HappensBeforeTest#followsProgramOrderAndAVolatileHandOff",
+        "id": "practice.RateTableTest#answersFromOneLoadUntilRefreshed",
         "kind": "main",
-        "says": "Program order and a volatile write read later make the writer's plain write happen-before the reader's plain read, and unsynchronized threads get no edge."
+        "says": "lookups are answered from one load of the store until a refresh, after which the new rates are loaded"
       },
       {
-        "id": "practice.HappensBeforeTest#onlyTheSameMonitorConnects",
+        "id": "practice.RateTableTest#aLookupDoesNotWaitForALoadAnotherThreadStarted",
         "kind": "edge",
-        "says": "An unlock connects only to later locks of the same monitor."
+        "says": "a lookup made while another thread's load is still running is answered without waiting for that load"
       },
       {
-        "id": "practice.HappensBeforeTest#aLockBeforeTheUnlockGetsNoEdge",
+        "id": "practice.RateTableTest#aLookupDuringAnotherThreadsLoadSeesEveryRate",
         "kind": "edge",
-        "says": "An unlock connects only to locks that come after it, never to an earlier lock of the same monitor."
+        "says": "a lookup made while another thread's load is still running sees every rate, never a partly loaded table"
       },
       {
-        "id": "practice.HappensBeforeTest#aReadBeforeTheWriteGetsNoEdge",
+        "id": "practice.RateTableTest#aCallerCannotChangeTheRatesOtherCallersSee",
         "kind": "edge",
-        "says": "A volatile read that comes before the volatile write in the execution gets no edge from it."
-      },
-      {
-        "id": "practice.HappensBeforeTest#startAndJoinConnectThreads",
-        "kind": "edge",
-        "says": "start() happens-before the started thread's actions, and those happen-before join() returning."
-      },
-      {
-        "id": "practice.HappensBeforeTest#edgesChainAcrossThreeThreads",
-        "kind": "edge",
-        "says": "Happens-before is transitive, so edges chain through a third thread."
+        "says": "a caller that tries to change the rates it was handed changes nothing for other callers"
       }
     ],
     "report": {
@@ -204,11 +140,11 @@
     },
     "origin": {
       "path": "17-java-memory-model/README_5.1.1.md",
-      "section": "Interview Q&A Section"
+      "section": "A Race Is Benign Only When Every Thread Writes the Same Value, in One Indivisible Write, Read Once"
     },
     "concepts": [
-      "Program order, a volatile write read later, thread start and thread join create happens-before edges, and the order is transitive.",
-      "An unlock gives an edge only to later locks of the same monitor; different monitors give no visibility."
+      "A cache may race only when every thread computes the same value from immutable input and stores it in one write that can't tear; a racy recomputation then costs only time.",
+      "A lazily cached mutable object is not a benign race: other threads can see it before it is complete, and a change made through it reaches every caller."
     ]
   }
 }

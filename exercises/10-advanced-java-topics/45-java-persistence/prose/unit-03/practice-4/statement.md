@@ -1,21 +1,15 @@
-The page's isolation table says which anomalies each level allows. You can
-watch them with two connections driven step by step in one thread: the
-reader reads, the writer changes the row, the reader reads again.
+Wallet transfers run all day; at midnight an interest job adds a little to every wallet, one
+transaction per batch, in its own order. Since the job moved earlier, a few transfers a night fail
+with SQLState 40001. Customers retry by hand, and support would like that to stop. A first attempt
+at an automatic retry made the nightly totals stop adding up, and a transfer to a wallet that is
+already near its limit now hammers the database three times before failing.
 
-Write `Isolation.readTwice(reader, level, accountId, between)` over
-`accounts(id INT PRIMARY KEY, balance DECIMAL(15,2))`. It returns
-`Reads(first, second)`, the account's balance read twice with
-`between.run()` called in the middle (the tests' writer acts there).
+Finish `transfer(...)` in `src/main/java/practice/Transfers.java`, using `debit` and `credit`. The
+table's `CHECK` keeps every balance between 0 and 1000. When you're done, a transfer that collides
+with the interest job still completes with the right balances, and a transfer the database refuses
+for its own rules fails at once and changes nothing. About twelve lines.
 
-- **Both reads run in one transaction**: turn autoCommit off before the first
-  read and commit after the second.
-- **The transaction runs at the isolation level asked for**
-  (`Connection.TRANSACTION_...`).
-- **The connection's previous isolation level and autoCommit are restored**
-  afterwards; a pool will hand it to someone else.
-
-| level | writer, between the reads | `Reads` |
-|---|---|---|
-| READ_COMMITTED | sets 200.00 and commits | `100.00, 200.00` (non-repeatable read) |
-| REPEATABLE_READ | sets 200.00 and commits | `100.00, 100.00` |
-| READ_UNCOMMITTED | sets 200.00, not committed | `100.00, 200.00` (dirty read) |
+The tests run on an in-memory H2 database and use the `Pause` after the debit to make the transfer
+cross the interest job, twice: once with the job's transaction begun first, once with the
+transfer's. H2 rolls back one side of each crossing; the test's job reruns itself when it is the
+one, and a test fails with a message saying so if H2 never picks the transfer.

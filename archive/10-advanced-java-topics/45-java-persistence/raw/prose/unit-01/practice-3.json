@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Close what you open, not the connection you were lent",
+  "title": "Make a card payment all or nothing",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,34 @@
     },
     {
       "type": "para",
-      "text": "The page's second pitfall opens a `Statement` and a `ResultSet` and closes them by hand at the end, so an exception in between leaks them. The fix is try-with-resources. There is a catch: this method is **lent** a `Connection`. It closes what it opens, and the connection belongs to the caller."
+      "text": "The wallet service takes card payments in two steps: it debits the wallet, then inserts a payment row whose `reference` column holds at most 16 characters. Support has three tickets this week. A merchant sent a 19-character invoice number, the payment failed, and the customer's wallet was short by the amount anyway. A payment request with a mistyped wallet id \"succeeded\" and left a payment row for a wallet that doesn't exist. And after a failed payment, a later request on the same pooled connection saved a profile change that no other server ever saw."
     },
     {
       "type": "para",
-      "text": "Write `NameQuery.names(connection, department)`: the names in `employees(id, name, department)` for that department, ordered by id."
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**The `PreparedStatement` and its `ResultSet` are closed when the method returns**, and **they are closed even when reading a row throws** (the `SQLException` still reaches the caller).",
-        "**The caller's connection is left open.**"
-      ]
+      "text": "Write `pay(connection, wallet, amount, reference)` in `src/main/java/practice/Payments.java`, using the existing `debit(...)` and `record(...)`. A payment either debits and records, or changes nothing and throws `SQLException`. The connection is lent by the request handler, which goes on using it afterwards in the mode it had before the call. About twelve lines."
     },
     {
       "type": "table",
       "headers": [
-        "rows (id, name, department)",
-        "call",
-        "answer"
+        "wallet (balance)",
+        "`pay(...)`",
+        "afterwards"
       ],
       "rows": [
         [
-          "1 Ada Engineering, 2 Grace Sales, 3 Linus Engineering",
-          "`names(c, \"Engineering\")`",
-          "`[Ada, Linus]`"
+          "311 (1200.50)",
+          "`pay(c, 311, 19.99, \"ord-5512\")`",
+          "balance 1180.51, one payment row"
+        ],
+        [
+          "311 (1200.50)",
+          "`pay(c, 311, 45.00, \"invoice-2024-000731\")`",
+          "`SQLException`; balance 1200.50, no payment row"
+        ],
+        [
+          "none",
+          "`pay(c, 999, 10.00, \"ord-5516\")`",
+          "`SQLException`; no payment row"
         ]
       ]
     },
@@ -61,7 +63,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class NameQuery {\n\n    private NameQuery() {\n    }\n\n    /** The names in the department, ordered by id; the connection is the caller's. */\n    public static List<String> names(Connection connection, String department) throws SQLException {\n        List<String> names = new ArrayList<>();\n        try (PreparedStatement statement = connection.prepareStatement(\n                \"SELECT name FROM employees WHERE department = ? ORDER BY id\")) {\n            statement.setString(1, department);\n            try (ResultSet rows = statement.executeQuery()) {\n                while (rows.next()) {\n                    names.add(rows.getString(\"name\"));\n                }\n            }\n        }\n        return names;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\n\n/**\n * Card payments against wallet(id BIGINT, balance DECIMAL(12,2)): the wallet is debited and a row\n * goes into payment(wallet_id, amount, reference VARCHAR(16)). The connection is lent by the\n * caller, a request handler that goes on using it, in the mode it had, after the payment.\n */\npublic final class Payments {\n\n    private Payments() {}\n\n    /** Takes the amount from the wallet and records the payment, both or neither. */\n    public static void pay(Connection conn, long wallet, BigDecimal amount, String reference) throws SQLException {\n        boolean autoCommit = conn.getAutoCommit();\n        conn.setAutoCommit(false);\n        try {\n            if (debit(conn, wallet, amount) == 0) throw new SQLException(\"no wallet \" + wallet);\n            record(conn, wallet, amount, reference);\n            conn.commit();\n        } catch (SQLException | RuntimeException e) {\n            conn.rollback();\n            throw e;\n        } finally {\n            conn.setAutoCommit(autoCommit);\n        }\n    }\n\n    /** Takes the amount from the wallet; returns the update count. */\n    static int debit(Connection conn, long wallet, BigDecimal amount) throws SQLException {\n        try (PreparedStatement ps = conn.prepareStatement(\"UPDATE wallet SET balance = balance - ? WHERE id = ?\")) {\n            ps.setBigDecimal(1, amount);\n            ps.setLong(2, wallet);\n            return ps.executeUpdate();\n        }\n    }\n\n    /** Inserts the payment row. */\n    static void record(Connection conn, long wallet, BigDecimal amount, String reference) throws SQLException {\n        try (PreparedStatement ps = conn.prepareStatement(\n                \"INSERT INTO payment (wallet_id, amount, reference) VALUES (?, ?, ?)\")) {\n            ps.setLong(1, wallet);\n            ps.setBigDecimal(2, amount);\n            ps.setString(3, reference);\n            ps.executeUpdate();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -73,7 +75,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\n\npublic final class NameQuery {\n\n    private NameQuery() {\n    }\n\n    /** The names in the department, ordered by id; the connection is the caller's. */\n    public static List<String> names(Connection connection, String department) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\n\n/**\n * Card payments against wallet(id BIGINT, balance DECIMAL(12,2)): the wallet is debited and a row\n * goes into payment(wallet_id, amount, reference VARCHAR(16)). The connection is lent by the\n * caller, a request handler that goes on using it, in the mode it had, after the payment.\n */\npublic final class Payments {\n\n    private Payments() {}\n\n    /** Takes the amount from the wallet and records the payment, both or neither. */\n    public static void pay(Connection conn, long wallet, BigDecimal amount, String reference) throws SQLException {\n        // TODO: Debit the wallet with debit(...) and record the payment with record(...).\n        //       A customer must never lose money without a payment row to show for it, and the\n        //       request handler goes on using this connection afterwards.\n        throw new IllegalStateException(\"TODO: pay\");\n    }\n\n    /** Takes the amount from the wallet; returns the update count. */\n    static int debit(Connection conn, long wallet, BigDecimal amount) throws SQLException {\n        try (PreparedStatement ps = conn.prepareStatement(\"UPDATE wallet SET balance = balance - ? WHERE id = ?\")) {\n            ps.setBigDecimal(1, amount);\n            ps.setLong(2, wallet);\n            return ps.executeUpdate();\n        }\n    }\n\n    /** Inserts the payment row. */\n    static void record(Connection conn, long wallet, BigDecimal amount, String reference) throws SQLException {\n        try (PreparedStatement ps = conn.prepareStatement(\n                \"INSERT INTO payment (wallet_id, amount, reference) VALUES (?, ?, ?)\")) {\n            ps.setLong(1, wallet);\n            ps.setBigDecimal(2, amount);\n            ps.setString(3, reference);\n            ps.executeUpdate();\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -84,7 +86,7 @@
     "paras": 2,
     "code": 1,
     "tables": 1,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -92,11 +94,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e7fd7952584c7964a0d8e168bb94909abc85e2d8a81e11843486d0d9f2342731",
-  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\n\npublic final class NameQuery {\n\n    private NameQuery() {\n    }\n\n    /** The names in the department, ordered by id; the connection is the caller's. */\n    public static List<String> names(Connection connection, String department) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "08164a5d1ea8d9be2a17cf80e71fcd9adefde9d6a9de0d48ed1540361d430c37",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\n\n/**\n * Card payments against wallet(id BIGINT, balance DECIMAL(12,2)): the wallet is debited and a row\n * goes into payment(wallet_id, amount, reference VARCHAR(16)). The connection is lent by the\n * caller, a request handler that goes on using it, in the mode it had, after the payment.\n */\npublic final class Payments {\n\n    private Payments() {}\n\n    /** Takes the amount from the wallet and records the payment, both or neither. */\n    public static void pay(Connection conn, long wallet, BigDecimal amount, String reference) throws SQLException {\n        // TODO: Debit the wallet with debit(...) and record the payment with record(...).\n        //       A customer must never lose money without a payment row to show for it, and the\n        //       request handler goes on using this connection afterwards.\n        throw new IllegalStateException(\"TODO: pay\");\n    }\n\n    /** Takes the amount from the wallet; returns the update count. */\n    static int debit(Connection conn, long wallet, BigDecimal amount) throws SQLException {\n        try (PreparedStatement ps = conn.prepareStatement(\"UPDATE wallet SET balance = balance - ? WHERE id = ?\")) {\n            ps.setBigDecimal(1, amount);\n            ps.setLong(2, wallet);\n            return ps.executeUpdate();\n        }\n    }\n\n    /** Inserts the payment row. */\n    static void record(Connection conn, long wallet, BigDecimal amount, String reference) throws SQLException {\n        try (PreparedStatement ps = conn.prepareStatement(\n                \"INSERT INTO payment (wallet_id, amount, reference) VALUES (?, ?, ?)\")) {\n            ps.setLong(1, wallet);\n            ps.setBigDecimal(2, amount);\n            ps.setString(3, reference);\n            ps.executeUpdate();\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-3/src/main/java/practice/NameQuery.java",
-    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-3/src/test/java/practice/NameQueryTest.java",
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-3/src/main/java/practice/Payments.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-3/src/test/java/practice/PaymentsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -117,24 +119,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NameQueryTest#returnsTheDepartmentsNames",
+        "id": "practice.PaymentsTest#aPaymentDebitsTheWalletAndIsRecorded",
         "kind": "main",
-        "says": "names() returns the names in the department, ordered by id."
+        "says": "a payment debits the wallet and records a payment row, both visible to another session"
       },
       {
-        "id": "practice.NameQueryTest#theStatementIsClosedAfterwards",
-        "kind": "edge",
-        "says": "When names() returns, the PreparedStatement and its ResultSet are both closed."
+        "id": "practice.PaymentsTest#consecutivePaymentsAllLand",
+        "kind": "main",
+        "says": "several payments in a row on the same connection all take effect"
       },
       {
-        "id": "practice.NameQueryTest#theyAreClosedEvenWhenReadingFails",
+        "id": "practice.PaymentsTest#aRejectedReferenceLeavesTheWalletAsItWas",
         "kind": "edge",
-        "says": "When reading the second row throws SQLException, that exception reaches the caller and the statement and result set are still closed."
+        "says": "when the payment row is rejected, the SQLException reaches the caller and the wallet keeps its balance, as seen from the same connection and from another"
       },
       {
-        "id": "practice.NameQueryTest#theCallersConnectionStaysOpen",
+        "id": "practice.PaymentsTest#theRequestsConnectionIsBackInAutoCommitAfterAFailure",
         "kind": "edge",
-        "says": "The Connection passed in is still open after names() returns, so the caller can keep using it."
+        "says": "after a failed payment the lent connection is back in auto-commit mode, so the caller's next statement commits"
+      },
+      {
+        "id": "practice.PaymentsTest#aPaymentFromAWalletThatDoesNotExistIsRefused",
+        "kind": "edge",
+        "says": "a payment from a wallet id that matches no row throws SQLException and records nothing"
       }
     ],
     "report": {
@@ -143,10 +150,12 @@
     },
     "origin": {
       "path": "45-java-persistence/README_10.7.1.md",
-      "section": "2. Resource Leaks"
+      "section": "Auto-Commit Is On, So Each Statement Commits by Itself"
     },
     "concepts": [
-      "Statements and result sets are closed with try-with-resources, so they are released even when an exception is thrown."
+      "Changing the auto-commit mode during a transaction commits it, so a finally that restores the mode without a rollback commits the half-done work.",
+      "Turning auto-commit off, committing at the end, rolling back in the catch and restoring the mode makes the statements all or nothing.",
+      "executeUpdate and executeBatch return how many rows each statement changed, and 0 means the WHERE matched nothing, not an error."
     ]
   }
 }

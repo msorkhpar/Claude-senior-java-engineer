@@ -1,308 +1,202 @@
 # 6.6.1.1. Parallelizing Tasks with ForkJoinPool
 
-## Concept Explanation
+The analytics service's thread count climbs all day, from 90 threads at 08:00 to several thousand
+by evening, and some evenings the JVM can no longer start a thread. Each request aggregates its rows
+in `new ForkJoinPool(4)`. In the same service, the morning scoring job runs on a pool of four and
+takes as long as it did on one thread.
 
-`ForkJoinPool` is a specialized `ExecutorService` implementation designed for fork/join-style parallelism. Unlike a
-traditional thread pool (`ThreadPoolExecutor`), which uses a shared task queue, `ForkJoinPool` gives each worker thread
-its own double-ended work queue (deque) and employs a **work-stealing** algorithm to keep all threads busy.
+Unit 6.6.1 showed why blocking work belongs on a pool of its own, away from the common pool. This
+unit is about owning one.
 
-**Real-world analogy**: Consider a restaurant kitchen with multiple chefs. In a traditional kitchen (thread pool), orders
-go to a single queue and chefs pick from it. In a fork/join kitchen, each chef has their own prep station with a stack of
-sub-tasks. If a chef finishes their stack early, they walk over to a busy chef's station and take a task from the bottom
-of that chef's pile. This ensures no chef is idle while work remains.
+## A Pool You Create Keeps Its Threads Until You Close It
 
-### How ForkJoinPool Works
-
-1. A large task is submitted to the pool.
-2. The task's `compute()` method decides whether the input is small enough to process sequentially.
-3. If not, it splits into subtasks: **forks** one and **computes** the other inline.
-4. The forked subtask is placed on the current thread's deque.
-5. Other threads may **steal** it from the deque's opposite end.
-6. Results are combined when `join()` is called.
-
-### The Common Pool
-
-Java provides a JVM-wide singleton: `ForkJoinPool.commonPool()`. It is used by:
-
-- `parallelStream()`
-- `CompletableFuture.supplyAsync()` (when no executor is specified)
-- Any code that calls `ForkJoinPool.commonPool()`
-
-Its default parallelism is `Runtime.getRuntime().availableProcessors() - 1`.
-
-## Key Points to Remember
-
-1. `ForkJoinPool.commonPool()` is a shared, JVM-wide pool -- contention is possible.
-2. Create a custom `ForkJoinPool` when you need isolation or different parallelism.
-3. Always shut down custom pools to release resources (`pool.shutdown()`).
-4. Use `pool.invoke(task)` for synchronous execution, `pool.submit(task)` for async.
-5. `invoke()` blocks until the task completes and returns the result.
-6. `submit()` returns a `ForkJoinTask<V>` (which is a `Future<V>`).
-7. The common pool's parallelism can be overridden with `-Djava.util.concurrent.ForkJoinPool.common.parallelism=N`.
-8. `ForkJoinPool` is **not suitable for blocking I/O** -- use `ManagedBlocker` or a different pool.
-
-## Relevant Java 21 Features
-
-- **Virtual threads**: For I/O-bound concurrency, virtual threads (`Thread.ofVirtual()`) are preferred over
-  `ForkJoinPool`. Fork/Join remains ideal for CPU-bound decomposition.
-- **Structured Concurrency (preview)**: `StructuredTaskScope` provides fork/join semantics for task lifecycle
-  management, but targets a different use case than data-parallel decomposition.
-- `availableProcessors()` has respected container CPU limits since JDK 10, so the common pool's default parallelism
-  follows the container's limit.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Saturating the common pool with blocking operations**
-
-   ```java
-   // Problem: blocking call inside parallel stream
-   list.parallelStream().map(url -> {
-       return httpClient.send(request, handler); // blocks a common pool thread
-   }).collect(toList());
-   ```
-
-   **Fix**: Use a custom pool or virtual threads for I/O:
-
-   ```java
-   ForkJoinPool customPool = new ForkJoinPool(16);
-   customPool.submit(() ->
-       list.parallelStream().map(url -> httpClient.send(request, handler)).collect(toList())
-   ).join();
-   ```
-
-2. **Forgetting to shut down custom pools**
-
-   ```java
-   ForkJoinPool pool = new ForkJoinPool(4);
-   long result = pool.invoke(task);
-   // pool leaks threads!
-   ```
-
-   **Fix**: Use try-finally:
-
-   ```java
-   ForkJoinPool pool = new ForkJoinPool(4);
-   try {
-       long result = pool.invoke(task);
-   } finally {
-       pool.shutdown();
-   }
-   ```
-
-3. **Assuming parallelism equals thread count**: The pool size can grow beyond parallelism when `ManagedBlocker` is used.
-
-4. **Using ForkJoinPool for inherently sequential problems**: Not all problems benefit from parallelism. The overhead of
-   task creation and context switching may exceed the sequential cost for small inputs.
-
-## Best Practices and Optimization Techniques
-
-1. Use the **common pool** for general-purpose parallel work unless you need isolation.
-2. Always **shut down** custom pools in a `finally` block.
-3. Set parallelism based on **CPU cores** for compute-bound work; higher for mixed workloads.
-4. Use `invoke()` when you need the result immediately; `submit()` + `join()` for deferred results.
-5. Profile to verify that parallelism provides a measurable speedup over sequential execution.
-6. Use `-Djava.util.concurrent.ForkJoinPool.common.parallelism` to tune the common pool globally.
-
-## Edge Cases and Their Handling
-
-1. **Null input arrays**: Return a default value (e.g., 0) without submitting to the pool.
-2. **Empty input arrays**: Same as null -- handle before pool submission.
-3. **Single-element input**: Compute directly; no benefit from forking.
-4. **Parallelism = 1**: The pool operates with a single worker thread plus the submitting thread.
-5. **Thread interruption**: Handle `InterruptedException` properly when using `awaitTermination()`.
-
-## Interview-specific Insights
-
-- Be ready to explain work-stealing with a whiteboard diagram showing per-thread deques.
-- Know the difference between `invoke()`, `submit()`, and `execute()`.
-- Understand why the common pool is shared with parallel streams and the implications.
-- Be able to articulate when Fork/Join is preferable to `ExecutorService` or virtual threads.
-
-## Interview Q&A Section
-
-**Q1: How do you create and use a ForkJoinPool?**
-
-```text
-A1: There are two main approaches:
-
-1. Use the common pool (recommended for most cases):
-   ForkJoinPool.commonPool().invoke(task);
-
-2. Create a custom pool:
-   ForkJoinPool pool = new ForkJoinPool(parallelism);
-   try {
-       result = pool.invoke(task);
-   } finally {
-       pool.shutdown();
-   }
-
-The common pool is shared JVM-wide and used by parallel streams.
-A custom pool provides isolation and configurable parallelism.
-```
+A handler that makes a pool per request and never closes it:
 
 ```java
-// Common pool
-long sum = ForkJoinPool.commonPool().invoke(new SumTask(array, 0, array.length));
-
-// Custom pool with 4 threads
-ForkJoinPool customPool = new ForkJoinPool(4);
-try {
-    long sum = customPool.invoke(new SumTask(array, 0, array.length));
-} finally {
-    customPool.shutdown();
+static long handleLeaky(long n) {
+    ForkJoinPool pool = new ForkJoinPool(4);
+    return pool.submit(() -> LongStream.range(0, n).parallel().map(x -> x * x).sum()).join();
 }
 ```
 
-**Q2: What is the difference between invoke(), submit(), and execute() in ForkJoinPool?**
-
 ```text
-A2: All three submit tasks to the pool, but differ in blocking behavior and return type:
-
-- invoke(task): Blocks until the task completes, returns the result directly.
-  Equivalent to submit(task).join(). Best for synchronous usage.
-
-- submit(task): Returns a ForkJoinTask<V> (a Future) immediately without blocking.
-  Call .join() or .get() later to retrieve the result. Best for asynchronous usage.
-
-- execute(task): Returns void immediately, like submit() but with no way to get
-  the result. Best for fire-and-forget RecursiveAction tasks.
-
-Only invoke() throws the task's exception to the caller. After submit(), the exception
-surfaces from join()/get(); after execute(), only if you keep the task object and call
-join()/get() on it.
+200 requests, each pool closed:   0 pool threads alive
+200 requests, pools never closed: 800 pool threads alive
 ```
+
+Every abandoned pool kept its four workers. They are daemon threads, so a short program still
+exits and the leak shows only in a server. Idle workers do end after a keep-alive time (60 s by
+default), but on Java 21 each pool retired one per minute: 50 abandoned pools, 200 idle threads,
+still had 48 three minutes later. Under steady traffic they pile up until the JVM can't
+create a native thread.
+`close()` (Java 19) shuts the pool down and waits for its tasks, so `try`-with-resources does it;
+before 19, call `shutdown()` in a `finally`. Closing the common pool does nothing.
+
+<!-- practice 1 -->
+
+## invoke() Waits for One Task; submit() Lets Them All Run
+
+Four regions to score, about 200 ms of CPU each, on a pool of four:
 
 ```java
-ForkJoinPool pool = ForkJoinPool.commonPool();
-SumTask task = new SumTask(array, 0, array.length);
+for (String r : REGIONS) pool.invoke(new Score(r));
 
-// invoke -- blocks and returns result
-long result = pool.invoke(task);
-
-// submit -- async, get result later
-ForkJoinTask<Long> future = pool.submit(new SumTask(array, 0, array.length));
-long result2 = future.join(); // blocks here
-
-// execute -- fire and forget
-pool.execute(new IncrementAction(array, 1));
+List<ForkJoinTask<Long>> tasks = new ArrayList<>();
+for (String r : REGIONS) tasks.add(pool.submit(new Score(r)));
+for (ForkJoinTask<Long> task : tasks) task.join();
 ```
-
-**Q3: How do you run a parallel stream in a custom ForkJoinPool?**
 
 ```text
-A3: By default, parallel streams use the common ForkJoinPool. To use a custom pool,
-submit the stream operation as a task to your custom pool:
-
-  ForkJoinPool customPool = new ForkJoinPool(parallelism);
-  customPool.submit(() -> myStream.parallel().operation()).join();
-
-This is useful when:
-- You want to isolate parallel stream work from the common pool
-- You need different parallelism than the common pool provides
-- You want to avoid starving other parallel operations
-
-Caveat: This technique is a practical pattern but not officially guaranteed by the
-specification. It works reliably in all current JDK implementations.
+invoke, one after another: 801 ms
+submit all, then join:     201 ms
 ```
 
+`invoke` hands over one task and waits for its result, so the loop never had more than one task
+in the pool: that is the scoring job from the start of the unit. `submit` returns the task (a
+`ForkJoinTask`, which is a `Future`) at once; all four ran together and the joins collected them.
+If one task waits for another, the `invoke` loop hangs.
+
+Called from a thread that is not a pool worker, `task.fork()` schedules the task in the common
+pool, whatever pool you meant.
+
+<!-- practice 4 -->
+
+## A Failure Reaches the Caller Through invoke() or join(), and execute() Keeps It in the Task
+
+Region `north-7` has a bad row. The same task, handed over each way:
+
+```text
+invoke:          throws IllegalStateException
+submit, join():  throws IllegalStateException
+submit, get():   throws ExecutionException, cause IllegalStateException
+execute:         returned
+                 the task holds IllegalStateException
+```
+
+`invoke` and `join()` rethrow the task's unchecked exception as its own type; `get()` wraps it, as
+any `Future` does. `execute` returns nothing, so the exception stays inside the task object, and
+unless you keep the task and join it, nobody learns that a region was never scored. (An
+`execute(Runnable)` that throws goes to the worker's uncaught-exception handler, which prints a
+stack trace and nothing more.)
+
+<!-- practice 2 -->
+
+## A Worker That Blocks Is Lost to the Pool, Unless It Blocks Through managedBlock()
+
+A pool of four runs four tasks that each wait for a configuration, and then a fifth task that
+loads it:
+
 ```java
-ForkJoinPool customPool = new ForkJoinPool(8);
-try {
-    long sum = customPool.submit(() ->
-        IntStream.range(0, array.length)
-            .parallel()
-            .mapToLong(i -> array[i])
-            .sum()
-    ).join();
-} finally {
-    customPool.shutdown();
+for (int i = 0; i < 4; i++) {
+    pool.execute(() -> {
+        waiting.countDown();
+        try {
+            if (managed) awaitManaged(configLoaded);
+            else configLoaded.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    });
+}
+waiting.await();
+pool.execute(configLoaded::countDown);              // the loader
+```
+
+```text
+plain await():   config loaded: false pool threads: 4
+managedBlock:    config loaded: true  pool threads: 5
+```
+
+All four workers are parked in `await()`, the loader sits in the queue, and nothing will ever
+release them. The pool can't see that a worker is waiting unless the task blocks through
+`ForkJoinPool.managedBlock`:
+
+```java
+static void awaitManaged(CountDownLatch latch) throws InterruptedException {
+    ForkJoinPool.managedBlock(new ForkJoinPool.ManagedBlocker() {
+        @Override
+        public boolean block() throws InterruptedException {
+            latch.await();
+            return true;
+        }
+
+        @Override
+        public boolean isReleasable() {
+            return latch.getCount() == 0;
+        }
+    });
 }
 ```
 
-**Q4: What is ManagedBlocker and when should you use it?**
+`managedBlock` first asks `isReleasable()`, which must answer without blocking: if the wait is
+already over, it never blocks. Otherwise it may start a spare worker before it calls `block()`,
+which is why the second run had five threads with a parallelism of four.
 
-```text
-A4: ManagedBlocker is an interface in ForkJoinPool that allows blocking operations
-to cooperate with the pool's thread management. When a thread is about to block,
-the pool can compensate by creating additional threads to maintain parallelism.
+Some JDK waits already do this for you, such as `Condition.await()`, the blocking queues in the
+Reference and `CompletableFuture.join()`. `CountDownLatch`, `Semaphore`, `Thread.sleep`, `Object.wait` and a
+socket read don't (see the Reference). A pool that waits on them works in testing and freezes on the day
+as many tasks wait as there are workers.
 
-Implement ManagedBlocker when you must perform a blocking operation inside a
-ForkJoinPool task (e.g., waiting on a lock, I/O, or a condition). Without it,
-the blocked thread reduces effective parallelism.
+<!-- practice 3 -->
 
-Methods to implement:
-- block(): Performs the blocking operation
-- isReleasable(): Returns true if blocking is no longer necessary
+## Summary
 
-Usage: ForkJoinPool.managedBlock(blocker);
+- **A pool you create keeps its threads until you close it.** A pool per request without `close()`
+  leaves its workers alive long after its last task.
+- **`invoke` waits for one task; `submit` lets them all run.** Submit everything before joining
+  anything, or the pool runs one task at a time.
+- **A failure reaches the caller through `invoke` or `join`.** After `execute`, it stays in the
+  task unless you keep the task and join it.
+- **A worker that blocks is lost to the pool unless it uses `managedBlock`.** Without it, waiters
+  can take every worker and starve the task that would release them.
 
-However, for I/O-bound work, virtual threads are a better choice in Java 21+.
-```
+## Reference
 
-```java
-class MyBlocker implements ForkJoinPool.ManagedBlocker {
-    private volatile boolean done = false;
-    private int result;
+**Handing a task to a pool:**
 
-    @Override
-    public boolean block() throws InterruptedException {
-        // Perform blocking operation
-        result = someBlockingCall();
-        done = true;
-        return true;
-    }
+| Call | Returns | A failure reaches the caller |
+|---|---|---|
+| `pool.invoke(task)` | the result, after waiting | thrown from `invoke`, its own type |
+| `pool.submit(task)` | the task, at once | from `join()` as its own type; from `get()` in an `ExecutionException` |
+| `pool.execute(task)` | nothing | only if you keep the task and join it |
 
-    @Override
-    public boolean isReleasable() {
-        return done;
-    }
-}
+`task.fork()` called outside any pool schedules the task in the common pool.
 
-// Usage inside a ForkJoinTask
-MyBlocker blocker = new MyBlocker();
-ForkJoinPool.managedBlock(blocker);
-```
+**One worker of a parallelism-1 pool blocks in this call: does another task of the pool still
+run?** (ran on Java 21 and 25)
 
-**Q5: What are the key configuration parameters of ForkJoinPool?**
+| Wait | Pool adds a worker |
+|---|---|
+| `ForkJoinPool.managedBlock(...)` | yes |
+| `Condition.await()`, `LinkedBlockingQueue`/`ArrayBlockingQueue`/`SynchronousQueue.take()` | yes |
+| `CompletableFuture.join()`/`get()`, `Phaser.arriveAndAwaitAdvance()` | yes |
+| `CountDownLatch.await()`, `Semaphore.acquire()`, `FutureTask.get()` | no |
+| `Object.wait()`, `Thread.sleep()`, socket `InputStream.read()` | no |
 
-```text
-A5: ForkJoinPool has several configuration options:
+**Pool facts (Java 21):** `new ForkJoinPool()` has a parallelism of one per available processor;
+the common pool one fewer, settable with `-Djava.util.concurrent.ForkJoinPool.common.parallelism=N`. Workers
+are daemon threads. `close()` (Java 19) waits for submitted tasks and shuts the pool down.
 
-1. parallelism: Number of worker threads (default: availableProcessors() - 1
-   for the common pool). This controls the maximum number of threads actively
-   executing tasks.
+## Challenges
 
-2. ForkJoinPool.ForkJoinWorkerThreadFactory: Factory for creating worker threads.
-   Allows custom thread naming, priority, or daemon status.
+1. The analytics service needs a pool for its aggregations. One pool for the service's lifetime,
+   or one per request with `close()`? Measure the cost of creating and closing a pool of four, and
+   say what each choice does to a slow request's neighbours.
+2. A task must wait on a `CountDownLatch` that a library owns, inside a pool you can't resize.
+   Wrap it in a `ManagedBlocker`, then find out how many spare workers the pool adds when 50 tasks
+   wait at once.
+3. Your batch job uses `execute` for fire-and-forget tasks. Design how a failure gets reported
+   without making the job wait for every task.
 
-3. UncaughtExceptionHandler: Handler for exceptions thrown by worker threads
-   that are not caught by task code.
+## Design Note: Why the Pool Waits to Be Told
 
-4. asyncMode: If true, tasks are processed in FIFO order instead of LIFO.
-   Useful for event-style tasks that are never joined. Default is false.
-
-Common pool can be configured via system properties:
-- java.util.concurrent.ForkJoinPool.common.parallelism
-- java.util.concurrent.ForkJoinPool.common.threadFactory
-- java.util.concurrent.ForkJoinPool.common.exceptionHandler
-```
-
-```java
-// Custom ForkJoinPool with full configuration
-ForkJoinPool pool = new ForkJoinPool(
-    4,                                          // parallelism
-    ForkJoinPool.defaultForkJoinWorkerThreadFactory, // thread factory
-    null,                                       // exception handler
-    false                                       // asyncMode (LIFO)
-);
-
-// Query pool statistics
-System.out.println("Parallelism: " + pool.getParallelism());
-System.out.println("Pool size: " + pool.getPoolSize());
-System.out.println("Active threads: " + pool.getActiveThreadCount());
-System.out.println("Steal count: " + pool.getStealCount());
-System.out.println("Queued tasks: " + pool.getQueuedTaskCount());
-```
+A `ForkJoinPool` is sized for the cores: parallelism is the number of tasks it means to run at
+once. If it started a thread whenever a worker looked idle, a task that spins or computes would be
+mistaken for one that waits, and the pool would oversubscribe the CPU it was built to fill.
+`managedBlock` moves that decision to the code that knows it is about to wait, and lets the pool
+add a spare only for that time. The cost is that the knowledge is opt-in: a library that waits on
+a latch inside your pool takes a worker with it, and nothing in the pool's API shows you which
+waits it can see.
 
 ## Code Examples
 

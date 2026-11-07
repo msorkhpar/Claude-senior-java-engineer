@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Release a lock in finally, whatever the withdrawal does",
+  "title": "Make the reconciliation export fail with the right error",
   "blocks": [
     {
       "type": "heading",
@@ -19,56 +19,20 @@
     },
     {
       "type": "para",
-      "text": "Cleanup that must happen whatever the outcome belongs in a `finally` block. A `java.util.concurrent.locks.ReentrantLock` is not `AutoCloseable`, so try-with-resources cannot release it: that is still `finally`'s job."
-    },
-    {
-      "type": "para",
-      "text": "Write the class `Vault`, holding a balance behind a lock:"
+      "text": "The nightly reconciliation export holds an export lock while it queries the ledger and writes the file. Three problems reached the on-call engineer this month:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Vault(int balance)` starts with that balance (which may be negative, for an overdrawn vault);",
-        [
-          "`int withdraw(int amount)` takes the lock, releases it in `finally`, and:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "throws `IllegalArgumentException(\"amount must be positive\")` when `amount <= 0`;",
-              "throws `IllegalStateException(\"insufficient funds\")` when `amount` is more than the balance;",
-              "otherwise lowers the balance by `amount` and returns the new balance;"
-            ]
-          }
-        ],
-        "`int balance()` returns the balance, and `boolean isLocked()` says whether the lock is held."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls on `new Vault(100)`",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`withdraw(30)`",
-          "`70`"
-        ],
-        [
-          "then `isLocked()`",
-          "`false`"
-        ],
-        [
-          "then `withdraw(500)`",
-          "throws `IllegalStateException(\"insufficient funds\")`"
-        ]
+        "an alert read `quota exceeded on /exports`, and the ledger's timeout that actually ended the run only turned up the next day, in the database's own log;",
+        "after one such night, no export started again until the service was restarted;",
+        "one file was missing its last rows, and the run had reported success."
       ]
     },
     {
       "type": "para",
-      "text": "The tests run on one thread, so they make no thread-safety claim (which statements sit inside the locked region is not graded); they check what one caller sees: the results above, and that however `withdraw` ends, the lock is free afterwards and a refused withdrawal leaves the balance as it was, whatever the numbers (compare `amount` with the balance; a subtraction can overflow)."
+      "text": "`run(...)` already passes `release(...)` whatever ended the export. Finish `release(...)` in `src/main/java/practice/ReconciliationExport.java`, which closes the writer and releases the lock, so that none of the three can happen again: the caller of `run(...)` gets the failure that ended the export, with any failure of the close kept on it, a failure of the close alone is not hidden, and the lock is free afterwards whatever failed. About eight lines."
     },
     {
       "type": "heading",
@@ -83,7 +47,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.locks.ReentrantLock;\n\npublic final class Vault {\n\n    private final ReentrantLock lock = new ReentrantLock();\n    private int balance;\n\n    /** Starts the vault with {@code balance}. */\n    public Vault(int balance) {\n        this.balance = balance;\n    }\n\n    /** Takes {@code amount} out under the lock and returns the new balance. */\n    public int withdraw(int amount) {\n        lock.lock();\n        try {\n            if (amount <= 0) {\n                throw new IllegalArgumentException(\"amount must be positive\");\n            }\n            if (amount > balance) {\n                throw new IllegalStateException(\"insufficient funds\");\n            }\n            balance -= amount;\n            return balance;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Returns the current balance. */\n    public int balance() {\n        return balance;\n    }\n\n    /** Returns whether the vault's lock is held. */\n    public boolean isLocked() {\n        return lock.isLocked();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.List;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * Writes the nightly reconciliation file. Only one export may run at a time, so each run holds\n * the export lock while it queries and writes.\n */\npublic class ReconciliationExport {\n\n    /** Loads the rows to export; it fails with an unchecked exception, a timeout for example. */\n    public interface Query {\n        List<String> rows();\n    }\n\n    /** Writes the file; close() flushes the buffered rows and can fail. */\n    public interface ReportWriter {\n        void write(String row) throws IOException;\n\n        void close() throws IOException;\n    }\n\n    private final ReentrantLock exportLock;\n\n    public ReconciliationExport(ReentrantLock exportLock) {\n        this.exportLock = exportLock;\n    }\n\n    /** Runs one export: queries the rows and writes them, then closes the writer and the lock. */\n    public void run(Query query, ReportWriter out) throws IOException {\n        exportLock.lock();\n        Throwable failure = null;\n        try {\n            for (String row : query.rows()) out.write(row);\n        } catch (Throwable t) {\n            failure = t;\n            throw t;\n        } finally {\n            release(out, failure);\n        }\n    }\n\n    /**\n     * Closes the writer and releases the export lock once the export has ended. {@code failure}\n     * is what ended the export, or null when it finished its rows.\n     */\n    void release(ReportWriter out, Throwable failure) throws IOException {\n        try {\n            out.close();\n        } catch (IOException e) {\n            if (failure == null) throw e;\n            failure.addSuppressed(e);\n        } finally {\n            exportLock.unlock();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -95,7 +59,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Vault {\n\n    /** Starts the vault with {@code balance}. */\n    public Vault(int balance) {\n    }\n\n    /** Takes {@code amount} out under the lock and returns the new balance. */\n    public int withdraw(int amount) {\n        throw new UnsupportedOperationException(\"write withdraw\");\n    }\n\n    /** Returns the current balance. */\n    public int balance() {\n        throw new UnsupportedOperationException(\"write balance\");\n    }\n\n    /** Returns whether the vault's lock is held. */\n    public boolean isLocked() {\n        throw new UnsupportedOperationException(\"write isLocked\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.List;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * Writes the nightly reconciliation file. Only one export may run at a time, so each run holds\n * the export lock while it queries and writes.\n */\npublic class ReconciliationExport {\n\n    /** Loads the rows to export; it fails with an unchecked exception, a timeout for example. */\n    public interface Query {\n        List<String> rows();\n    }\n\n    /** Writes the file; close() flushes the buffered rows and can fail. */\n    public interface ReportWriter {\n        void write(String row) throws IOException;\n\n        void close() throws IOException;\n    }\n\n    private final ReentrantLock exportLock;\n\n    public ReconciliationExport(ReentrantLock exportLock) {\n        this.exportLock = exportLock;\n    }\n\n    /** Runs one export: queries the rows and writes them, then closes the writer and the lock. */\n    public void run(Query query, ReportWriter out) throws IOException {\n        exportLock.lock();\n        Throwable failure = null;\n        try {\n            for (String row : query.rows()) out.write(row);\n        } catch (Throwable t) {\n            failure = t;\n            throw t;\n        } finally {\n            release(out, failure);\n        }\n    }\n\n    /**\n     * Closes the writer and releases the export lock once the export has ended. {@code failure}\n     * is what ended the export, or null when it finished its rows.\n     */\n    void release(ReportWriter out, Throwable failure) throws IOException {\n        // TODO: Close the writer and release the export lock. Closing can fail too. Whoever is\n        //       paged reads the exception run() throws, and the next export must be able to\n        //       start whatever happened to this one.\n        throw new IllegalStateException(\"TODO: release\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -103,9 +67,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -114,11 +78,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9c2703d870b2da036b28185bb7ecba3dba39e7ceadc469586a6edd7c6f294351",
-  "starting_code": "package practice;\n\npublic final class Vault {\n\n    /** Starts the vault with {@code balance}. */\n    public Vault(int balance) {\n    }\n\n    /** Takes {@code amount} out under the lock and returns the new balance. */\n    public int withdraw(int amount) {\n        throw new UnsupportedOperationException(\"write withdraw\");\n    }\n\n    /** Returns the current balance. */\n    public int balance() {\n        throw new UnsupportedOperationException(\"write balance\");\n    }\n\n    /** Returns whether the vault's lock is held. */\n    public boolean isLocked() {\n        throw new UnsupportedOperationException(\"write isLocked\");\n    }\n}\n",
+  "content_sha256": "60c6e576ce76c5f6a510f59b4edafbd99f7ef57ad178b6543bf9663ea71b3724",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.util.List;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * Writes the nightly reconciliation file. Only one export may run at a time, so each run holds\n * the export lock while it queries and writes.\n */\npublic class ReconciliationExport {\n\n    /** Loads the rows to export; it fails with an unchecked exception, a timeout for example. */\n    public interface Query {\n        List<String> rows();\n    }\n\n    /** Writes the file; close() flushes the buffered rows and can fail. */\n    public interface ReportWriter {\n        void write(String row) throws IOException;\n\n        void close() throws IOException;\n    }\n\n    private final ReentrantLock exportLock;\n\n    public ReconciliationExport(ReentrantLock exportLock) {\n        this.exportLock = exportLock;\n    }\n\n    /** Runs one export: queries the rows and writes them, then closes the writer and the lock. */\n    public void run(Query query, ReportWriter out) throws IOException {\n        exportLock.lock();\n        Throwable failure = null;\n        try {\n            for (String row : query.rows()) out.write(row);\n        } catch (Throwable t) {\n            failure = t;\n            throw t;\n        } finally {\n            release(out, failure);\n        }\n    }\n\n    /**\n     * Closes the writer and releases the export lock once the export has ended. {@code failure}\n     * is what ended the export, or null when it finished its rows.\n     */\n    void release(ReportWriter out, Throwable failure) throws IOException {\n        // TODO: Close the writer and release the export lock. Closing can fail too. Whoever is\n        //       paged reads the exception run() throws, and the next export must be able to\n        //       start whatever happened to this one.\n        throw new IllegalStateException(\"TODO: release\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-3/src/main/java/practice/Vault.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-3/src/test/java/practice/VaultTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-3/src/main/java/practice/ReconciliationExport.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-3/src/test/java/practice/ReconciliationExportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -139,19 +103,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.VaultTest#withdrawsAndReleasesTheLock",
+        "id": "practice.ReconciliationExportTest#writesTheRowsThenClosesTheFileAndFreesTheLock",
         "kind": "main",
-        "says": "A withdrawal lowers the balance and releases the lock."
+        "says": "a successful export writes its rows, closes the writer and releases the export lock"
       },
       {
-        "id": "practice.VaultTest#aRefusedWithdrawalReleasesTheLock",
-        "kind": "edge",
-        "says": "A withdrawal refused with an exception still releases the lock, because the unlock is in finally."
+        "id": "practice.ReconciliationExportTest#aFailedQueryReachesTheCallerAndStillFreesTheLock",
+        "kind": "main",
+        "says": "when the query fails and the close succeeds, the query's exception reaches the caller and the writer and the lock are released"
       },
       {
-        "id": "practice.VaultTest#aRefusedWithdrawalLeavesTheBalance",
+        "id": "practice.ReconciliationExportTest#whenTheQueryAndTheCloseBothFailTheCallerSeesTheQueryFailure",
         "kind": "edge",
-        "says": "A refused withdrawal leaves the balance as it was."
+        "says": "when the query and the close both fail, the caller gets the query's exception"
+      },
+      {
+        "id": "practice.ReconciliationExportTest#aCloseThatFailsOnItsOwnStillFreesTheLock",
+        "kind": "edge",
+        "says": "when only the close fails, the export lock is still released"
+      },
+      {
+        "id": "practice.ReconciliationExportTest#aCloseThatFailsOnItsOwnReachesTheCaller",
+        "kind": "edge",
+        "says": "when only the close fails, its exception reaches the caller"
+      },
+      {
+        "id": "practice.ReconciliationExportTest#whenBothFailTheCloseFailureTravelsWithTheQueryFailure",
+        "kind": "edge",
+        "says": "when both fail, the close's exception is attached to the query's exception as suppressed"
       }
     ],
     "report": {
@@ -160,10 +139,11 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.3.md",
-      "section": "Best Practices"
+      "section": "An Exception From finally Replaces the One in Flight and Skips the Cleanup After It"
     },
     "concepts": [
-      "Cleanup that try-with-resources cannot do, such as releasing a lock, still belongs in finally."
+      "An exception thrown from finally replaces the exception in flight, with no cause or suppressed link to it, and ends the finally so later cleanup steps don't run.",
+      "Each cleanup step that can fail gets its own try: its failure is added as suppressed to the one in flight or rethrown when there is none, and a lock is released in an inner finally."
     ]
   }
 }
