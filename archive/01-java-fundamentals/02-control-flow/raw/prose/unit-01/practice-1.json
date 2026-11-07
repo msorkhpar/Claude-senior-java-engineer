@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Letter grades from an else-if chain",
+  "title": "Stop the payments client from giving up on a throttled request",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,44 @@
     },
     {
       "type": "para",
-      "text": "An `else if` chain tests its conditions from the top and runs only the first branch that holds, so the order of the conditions matters, and so does whether each boundary uses `>=` or `>`."
+      "text": "The payments client sends each request through `RetryPolicy`, which looks at the HTTP status of every response and decides what to do next. The on-call log from last week has two complaints: requests that the provider throttled were dropped instead of retried, and a misbehaving proxy that answered with status `600` kept the client retrying."
     },
     {
       "type": "para",
-      "text": "Write `letter(int score)` in `Grades`. It returns the letter for a score from `0` to `100`:"
+      "text": "The policy the team agreed on:"
     },
     {
       "type": "table",
       "headers": [
-        "score",
-        "letter"
+        "Status",
+        "Action"
       ],
       "rows": [
         [
-          "90 to 100",
-          "`\"A\"`"
+          "`429` or `503`",
+          "`RETRY_LATER` (the provider says when)"
         ],
         [
-          "80 to 89",
-          "`\"B\"`"
+          "`200` to `299`",
+          "`DONE`"
         ],
         [
-          "70 to 79",
-          "`\"C\"`"
+          "any other `400` to `499`",
+          "`GIVE_UP`"
         ],
         [
-          "60 to 69",
-          "`\"D\"`"
+          "any other `500` to `599`",
+          "`RETRY_NOW`"
         ],
         [
-          "0 to 59",
-          "`\"F\"`"
+          "anything else",
+          "`UNEXPECTED`"
         ]
       ]
     },
     {
       "type": "para",
-      "text": "A score below `0` or above `100` is not a score: return `\"Invalid\"` for it."
-    },
-    {
-      "type": "para",
-      "text": "Examples: `letter(95)` is `\"A\"`, `letter(90)` is `\"A\"`, `letter(89)` is `\"B\"`, `letter(59)` is `\"F\"`, `letter(101)` is `\"Invalid\"`."
+      "text": "`attempts(...)` already drives a request from these decisions. Write `decide(int status)` in `src/main/java/practice/RetryPolicy.java` so that it follows the table for every `int`. About ten lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +71,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Grades {\n\n    private Grades() {\n    }\n\n    /** Returns the letter grade for a score from 0 to 100, or \"Invalid\" outside that range. */\n    public static String letter(int score) {\n        if (score < 0 || score > 100) {\n            return \"Invalid\";\n        } else if (score >= 90) {\n            return \"A\";\n        } else if (score >= 80) {\n            return \"B\";\n        } else if (score >= 70) {\n            return \"C\";\n        } else if (score >= 60) {\n            return \"D\";\n        } else {\n            return \"F\";\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Iterator;\n\n/**\n * Decides what the payments client does with each HTTP status it gets back, and drives the\n * attempts of one request from those decisions.\n */\npublic class RetryPolicy {\n\n    public enum Action { DONE, RETRY_LATER, RETRY_NOW, GIVE_UP, UNEXPECTED }\n\n    /**\n     * Sends one request until a response ends it or {@code maxAttempts} is reached, and returns\n     * the number of attempts made. {@code responses} yields the status of each attempt in turn.\n     */\n    public int attempts(Iterator<Integer> responses, int maxAttempts) {\n        int made = 0;\n        while (made < maxAttempts && responses.hasNext()) {\n            made++;\n            Action action = decide(responses.next());\n            if (action != Action.RETRY_LATER && action != Action.RETRY_NOW) {\n                break;\n            }\n        }\n        return made;\n    }\n\n    /** What the client does with one response status. */\n    Action decide(int status) {\n        if (status == 429 || status == 503) {\n            return Action.RETRY_LATER;\n        } else if (status >= 200 && status <= 299) {\n            return Action.DONE;\n        } else if (status >= 400 && status <= 499) {\n            return Action.GIVE_UP;\n        } else if (status >= 500 && status <= 599) {\n            return Action.RETRY_NOW;\n        } else {\n            return Action.UNEXPECTED;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +83,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Grades {\n\n    private Grades() {\n    }\n\n    /** Returns the letter grade for a score from 0 to 100, or \"Invalid\" outside that range. */\n    public static String letter(int score) {\n        throw new UnsupportedOperationException(\"write letter\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Iterator;\n\n/**\n * Decides what the payments client does with each HTTP status it gets back, and drives the\n * attempts of one request from those decisions.\n */\npublic class RetryPolicy {\n\n    public enum Action { DONE, RETRY_LATER, RETRY_NOW, GIVE_UP, UNEXPECTED }\n\n    /**\n     * Sends one request until a response ends it or {@code maxAttempts} is reached, and returns\n     * the number of attempts made. {@code responses} yields the status of each attempt in turn.\n     */\n    public int attempts(Iterator<Integer> responses, int maxAttempts) {\n        int made = 0;\n        while (made < maxAttempts && responses.hasNext()) {\n            made++;\n            Action action = decide(responses.next());\n            if (action != Action.RETRY_LATER && action != Action.RETRY_NOW) {\n                break;\n            }\n        }\n        return made;\n    }\n\n    /** What the client does with one response status. */\n    Action decide(int status) {\n        // TODO: Return the action for this status, as the policy in the statement lists it.\n        //       Every int can arrive here, not only the codes the policy names.\n        throw new IllegalStateException(\"TODO: decide\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,7 +91,7 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
     "tables": 1,
     "lists": 0,
@@ -106,11 +102,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a15995ba8af4f98d625804f09dcd2a8cf3ca67e7b8c6ec3ebf2a891bfcb2d1bd",
-  "starting_code": "package practice;\n\npublic final class Grades {\n\n    private Grades() {\n    }\n\n    /** Returns the letter grade for a score from 0 to 100, or \"Invalid\" outside that range. */\n    public static String letter(int score) {\n        throw new UnsupportedOperationException(\"write letter\");\n    }\n}\n",
+  "content_sha256": "063bd736d72d9410d0123167a2d1d282e3659043475ec232b224aac405d8356c",
+  "starting_code": "package practice;\n\nimport java.util.Iterator;\n\n/**\n * Decides what the payments client does with each HTTP status it gets back, and drives the\n * attempts of one request from those decisions.\n */\npublic class RetryPolicy {\n\n    public enum Action { DONE, RETRY_LATER, RETRY_NOW, GIVE_UP, UNEXPECTED }\n\n    /**\n     * Sends one request until a response ends it or {@code maxAttempts} is reached, and returns\n     * the number of attempts made. {@code responses} yields the status of each attempt in turn.\n     */\n    public int attempts(Iterator<Integer> responses, int maxAttempts) {\n        int made = 0;\n        while (made < maxAttempts && responses.hasNext()) {\n            made++;\n            Action action = decide(responses.next());\n            if (action != Action.RETRY_LATER && action != Action.RETRY_NOW) {\n                break;\n            }\n        }\n        return made;\n    }\n\n    /** What the client does with one response status. */\n    Action decide(int status) {\n        // TODO: Return the action for this status, as the policy in the statement lists it.\n        //       Every int can arrive here, not only the codes the policy names.\n        throw new IllegalStateException(\"TODO: decide\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-01/practice-1/src/main/java/practice/Grades.java",
-    "test_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-01/practice-1/src/test/java/practice/GradesTest.java",
+    "main_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-01/practice-1/src/main/java/practice/RetryPolicy.java",
+    "test_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-01/practice-1/src/test/java/practice/RetryPolicyTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +127,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.GradesTest#gradesScoresInsideEachBand",
+        "id": "practice.RetryPolicyTest#decidesTheCommonStatuses",
         "kind": "main",
-        "says": "Scores well inside a band get that band's letter."
+        "says": "a success, a client error, a server error and a redirect each get the action the policy lists"
       },
       {
-        "id": "practice.GradesTest#theFirstMatchingBranchWins",
-        "kind": "edge",
-        "says": "85, 75 and 65 get B, C and D: the chain stops at the first condition that holds."
+        "id": "practice.RetryPolicyTest#aRequestRetriesUntilItSucceeds",
+        "kind": "main",
+        "says": "a request is retried after server errors and stops at the first response that ends it"
       },
       {
-        "id": "practice.GradesTest#eachLowerBoundBelongsToItsBand",
+        "id": "practice.RetryPolicyTest#throttledAndUnavailableResponsesWaitForTheServer",
         "kind": "edge",
-        "says": "90, 80, 70 and 60 belong to the higher band: each lower bound is inclusive."
+        "says": "429 and 503 are retried later, although they also lie inside the 4xx and 5xx ranges"
       },
       {
-        "id": "practice.GradesTest#aScoreOutsideTheRangeIsInvalid",
+        "id": "practice.RetryPolicyTest#theFirstAndLastCodeOfEachClassAreDecidedLikeTheRest",
         "kind": "edge",
-        "says": "-1 and 101 are \"Invalid\", not a letter."
+        "says": "200, 299, 400, 499, 500 and 599 get the action of their class"
+      },
+      {
+        "id": "practice.RetryPolicyTest#statusesOutsideTheKnownClassesAreUnexpected",
+        "kind": "edge",
+        "says": "a status above 599, below 200 or negative is unexpected, not retried"
       }
     ],
     "report": {
@@ -157,11 +158,11 @@
     },
     "origin": {
       "path": "02-control-flow/README_1.2.1.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "An else-if Chain Runs the First Branch That Holds, So the Order Is the Specification"
     },
     "concepts": [
-      "An else-if chain tests its conditions in order and runs only the first branch whose condition holds.",
-      "Comparisons at the edges of a range decide which branch a boundary value takes, so >= and > are not interchangeable."
+      "The comparison at each boundary of a range decides which branch the boundary value takes.",
+      "An else-if chain runs only the first branch whose condition holds, so a special case inside a range must come before the range."
     ]
   }
 }

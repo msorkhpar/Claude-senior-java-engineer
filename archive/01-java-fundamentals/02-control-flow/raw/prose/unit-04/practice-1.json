@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Days in a month with grouped case labels",
+  "title": "Escalate an incident by its severity",
   "blocks": [
     {
       "type": "heading",
@@ -19,25 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Case labels stacked on one body share it: execution falls through the empty labels into the statements below them. The `default` case catches every value no label names."
+      "text": "The on-call desk turns every alert into an incident with a severity from 1 (worst) to 4. The response is cumulative: severity 4 only writes the incident log; severity 3 opens a ticket and does what severity 4 does; severity 2 posts to the incident channel and does what severity 3 does; severity 1 pages the on-call engineer and does what severity 2 does. Within one incident, the most urgent action comes first. Last week a monitor with a bad config sent severity 0, and nobody noticed because nothing happened."
     },
     {
       "type": "para",
-      "text": "Write `days(int month, int year)` in `Calendar`, with a `switch` statement. It returns the number of days in `month` (1 to 12) of `year`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "January, March, May, July, August, October and December have `31`;",
-        "April, June, September and November have `30`;",
-        "February has `29` in a leap year and `28` otherwise. A year is a leap year when it is divisible by 4, except that a year divisible by 100 is not, unless it is also divisible by 400: `2024` and `2000` are leap years, `2023` and `1900` are not;",
-        "any other month number returns `-1`."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Examples: `days(1, 2023)` is `31`, `days(4, 2023)` is `30`, `days(2, 2024)` is `29`, `days(2, 1900)` is `28`, and `days(13, 2023)` is `-1`."
+      "text": "`Escalation` already validates the monitor's name. Write `escalate(int severity)` in `src/main/java/practice/Escalation.java`, as one `switch` statement, so that each severity runs its actions in that order and a severity outside 1 to 4 throws `IllegalArgumentException` before any action runs. About a dozen lines in total."
     },
     {
       "type": "heading",
@@ -52,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Calendar {\n\n    private Calendar() {\n    }\n\n    /** Returns the number of days in the month, or -1 for a month outside 1 to 12. */\n    public static int days(int month, int year) {\n        int days;\n        switch (month) {\n            case 1:\n            case 3:\n            case 5:\n            case 7:\n            case 8:\n            case 10:\n            case 12:\n                days = 31;\n                break;\n            case 4:\n            case 6:\n            case 9:\n            case 11:\n                days = 30;\n                break;\n            case 2:\n                days = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? 29 : 28;\n                break;\n            default:\n                days = -1;\n        }\n        return days;\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Starts the response to an incident. Severity 1 is the worst: it pages the on-call engineer,\n * and also does everything severity 2 does. Severity 2 posts to the incident channel, and also\n * does everything severity 3 does. Severity 3 opens a ticket, and also does what severity 4\n * does. Severity 4 only writes to the incident log.\n */\npublic class Escalation {\n\n    /** What the desk can do, in the order a severity-1 incident does it. */\n    public interface Actions {\n        void pageOnCall();\n        void postToChannel();\n        void openTicket();\n        void log();\n    }\n\n    private final Actions actions;\n\n    public Escalation(Actions actions) {\n        this.actions = actions;\n    }\n\n    /** Reports an incident from a monitor; the monitor's own name goes into the log. */\n    public void report(String monitor, int severity) {\n        if (monitor == null || monitor.isBlank()) {\n            throw new IllegalArgumentException(\"an incident needs the name of its monitor\");\n        }\n        escalate(severity);\n    }\n\n    /**\n     * Runs the actions of this severity, most urgent first. A severity outside 1 to 4 is\n     * rejected with IllegalArgumentException before anything is done.\n     */\n    void escalate(int severity) {\n        switch (severity) {\n            case 1:\n                actions.pageOnCall();\n            case 2:\n                actions.postToChannel();\n            case 3:\n                actions.openTicket();\n            case 4:\n                actions.log();\n                break;\n            default:\n                throw new IllegalArgumentException(\"unknown severity \" + severity);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -64,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Calendar {\n\n    private Calendar() {\n    }\n\n    /** Returns the number of days in the month, or -1 for a month outside 1 to 12. */\n    public static int days(int month, int year) {\n        throw new UnsupportedOperationException(\"write days\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Starts the response to an incident. Severity 1 is the worst: it pages the on-call engineer,\n * and also does everything severity 2 does. Severity 2 posts to the incident channel, and also\n * does everything severity 3 does. Severity 3 opens a ticket, and also does what severity 4\n * does. Severity 4 only writes to the incident log.\n */\npublic class Escalation {\n\n    /** What the desk can do, in the order a severity-1 incident does it. */\n    public interface Actions {\n        void pageOnCall();\n        void postToChannel();\n        void openTicket();\n        void log();\n    }\n\n    private final Actions actions;\n\n    public Escalation(Actions actions) {\n        this.actions = actions;\n    }\n\n    /** Reports an incident from a monitor; the monitor's own name goes into the log. */\n    public void report(String monitor, int severity) {\n        if (monitor == null || monitor.isBlank()) {\n            throw new IllegalArgumentException(\"an incident needs the name of its monitor\");\n        }\n        escalate(severity);\n    }\n\n    /**\n     * Runs the actions of this severity, most urgent first. A severity outside 1 to 4 is\n     * rejected with IllegalArgumentException before anything is done.\n     */\n    void escalate(int severity) {\n        // TODO: Run the actions this severity calls for, most urgent first: each severity does\n        //       its own action and then everything the next lower severity does. Reject a\n        //       severity outside 1 to 4 with IllegalArgumentException before doing anything.\n        throw new IllegalStateException(\"TODO: escalate\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -72,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -83,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "94d464e17daf2a1c6eaf91a52ebceb33bcc95248156d50bb4d60428817ef305d",
-  "starting_code": "package practice;\n\npublic final class Calendar {\n\n    private Calendar() {\n    }\n\n    /** Returns the number of days in the month, or -1 for a month outside 1 to 12. */\n    public static int days(int month, int year) {\n        throw new UnsupportedOperationException(\"write days\");\n    }\n}\n",
+  "content_sha256": "52be4450b684b258f6e9531eff6f0896d71d68f1f8057a8008a4578a35c2ef4b",
+  "starting_code": "package practice;\n\n/**\n * Starts the response to an incident. Severity 1 is the worst: it pages the on-call engineer,\n * and also does everything severity 2 does. Severity 2 posts to the incident channel, and also\n * does everything severity 3 does. Severity 3 opens a ticket, and also does what severity 4\n * does. Severity 4 only writes to the incident log.\n */\npublic class Escalation {\n\n    /** What the desk can do, in the order a severity-1 incident does it. */\n    public interface Actions {\n        void pageOnCall();\n        void postToChannel();\n        void openTicket();\n        void log();\n    }\n\n    private final Actions actions;\n\n    public Escalation(Actions actions) {\n        this.actions = actions;\n    }\n\n    /** Reports an incident from a monitor; the monitor's own name goes into the log. */\n    public void report(String monitor, int severity) {\n        if (monitor == null || monitor.isBlank()) {\n            throw new IllegalArgumentException(\"an incident needs the name of its monitor\");\n        }\n        escalate(severity);\n    }\n\n    /**\n     * Runs the actions of this severity, most urgent first. A severity outside 1 to 4 is\n     * rejected with IllegalArgumentException before anything is done.\n     */\n    void escalate(int severity) {\n        // TODO: Run the actions this severity calls for, most urgent first: each severity does\n        //       its own action and then everything the next lower severity does. Reject a\n        //       severity outside 1 to 4 with IllegalArgumentException before doing anything.\n        throw new IllegalStateException(\"TODO: escalate\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-04/practice-1/src/main/java/practice/Calendar.java",
-    "test_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-04/practice-1/src/test/java/practice/CalendarTest.java",
+    "main_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-04/practice-1/src/main/java/practice/Escalation.java",
+    "test_path": "practice/01-java-fundamentals/02-control-flow/prose/unit-04/practice-1/src/test/java/practice/EscalationTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -108,19 +94,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CalendarTest#countsTheDaysOfEachMonth",
+        "id": "practice.EscalationTest#aSeverityOneIncidentPagesTheOnCallEngineer",
         "kind": "main",
-        "says": "Every month of 2023 has its number of days."
+        "says": "a severity-1 incident pages the on-call engineer"
       },
       {
-        "id": "practice.CalendarTest#februaryFollowsTheLeapYearRule",
-        "kind": "edge",
-        "says": "February 2024 and 2000 have 29 days; 1900 and 2100 have 28."
+        "id": "practice.EscalationTest#aSeverityThreeIncidentOpensATicket",
+        "kind": "main",
+        "says": "a severity-3 incident opens a ticket"
       },
       {
-        "id": "practice.CalendarTest#anUnknownMonthIsMinusOne",
+        "id": "practice.EscalationTest#aSeverityTwoIncidentAlsoDoesWhatALessSevereOneDoes",
         "kind": "edge",
-        "says": "Month 13, 0 and -1 give -1."
+        "says": "a severity-2 incident posts to the channel, then also opens a ticket and writes the log"
+      },
+      {
+        "id": "practice.EscalationTest#theMildestSeverityOnlyWritesTheLog",
+        "kind": "edge",
+        "says": "a severity-4 incident writes the log and does nothing else"
+      },
+      {
+        "id": "practice.EscalationTest#aSeverityOutsideTheScaleIsRejectedBeforeAnythingHappens",
+        "kind": "edge",
+        "says": "a severity outside 1 to 4 is rejected with IllegalArgumentException and no action runs"
       }
     ],
     "report": {
@@ -129,11 +125,11 @@
     },
     "origin": {
       "path": "02-control-flow/README_1.2.4.md",
-      "section": "Key Points to Remember"
+      "section": "A Case Label Is Where Execution Enters, and It Runs On Until a break"
     },
     "concepts": [
-      "The default case handles every value no case names.",
-      "Several case labels stacked on one body share it, because execution falls through the empty ones."
+      "A switch statement jumps to the matching label and runs every statement below it, through later labels, until a break, return or throw, so a missing break runs the next case and cumulative behaviour can be written by falling through.",
+      "A value that no label names, in a switch without a default, runs nothing and raises no error."
     ]
   }
 }

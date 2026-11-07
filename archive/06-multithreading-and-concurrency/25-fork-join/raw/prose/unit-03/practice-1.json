@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A summing RecursiveTask",
+  "title": "Value a warehouse's stock on every core",
   "blocks": [
     {
       "type": "heading",
@@ -19,67 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's Q1 walks through `SumTask extends RecursiveTask<Long>`:"
+      "text": "The warehouse team needs the value of its stock: for every SKU, the quantity on hand times the unit price, summed, plus the number of SKUs that are out of stock. A big warehouse has a few million SKUs, and each price is a lookup in the price list, so the valuation runs on a `ForkJoinPool`. One `StockValuation` is created at startup and shared: the nightly report uses it, and so does the \"value now\" button on the warehouse screen, which people press at any time, including while the nightly report is running."
+    },
+    {
+      "type": "para",
+      "text": "Finish `Totals.plus` and `compute()` of the `Value` task in `src/main/java/practice/StockValuation.java`. When you're done:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "**Base case**: if `end - start <= threshold`, sum the range sequentially.",
-        "Otherwise split at `mid = start + (end - start) / 2` and run the two halves **at the same time**, then return the two sums added. The page's way is to fork the left subtask, compute the right one in the current thread and join the left last."
+        "every valuation returns the value and the out-of-stock count of the SKUs it was given, including for an empty warehouse and for values far beyond 21 million euros;",
+        "a valuation gives the same totals the second time it is asked, and while another one runs."
       ]
     },
     {
       "type": "para",
-      "text": "Its edge cases add: use `long` for sums of large `int` arrays."
-    },
-    {
-      "type": "para",
-      "text": "Write `SumTask(array, start, end, threshold, probe)`. It sums `array[start..end)`. In each base case, call `probe.leaf(start, end)` once with the leaf's range (the tests use it to see how you split)."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "array",
-        "range",
-        "threshold",
-        "answer",
-        "leaves"
-      ],
-      "rows": [
-        [
-          "`1..10`",
-          "`[0, 10)`",
-          "3",
-          "`55`",
-          "`[0,2) [2,5) [5,7) [7,10)`"
-        ],
-        [
-          "`1..10`",
-          "`[2, 5)`",
-          "3",
-          "`12`",
-          "`[2,5)`"
-        ],
-        [
-          "four times `Integer.MAX_VALUE`",
-          "`[0, 4)`",
-          "2",
-          "`8589934588`",
-          "`[0,2) [2,4)`"
-        ],
-        [
-          "`1, 2, 3, 4`",
-          "`[0, 4)`",
-          "4",
-          "`10`",
-          "`[0,4)`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "The halves really run in parallel: the tests check that the two leaves of a split can be inside `probe.leaf` **at the same time**, in a pool of two workers. Summing both halves in the current thread one after the other, or joining the forked half before computing the other, runs them one at a time and fails that check."
+      "text": "About fifteen lines in total. The tests run real pools of two and three workers."
     },
     {
       "type": "heading",
@@ -94,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class SumTask extends RecursiveTask<Long> {\n\n    /** Told the range of each base case, before it is summed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    private final int[] array;\n    private final int start;\n    private final int end;\n    private final int threshold;\n    private final Probe probe;\n\n    public SumTask(int[] array, int start, int end, int threshold, Probe probe) {\n        this.array = array;\n        this.start = start;\n        this.end = end;\n        this.threshold = threshold;\n        this.probe = probe;\n    }\n\n    @Override\n    protected Long compute() {\n        int length = end - start;\n        if (length <= threshold) {\n            probe.leaf(start, end);\n            long sum = 0;\n            for (int i = start; i < end; i++) {\n                sum += array[i];\n            }\n            return sum;\n        }\n        int mid = start + length / 2;\n        SumTask left = new SumTask(array, start, mid, threshold, probe);\n        SumTask right = new SumTask(array, mid, end, threshold, probe);\n        left.fork();\n        long rightSum = right.compute();\n        long leftSum = left.join();\n        return leftSum + rightSum;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.function.IntToLongFunction;\n\n/**\n * Values a warehouse's stock: the sum of quantity times unit price over every SKU, and how many\n * SKUs are out of stock. One instance serves the nightly report and the warehouse screen's\n * \"value now\" button, so it may be asked for several valuations, one after another or at once.\n */\npublic class StockValuation {\n\n    /** The value of some SKUs, in cents, and how many of them have a quantity of zero. */\n    public record Totals(long valueCents, int outOfStock) {\n\n        /** These totals and the other's together. */\n        Totals plus(Totals other) {\n            return new Totals(valueCents + other.valueCents, outOfStock + other.outOfStock);\n        }\n    }\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the valuation runs in\n     * @param threshold the most SKUs one task values by itself on its own thread\n     */\n    public StockValuation(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * Values the stock.\n     *\n     * @param quantities     the quantity on hand of SKU 0, 1, 2, ...\n     * @param unitPriceCents the unit price of a SKU, by its index, in cents (a lookup in the price list)\n     */\n    public Totals value(int[] quantities, IntToLongFunction unitPriceCents) {\n        return pool.invoke(new Value(quantities, unitPriceCents, 0, quantities.length));\n    }\n\n    /** The totals of SKUs from to to - 1. */\n    final class Value extends RecursiveTask<Totals> {\n        private final int[] quantities;\n        private final IntToLongFunction unitPriceCents;\n        private final int from, to;\n\n        Value(int[] quantities, IntToLongFunction unitPriceCents, int from, int to) {\n            this.quantities = quantities;\n            this.unitPriceCents = unitPriceCents;\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Totals compute() {\n            if (to - from <= threshold) {\n                long value = 0;\n                int out = 0;\n                for (int i = from; i < to; i++) {\n                    value += quantities[i] * unitPriceCents.applyAsLong(i);\n                    if (quantities[i] == 0) out++;\n                }\n                return new Totals(value, out);\n            }\n            int mid = (from + to) >>> 1;\n            Value left = new Value(quantities, unitPriceCents, from, mid);\n            left.fork();\n            Totals right = new Value(quantities, unitPriceCents, mid, to).compute();\n            return left.join().plus(right);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -106,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class SumTask extends RecursiveTask<Long> {\n\n    /** Told the range of each base case, before it is summed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    public SumTask(int[] array, int start, int end, int threshold, Probe probe) {\n    }\n\n    @Override\n    protected Long compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.function.IntToLongFunction;\n\n/**\n * Values a warehouse's stock: the sum of quantity times unit price over every SKU, and how many\n * SKUs are out of stock. One instance serves the nightly report and the warehouse screen's\n * \"value now\" button, so it may be asked for several valuations, one after another or at once.\n */\npublic class StockValuation {\n\n    /** The value of some SKUs, in cents, and how many of them have a quantity of zero. */\n    public record Totals(long valueCents, int outOfStock) {\n\n        /** These totals and the other's together. */\n        Totals plus(Totals other) {\n            // TODO: Return the totals of the SKUs in these totals and in the other's, together.\n            throw new IllegalStateException(\"TODO: plus\");\n        }\n    }\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the valuation runs in\n     * @param threshold the most SKUs one task values by itself on its own thread\n     */\n    public StockValuation(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * Values the stock.\n     *\n     * @param quantities     the quantity on hand of SKU 0, 1, 2, ...\n     * @param unitPriceCents the unit price of a SKU, by its index, in cents (a lookup in the price list)\n     */\n    public Totals value(int[] quantities, IntToLongFunction unitPriceCents) {\n        return pool.invoke(new Value(quantities, unitPriceCents, 0, quantities.length));\n    }\n\n    /** The totals of SKUs from to to - 1. */\n    final class Value extends RecursiveTask<Totals> {\n        private final int[] quantities;\n        private final IntToLongFunction unitPriceCents;\n        private final int from, to;\n\n        Value(int[] quantities, IntToLongFunction unitPriceCents, int from, int to) {\n            this.quantities = quantities;\n            this.unitPriceCents = unitPriceCents;\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Totals compute() {\n            // TODO: Return the totals of this task's SKUs. Up to `threshold` SKUs are valued right\n            //       here, on this thread. More than that is too much for one thread: share the\n            //       range with the pool's other workers, so that several threads value it at once.\n            throw new IllegalStateException(\"TODO: compute\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -114,9 +70,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -125,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ce10fe9161a11f4318702d01177163ed154c8bdbd9d387841189af55de93f966",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class SumTask extends RecursiveTask<Long> {\n\n    /** Told the range of each base case, before it is summed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    public SumTask(int[] array, int start, int end, int threshold, Probe probe) {\n    }\n\n    @Override\n    protected Long compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n",
+  "content_sha256": "fd6acf69ee476bb7729fa4e82e3b7513bd213ec2c2ccf2b789b7400444e8cb26",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.function.IntToLongFunction;\n\n/**\n * Values a warehouse's stock: the sum of quantity times unit price over every SKU, and how many\n * SKUs are out of stock. One instance serves the nightly report and the warehouse screen's\n * \"value now\" button, so it may be asked for several valuations, one after another or at once.\n */\npublic class StockValuation {\n\n    /** The value of some SKUs, in cents, and how many of them have a quantity of zero. */\n    public record Totals(long valueCents, int outOfStock) {\n\n        /** These totals and the other's together. */\n        Totals plus(Totals other) {\n            // TODO: Return the totals of the SKUs in these totals and in the other's, together.\n            throw new IllegalStateException(\"TODO: plus\");\n        }\n    }\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the valuation runs in\n     * @param threshold the most SKUs one task values by itself on its own thread\n     */\n    public StockValuation(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * Values the stock.\n     *\n     * @param quantities     the quantity on hand of SKU 0, 1, 2, ...\n     * @param unitPriceCents the unit price of a SKU, by its index, in cents (a lookup in the price list)\n     */\n    public Totals value(int[] quantities, IntToLongFunction unitPriceCents) {\n        return pool.invoke(new Value(quantities, unitPriceCents, 0, quantities.length));\n    }\n\n    /** The totals of SKUs from to to - 1. */\n    final class Value extends RecursiveTask<Totals> {\n        private final int[] quantities;\n        private final IntToLongFunction unitPriceCents;\n        private final int from, to;\n\n        Value(int[] quantities, IntToLongFunction unitPriceCents, int from, int to) {\n            this.quantities = quantities;\n            this.unitPriceCents = unitPriceCents;\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Totals compute() {\n            // TODO: Return the totals of this task's SKUs. Up to `threshold` SKUs are valued right\n            //       here, on this thread. More than that is too much for one thread: share the\n            //       range with the pool's other workers, so that several threads value it at once.\n            throw new IllegalStateException(\"TODO: compute\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-1/src/main/java/practice/SumTask.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-1/src/test/java/practice/SumTaskTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-1/src/main/java/practice/StockValuation.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-1/src/test/java/practice/StockValuationTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -150,29 +106,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SumTaskTest#sumsARange",
+        "id": "practice.StockValuationTest#valuesEveryWarehouseOnAFreshValuation",
         "kind": "main",
-        "says": "The task returns the sum of array[start..end)."
+        "says": "a new StockValuation values the stock and counts the SKUs out of stock, for empty, small and large warehouses, any threshold, and values beyond the int range"
       },
       {
-        "id": "practice.SumTaskTest#sumsBeyondTheIntRange",
+        "id": "practice.StockValuationTest#theSameValuationGivesTheSameAnswerTwice",
         "kind": "edge",
-        "says": "Sums are kept in a long, so large int values do not overflow."
+        "says": "a second valuation on the same StockValuation starts from nothing, rather than from the first one's totals"
       },
       {
-        "id": "practice.SumTaskTest#aRangeOfThresholdLengthIsOneLeaf",
+        "id": "practice.StockValuationTest#twoValuationsAtOnceEachGetTheirOwnTotals",
         "kind": "edge",
-        "says": "A range of exactly threshold elements is summed sequentially, without splitting."
-      },
-      {
-        "id": "practice.SumTaskTest#splitsAtTheMidpoint",
-        "kind": "edge",
-        "says": "A longer range is split at its midpoint until every leaf holds at most threshold elements."
-      },
-      {
-        "id": "practice.SumTaskTest#bothHalvesRunAtTheSameTime",
-        "kind": "edge",
-        "says": "One half is forked while the other is computed, so the two halves run at the same time."
+        "says": "two valuations running at once on the same StockValuation each return the totals of their own SKUs"
       }
     ],
     "report": {
@@ -181,11 +127,10 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.2.md",
-      "section": "Interview Q&A Section"
+      "section": "A Task Returns Its Part of the Answer; Tasks That Write into Shared State Lose It"
     },
     "concepts": [
-      "compute() solves a range of at most threshold elements sequentially and otherwise splits it and runs the two halves at the same time.",
-      "Sums of large int arrays are kept in a long so they do not overflow."
+      "Each task returns its part of the answer and the parent combines the values it joins; leaves that write into shared state lose updates, and a thread-safe field held by the object that runs the task still mixes the totals of two runs."
     ]
   }
 }

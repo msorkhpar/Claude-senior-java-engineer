@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Parallel merge sort",
+  "title": "Reject a bad ledger file quickly, and say why",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,32 @@
     },
     {
       "type": "para",
-      "text": "The page's Q2 builds `MergeSortTask extends RecursiveTask<int[]>`, which **returns** the sorted values:"
+      "text": "The bank's ledger files arrive at night: a few million rows, one amount per row, and the import totals them on a `ForkJoinPool`. When a file has a bad row the whole file is rejected and someone fixes it by hand in the morning. The scheduler creates one `LedgerImport` at startup and uses it for every file of the night. Two complaints from the people who fix the files:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "Base case: if `array.length <= threshold`, sort a **copy** with `Arrays.sort` and return it.",
-        "Otherwise copy the left and right halves into their own arrays, make a task for each, run them (the page forks the left, computes the right and joins the left), and **merge** the two sorted halves into one new array."
+        "the rejection in the log reads `java.lang.IllegalArgumentException: java.lang.IllegalArgumentException: row 88412: not an amount: 1.204,00`, and the ticketing system, which expects `row 88412: not an amount: 1.204,00`, files it under \"unknown\";",
+        "after a rejection, the import keeps all the CPUs busy for as long as a good file takes."
       ]
     },
     {
       "type": "para",
-      "text": "Write `MergeSortTask(array, threshold)`. The caller's array is never changed, and the task never hands it back as its result."
+      "text": "Finish `original` and `compute()` of the `Total` task in `src/main/java/practice/LedgerImport.java`. When you're done:"
     },
     {
-      "type": "table",
-      "headers": [
-        "array",
-        "threshold",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`12, -3, 45, 0, 7, -18, 33, 5, 21, -9`",
-          "3",
-          "`-18, -9, -3, 0, 5, 7, 12, 21, 33, 45`"
-        ],
-        [
-          "`3, 1, 2`",
-          "4",
-          "a new array `1, 2, 3`; the input still reads `3, 1, 2`"
-        ],
-        [
-          "`4, 1, 4, 1, 2, 4, 2, 1`",
-          "2",
-          "`1, 1, 1, 2, 2, 4, 4, 4`"
-        ],
-        [
-          "`7`",
-          "4",
-          "a new array `7`, not the input itself"
-        ],
-        [
-          "`[]`",
-          "2",
-          "`[]`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "a good file is totalled, and a file with a bad row ends `total` with an `IllegalArgumentException` whose message is exactly `\"row \" + index + \": \"` and the parser's message;",
+        "once a row has turned out bad, the rest of the file is left mostly unparsed;",
+        "a rejected file doesn't change what the next file on the same `LedgerImport` returns."
       ]
+    },
+    {
+      "type": "para",
+      "text": "About fifteen lines in total. The tests run real pools of two and three workers."
     },
     {
       "type": "heading",
@@ -81,7 +59,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.concurrent.RecursiveTask;\n\npublic final class MergeSortTask extends RecursiveTask<int[]> {\n\n    private final int[] array;\n    private final int threshold;\n\n    public MergeSortTask(int[] array, int threshold) {\n        this.array = array;\n        this.threshold = threshold;\n    }\n\n    @Override\n    protected int[] compute() {\n        if (array.length <= threshold) {\n            int[] copy = Arrays.copyOf(array, array.length);\n            Arrays.sort(copy);\n            return copy;\n        }\n        int mid = array.length / 2;\n        MergeSortTask left = new MergeSortTask(Arrays.copyOfRange(array, 0, mid), threshold);\n        MergeSortTask right = new MergeSortTask(Arrays.copyOfRange(array, mid, array.length), threshold);\n        left.fork();\n        int[] rightSorted = right.compute();\n        int[] leftSorted = left.join();\n        return merge(leftSorted, rightSorted);\n    }\n\n    private static int[] merge(int[] a, int[] b) {\n        int[] result = new int[a.length + b.length];\n        int i = 0;\n        int j = 0;\n        int k = 0;\n        while (i < a.length && j < b.length) {\n            if (a[i] <= b[j]) {\n                result[k++] = a[i++];\n            } else {\n                result[k++] = b[j++];\n            }\n        }\n        while (i < a.length) {\n            result[k++] = a[i++];\n        }\n        while (j < b.length) {\n            result[k++] = b[j++];\n        }\n        return result;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.concurrent.atomic.AtomicBoolean;\nimport java.util.function.ToLongFunction;\n\n/**\n * Imports a ledger file: parses every row's amount and totals them, on a ForkJoinPool. A file\n * has millions of rows, and one bad row makes the whole file wrong.\n */\npublic class LedgerImport {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final ToLongFunction<String> parseCents;\n\n    /**\n     * @param pool       the pool the import runs in\n     * @param threshold  the most rows one task parses by itself on its own thread\n     * @param parseCents parses one row's amount into cents; throws NumberFormatException,\n     *                   with a message that says why, for a row that is not an amount\n     */\n    public LedgerImport(ForkJoinPool pool, int threshold, ToLongFunction<String> parseCents) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.parseCents = parseCents;\n    }\n\n    /**\n     * The total of every row, in cents.\n     *\n     * @throws IllegalArgumentException for a file with a bad row, with the message\n     *         {@code \"row \" + index + \": \" + the parser's message}\n     */\n    public long total(String[] rows) {\n        try {\n            return pool.invoke(new Total(rows, 0, rows.length, new AtomicBoolean()));\n        } catch (IllegalArgumentException e) {\n            throw original(e);\n        }\n    }\n\n    /** The exception that was thrown in the task, given the one that reached this thread. */\n    static IllegalArgumentException original(IllegalArgumentException caught) {\n        Throwable e = caught;\n        while (e.getCause() != null && e.getCause().getClass() == caught.getClass()) e = e.getCause();\n        return (IllegalArgumentException) e;\n    }\n\n    /** The total of rows from to to - 1. */\n    final class Total extends RecursiveTask<Long> {\n        private final String[] rows;\n        private final int from, to;\n        private final AtomicBoolean failed;\n\n        Total(String[] rows, int from, int to, AtomicBoolean failed) {\n            this.rows = rows;\n            this.from = from;\n            this.to = to;\n            this.failed = failed;\n        }\n\n        @Override\n        protected Long compute() {\n            if (failed.get()) return 0L;\n            if (to - from <= threshold) {\n                long cents = 0;\n                for (int i = from; i < to; i++) {\n                    try {\n                        cents += parseCents.applyAsLong(rows[i]);\n                    } catch (NumberFormatException e) {\n                        failed.set(true);\n                        throw new IllegalArgumentException(\"row \" + i + \": \" + e.getMessage(), e);\n                    }\n                }\n                return cents;\n            }\n            int mid = (from + to) >>> 1;\n            Total left = new Total(rows, from, mid, failed);\n            left.fork();\n            long right = new Total(rows, mid, to, failed).compute();\n            return left.join() + right;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +71,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class MergeSortTask extends RecursiveTask<int[]> {\n\n    public MergeSortTask(int[] array, int threshold) {\n    }\n\n    @Override\n    protected int[] compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.function.ToLongFunction;\n\n/**\n * Imports a ledger file: parses every row's amount and totals them, on a ForkJoinPool. A file\n * has millions of rows, and one bad row makes the whole file wrong.\n */\npublic class LedgerImport {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final ToLongFunction<String> parseCents;\n\n    /**\n     * @param pool       the pool the import runs in\n     * @param threshold  the most rows one task parses by itself on its own thread\n     * @param parseCents parses one row's amount into cents; throws NumberFormatException,\n     *                   with a message that says why, for a row that is not an amount\n     */\n    public LedgerImport(ForkJoinPool pool, int threshold, ToLongFunction<String> parseCents) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.parseCents = parseCents;\n    }\n\n    /**\n     * The total of every row, in cents.\n     *\n     * @throws IllegalArgumentException for a file with a bad row, with the message\n     *         {@code \"row \" + index + \": \" + the parser's message}\n     */\n    public long total(String[] rows) {\n        try {\n            return pool.invoke(new Total(rows, 0, rows.length));\n        } catch (IllegalArgumentException e) {\n            throw original(e);\n        }\n    }\n\n    /** The exception that was thrown in the task, given the one that reached this thread. */\n    static IllegalArgumentException original(IllegalArgumentException caught) {\n        // TODO: Return the IllegalArgumentException that a task threw, so that the import's\n        //       caller sees that one's message.\n        throw new IllegalStateException(\"TODO: original\");\n    }\n\n    /** The total of rows from to to - 1. */\n    final class Total extends RecursiveTask<Long> {\n        private final String[] rows;\n        private final int from, to;\n\n        Total(String[] rows, int from, int to) {\n            this.rows = rows;\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Long compute() {\n            // TODO: Return the total of this task's rows; up to `threshold` rows are parsed right\n            //       here, more are shared with the pool's other workers. A row the parser refuses\n            //       ends the import with IllegalArgumentException(\"row \" + index + \": \" + the\n            //       parser's message). Once a row is bad, the rest of the file isn't worth parsing.\n            //       You may give Total more fields and constructor parameters.\n            throw new IllegalStateException(\"TODO: compute\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,10 +79,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 2,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -112,11 +90,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3fa9ef6743dd742de044e5f3160c76252b8077eced05fcda28db7b96bff9c951",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class MergeSortTask extends RecursiveTask<int[]> {\n\n    public MergeSortTask(int[] array, int threshold) {\n    }\n\n    @Override\n    protected int[] compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n",
+  "content_sha256": "950e76b3a8847e6986d8a79553749a270f6fd674627cb92926fba353144034c2",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.function.ToLongFunction;\n\n/**\n * Imports a ledger file: parses every row's amount and totals them, on a ForkJoinPool. A file\n * has millions of rows, and one bad row makes the whole file wrong.\n */\npublic class LedgerImport {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final ToLongFunction<String> parseCents;\n\n    /**\n     * @param pool       the pool the import runs in\n     * @param threshold  the most rows one task parses by itself on its own thread\n     * @param parseCents parses one row's amount into cents; throws NumberFormatException,\n     *                   with a message that says why, for a row that is not an amount\n     */\n    public LedgerImport(ForkJoinPool pool, int threshold, ToLongFunction<String> parseCents) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.parseCents = parseCents;\n    }\n\n    /**\n     * The total of every row, in cents.\n     *\n     * @throws IllegalArgumentException for a file with a bad row, with the message\n     *         {@code \"row \" + index + \": \" + the parser's message}\n     */\n    public long total(String[] rows) {\n        try {\n            return pool.invoke(new Total(rows, 0, rows.length));\n        } catch (IllegalArgumentException e) {\n            throw original(e);\n        }\n    }\n\n    /** The exception that was thrown in the task, given the one that reached this thread. */\n    static IllegalArgumentException original(IllegalArgumentException caught) {\n        // TODO: Return the IllegalArgumentException that a task threw, so that the import's\n        //       caller sees that one's message.\n        throw new IllegalStateException(\"TODO: original\");\n    }\n\n    /** The total of rows from to to - 1. */\n    final class Total extends RecursiveTask<Long> {\n        private final String[] rows;\n        private final int from, to;\n\n        Total(String[] rows, int from, int to) {\n            this.rows = rows;\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Long compute() {\n            // TODO: Return the total of this task's rows; up to `threshold` rows are parsed right\n            //       here, more are shared with the pool's other workers. A row the parser refuses\n            //       ends the import with IllegalArgumentException(\"row \" + index + \": \" + the\n            //       parser's message). Once a row is bad, the rest of the file isn't worth parsing.\n            //       You may give Total more fields and constructor parameters.\n            throw new IllegalStateException(\"TODO: compute\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-3/src/main/java/practice/MergeSortTask.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-3/src/test/java/practice/MergeSortTaskTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-3/src/main/java/practice/LedgerImport.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-3/src/test/java/practice/LedgerImportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,29 +115,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.MergeSortTaskTest#sortsTheValues",
+        "id": "practice.LedgerImportTest#totalsAFileAndRefusesABadOne",
         "kind": "main",
-        "says": "The task returns the values in ascending order and leaves the input as it was."
+        "says": "good files of any size are totalled at any threshold, and a file with a bad row ends total with an IllegalArgumentException"
       },
       {
-        "id": "practice.MergeSortTaskTest#aShortArrayIsNotSortedInPlace",
+        "id": "practice.LedgerImportTest#theErrorNamesTheBadRowAndWhy",
         "kind": "edge",
-        "says": "An array no longer than the threshold, even a single value, is sorted into a new array; the input is not changed or returned."
+        "says": "the IllegalArgumentException the caller gets has exactly the message the failing task gave it, not the message of a copy made on another thread"
       },
       {
-        "id": "practice.MergeSortTaskTest#keepsEveryDuplicate",
+        "id": "practice.LedgerImportTest#aBadFileStopsBeingParsedSoonAfterItsFirstBadRow",
         "kind": "edge",
-        "says": "Equal values from the two halves are all kept by the merge."
+        "says": "once a row has failed, the other tasks stop parsing, instead of running the rest of the file to the end"
       },
       {
-        "id": "practice.MergeSortTaskTest#anEmptyInputIsNotHandedBack",
+        "id": "practice.LedgerImportTest#aFailedImportDoesNotSpoilTheNextOne",
         "kind": "edge",
-        "says": "An empty input gives a new empty array, not the input object."
-      },
-      {
-        "id": "practice.MergeSortTaskTest#aThresholdOfOneStillEnds",
-        "kind": "edge",
-        "says": "With threshold 1 a one-element range is the base case, so the sort ends and is correct."
+        "says": "a rejected file leaves nothing behind that stops the next file on the same LedgerImport from being totalled"
       }
     ],
     "report": {
@@ -168,10 +141,11 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.2.md",
-      "section": "Interview Q&A Section"
+      "section": "A Subtask's Exception Reaches join() as a Copy, and Its Siblings Keep Running"
     },
     "concepts": [
-      "A merge-sort RecursiveTask returns a new sorted array, merging the two sorted halves it joined."
+      "A subtask's exception reaches a joining thread on another thread as a new exception of the same class with the original as its cause, one copy per thread crossed, so its message can be null or prefixed; the original is found by following getCause() while it is the same class.",
+      "A failure doesn't stop the other subtasks: forked halves that were never joined still run, so tasks that should stop after a failure check a flag that the failing task sets."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Arithmetic that refuses to overflow",
+  "title": "Make the price sync apply the whole feed",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,23 @@
     },
     {
       "type": "para",
-      "text": "`int` arithmetic overflows silently: `65536 * 65536` is `0`. For checked arithmetic, the page points at `Math.addExact`, `Math.multiplyExact` and friends, which throw an `ArithmeticException` instead of wrapping."
+      "text": "The catalog service applies the supplier's price feed every night and republishes the catalog when any price changed. The feed is not trusted: some lines name no SKU, and some carry a price of zero or less. Both kinds must be skipped, and neither may stop the sync."
     },
     {
       "type": "para",
-      "text": "Write `CheckedArithmetic.multiplyAdd(int a, int b, int c)`. It returns `a * b + c`, or throws an `ArithmeticException` when **either step** overflows the `int` range. A result exactly at a limit is fine."
+      "text": "`CatalogSync` already reads the feed, applies a single change and reports. Finish the two `TODO` methods in `src/main/java/practice/CatalogSync.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "a, b, c",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`2, 3, 4`",
-          "`10`"
-        ],
-        [
-          "`65536, 65536, 0`",
-          "`ArithmeticException`"
-        ],
-        [
-          "`Integer.MAX_VALUE, 1, 1`",
-          "`ArithmeticException`"
-        ],
-        [
-          "`Integer.MAX_VALUE, 1, 0`",
-          "`2147483647`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`acceptable(change)`: whether a line of the feed may be applied, as its comment defines it;",
+        "`step(changedSoFar, change)`: one step of the sync, called once per line, in order."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, every acceptable line reaches the catalog, no other line touches it, and `sync` returns `true` exactly when some price changed. About two lines in total."
     },
     {
       "type": "heading",
@@ -63,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class CheckedArithmetic {\n\n    private CheckedArithmetic() {\n    }\n\n    /** Returns {@code a * b + c}, or throws ArithmeticException when any step overflows an int. */\n    public static int multiplyAdd(int a, int b, int c) {\n        return Math.addExact(Math.multiplyExact(a, b), c);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Applies the supplier's price feed to the catalog. The feed is not trusted: a change may name\n * no SKU, or carry a price that is not positive, and such a change is skipped.\n */\npublic class CatalogSync {\n\n    /** One line of the feed: a SKU and its new price in cents. */\n    public record PriceChange(String sku, long cents) {}\n\n    private final Map<String, Long> prices;\n\n    public CatalogSync(Map<String, Long> prices) {\n        this.prices = new HashMap<>(prices);\n    }\n\n    /** The current price of a SKU, or null if the catalog doesn't have it. */\n    public Long price(String sku) {\n        return prices.get(sku);\n    }\n\n    /**\n     * Applies every acceptable change in the feed, in order, and returns whether any price in the\n     * catalog changed; the caller republishes the catalog only when it did.\n     */\n    public boolean sync(List<PriceChange> feed) {\n        boolean changed = false;\n        for (PriceChange c : feed) {\n            changed = step(changed, c);\n        }\n        return changed;\n    }\n\n    /** Sets the SKU's price and returns whether that changed the catalog. */\n    boolean apply(PriceChange c) {\n        Long old = prices.put(c.sku(), c.cents());\n        return old == null || old != c.cents();\n    }\n\n    /** Whether a change from the feed may be applied: it names a SKU and its price is positive. */\n    boolean acceptable(PriceChange c) {\n        return c.sku() != null && !c.sku().isBlank() && c.cents() > 0;\n    }\n\n    /**\n     * One step of the sync: applies {@code c} if it is acceptable, and returns whether the\n     * catalog has changed so far, given that it had already changed if {@code changedSoFar}.\n     */\n    boolean step(boolean changedSoFar, PriceChange c) {\n        return (acceptable(c) && apply(c)) || changedSoFar;\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class CheckedArithmetic {\n\n    private CheckedArithmetic() {\n    }\n\n    /** Returns {@code a * b + c}, or throws ArithmeticException when any step overflows an int. */\n    public static int multiplyAdd(int a, int b, int c) {\n        throw new UnsupportedOperationException(\"write multiplyAdd\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Applies the supplier's price feed to the catalog. The feed is not trusted: a change may name\n * no SKU, or carry a price that is not positive, and such a change is skipped.\n */\npublic class CatalogSync {\n\n    /** One line of the feed: a SKU and its new price in cents. */\n    public record PriceChange(String sku, long cents) {}\n\n    private final Map<String, Long> prices;\n\n    public CatalogSync(Map<String, Long> prices) {\n        this.prices = new HashMap<>(prices);\n    }\n\n    /** The current price of a SKU, or null if the catalog doesn't have it. */\n    public Long price(String sku) {\n        return prices.get(sku);\n    }\n\n    /**\n     * Applies every acceptable change in the feed, in order, and returns whether any price in the\n     * catalog changed; the caller republishes the catalog only when it did.\n     */\n    public boolean sync(List<PriceChange> feed) {\n        boolean changed = false;\n        for (PriceChange c : feed) {\n            changed = step(changed, c);\n        }\n        return changed;\n    }\n\n    /** Sets the SKU's price and returns whether that changed the catalog. */\n    boolean apply(PriceChange c) {\n        Long old = prices.put(c.sku(), c.cents());\n        return old == null || old != c.cents();\n    }\n\n    /** Whether a change from the feed may be applied: it names a SKU and its price is positive. */\n    boolean acceptable(PriceChange c) {\n        // TODO: The feed is not trusted; nothing in it may make the sync throw.\n        throw new IllegalStateException(\"TODO: acceptable\");\n    }\n\n    /**\n     * One step of the sync: applies {@code c} if it is acceptable, and returns whether the\n     * catalog has changed so far, given that it had already changed if {@code changedSoFar}.\n     */\n    boolean step(boolean changedSoFar, PriceChange c) {\n        // TODO: Every acceptable change in the feed must reach the catalog, and an\n        //       unacceptable one must not touch it.\n        throw new IllegalStateException(\"TODO: step\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -83,10 +70,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -94,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "69f5b64666721ef3f5d90287d9253f7df2760d0743cb49aecd6cb1a7b3c3e9d6",
-  "starting_code": "package practice;\n\npublic final class CheckedArithmetic {\n\n    private CheckedArithmetic() {\n    }\n\n    /** Returns {@code a * b + c}, or throws ArithmeticException when any step overflows an int. */\n    public static int multiplyAdd(int a, int b, int c) {\n        throw new UnsupportedOperationException(\"write multiplyAdd\");\n    }\n}\n",
+  "content_sha256": "96c06ebc0f6b3b43cb7b93df006556c24a2d7bc08c86d74f55055ad34e881077",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Applies the supplier's price feed to the catalog. The feed is not trusted: a change may name\n * no SKU, or carry a price that is not positive, and such a change is skipped.\n */\npublic class CatalogSync {\n\n    /** One line of the feed: a SKU and its new price in cents. */\n    public record PriceChange(String sku, long cents) {}\n\n    private final Map<String, Long> prices;\n\n    public CatalogSync(Map<String, Long> prices) {\n        this.prices = new HashMap<>(prices);\n    }\n\n    /** The current price of a SKU, or null if the catalog doesn't have it. */\n    public Long price(String sku) {\n        return prices.get(sku);\n    }\n\n    /**\n     * Applies every acceptable change in the feed, in order, and returns whether any price in the\n     * catalog changed; the caller republishes the catalog only when it did.\n     */\n    public boolean sync(List<PriceChange> feed) {\n        boolean changed = false;\n        for (PriceChange c : feed) {\n            changed = step(changed, c);\n        }\n        return changed;\n    }\n\n    /** Sets the SKU's price and returns whether that changed the catalog. */\n    boolean apply(PriceChange c) {\n        Long old = prices.put(c.sku(), c.cents());\n        return old == null || old != c.cents();\n    }\n\n    /** Whether a change from the feed may be applied: it names a SKU and its price is positive. */\n    boolean acceptable(PriceChange c) {\n        // TODO: The feed is not trusted; nothing in it may make the sync throw.\n        throw new IllegalStateException(\"TODO: acceptable\");\n    }\n\n    /**\n     * One step of the sync: applies {@code c} if it is acceptable, and returns whether the\n     * catalog has changed so far, given that it had already changed if {@code changedSoFar}.\n     */\n    boolean step(boolean changedSoFar, PriceChange c) {\n        // TODO: Every acceptable change in the feed must reach the catalog, and an\n        //       unacceptable one must not touch it.\n        throw new IllegalStateException(\"TODO: step\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-04/practice-2/src/main/java/practice/CheckedArithmetic.java",
-    "test_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-04/practice-2/src/test/java/practice/CheckedArithmeticTest.java",
+    "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-04/practice-2/src/main/java/practice/CatalogSync.java",
+    "test_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-04/practice-2/src/test/java/practice/CatalogSyncTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,24 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CheckedArithmeticTest#computesTheResult",
+        "id": "practice.CatalogSyncTest#appliesAChangeAndReportsWhetherTheCatalogChanged",
         "kind": "main",
-        "says": "It computes a * b + c."
+        "says": "a single acceptable change is applied and reported, and a feed that changes nothing reports no change"
       },
       {
-        "id": "practice.CheckedArithmeticTest#anOverflowingProductIsRefused",
+        "id": "practice.CatalogSyncTest#everyChangeInTheFeedReachesTheCatalog",
         "kind": "edge",
-        "says": "A product beyond the int range throws instead of wrapping."
+        "says": "once one change has changed the catalog, the changes after it are still applied"
       },
       {
-        "id": "practice.CheckedArithmeticTest#anOverflowingSumIsRefused",
+        "id": "practice.CatalogSyncTest#anEarlierChangeIsStillReportedWhenTheLastChangesNothing",
         "kind": "edge",
-        "says": "A sum beyond the int range throws instead of wrapping."
+        "says": "the sync reports a change made anywhere in the feed, not only by its last line"
       },
       {
-        "id": "practice.CheckedArithmeticTest#resultsAtTheLimitsAreFine",
+        "id": "practice.CatalogSyncTest#aRejectedChangeLeavesThePriceAlone",
         "kind": "edge",
-        "says": "A result exactly at Integer.MAX_VALUE or MIN_VALUE is returned."
+        "says": "a change with a price that is not positive never reaches the catalog"
+      },
+      {
+        "id": "practice.CatalogSyncTest#aChangeWithoutASkuIsSkippedWithoutBreakingTheSync",
+        "kind": "edge",
+        "says": "a change with no SKU is skipped without an exception, and the rest of the feed is applied"
       }
     ],
     "report": {
@@ -145,10 +137,11 @@
     },
     "origin": {
       "path": "01-java-basics/README_1.1.4.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "&& and || Skip Their Right Operand; & and | Always Evaluate Both"
     },
     "concepts": [
-      "Math.addExact and Math.multiplyExact throw where plain arithmetic wraps."
+      "&& and || skip their right operand when the left decides the result, so && can guard a null check; & and | evaluate both and throw on the null.",
+      "A call on the right of || or && is skipped once the left decides, so changed = changed || apply(x) stops applying after the first change."
     ]
   }
 }

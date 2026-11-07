@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A threshold that follows the pool",
+  "title": "Give every worker of the settlement pool several pieces",
   "blocks": [
     {
       "type": "heading",
@@ -19,64 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's threshold heuristic is **`N / (parallelism * 4)` with a minimum**: enough tasks for good load balancing without the overhead of tiny ones. Its Q1 reads the parallelism from the pool and takes `Math.max(minimum, N / (parallelism * 4))`."
+      "text": "The settlement job nets the day's trades on whatever `ForkJoinPool` the deployment hands it: two workers in staging, twelve in production. The big clients' trades sit together at the end of the day's file and take far longer to net than the rest, and in production the job runs about as long as it would on one thread, while most workers sit idle near the end."
     },
     {
       "type": "para",
-      "text": "Write `AdaptiveSum.sum(pool, array, floor, probe)`: it sums `array` with a `RecursiveTask` **run in `pool`**, whose threshold is"
+      "text": "The operations team has set the rule for how the day is cut up: each worker of the pool the job runs in gets between 32 and 64 pieces of a large day, and a batch of `minRows` trades or fewer is netted whole, because a piece that small isn't worth a task."
     },
     {
       "type": "para",
-      "text": "Math.max(floor, array.length / (pool.getParallelism() * 4))"
-    },
-    {
-      "type": "para",
-      "text": "A range of at most that many elements is summed sequentially; a longer one is split at the midpoint into two subtasks. In each base case, call `probe.leaf(start, end)` once. Values may be as large as a `long` allows, as may the sum."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "pool parallelism",
-        "array",
-        "floor",
-        "threshold",
-        "answer",
-        "leaves"
-      ],
-      "rows": [
-        [
-          "2",
-          "`1..100`",
-          "10",
-          "12",
-          "`5050`",
-          "12 leaves"
-        ],
-        [
-          "2",
-          "160 ones",
-          "5",
-          "20",
-          "`160`",
-          "8 leaves of 20"
-        ],
-        [
-          "2",
-          "40 ones",
-          "16",
-          "16",
-          "`40`",
-          "4 leaves of 10"
-        ],
-        [
-          "5",
-          "160 ones",
-          "5",
-          "8",
-          "`160`",
-          "32 leaves of 5"
-        ]
-      ]
+      "text": "`SettlementJob` already halves the day until a range fits in one piece. Finish `leafSize(rows)` in `src/main/java/practice/SettlementJob.java`, which says how many trades one piece may hold. About two lines in total. The tests run the job on real pools of one to forty workers."
     },
     {
       "type": "heading",
@@ -91,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\n\npublic final class AdaptiveSum {\n\n    /** Told the range of each base case, before it is summed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    private AdaptiveSum() {\n    }\n\n    /** Sums the array in the pool, with a threshold of max(floor, n / (parallelism * 4)). */\n    public static long sum(ForkJoinPool pool, long[] array, int floor, Probe probe) {\n        int threshold = Math.max(floor, array.length / (pool.getParallelism() * 4));\n        return pool.invoke(new Part(array, 0, array.length, threshold, probe));\n    }\n\n    private static final class Part extends RecursiveTask<Long> {\n        private final long[] array;\n        private final int start;\n        private final int end;\n        private final int threshold;\n        private final Probe probe;\n\n        Part(long[] array, int start, int end, int threshold, Probe probe) {\n            this.array = array;\n            this.start = start;\n            this.end = end;\n            this.threshold = threshold;\n            this.probe = probe;\n        }\n\n        @Override\n        protected Long compute() {\n            int length = end - start;\n            if (length <= threshold) {\n                probe.leaf(start, end);\n                long sum = 0;\n                for (int i = start; i < end; i++) {\n                    sum += array[i];\n                }\n                return sum;\n            }\n            int mid = start + length / 2;\n            Part left = new Part(array, start, mid, threshold, probe);\n            Part right = new Part(array, mid, end, threshold, probe);\n            left.fork();\n            long rightSum = right.compute();\n            return left.join() + rightSum;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.LongUnaryOperator;\n\n/** Nets a day's trades on the ForkJoinPool it is given, in pieces of at most leafSize(rows) trades. */\npublic class SettlementJob {\n\n    private final ForkJoinPool pool;\n    private final int minRows;\n    private final LongUnaryOperator net;\n    private final AtomicInteger pieces = new AtomicInteger();\n\n    /**\n     * @param pool    the pool the job runs in\n     * @param minRows a batch of this many trades or fewer is never cut up\n     * @param net     the net amount of one trade\n     */\n    public SettlementJob(ForkJoinPool pool, int minRows, LongUnaryOperator net) {\n        this.pool = pool;\n        this.minRows = minRows;\n        this.net = net;\n    }\n\n    /** The day's net total. */\n    public long total(long[] trades) {\n        pieces.set(0);\n        int leaf = Math.max(1, leafSize(trades.length));\n        return pool.invoke(new Part(trades, 0, trades.length, leaf));\n    }\n\n    /** How many pieces the last run was netted in. */\n    public int pieces() {\n        return pieces.get();\n    }\n\n    /**\n     * The largest number of trades one piece nets. A range of at most this many trades is netted\n     * in one piece; a longer one is halved.\n     */\n    int leafSize(int rows) {\n        return Math.max(minRows, rows / (pool.getParallelism() * 32));\n    }\n\n    private final class Part extends RecursiveTask<Long> {\n        private final long[] trades;\n        private final int from, to, leaf;\n\n        Part(long[] trades, int from, int to, int leaf) {\n            this.trades = trades;\n            this.from = from;\n            this.to = to;\n            this.leaf = leaf;\n        }\n\n        @Override\n        protected Long compute() {\n            if (to - from <= leaf) {\n                pieces.incrementAndGet();\n                long s = 0;\n                for (int i = from; i < to; i++) s += net.applyAsLong(trades[i]);\n                return s;\n            }\n            int mid = (from + to) >>> 1;\n            Part left = new Part(trades, from, mid, leaf);\n            left.fork();\n            long r = new Part(trades, mid, to, leaf).compute();\n            return left.join() + r;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -103,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\n\npublic final class AdaptiveSum {\n\n    /** Told the range of each base case, before it is summed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    private AdaptiveSum() {\n    }\n\n    /** Sums the array in the pool, with a threshold of max(floor, n / (parallelism * 4)). */\n    public static long sum(ForkJoinPool pool, long[] array, int floor, Probe probe) {\n        throw new UnsupportedOperationException(\"write sum\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.LongUnaryOperator;\n\n/** Nets a day's trades on the ForkJoinPool it is given, in pieces of at most leafSize(rows) trades. */\npublic class SettlementJob {\n\n    private final ForkJoinPool pool;\n    private final int minRows;\n    private final LongUnaryOperator net;\n    private final AtomicInteger pieces = new AtomicInteger();\n\n    /**\n     * @param pool    the pool the job runs in\n     * @param minRows a batch of this many trades or fewer is never cut up\n     * @param net     the net amount of one trade\n     */\n    public SettlementJob(ForkJoinPool pool, int minRows, LongUnaryOperator net) {\n        this.pool = pool;\n        this.minRows = minRows;\n        this.net = net;\n    }\n\n    /** The day's net total. */\n    public long total(long[] trades) {\n        pieces.set(0);\n        int leaf = Math.max(1, leafSize(trades.length));\n        return pool.invoke(new Part(trades, 0, trades.length, leaf));\n    }\n\n    /** How many pieces the last run was netted in. */\n    public int pieces() {\n        return pieces.get();\n    }\n\n    /**\n     * The largest number of trades one piece nets. A range of at most this many trades is netted\n     * in one piece; a longer one is halved.\n     */\n    int leafSize(int rows) {\n        // TODO: every worker of the pool gets several pieces, and small batches stay whole.\n        throw new IllegalStateException(\"TODO: leafSize\");\n    }\n\n    private final class Part extends RecursiveTask<Long> {\n        private final long[] trades;\n        private final int from, to, leaf;\n\n        Part(long[] trades, int from, int to, int leaf) {\n            this.trades = trades;\n            this.from = from;\n            this.to = to;\n            this.leaf = leaf;\n        }\n\n        @Override\n        protected Long compute() {\n            if (to - from <= leaf) {\n                pieces.incrementAndGet();\n                long s = 0;\n                for (int i = from; i < to; i++) s += net.applyAsLong(trades[i]);\n                return s;\n            }\n            int mid = (from + to) >>> 1;\n            Part left = new Part(trades, from, mid, leaf);\n            left.fork();\n            long r = new Part(trades, mid, to, leaf).compute();\n            return left.join() + r;\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -111,9 +62,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -122,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "06e6e667413baf9ccaacd863b2a1fe8a7a1ab019c1ec7f790b52a27126c7b277",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\n\npublic final class AdaptiveSum {\n\n    /** Told the range of each base case, before it is summed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    private AdaptiveSum() {\n    }\n\n    /** Sums the array in the pool, with a threshold of max(floor, n / (parallelism * 4)). */\n    public static long sum(ForkJoinPool pool, long[] array, int floor, Probe probe) {\n        throw new UnsupportedOperationException(\"write sum\");\n    }\n}\n",
+  "content_sha256": "8c1b9b2512c58b912279411f14369d09369f865312a119191cab5527100bcc4c",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.LongUnaryOperator;\n\n/** Nets a day's trades on the ForkJoinPool it is given, in pieces of at most leafSize(rows) trades. */\npublic class SettlementJob {\n\n    private final ForkJoinPool pool;\n    private final int minRows;\n    private final LongUnaryOperator net;\n    private final AtomicInteger pieces = new AtomicInteger();\n\n    /**\n     * @param pool    the pool the job runs in\n     * @param minRows a batch of this many trades or fewer is never cut up\n     * @param net     the net amount of one trade\n     */\n    public SettlementJob(ForkJoinPool pool, int minRows, LongUnaryOperator net) {\n        this.pool = pool;\n        this.minRows = minRows;\n        this.net = net;\n    }\n\n    /** The day's net total. */\n    public long total(long[] trades) {\n        pieces.set(0);\n        int leaf = Math.max(1, leafSize(trades.length));\n        return pool.invoke(new Part(trades, 0, trades.length, leaf));\n    }\n\n    /** How many pieces the last run was netted in. */\n    public int pieces() {\n        return pieces.get();\n    }\n\n    /**\n     * The largest number of trades one piece nets. A range of at most this many trades is netted\n     * in one piece; a longer one is halved.\n     */\n    int leafSize(int rows) {\n        // TODO: every worker of the pool gets several pieces, and small batches stay whole.\n        throw new IllegalStateException(\"TODO: leafSize\");\n    }\n\n    private final class Part extends RecursiveTask<Long> {\n        private final long[] trades;\n        private final int from, to, leaf;\n\n        Part(long[] trades, int from, int to, int leaf) {\n            this.trades = trades;\n            this.from = from;\n            this.to = to;\n            this.leaf = leaf;\n        }\n\n        @Override\n        protected Long compute() {\n            if (to - from <= leaf) {\n                pieces.incrementAndGet();\n                long s = 0;\n                for (int i = from; i < to; i++) s += net.applyAsLong(trades[i]);\n                return s;\n            }\n            int mid = (from + to) >>> 1;\n            Part left = new Part(trades, from, mid, leaf);\n            left.fork();\n            long r = new Part(trades, mid, to, leaf).compute();\n            return left.join() + r;\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-05/practice-1/src/main/java/practice/AdaptiveSum.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-05/practice-1/src/test/java/practice/AdaptiveSumTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-05/practice-1/src/main/java/practice/SettlementJob.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-05/practice-1/src/test/java/practice/SettlementJobTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -147,29 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AdaptiveSumTest#sumsTheArray",
+        "id": "practice.SettlementJobTest#netsEveryTradeOfTheDay",
         "kind": "main",
-        "says": "The array's sum is returned."
+        "says": "the job's total is the sum of every trade's net amount, for any number of trades and any pool"
       },
       {
-        "id": "practice.AdaptiveSumTest#theThresholdFollowsThePoolsParallelism",
+        "id": "practice.SettlementJobTest#everyWorkerGetsThirtyTwoToSixtyFourPieces",
         "kind": "edge",
-        "says": "For a large array the threshold is N / (parallelism * 4), read from the given pool."
+        "says": "a large day is netted in 32 to 64 pieces per worker, not one piece per worker"
       },
       {
-        "id": "practice.AdaptiveSumTest#theFloorWinsForASmallArray",
+        "id": "practice.SettlementJobTest#thePiecesFollowThePoolTheJobRunsIn",
         "kind": "edge",
-        "says": "When N / (parallelism * 4) is below the floor, the floor is the threshold."
+        "says": "the number of pieces follows the parallelism of the pool the job runs in, not the machine's processor count"
       },
       {
-        "id": "practice.AdaptiveSumTest#runsInTheGivenPool",
+        "id": "practice.SettlementJobTest#aSmallBatchIsNotCutUp",
         "kind": "edge",
-        "says": "Every leaf runs in the pool that was passed in, not in the common pool."
-      },
-      {
-        "id": "practice.AdaptiveSumTest#largeValuesSumAsLongs",
-        "kind": "edge",
-        "says": "Values of 3 and 4 billion sum to 6,999,999,999 with -1: each leaf sums in a long."
+        "says": "a batch of minRows trades or fewer is netted in one piece"
       }
     ],
     "report": {
@@ -178,10 +124,11 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.4.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "Uneven Work Needs Many More Leaves Than Workers"
     },
     "concepts": [
-      "A threshold of N / (parallelism * 4), with a minimum, gives enough tasks for load balancing without tiny ones."
+      "A started leaf is never shared, so uneven work needs leaves small enough that the costly items spread over many of them; one or four leaves per worker leave workers idle.",
+      "The number of leaves is sized from the parallelism of the pool the task runs in, not from the machine's processor count."
     ]
   }
 }

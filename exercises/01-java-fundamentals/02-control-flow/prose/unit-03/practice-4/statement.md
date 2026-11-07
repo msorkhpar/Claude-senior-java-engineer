@@ -1,18 +1,13 @@
-Reading input until it runs out is the textbook `while` loop:
+The desktop client shows "files up to N bytes" next to its upload button. Customers put different
+storage gateways in front of the service, each with its own size limit, so the client finds N by
+probing: each probe sends a request of one size to the gateway's test endpoint, which accepts it
+or refuses it. A gateway that accepts a size accepts every smaller one. Probes are slow, so the
+client can afford a few dozen of them, and some gateways are configured with a ceiling of
+`Integer.MAX_VALUE` bytes.
 
-```java
-String line;
-while ((line = reader.readLine()) != null) {
-    // process the line
-}
-```
+Write `largestAccepted(maxBytes, accepts)` in `src/main/java/practice/UploadLimit.java`: the
+largest size in `1..maxBytes` that the gateway accepts, or `0` when it refuses even one byte. Probe
+only sizes in that range. About eight lines.
 
-`readLine()` returns `null` at the end of the input, and the input may hold no line at all.
-
-Write `count(BufferedReader reader)` in `Words`. It returns how many words the whole input
-holds, where words are separated by any run of spaces or tabs:
-
-- `"one two\nthree"` holds `3` words;
-- a blank line holds none: `"a\n\n   \nb"` holds `2`;
-- extra spaces separate nothing more: `"  a   b  "` holds `2`;
-- an empty input holds `0`.
+This is the mirror of a search for the first bad build: here the answer is the last size that
+passes.

@@ -1,20 +1,21 @@
-The page's Q2 builds `MergeSortTask extends RecursiveTask<int[]>`, which
-**returns** the sorted values:
+The bank's ledger files arrive at night: a few million rows, one amount per row, and the import
+totals them on a `ForkJoinPool`. When a file has a bad row the whole file is rejected and someone
+fixes it by hand in the morning. The scheduler creates one `LedgerImport` at startup and uses it
+for every file of the night. Two complaints from the people who fix the files:
 
-1. Base case: if `array.length <= threshold`, sort a **copy** with
-   `Arrays.sort` and return it.
-2. Otherwise copy the left and right halves into their own arrays, make a task
-   for each, run them (the page forks the left, computes the right and joins
-   the left), and **merge** the
-   two sorted halves into one new array.
+- the rejection in the log reads
+  `java.lang.IllegalArgumentException: java.lang.IllegalArgumentException: row 88412: not an amount: 1.204,00`,
+  and the ticketing system, which expects `row 88412: not an amount: 1.204,00`, files it under
+  "unknown";
+- after a rejection, the import keeps all the CPUs busy for as long as a good file takes.
 
-Write `MergeSortTask(array, threshold)`. The caller's array is never changed,
-and the task never hands it back as its result.
+Finish `original` and `compute()` of the `Total` task in
+`src/main/java/practice/LedgerImport.java`. When you're done:
 
-| array | threshold | answer |
-|---|---|---|
-| `12, -3, 45, 0, 7, -18, 33, 5, 21, -9` | 3 | `-18, -9, -3, 0, 5, 7, 12, 21, 33, 45` |
-| `3, 1, 2` | 4 | a new array `1, 2, 3`; the input still reads `3, 1, 2` |
-| `4, 1, 4, 1, 2, 4, 2, 1` | 2 | `1, 1, 1, 2, 2, 4, 4, 4` |
-| `7` | 4 | a new array `7`, not the input itself |
-| `[]` | 2 | `[]` |
+- a good file is totalled, and a file with a bad row ends `total` with an
+  `IllegalArgumentException` whose message is exactly `"row " + index + ": "` and the parser's
+  message;
+- once a row has turned out bad, the rest of the file is left mostly unparsed;
+- a rejected file doesn't change what the next file on the same `LedgerImport` returns.
+
+About fifteen lines in total. The tests run real pools of two and three workers.

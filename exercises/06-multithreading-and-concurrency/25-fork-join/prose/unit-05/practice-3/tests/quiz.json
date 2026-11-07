@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "06-multithreading-and-concurrency",
+    "25-fork-join"
+  ],
+  "variant": "prose",
+  "unit": 5,
+  "ordinal": 3,
+  "title": "Check yourself: splitting uneven work",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-noisy-service",
+        "stem": "A log-indexing job runs on a ForkJoinPool(6) and splits 600,000 lines by count into 24 leaves. The lines of one noisy service, 3% of the file and all together, take 100 times as long as the rest. The job takes almost as long as on one thread. What would change that?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Splitting into many more leaves, since a leaf that has started stays on one worker and the noisy lines now fill about one leaf",
+            "correct": true,
+            "says": "a thief takes only queued tasks, so the leaf that holds the expensive rows sets the time; smaller leaves spread those rows over many of them"
+          },
+          {
+            "id": "b",
+            "text": "Splitting into fewer, larger leaves, since 24 leaves is already four per worker and every extra leaf adds a task's overhead",
+            "correct": false,
+            "says": "four per worker left the options of the page's run in two leaves (567 ms against 163 ms); the leaf count has to follow where the cost is"
+          },
+          {
+            "id": "c",
+            "text": "Giving the pool more workers, since more workers can each take a share of the noisy leaf's lines while it runs",
+            "correct": false,
+            "says": "nothing takes part of a running leaf; extra workers only find more idle time"
+          },
+          {
+            "id": "d",
+            "text": "Giving the pool more time, since work-stealing moves the rest of a long leaf's lines to idle workers as the run goes on",
+            "correct": false,
+            "says": "work-stealing moves queued tasks, not part of a loop that is running"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.4.md",
+          "section": "Uneven Work Needs Many More Leaves Than Workers"
+        }
+      },
+      {
+        "id": "q-big-scan",
+        "stem": "A thumbnail task splits by cost: a batch whose pixels fit the budget is compressed by one task, and a bigger batch is cut where half its pixels are done, with the cut kept inside the batch. Its leaf test is only `pixels(from, to) <= budget`. One upload is a single scan larger than the budget. What happens to it?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The scan is compressed by one task, since a batch over the budget is cut until each part is within it or holds one file",
+            "correct": false,
+            "says": "only a leaf test that also accepts a single item stops there; with the budget test alone the one-file batch is cut again"
+          },
+          {
+            "id": "b",
+            "text": "The scan is compressed by two tasks, since a cut at half the pixels gives each half of the image to a different task",
+            "correct": false,
+            "says": "the cut is between items; a batch of one item can't be divided"
+          },
+          {
+            "id": "c",
+            "text": "The job never gets past the scan, since a batch of one file can't be cut and one of its halves is the whole batch again",
+            "correct": true,
+            "says": "a range of one item can't split, so it must be a leaf; otherwise one half is the whole range again and the task forks itself until the stack overflows"
+          },
+          {
+            "id": "d",
+            "text": "The job gets past the scan more slowly, since a batch that can't be cut by pixels is cut at the middle index instead",
+            "correct": false,
+            "says": "the task has no fallback to an index cut; the one-file batch splits into itself and an empty half"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.4.md",
+          "section": "When You Know What Each Item Costs, Split by Cost"
+        }
+      },
+      {
+        "id": "q-crawler-chunks",
+        "stem": "A crawler's task holds 30 million URLs. It forks a task for the first 500 URLs, then calls compute() on a task for the rest, which does the same. On a test list of 20,000 URLs it was quick. What does it do on the full list?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It runs about as fast as halving would, since other workers steal each 500-URL task as soon as it is forked",
+            "correct": false,
+            "says": "the steals do happen, but compute() on the rest is a call on the same thread, one stack frame per chunk: about 60,000 frames, far past the 7,999 that overflowed on the page's run"
+          },
+          {
+            "id": "b",
+            "text": "It runs on one worker only, since a forked 500-URL task waits until the rest of the list has been computed",
+            "correct": false,
+            "says": "forked chunks are queued and other workers steal them at once; the test run was fast"
+          },
+          {
+            "id": "c",
+            "text": "It fails with a StackOverflowError, since every chunk adds one more nested call on the stack of a single thread",
+            "correct": true,
+            "says": "peeling adds a frame per chunk; 7,999 chunks overflowed a worker's stack on the page's run, while halving went 13 levels deep"
+          },
+          {
+            "id": "d",
+            "text": "It fails with a RejectedExecutionException, since every chunk adds one more task to a queue that has a fixed size",
+            "correct": false,
+            "says": "the page's peel failed on the stack, not on a queue; the forked chunks were stolen as they came"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.4.md",
+          "section": "The Split Point Sets the Depth: Halve, or Fork the Chunks From a Loop"
+        }
+      },
+      {
+        "id": "q-twenty-eighty",
+        "stem": "A reviewer flags a task that cuts each range 20/80 instead of in half, over rows that all cost the same, with the same threshold. Compared with halving, what does the 20/80 cut change?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Fewer tasks and a shallower tree, since the larger part reaches the threshold in fewer cuts than a half does",
+            "correct": false,
+            "says": "the larger part shrinks more slowly than a half, so the tree gets deeper; the page's 10/90 made 48,531 tasks against 16,383"
+          },
+          {
+            "id": "b",
+            "text": "A slower job overall, since the worker that keeps the 80% part does most of the work while the others wait",
+            "correct": false,
+            "says": "the page's 10/90 was no slower than 50/50 (47 ms against 53): on even work an uneven ratio costs tasks, and the time doesn't show it"
+          },
+          {
+            "id": "c",
+            "text": "More tasks and a deeper tree, since the larger part needs more cuts than a half before it reaches the threshold",
+            "correct": true,
+            "says": "the 10/90 run went 86 levels deep with three times the tasks and the same time: on even work an uneven ratio wastes tasks, not balance"
+          },
+          {
+            "id": "d",
+            "text": "The same tasks and the same depth, since the threshold alone decides how many leaves a range of that many rows ends up in",
+            "correct": false,
+            "says": "the split ratio changes the tree: the page's 10/90 made 48,531 tasks 86 levels deep, against 16,383 and 13 for 50/50, at the same threshold"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.4.md",
+          "section": "The Split Point Sets the Depth: Halve, or Fork the Chunks From a Loop"
+        }
+      }
+    ]
+  }
+}

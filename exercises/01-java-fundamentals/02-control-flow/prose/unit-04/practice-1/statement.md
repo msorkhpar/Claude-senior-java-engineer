@@ -1,15 +1,11 @@
-Case labels stacked on one body share it: execution falls through the empty labels into
-the statements below them. The `default` case catches every value no label names.
+The on-call desk turns every alert into an incident with a severity from 1 (worst) to 4. The
+response is cumulative: severity 4 only writes the incident log; severity 3 opens a ticket and
+does what severity 4 does; severity 2 posts to the incident channel and does what severity 3
+does; severity 1 pages the on-call engineer and does what severity 2 does. Within one incident,
+the most urgent action comes first. Last week a monitor with a bad config sent severity 0, and
+nobody noticed because nothing happened.
 
-Write `days(int month, int year)` in `Calendar`, with a `switch` statement. It returns the
-number of days in `month` (1 to 12) of `year`:
-
-- January, March, May, July, August, October and December have `31`;
-- April, June, September and November have `30`;
-- February has `29` in a leap year and `28` otherwise. A year is a leap year when it is
-  divisible by 4, except that a year divisible by 100 is not, unless it is also divisible
-  by 400: `2024` and `2000` are leap years, `2023` and `1900` are not;
-- any other month number returns `-1`.
-
-Examples: `days(1, 2023)` is `31`, `days(4, 2023)` is `30`, `days(2, 2024)` is `29`,
-`days(2, 1900)` is `28`, and `days(13, 2023)` is `-1`.
+`Escalation` already validates the monitor's name. Write `escalate(int severity)` in
+`src/main/java/practice/Escalation.java`, as one `switch` statement, so that each severity runs
+its actions in that order and a severity outside 1 to 4 throws `IllegalArgumentException`
+before any action runs. About a dozen lines in total.

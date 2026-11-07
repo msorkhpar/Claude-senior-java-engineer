@@ -1,9 +1,9 @@
-The enhanced `for` loop visits every element in order: `for (int num : numbers) { ... }`.
-The course's `filterEvenNumbers` uses it twice, once to count and once to copy.
+The search reindexer walks a range of record IDs in batches. A tenant whose IDs were allocated
+from the top of the `int` range, up to `Integer.MAX_VALUE`, has to be reindexed too, and so does a
+range whose size isn't a multiple of the batch size.
 
-Write `evens(int[] numbers)` in `Evens`. It returns a new array of the even numbers, in
-their original order, duplicates kept:
+Finish the `TODO` in `src/main/java/practice/IdBatches.java`: `forEachBatch(...)` hands the range
+`firstId` to `lastId`, both included, to the handler in batches of at most `size` IDs, in order.
 
-- `evens({1, 2, 3, 4, 5, 6})` is `{2, 4, 6}`, and `evens({6, 2, 2, 4})` is `{6, 2, 2, 4}`;
-- negative numbers count too: `evens({-4, -3, 0, 7})` is `{-4, 0}`;
-- `evens({1, 3, 5})` and `evens({})` are `{}`, an empty array, never `null`.
+When you're done, every ID of the range is handed over exactly once, whatever `int` the range ends
+at, and the method returns once the last batch is handed over. About four lines in total.

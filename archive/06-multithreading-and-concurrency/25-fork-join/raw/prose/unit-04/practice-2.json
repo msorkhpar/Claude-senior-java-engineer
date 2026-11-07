@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Count into a shared atomic counter",
+  "title": "Report the day's slow requests without queueing on the dashboard",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A `RecursiveAction` returns nothing, so to count it needs a shared, thread-safe accumulator. The page's pitfall 1 shows the race on a plain `int count` and fixes it with an `AtomicInteger`: each base case counts in a local variable, then updates the atomic counter once with `addAndGet(localCount)`. (A lost update between separate `get` and `set` calls cannot be forced by a test, so use `addAndGet` because it is right, not because a test will catch the alternative.)"
+      "text": "Every night the platform team scans the day's request latencies for requests slower than the service's target and adds them to the operations dashboard's `Tally`. The `Tally` is shared by the whole scan and takes a lock on every `report(...)` call. On a busy day the scan is slow, and a profile shows the pool's workers spending most of their time waiting for that lock."
     },
     {
       "type": "para",
-      "text": "Write `CountMatching(array, start, end, threshold, target, counter)`, a `RecursiveAction` that adds to `counter` the number of elements of `array[start..end)` equal to `target`, splitting at the midpoint while the range is longer than `threshold`. When the action returns, every part has been counted. The counter may already hold a value: leaves **add** to it, never overwrite it. A `null` counter is refused by the constructor with `IllegalArgumentException`."
+      "text": "Finish `scanHere()` of the `Scan` task in `src/main/java/practice/SlowRequests.java`. It handles one part of the day, on the current thread. When you're done:"
     },
     {
-      "type": "table",
-      "headers": [
-        "array",
-        "target",
-        "threshold",
-        "counter before",
-        "counter after"
-      ],
-      "rows": [
-        [
-          "`1, 2, 3, 2, 1, 2`",
-          "2",
-          "6",
-          "0",
-          "3"
-        ],
-        [
-          "`7, 1, 7, 7, 2, 7, 3, 7`",
-          "7",
-          "2",
-          "10",
-          "15"
-        ],
-        [
-          "`1, 2, 3`",
-          "2",
-          "2",
-          "`null`",
-          "`IllegalArgumentException`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "the tally gains exactly the slow requests of the day and the milliseconds they took, on top of whatever earlier scans reported;",
+        "the scan's workers spend as little time on the tally's lock as the totals allow: the dashboard shows `reports()`, how many times the lock was taken."
       ]
+    },
+    {
+      "type": "para",
+      "text": "About six lines in total."
     },
     {
       "type": "heading",
@@ -71,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.RecursiveAction;\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic final class CountMatching extends RecursiveAction {\n\n    private final int[] array;\n    private final int start;\n    private final int end;\n    private final int threshold;\n    private final int target;\n    private final AtomicInteger counter;\n\n    public CountMatching(int[] array, int start, int end, int threshold, int target, AtomicInteger counter) {\n        if (counter == null) {\n            throw new IllegalArgumentException(\"counter must not be null\");\n        }\n        this.array = array;\n        this.start = start;\n        this.end = end;\n        this.threshold = threshold;\n        this.target = target;\n        this.counter = counter;\n    }\n\n    @Override\n    protected void compute() {\n        int length = end - start;\n        if (length <= threshold) {\n            int localCount = 0;\n            for (int i = start; i < end; i++) {\n                if (array[i] == target) {\n                    localCount++;\n                }\n            }\n            counter.addAndGet(localCount);\n            return;\n        }\n        int mid = start + length / 2;\n        invokeAll(new CountMatching(array, start, mid, threshold, target, counter),\n                new CountMatching(array, mid, end, threshold, target, counter));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\n\n/**\n * Scans a day of request latencies for requests slower than the service's target, and reports\n * them to the operations dashboard's tally. A day has tens of millions of requests, so the scan\n * runs on a ForkJoinPool.\n */\npublic class SlowRequests {\n\n    /** The dashboard's running totals. Every report takes the tally's lock. */\n    public static final class Tally {\n        private long requests, millis;\n        private int reports;\n\n        /** Adds slow requests and the milliseconds they took to the totals. */\n        public synchronized void report(long slowRequests, long slowMillis) {\n            requests += slowRequests;\n            millis += slowMillis;\n            reports++;\n        }\n\n        public synchronized long requests() { return requests; }\n\n        public synchronized long millis() { return millis; }\n\n        /** How many times report() was called; the dashboard's lock is held once per call. */\n        public synchronized int reports() { return reports; }\n    }\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final int targetMillis;\n\n    /**\n     * @param pool         the pool the scan runs in\n     * @param threshold    the most latencies one task scans by itself, on its own thread\n     * @param targetMillis a request is slow when it took longer than this\n     */\n    public SlowRequests(ForkJoinPool pool, int threshold, int targetMillis) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.targetMillis = targetMillis;\n    }\n\n    /** Reports every slow request of the day to the tally, and returns once all are reported. */\n    public void scan(int[] latencies, Tally tally) {\n        pool.invoke(new Scan(latencies, 0, latencies.length, tally));\n    }\n\n    /** Scans latencies[from] to latencies[to - 1]. */\n    final class Scan extends RecursiveAction {\n        private final int[] latencies;\n        private final int from, to;\n        private final Tally tally;\n\n        Scan(int[] latencies, int from, int to, Tally tally) {\n            this.latencies = latencies;\n            this.from = from;\n            this.to = to;\n            this.tally = tally;\n        }\n\n        @Override\n        protected void compute() {\n            if (to - from <= threshold) {\n                scanHere();\n                return;\n            }\n            int mid = (from + to) >>> 1;\n            invokeAll(new Scan(latencies, from, mid, tally), new Scan(latencies, mid, to, tally));\n        }\n\n        /** Reports the slow requests of this task's range, scanned on the current thread. */\n        void scanHere() {\n            long slow = 0, millis = 0;\n            for (int i = from; i < to; i++) {\n                if (latencies[i] > targetMillis) {\n                    slow++;\n                    millis += latencies[i];\n                }\n            }\n            tally.report(slow, millis);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.RecursiveAction;\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic final class CountMatching extends RecursiveAction {\n\n    public CountMatching(int[] array, int start, int end, int threshold, int target, AtomicInteger counter) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    @Override\n    protected void compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\n\n/**\n * Scans a day of request latencies for requests slower than the service's target, and reports\n * them to the operations dashboard's tally. A day has tens of millions of requests, so the scan\n * runs on a ForkJoinPool.\n */\npublic class SlowRequests {\n\n    /** The dashboard's running totals. Every report takes the tally's lock. */\n    public static final class Tally {\n        private long requests, millis;\n        private int reports;\n\n        /** Adds slow requests and the milliseconds they took to the totals. */\n        public synchronized void report(long slowRequests, long slowMillis) {\n            requests += slowRequests;\n            millis += slowMillis;\n            reports++;\n        }\n\n        public synchronized long requests() { return requests; }\n\n        public synchronized long millis() { return millis; }\n\n        /** How many times report() was called; the dashboard's lock is held once per call. */\n        public synchronized int reports() { return reports; }\n    }\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final int targetMillis;\n\n    /**\n     * @param pool         the pool the scan runs in\n     * @param threshold    the most latencies one task scans by itself, on its own thread\n     * @param targetMillis a request is slow when it took longer than this\n     */\n    public SlowRequests(ForkJoinPool pool, int threshold, int targetMillis) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.targetMillis = targetMillis;\n    }\n\n    /** Reports every slow request of the day to the tally, and returns once all are reported. */\n    public void scan(int[] latencies, Tally tally) {\n        pool.invoke(new Scan(latencies, 0, latencies.length, tally));\n    }\n\n    /** Scans latencies[from] to latencies[to - 1]. */\n    final class Scan extends RecursiveAction {\n        private final int[] latencies;\n        private final int from, to;\n        private final Tally tally;\n\n        Scan(int[] latencies, int from, int to, Tally tally) {\n            this.latencies = latencies;\n            this.from = from;\n            this.to = to;\n            this.tally = tally;\n        }\n\n        @Override\n        protected void compute() {\n            if (to - from <= threshold) {\n                scanHere();\n                return;\n            }\n            int mid = (from + to) >>> 1;\n            invokeAll(new Scan(latencies, from, mid, tally), new Scan(latencies, mid, to, tally));\n        }\n\n        /** Reports the slow requests of this task's range, scanned on the current thread. */\n        void scanHere() {\n            // TODO: Report every request of this task's range that took longer than targetMillis,\n            //       and the milliseconds those requests took, to the tally. Every worker of the\n            //       scan reports to the same tally.\n            throw new IllegalStateException(\"TODO: scanHere\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,10 +70,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "14950e098248f7e0028a065bf0521a1492d00a57d44706f7ae3f6d33fdbdf77d",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.RecursiveAction;\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic final class CountMatching extends RecursiveAction {\n\n    public CountMatching(int[] array, int start, int end, int threshold, int target, AtomicInteger counter) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    @Override\n    protected void compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n",
+  "content_sha256": "0cc45cdc2b38f82b076cddbbd7b2e970121a88dfce3ca9a90a358c60ea521751",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\n\n/**\n * Scans a day of request latencies for requests slower than the service's target, and reports\n * them to the operations dashboard's tally. A day has tens of millions of requests, so the scan\n * runs on a ForkJoinPool.\n */\npublic class SlowRequests {\n\n    /** The dashboard's running totals. Every report takes the tally's lock. */\n    public static final class Tally {\n        private long requests, millis;\n        private int reports;\n\n        /** Adds slow requests and the milliseconds they took to the totals. */\n        public synchronized void report(long slowRequests, long slowMillis) {\n            requests += slowRequests;\n            millis += slowMillis;\n            reports++;\n        }\n\n        public synchronized long requests() { return requests; }\n\n        public synchronized long millis() { return millis; }\n\n        /** How many times report() was called; the dashboard's lock is held once per call. */\n        public synchronized int reports() { return reports; }\n    }\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final int targetMillis;\n\n    /**\n     * @param pool         the pool the scan runs in\n     * @param threshold    the most latencies one task scans by itself, on its own thread\n     * @param targetMillis a request is slow when it took longer than this\n     */\n    public SlowRequests(ForkJoinPool pool, int threshold, int targetMillis) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.targetMillis = targetMillis;\n    }\n\n    /** Reports every slow request of the day to the tally, and returns once all are reported. */\n    public void scan(int[] latencies, Tally tally) {\n        pool.invoke(new Scan(latencies, 0, latencies.length, tally));\n    }\n\n    /** Scans latencies[from] to latencies[to - 1]. */\n    final class Scan extends RecursiveAction {\n        private final int[] latencies;\n        private final int from, to;\n        private final Tally tally;\n\n        Scan(int[] latencies, int from, int to, Tally tally) {\n            this.latencies = latencies;\n            this.from = from;\n            this.to = to;\n            this.tally = tally;\n        }\n\n        @Override\n        protected void compute() {\n            if (to - from <= threshold) {\n                scanHere();\n                return;\n            }\n            int mid = (from + to) >>> 1;\n            invokeAll(new Scan(latencies, from, mid, tally), new Scan(latencies, mid, to, tally));\n        }\n\n        /** Reports the slow requests of this task's range, scanned on the current thread. */\n        void scanHere() {\n            // TODO: Report every request of this task's range that took longer than targetMillis,\n            //       and the milliseconds those requests took, to the tally. Every worker of the\n            //       scan reports to the same tally.\n            throw new IllegalStateException(\"TODO: scanHere\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-2/src/main/java/practice/CountMatching.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-2/src/test/java/practice/CountMatchingTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-2/src/main/java/practice/SlowRequests.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-2/src/test/java/practice/SlowRequestsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,24 +106,14 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CountMatchingTest#countsTheMatches",
+        "id": "practice.SlowRequestsTest#reportsEverySlowRequestAndItsTime",
         "kind": "main",
-        "says": "The counter ends up holding the number of elements equal to the target, counted in one base case."
+        "says": "the tally gains exactly the day's slow requests and their milliseconds, on top of what it already held, for any day and threshold"
       },
       {
-        "id": "practice.CountMatchingTest#addsToWhatTheCounterHolds",
+        "id": "practice.SlowRequestsTest#eachPartOfTheScanTakesTheTallysLockAtMostOnce",
         "kind": "edge",
-        "says": "Each leaf adds its count to the shared counter and never overwrites what other leaves added."
-      },
-      {
-        "id": "practice.CountMatchingTest#aNullCounterIsRefusedWhenBuilt",
-        "kind": "edge",
-        "says": "A null counter is refused with IllegalArgumentException in the constructor."
-      },
-      {
-        "id": "practice.CountMatchingTest#theCountIsCompleteWhenInvokeReturns",
-        "kind": "edge",
-        "says": "When invoke returns, every leaf has added its count: the halves are waited for, not just forked."
+        "says": "each part of the scan counts on its own and reports to the shared tally once, not once per slow request"
       }
     ],
     "report": {
@@ -153,10 +122,10 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Leaves Count Locally and Add to the Shared Total Once"
     },
     "concepts": [
-      "Each leaf of a counting RecursiveAction adds its local count to the one shared AtomicInteger, never replacing what other leaves added."
+      "Leaves that add to one shared total count locally and add to it once per leaf, rather than once per element."
     ]
   }
 }

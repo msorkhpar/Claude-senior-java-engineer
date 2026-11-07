@@ -18,279 +18,255 @@
       "text": "6.6.1.3. Implementing RecursiveAction for Resultless Tasks"
     },
     {
+      "type": "para",
+      "text": "The nightly repricing job raises 2 million catalogue prices by 3 % in place, and the web-shop export starts as soon as `pool.invoke` returns. Every morning the shop shows old prices for a few hundred thousand products, different ones each night. On a laptop with 500 test products it never happens. One night a negative price made the job throw, the operator re-ran it, and most of the catalogue went up twice."
+    },
+    {
+      "type": "para",
+      "text": "The job is a `RecursiveAction`: a fork/join task whose `compute()` returns `void`, so its result is whatever it wrote. Each section below is one rule about writing such a task."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A RecursiveAction Is Finished Only When compute() Has Waited for Its Subtasks"
+    },
+    {
+      "type": "para",
+      "text": "The task, with the 10,000-row threshold of unit 6.6.1:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.RecursiveAction;\n\nclass Markup extends RecursiveAction {\n    static final int THRESHOLD = 10_000;\n    final long[] cents;\n    final int from, to;\n\n    Markup(long[] cents, int from, int to) { this.cents = cents; this.from = from; this.to = to; }\n\n    @Override\n    protected void compute() {\n        if (to - from <= THRESHOLD) {\n            for (int i = from; i < to; i++) cents[i] = raise(cents[i]);\n            return;\n        }\n        int mid = (from + to) >>> 1;\n        invokeAll(new Markup(cents, from, mid), new Markup(cents, mid, to));\n    }\n\n    static long raise(long c) {\n        if (c < 0) throw new IllegalArgumentException(\"negative price: \" + c);\n        return c * 103 / 100;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The job's version had no result to join, so its author forked both halves and returned:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "int mid = (from + to) >>> 1;\nnew MarkupNoJoin(cents, from, mid).fork();\nnew MarkupNoJoin(cents, mid, to).fork();"
+    },
+    {
+      "type": "para",
+      "text": "Both run on `ForkJoinPool(8)` over 2 million prices (`ex/Reprice.java`, Java 21), and the caller counts the prices still unchanged as soon as `pool.invoke` returns:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "invokeAll:     0 of 2,000,000 prices still old when invoke returned\nfork, no join: 1,739,131 of 2,000,000 prices still old when invoke returned"
+    },
+    {
+      "type": "para",
+      "text": "`invoke` returns when the root task's `compute()` returns. The forking version returns after two `fork()` calls, so the caller reads the array while the leaves are still writing it, and nothing in this code waits for them. The count changes from run to run. With 500 products there is one leaf, no fork, and no bug."
+    },
+    {
+      "type": "para",
+      "text": "`invokeAll(left, right)` forks `right`, runs `left` on the current thread, then waits for `right`: the fork, compute, join of unit 6.6.1 in one call. Because it waits, a task can also work after its subtasks. The `RecursiveAction` javadoc's sort example sorts both halves with `invokeAll`, then merges them."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "Subtasks Write Disjoint Ranges and Read Nothing Another Subtask Writes"
     },
     {
       "type": "para",
-      "text": "`RecursiveAction` is an abstract class in `java.util.concurrent` that extends `ForkJoinTask<Void>`. It is designed for fork/join computations that **do not return a result** -- they perform side effects such as modifying an array in-place, updating shared data structures (with proper synchronization), or writing output."
+      "text": "The leaves share one array and no lock. That is safe only because no element belongs to two leaves. Make the left half `[from, mid]` instead of `[from, mid)`, by passing `mid + 1`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "invokeAll(new MarkupOverlap(cents, from, mid + 1), new MarkupOverlap(cents, mid, to));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "overlap:       255 prices raised twice"
     },
     {
       "type": "para",
-      "text": "The `compute()` method returns `void`. Instead of combining results from subtasks, the effects of all subtasks collectively produce the desired outcome."
+      "text": "Why 255? Two million prices in leaves of at most 10,000 make 256 leaves and 255 splits, and each split hands its `mid` to both sides. The count is the same every run, so a test with an exact expected array catches it; a test on 500 prices does not split."
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Imagine painting a long fence. You divide the fence into sections and assign each section to a painter. No painter returns a \"result\" -- the fence itself is the output. Each painter modifies their section in place. If a section is small enough, one painter handles it directly. `RecursiveAction` works the same way."
+      "text": "Reading is the other half of the rule. A three-point moving average written in place reads `a[i - 1]` and `a[i + 1]`, and at a leaf's edge those belong to the neighbouring leaf, which may or may not have overwritten them yet (`ex/Smooth.java`, four runs over a million values, against the same average written to a second array):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "in place: hash -813368940   to a copy: hash 1843535354\nin place: hash 1353513801   to a copy: hash 1843535354\nin place: hash -1680316791   to a copy: hash 1843535354\nin place: hash 659750338   to a copy: hash 1843535354"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "RecursiveAction vs. RecursiveTask"
+      "level": 2,
+      "text": "Leaves Count Locally and Add to the Shared Total Once"
+    },
+    {
+      "type": "para",
+      "text": "A counting action has nowhere to return its count, so the leaves add it to an object they all share. Twenty million request latencies, counting those over a 250 ms target, three ways (`ex/Tally.java`, threshold 10,000, best of five runs):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// PLAIN_FIELD: a long field of an object every leaf shares\nfor (int i = from; i < to; i++) if (ms[i] > SLO_MS) counts.slow++;\n// ATOMIC_PER_HIT: an AtomicLong, once per slow request\nfor (int i = from; i < to; i++) if (ms[i] > SLO_MS) slow.incrementAndGet();\n// LOCAL_THEN_ADD: a local count, added once per leaf\nlong local = 0;\nfor (int i = from; i < to; i++) if (ms[i] > SLO_MS) local++;\nslow.addAndGet(local);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "expected: 9,960,000 slow requests\nPLAIN_FIELD       3,543,771    20 ms\nATOMIC_PER_HIT    9,960,000    91 ms\nLOCAL_THEN_ADD    9,960,000     3 ms"
+    },
+    {
+      "type": "para",
+      "text": "`counts.slow++` reads, adds and writes, and eight workers doing it at once overwrite each other's updates (unit 6.2.1). It lost almost two thirds of the count, a different amount on every run, and nothing failed. Adding a local count to the plain field once per leaf makes the loss rarer, not impossible: `+=` is the same three steps. The atomic count is right, but each slow request writes one memory location that all eight cores contend for. A local count added once per leaf makes 2,048 atomic updates instead of ten million."
+    },
+    {
+      "type": "para",
+      "text": "When the action's whole output is one number, a `RecursiveTask` returns it through `join()` with no shared state at all (unit 6.6.1.2). The shared total fits when the action's main work is elsewhere, such as rewriting an array, and the count comes along."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Failure Leaves the Array Partly Changed, So Write to a Copy"
+    },
+    {
+      "type": "para",
+      "text": "The same `Markup`, with one price set to `-1` a quarter of the way in:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "bad row:       invoke threw IllegalArgumentException, 1,750,000 of 2,000,000 prices raised"
+    },
+    {
+      "type": "para",
+      "text": "Other runs raised 1,992,188. The exception reached the caller as unit 6.6.1.1 describes, but every leaf that ran kept its writes, including leaves that finished after the throw. Re-running the job raises those prices a second time."
+    },
+    {
+      "type": "para",
+      "text": "Rolling back in the `catch` with a snapshot taken before is not enough either. When the task run on the current thread fails, `invokeAll` rethrows at once and cancels the other one, and cancelling stops a task only if it hasn't started (`ForkJoinTask.cancel` javadoc). A subtask that is already running keeps going, and so do the subtasks it forks. In `ex/Straggler.java` the left leaf of an eight-price array throws while a latch holds the right leaf:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "invoke threw:    [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]\n200 ms later:    [1000, 1000, 1000, 1000, 1030, 1030, 1030, 1030]"
+    },
+    {
+      "type": "para",
+      "text": "The caller had caught the exception, and the right leaf wrote its half afterwards. The left leaf stopped at its throw and wrote nothing more."
+    },
+    {
+      "type": "para",
+      "text": "Run the action on a copy, and publish the copy only when `invoke` returns normally:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "long[] next = prices.clone();\npool.invoke(new Markup(next, 0, next.length));\nprices = next;                               // reached only if every leaf succeeded"
+    },
+    {
+      "type": "para",
+      "text": "A failure leaves `prices` untouched, and a leaf still running writes into a copy nobody reads. If other threads read `prices`, make the field `volatile` so they see the new array whole. The copy costs one array's memory and one pass to clone. Validating the input first does not replace it: a leaf can still fail on something no check foresaw."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**A `RecursiveAction` is finished only when `compute()` has waited for its subtasks.** Fork without join, and `invoke` returns while the leaves are still writing.",
+        "**Subtasks write disjoint ranges and read nothing another subtask writes.** An inclusive `mid` changes the same elements twice every run; reading a neighbour's range gives a different answer every run.",
+        "**Leaves count locally and add to the shared total once.** A plain field loses updates silently; an atomic per element works but makes every core wait for one memory location.",
+        "**A failure leaves the array partly changed.** Write to a copy and publish it only on success; a rollback in the `catch` can be overwritten by a leaf still running."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
     },
     {
       "type": "table",
       "headers": [
-        "Aspect",
-        "RecursiveTask<V>",
-        "RecursiveAction"
+        "Call",
+        "What it does"
       ],
       "rows": [
         [
-          "Return type",
-          "V (any type)",
-          "Void (no return)"
+          "`invokeAll(t1, t2)`",
+          "forks `t2`, runs `t1` on this thread, waits for `t2`; if `t1` fails, cancels `t2` and rethrows at once"
         ],
         [
-          "compute() returns",
-          "V",
-          "void"
+          "`invokeAll(t1, t2, t3, ...)`, `invokeAll(collection)`",
+          "for any number of tasks: runs the first, waits for the others in order; on the first failure it sees, cancels the rest and rethrows"
         ],
         [
-          "Use case",
-          "Reduce / aggregate",
-          "In-place transformation"
+          "`RecursiveAction.compute()`",
+          "returns `void`; `join()` and `invoke()` on the task return `null`"
         ],
         [
-          "Result combining",
-          "At join points",
-          "Not needed"
+          "`task.cancel(...)`",
+          "stops a task that hasn't started; one already running keeps running, though it reports cancelled and done"
         ],
         [
-          "Preferred pattern",
-          "fork-compute-join",
-          "invokeAll()"
+          "`RecursiveTask<V>.compute()`",
+          "returns `V`, which `join()` hands back (unit 6.6.1.2)"
+        ],
+        [
+          "`Arrays.parallelSetAll(a, i -> ...)`",
+          "sets every element from its index, through a parallel stream (the common pool, unless called from a task of another pool)"
+        ],
+        [
+          "`Arrays.parallelPrefix(a, op)`",
+          "cumulative results in place, e.g. running totals"
+        ],
+        [
+          "`Arrays.parallelSort(a)`",
+          "sorts in parallel; an object array of 8,192 elements or fewer is sorted sequentially (javadoc: \"minimum granularity\")"
         ]
       ]
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "When to Use RecursiveAction"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**In-place array modifications**: incrementing, squaring, filling, transforming elements",
-        "**Parallel initialization**: setting up large arrays or data structures",
-        "**Side-effect computations**: logging, counting with atomic variables, sending notifications",
-        "**Parallel iteration**: processing each element without producing a combined result"
-      ]
+      "type": "para",
+      "text": "For plain array work these built-ins already run on fork/join; write your own action when the per-element step or the split is your own."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "`RecursiveAction` extends `ForkJoinTask<Void>` -- its `compute()` returns `void`.",
-        "Use `invokeAll(left, right)` to fork and join two subtasks in one call.",
-        "`invokeAll()` is preferred over manual fork/join for `RecursiveAction` because there is no result to combine inline.",
-        "Side effects must be **thread-safe** -- use atomic variables, thread-local accumulators, or operate on disjoint array ranges.",
-        "The threshold pattern is the same as `RecursiveTask` -- check size, compute sequentially or split.",
-        "Multiple subtasks can be passed to `invokeAll(task1, task2, task3, ...)`.",
-        "`invokeAll()` blocks until all provided tasks complete.",
-        "For counting or accumulating in `RecursiveAction`, use `AtomicInteger`/`AtomicLong`."
+        "The repricing job also has to report how many prices crossed a round number. Is that a shared total inside `Markup`, a second pass, or a `RecursiveTask`? Measure the first two.",
+        "Clone 2 million prices, then 200 million. At what size does the copy in the last section cost more than the job, and what would you do instead?",
+        "A tree of product categories gets a discount applied to every node, and each node's total must include its children. Where in `compute()` does the node's own update go, and why can it not go before `invokeAll`?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        [
-          "`RecursiveAction` is unchanged since Java 7, but modern Java offers alternatives:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "**`Arrays.parallelSetAll()`**: Built-in parallel array initialization (uses Fork/Join internally).",
-              "**`Arrays.parallelSort()`**: Built-in parallel sorting.",
-              "**`Arrays.parallelPrefix()`**: Parallel prefix computation.",
-              "**Virtual threads**: For I/O-side-effect tasks, prefer virtual threads over Fork/Join."
-            ]
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Unsynchronized writes to shared state**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: race condition on count\nprivate int count = 0;\nprotected void compute() {\n    if (length <= THRESHOLD) {\n        for (int i = start; i < end; i++) {\n            if (array[i] == target) count++; // data race!\n        }\n        return;\n    }\n    invokeAll(left, right);\n}"
-          },
-          "**Fix**: Use `AtomicInteger` or accumulate locally and update atomically:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "private final AtomicInteger count;\nprotected void compute() {\n    if (length <= THRESHOLD) {\n        int localCount = 0;\n        for (int i = start; i < end; i++) {\n            if (array[i] == target) localCount++;\n        }\n        count.addAndGet(localCount); // single atomic update\n        return;\n    }\n    invokeAll(left, right);\n}"
-          }
-        ],
-        [
-          "**Using fork-compute-join pattern unnecessarily**: Unlike `RecursiveTask`, there is no result to compute inline. `invokeAll()` is cleaner.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Unnecessary complexity for RecursiveAction\nleft.fork();\nright.compute();\nleft.join();\n\n// Cleaner\ninvokeAll(left, right);"
-          }
-        ],
-        "**Overlapping array ranges**: If two subtasks write to overlapping ranges, you get data corruption. **Fix**: Ensure `[start, mid)` and `[mid, end)` ranges are strictly disjoint.",
-        "**Modifying the array and reading it concurrently**: If another thread reads the array while `RecursiveAction` modifies it, use proper synchronization or ensure the action completes before reading."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Use `invokeAll()` for `RecursiveAction` -- it is cleaner and handles fork/join internally.",
-        "Operate on **disjoint array ranges** to avoid synchronization entirely.",
-        "For accumulation patterns, use `AtomicInteger`/`AtomicLong` with **local accumulation** -- count locally in the base case and update the atomic variable once.",
-        "Consider using `Arrays.parallelSetAll()` instead of a custom `RecursiveAction` for simple array initialization.",
-        "Validate inputs in the constructor, not in `compute()` -- fail fast.",
-        "Keep the base case simple and fast -- this is where most time is spent."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null array**: Throw `IllegalArgumentException` in the constructor.",
-        "**Empty array**: Return immediately from `compute()` without forking.",
-        "**Single element**: Handled by the threshold -- compute sequentially.",
-        "**Start >= end**: No work to do -- return immediately.",
-        "**AtomicInteger overflow**: For very large arrays with many matches, use `AtomicLong`.",
-        "**Concurrent reads during modification**: The array is being modified in place. Ensure no other thread reads it until the action completes (call `invoke()` which blocks until done)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Interviewers may ask you to implement an in-place parallel array transformation.",
-        "Know the difference between `invokeAll()` and manual fork/join.",
-        "Be able to explain why `RecursiveAction` uses `invokeAll()` while `RecursiveTask` uses fork-compute-join.",
-        "Understand thread safety concerns with in-place modifications.",
-        "Be ready to discuss when `RecursiveAction` is better than `RecursiveTask` (and vice versa)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
+      "text": "Design Note: A Task Without a Result Leaves the Caller Trusting Shared State"
     },
     {
       "type": "para",
-      "text": "**Q1: When should you use RecursiveAction instead of RecursiveTask?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Use RecursiveAction when your computation produces no return value -- it\nperforms side effects instead. Common scenarios:\n\n1. In-place array modifications (increment, square, fill, transform)\n2. Parallel initialization of data structures\n3. Side-effect operations (logging, counting with atomics)\n4. Writing output to files or streams\n\nUse RecursiveTask when you need to compute and return a result that is\ncombined from subtask results (sum, max, sorted array, search result).\n\nRule of thumb: If your sequential version returns void, use RecursiveAction.\nIf it returns a value, use RecursiveTask."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// RecursiveAction -- no return value, modifies array in place\nclass SquareAction extends RecursiveAction {\n    protected void compute() {\n        if (length <= THRESHOLD) {\n            for (int i = start; i < end; i++)\n                array[i] = array[i] * array[i];\n            return;\n        }\n        invokeAll(\n            new SquareAction(array, start, mid),\n            new SquareAction(array, mid, end)\n        );\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What is invokeAll() and why is it preferred for RecursiveAction?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: invokeAll() is a static method on ForkJoinTask that forks all provided tasks\nand waits for all of them to complete. It is a convenience method that combines\nfork() and join() for multiple tasks.\n\nWhy it is preferred for RecursiveAction:\n- RecursiveAction has no result to combine, so there is no advantage to\n  computing one subtask inline (the fork-compute-join pattern)\n- invokeAll() is more readable and less error-prone\n- It handles the fork/join lifecycle automatically\n\nFor RecursiveTask, fork-compute-join is preferred because the current thread\ncan productively compute one subtask's result while waiting for the other.\nWith RecursiveAction, both subtasks perform side effects independently, so\ninvokeAll() is equally efficient and cleaner.\n\ninvokeAll() can accept 2 or more tasks:\n  invokeAll(task1, task2);\n  invokeAll(task1, task2, task3, task4);\n  invokeAll(collectionOfTasks);"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Using invokeAll with RecursiveAction\nprotected void compute() {\n    if (end - start <= THRESHOLD) {\n        // base case: sequential work\n        for (int i = start; i < end; i++) {\n            array[i] += incrementBy;\n        }\n        return;\n    }\n    int mid = start + (end - start) / 2;\n    invokeAll(\n        new IncrementAction(array, start, mid, incrementBy),\n        new IncrementAction(array, mid, end, incrementBy)\n    );\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How do you accumulate results in a RecursiveAction?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Since RecursiveAction returns void, accumulation requires a shared\nthread-safe container. The recommended approach is:\n\n1. Pass an AtomicInteger/AtomicLong to the task\n2. In the base case, count locally (no atomics needed for local variable)\n3. Update the atomic variable ONCE with the local count\n4. This minimizes contention on the atomic variable\n\nWhy local accumulation matters:\n- Updating an atomic variable on every iteration causes contention\n- Local counting is purely sequential (fast)\n- A single addAndGet() at the end of each base case is minimal contention\n- With K leaf tasks, there are only K atomic updates instead of N\n\nAlternative: Use RecursiveTask<Integer> instead, which avoids shared state\nentirely by returning counts that are combined at join points."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class CountMatchingAction extends RecursiveAction {\n    private final int[] array;\n    private final int target;\n    private final AtomicInteger counter;\n\n    protected void compute() {\n        if (end - start <= THRESHOLD) {\n            int localCount = 0; // no atomics needed locally\n            for (int i = start; i < end; i++) {\n                if (array[i] == target) localCount++;\n            }\n            counter.addAndGet(localCount); // single atomic update\n            return;\n        }\n        int mid = start + (end - start) / 2;\n        invokeAll(\n            new CountMatchingAction(array, start, mid, target, counter),\n            new CountMatchingAction(array, mid, end, target, counter)\n        );\n    }\n}\n\n// Usage\nAtomicInteger count = new AtomicInteger(0);\npool.invoke(new CountMatchingAction(array, 0, array.length, target, count));\nSystem.out.println(\"Count: \" + count.get());"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: What built-in Java methods use RecursiveAction internally?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Several java.util.Arrays methods use the Fork/Join framework internally:\n\n1. Arrays.parallelSort() -- sorts an array in parallel (sorting parts and merging\n   them), implemented with CountedCompleter tasks rather than RecursiveAction/\n   RecursiveTask; small arrays are simply sorted sequentially.\n\n2. Arrays.parallelSetAll() -- initializes array elements in parallel using\n   an IntUnaryOperator (for int[]) or IntFunction<T> (for T[]); it runs a\n   parallel IntStream, so it reaches Fork/Join through the stream framework.\n\n3. Arrays.parallelPrefix() -- computes prefix sums (or other associative\n   operations) in parallel, also with CountedCompleter tasks.\n\nThese methods use the common ForkJoinPool and handle threshold selection\ninternally. For standard array operations, prefer these built-in methods\nover writing custom RecursiveAction tasks.\n\nCustom RecursiveAction is needed when:\n- Your transformation logic is complex\n- You need a custom pool\n- You need custom threshold behavior\n- The built-in methods don't cover your use case"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Built-in parallel array operations (use Fork/Join internally)\n\n// parallelSort\nint[] array = {5, 3, 1, 4, 2};\nArrays.parallelSort(array); // [1, 2, 3, 4, 5]\n\n// parallelSetAll -- initialize with index-based function\nint[] squares = new int[100];\nArrays.parallelSetAll(squares, i -> i * i);\n// squares = [0, 1, 4, 9, 16, ...]\n\n// parallelPrefix -- cumulative sum\nint[] cumSum = {1, 2, 3, 4, 5};\nArrays.parallelPrefix(cumSum, Integer::sum);\n// cumSum = [1, 3, 6, 10, 15]"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How do you test RecursiveAction tasks?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Testing RecursiveAction requires verifying side effects since there is\nno return value. Key strategies:\n\n1. Array verification: Create an input array, invoke the action, then\n   assert the array contents match expected values.\n\n2. AtomicInteger verification: For counting tasks, verify the counter's\n   final value.\n\n3. Null/empty handling: Test that null and empty arrays are handled\n   gracefully (no exceptions, no modifications).\n\n4. Boundary testing: Test with arrays smaller than, equal to, and larger\n   than the threshold to exercise both the base case and recursive case.\n\n5. Correctness vs. sequential: Compare the result of the parallel action\n   with a simple sequential implementation.\n\n6. Concurrent consistency: For large arrays, verify that all elements are\n   correctly modified (no missed or double-modified elements)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "@Test\nvoid testIncrementAction() {\n    int[] array = {1, 2, 3, 4, 5};\n    ForkJoinPool.commonPool().invoke(new IncrementAction(array, 0, 5, 10));\n    assertThat(array).containsExactly(11, 12, 13, 14, 15);\n}\n\n@Test\nvoid testCountMatchingAction() {\n    int[] array = {1, 2, 3, 2, 1, 2};\n    AtomicInteger counter = new AtomicInteger(0);\n    ForkJoinPool.commonPool().invoke(\n        new CountMatchingAction(array, 0, 6, 2, counter));\n    assertThat(counter.get()).isEqualTo(3);\n}\n\n@Test\nvoid testLargeArrayConsistency() {\n    int[] array = new int[10_000];\n    Arrays.fill(array, 5);\n    ForkJoinPool.commonPool().invoke(new SquareAction(array, 0, 10_000));\n    assertThat(array).containsOnly(25); // every element should be 25\n}"
+      "text": "A `RecursiveTask` hands each partial result to its parent through `join()`: the data travels with the waiting, so a parent cannot use a result it hasn't waited for. A `RecursiveAction` separates the two. The result is in shared memory the whole time, readable half-written, and nothing in the type forces anyone to wait before reading it. That is what makes in-place work cheap, with no partial arrays to allocate and merge, and it is why every rule on this page is about who may touch the shared array, and when."
     },
     {
       "type": "heading",
@@ -310,17 +286,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 12,
-    "paras": 8,
-    "code": 10,
+    "headings": 10,
+    "paras": 21,
+    "code": 11,
     "tables": 1,
-    "lists": 8,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "a7ea7d484e209d9156eff47ae2986991ad2f0bdaad37d41334889d1b2ad930da"
+  "content_sha256": "b5172412c6d59cd3519f06881f31b4eefeffd3bf7c6ba3f20a5d1a93cee1c5ac"
 }

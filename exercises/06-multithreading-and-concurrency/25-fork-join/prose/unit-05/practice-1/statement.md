@@ -1,19 +1,12 @@
-The page's threshold heuristic is **`N / (parallelism * 4)` with a minimum**:
-enough tasks for good load balancing without the overhead of tiny ones. Its Q1
-reads the parallelism from the pool and takes `Math.max(minimum, N / (parallelism * 4))`.
+The settlement job nets the day's trades on whatever `ForkJoinPool` the deployment hands it: two
+workers in staging, twelve in production. The big clients' trades sit together at the end of the
+day's file and take far longer to net than the rest, and in production the job runs about as
+long as it would on one thread, while most workers sit idle near the end.
 
-Write `AdaptiveSum.sum(pool, array, floor, probe)`: it sums `array` with a
-`RecursiveTask` **run in `pool`**, whose threshold is
+The operations team has set the rule for how the day is cut up: each worker of the pool the job
+runs in gets between 32 and 64 pieces of a large day, and a batch of `minRows` trades or
+fewer is netted whole, because a piece that small isn't worth a task.
 
-    Math.max(floor, array.length / (pool.getParallelism() * 4))
-
-A range of at most that many elements is summed sequentially; a longer one is
-split at the midpoint into two subtasks. In each base
-case, call `probe.leaf(start, end)` once. Values may be as large as a `long` allows, as may the sum.
-
-| pool parallelism | array | floor | threshold | answer | leaves |
-|---|---|---|---|---|---|
-| 2 | `1..100` | 10 | 12 | `5050` | 12 leaves |
-| 2 | 160 ones | 5 | 20 | `160` | 8 leaves of 20 |
-| 2 | 40 ones | 16 | 16 | `40` | 4 leaves of 10 |
-| 5 | 160 ones | 5 | 8 | `160` | 32 leaves of 5 |
+`SettlementJob` already halves the day until a range fits in one piece. Finish `leafSize(rows)` in
+`src/main/java/practice/SettlementJob.java`, which says how many trades one piece may hold. About
+two lines in total. The tests run the job on real pools of one to forty workers.

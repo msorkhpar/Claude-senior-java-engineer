@@ -1,23 +1,20 @@
-With virtual threads a blocking task no longer needs a pooled thread: the page's
-advice is one new virtual thread per task, from
-`Executors.newVirtualThreadPerTaskExecutor()` in a `try`-with-resources block,
-whose `close()` waits for every task. A fixed pool of virtual threads is the
-pitfall to avoid: it caps how many tasks run at once, exactly like a pool of
-platform threads.
+Partners upload order documents, and the upload service checks each one against the partner
+schema before accepting it. A `Checker` compiles the schema when it is built, which costs a lot of
+CPU and memory, and it keeps state between calls, so one thread at a time may use it. The service
+used to run uploads on a pool of 16 platform threads and kept one checker per pool thread. It now
+runs every upload on a virtual thread of its own, and at the last partner deadline the instances
+spent more CPU building checkers than checking documents.
 
-Write `Fanout.fetchAll(List<String> keys, Function<String, String> fetch)`:
+Operations has settled on a limit: the service may hold at most `max` checkers. Finish the two
+`TODO`s in `src/main/java/practice/SchemaChecks.java`:
 
-- It calls `fetch` once per key, each call on its **own virtual thread**, and
-  all the calls run **at the same time** (no cap on how many).
-- It returns the results in key order, after every call has finished.
+- `borrow()`: hands out a checker for one upload;
+- `check(document)`: checks one document on the calling upload's thread.
 
-The tests see that each call runs on a virtual thread and that every call is in flight at once; whether a
-thread is ever reused for a later call is not something they can force, so use the page's executor anyway.
-- If a call throws, `fetchAll` throws an `ExecutionException` whose cause is
-  that exception.
+When you're done, any number of uploads in flight build at most `max` checkers, an upload that
+finds them all busy waits for one, no checker is ever used by two uploads at once, and a document
+that makes its checker throw doesn't leave the service short of a checker. About twelve lines in
+total, including the fields you add.
 
-| keys | fetch | answer |
-|---|---|---|
-| `["a", "b", "c"]` | `k -> k.toUpperCase()` | `["A", "B", "C"]` |
-| 1000 keys | each call waits until all 1000 have started | 1000 results |
-| `["a", "b"]` | throws `IllegalStateException` on `"b"` | `ExecutionException`, cause the `IllegalStateException` |
+The tests send each upload on a virtual thread of its own, count the checkers built, and hold
+checks in progress to see who uses which checker.

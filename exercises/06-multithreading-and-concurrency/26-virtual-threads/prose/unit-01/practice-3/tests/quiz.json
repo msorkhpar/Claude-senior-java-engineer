@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "06-multithreading-and-concurrency",
+    "26-virtual-threads"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 3,
+  "title": "Check yourself: lightweight threads for high concurrency",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-burst-of-database-waits",
+        "stem": "A service runs on Java 21 on a 4-CPU machine with the default virtual-thread scheduler. A burst of 3,000 requests arrives at once, each on its own virtual thread. Each request computes for about 20 microseconds and spends 300 ms waiting for a database reply over a socket; nothing runs inside synchronized or native code. Roughly how long until all 3,000 have their replies?",
+        "options": [
+          {
+            "id": "a",
+            "text": "About 300 ms, since a request that waits leaves its carrier and the four carriers only run the short computing parts",
+            "correct": true,
+            "says": "a virtual thread unmounts at a blocking call, so the waits overlap and a few carriers run thousands of waiting requests"
+          },
+          {
+            "id": "b",
+            "text": "About 300 ms, since the JVM gives each waiting request an operating-system thread of its own until the reply comes",
+            "correct": false,
+            "says": "the waiting virtual thread's frames go to the heap; no platform thread is held for it, and one carrier ran 10,000 waits"
+          },
+          {
+            "id": "c",
+            "text": "About 225 s, since each of the four carriers takes one request and stays with it through its wait",
+            "correct": false,
+            "says": "the carrier is given back at the blocking call and picks up the next ready virtual thread"
+          },
+          {
+            "id": "d",
+            "text": "About 225 s, since the scheduler runs each virtual thread to its end before it starts the next one",
+            "correct": false,
+            "says": "the scheduler switches at every blocking call; a virtual thread keeps its carrier only while it computes without blocking or yielding"
+          }
+        ],
+        "origin": {
+          "path": "26-virtual-threads/README_6.7.1.md",
+          "section": "A Virtual Thread That Waits Gives Its Carrier Back, So a Few Platform Threads Run Thousands of Requests"
+        }
+      },
+      {
+        "id": "q-probe-behind-resizes",
+        "stem": "A thumbnail service runs on Java 21 in a container limited to two CPUs, so the virtual-thread scheduler has two carriers. Every HTTP request runs on its own virtual thread. Two uploads arrive whose handlers each resize an image in place: 4 s of pure computation, no I/O. One second later a readiness probe arrives. What does the probe get?",
+        "options": [
+          {
+            "id": "a",
+            "text": "An answer about 3 s late, since the two resizes hold both carriers until they finish",
+            "correct": true,
+            "says": "a virtual thread leaves its carrier only when it blocks, yields or ends, and there is no time slice to take it back"
+          },
+          {
+            "id": "b",
+            "text": "An answer about 3 s late, since the probe can't start while a thread in the JVM is computing",
+            "correct": false,
+            "says": "only the carriers matter: with the computation on a platform pool, the health check ran on time"
+          },
+          {
+            "id": "c",
+            "text": "A prompt answer, since the scheduler gives each virtual thread a time slice the way the operating system does",
+            "correct": false,
+            "says": "JEP 444: the scheduler does not implement time sharing; the health check was up to 999 ms late"
+          },
+          {
+            "id": "d",
+            "text": "A prompt answer, since the scheduler starts another carrier for the probe when both carriers are busy",
+            "correct": false,
+            "says": "the scheduler does not add carriers when all of them are busy computing; the health check waited for a carrier"
+          }
+        ],
+        "origin": {
+          "path": "26-virtual-threads/README_6.7.1.md",
+          "section": "A Virtual Thread That Computes Keeps Its Carrier: Java 21 Has No Time Slice"
+        }
+      },
+      {
+        "id": "q-imports-on-a-small-heap",
+        "stem": "An import service on Java 21 with a 2 GB heap moved from a pool of 100 platform threads to a virtual thread per request. Each request reads a 256 KB file into a byte[] and keeps it in a local variable while it waits about 2 s for a storage service. One morning 10,000 imports arrive at the same moment. What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The heap runs out, since each waiting request keeps its 256 KB array reachable from its frames",
+            "correct": true,
+            "says": "a waiting virtual thread keeps its frames, and what they reference, on the heap: 10,000 × 256 KB is more than 2 GB"
+          },
+          {
+            "id": "b",
+            "text": "The heap runs out, since each waiting request also reserves a 1 MB stack beside its 256 KB array",
+            "correct": false,
+            "says": "the 1 MB reserved stack belongs to a platform thread; a shallow virtual thread costs under a kilobyte"
+          },
+          {
+            "id": "c",
+            "text": "The imports go through, since a waiting request's frames and its 256 KB array leave the heap until it resumes",
+            "correct": false,
+            "says": "the frames are copied to the heap while the virtual thread waits, and they keep the array reachable"
+          },
+          {
+            "id": "d",
+            "text": "The imports go through, since only the requests mounted on carriers keep their 256 KB arrays on the heap",
+            "correct": false,
+            "says": "every waiting virtual thread keeps its stack and what it references; nothing but the old pool of 100 had limited the requests in flight"
+          }
+        ],
+        "origin": {
+          "path": "26-virtual-threads/README_6.7.1.md",
+          "section": "A Waiting Virtual Thread Keeps Its Stack, and Everything It References, on the Heap"
+        }
+      },
+      {
+        "id": "q-cipher-per-thread",
+        "stem": "A payment gateway keeps a Cipher, which is not thread-safe and slow to set up, in a ThreadLocal. Its handlers moved from a pool of 64 platform threads to Executors.newVirtualThreadPerTaskExecutor(), and CPU per request went up. A colleague proposes running the handlers on Executors.newFixedThreadPool(64, Thread.ofVirtual().factory()) instead. What does that change do?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Setup falls back to 64 ciphers, and no more than 64 requests run at once, since the pool hands every task to one of the same 64 virtual threads",
+            "correct": true,
+            "says": "a fixed pool of virtual threads brings the per-thread cache back and the pool's ceiling with it"
+          },
+          {
+            "id": "b",
+            "text": "Setup falls back to 64 ciphers, and requests still run without a limit, since pooled virtual threads give their carriers back while they wait",
+            "correct": false,
+            "says": "a fixed pool hands every task to the same threads, and a waiting virtual thread frees its carrier, not its place in the pool: the pool of 50 virtual threads took as long as the platform pool"
+          },
+          {
+            "id": "c",
+            "text": "Setup stays at one cipher per request, and no more than 64 requests run at once, since a pooled thread's ThreadLocal values are cleared after each task",
+            "correct": false,
+            "says": "a ThreadLocal value lives as long as its thread; the pooled virtual threads built only 50 parsers for 2,000 tasks"
+          },
+          {
+            "id": "d",
+            "text": "Setup stays at one cipher per request, and requests still run without a limit, since the virtual factory makes a new thread for each task",
+            "correct": false,
+            "says": "a fixed pool hands every task to the same threads; the pooled virtual threads built only 50 parsers for 2,000 tasks"
+          }
+        ],
+        "origin": {
+          "path": "26-virtual-threads/README_6.7.1.md",
+          "section": "One Thread per Task Means Nothing Per-Thread Is Reused: Pool the Expensive Object, Not the Thread"
+        }
+      }
+    ]
+  }
+}

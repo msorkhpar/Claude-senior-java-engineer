@@ -1,14 +1,10 @@
-A static field belongs to the class, so every object shares it; an instance field belongs to
-one object. A static method is called on the class (`Counter.total()`) and cannot touch
-instance fields; an instance method is called on an object (`c.click()`) and can use both.
+The reporting service lets a user pick the format of a report, and `Exports.forFormat(...)` hands
+back the matching exporter. The files are supposed to be named after their format, but support
+keeps receiving CSV and JSON reports named `something.dat`, which nothing opens with the right
+program.
 
-Complete `Counter`. Each counter counts its own clicks, and the class keeps a running total
-of the clicks of every counter:
-
-- `click()` adds one click to this counter, and to the total;
-- `count()` returns this counter's clicks;
-- `Counter.total()` returns the clicks of all counters together;
-- `Counter.resetTotal()` sets the total back to `0` (tests call it first).
-
-Example: after `a.click(); a.click(); b.click();`, `a.count()` is `2`, `b.count()` is `1`
-and `Counter.total()` is `3`.
+Finish `fileName(...)` in `src/main/java/practice/Exports.java`. You may change how the exporters
+declare their extensions; keep each exporter's extension the same text it is now. When you're
+done, every exporter names its files with its own extension, however the code that holds it
+declared its type, including an exporter whose format builds on another one. About five lines in
+total.

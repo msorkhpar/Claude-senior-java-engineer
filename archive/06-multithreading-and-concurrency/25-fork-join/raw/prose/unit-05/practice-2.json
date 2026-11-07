@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Fork, compute, then join",
+  "title": "Cut the archive job by bytes, not by files",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's pitfall 2 is **joining too early**:"
+      "text": "The nightly archive job compresses the day's uploads on a `ForkJoinPool`. Compressing a file takes time in proportion to its bytes, and the files range from a few bytes to several gigabytes. The job used to cut the list of files in half by count until a batch held a handful of files, and one worker ended up with the batch of video files while the others had finished long before."
     },
     {
       "type": "para",
-      "text": "left.fork(); long leftResult = left.join(); // blocks immediately! long rightResult = right.compute();"
+      "text": "`ArchiveJob` now gives each task a budget in bytes. Finish the two `TODO` methods in `src/main/java/practice/ArchiveJob.java`:"
     },
     {
-      "type": "para",
-      "text": "This is \"sequential execution disguised as fork/join\": the current thread waits for the left half before it even starts the right one. The fix is to fork first, compute the other subtask, then join, so **both halves are in progress together**. (Forking both halves and joining both, the page's other anti-pattern, also keeps both in progress; its cost is an extra fork per split, which no test can see, so it is not graded here.)"
-    },
-    {
-      "type": "para",
-      "text": "Write `DotProduct(a, b, start, end, threshold, probe)`, a `RecursiveTask<Long>` returning the sum of `a[i] * b[i]` for `i` in `[start, end)` (as a `long`). Split at the midpoint while the range is longer than `threshold`, never joining the forked half before the other half has been computed. In each base case, call `probe.leaf(start, end)` once. Each product `a[i] * b[i]` may exceed the `int` range. Arrays of different lengths are refused by the constructor with `IllegalArgumentException`."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "a",
-        "b",
-        "threshold",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`1, 2, 3`",
-          "`4, 5, 6`",
-          "1",
-          "`32`"
-        ],
-        [
-          "`1, 2, 3, 4`",
-          "`1, 1, 1, 1`",
-          "2",
-          "`10`, and the two leaves are in `probe.leaf` at the same time"
-        ],
-        [
-          "`1, 2`",
-          "`1, 2, 3`",
-          "1",
-          "`IllegalArgumentException`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`isLeaf(from, to)`: whether one task compresses the files `[from, to)`;",
+        "`splitPoint(from, to)`: where a batch too big for one task is cut."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, every batch a task compresses fits the budget, and each cut leaves neither half with more than half the batch's bytes plus the batch's largest file. Some uploads are bigger than the whole budget on their own. `bytesIn(from, to)` is there to use. About eight lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class DotProduct extends RecursiveTask<Long> {\n\n    /** Told the range of each base case, before it is computed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    private final int[] a;\n    private final int[] b;\n    private final int start;\n    private final int end;\n    private final int threshold;\n    private final Probe probe;\n\n    public DotProduct(int[] a, int[] b, int start, int end, int threshold, Probe probe) {\n        if (a.length != b.length) {\n            throw new IllegalArgumentException(\"the arrays must have the same length\");\n        }\n        this.a = a;\n        this.b = b;\n        this.start = start;\n        this.end = end;\n        this.threshold = threshold;\n        this.probe = probe;\n    }\n\n    @Override\n    protected Long compute() {\n        int length = end - start;\n        if (length <= threshold) {\n            probe.leaf(start, end);\n            long sum = 0;\n            for (int i = start; i < end; i++) {\n                sum += (long) a[i] * b[i];\n            }\n            return sum;\n        }\n        int mid = start + length / 2;\n        DotProduct left = new DotProduct(a, b, start, mid, threshold, probe);\n        DotProduct right = new DotProduct(a, b, mid, end, threshold, probe);\n        left.fork();\n        long rightResult = right.compute();\n        long leftResult = left.join();\n        return leftResult + rightResult;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.function.IntToLongFunction;\n\n/**\n * Compresses a list of files on a ForkJoinPool. A batch of files whose bytes fit the budget is\n * compressed by one task; a larger batch is cut in two.\n */\npublic class ArchiveJob {\n\n    /** Told about every batch the job compresses in one task, and every cut it makes. */\n    public interface Probe {\n        void batch(int from, int to);\n\n        void cut(int from, int mid, int to);\n    }\n\n    private final ForkJoinPool pool;\n    private final long[] bytes;\n    private final long budget;\n    private final IntToLongFunction compress;\n    private final Probe probe;\n\n    /**\n     * @param bytes    the size of each file, in archive order\n     * @param budget   the most bytes one task should compress\n     * @param compress compresses file i and returns its compressed size\n     */\n    public ArchiveJob(ForkJoinPool pool, long[] bytes, long budget, IntToLongFunction compress, Probe probe) {\n        this.pool = pool;\n        this.bytes = bytes.clone();\n        this.budget = budget;\n        this.compress = compress;\n        this.probe = probe;\n    }\n\n    /** Compresses every file and returns the archive's compressed size. */\n    public long run() {\n        return pool.invoke(new Batch(0, bytes.length));\n    }\n\n    /** Bytes of files from (inclusive) to to (exclusive). */\n    long bytesIn(int from, int to) {\n        long s = 0;\n        for (int i = from; i < to; i++) s += bytes[i];\n        return s;\n    }\n\n    /** Whether the files [from, to) are compressed by one task. */\n    boolean isLeaf(int from, int to) {\n        return to - from <= 1 || bytesIn(from, to) <= budget;\n    }\n\n    /**\n     * Where to cut the files [from, to), a batch that is not a leaf: the first file of the second\n     * half. Both halves hold at least one file.\n     */\n    int splitPoint(int from, int to) {\n        long half = bytesIn(from, to) / 2;\n        long seen = 0;\n        int mid = from;\n        while (mid < to && seen < half) seen += bytes[mid++];\n        return Math.max(from + 1, Math.min(mid, to - 1));\n    }\n\n    private final class Batch extends RecursiveTask<Long> {\n        private final int from, to;\n\n        Batch(int from, int to) {\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Long compute() {\n            if (isLeaf(from, to)) {\n                probe.batch(from, to);\n                long s = 0;\n                for (int i = from; i < to; i++) s += compress.applyAsLong(i);\n                return s;\n            }\n            int mid = splitPoint(from, to);\n            probe.cut(from, mid, to);\n            Batch left = new Batch(from, mid);\n            left.fork();\n            long r = new Batch(mid, to).compute();\n            return left.join() + r;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class DotProduct extends RecursiveTask<Long> {\n\n    /** Told the range of each base case, before it is computed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    public DotProduct(int[] a, int[] b, int start, int end, int threshold, Probe probe) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    @Override\n    protected Long compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.function.IntToLongFunction;\n\n/**\n * Compresses a list of files on a ForkJoinPool. A batch of files whose bytes fit the budget is\n * compressed by one task; a larger batch is cut in two.\n */\npublic class ArchiveJob {\n\n    /** Told about every batch the job compresses in one task, and every cut it makes. */\n    public interface Probe {\n        void batch(int from, int to);\n\n        void cut(int from, int mid, int to);\n    }\n\n    private final ForkJoinPool pool;\n    private final long[] bytes;\n    private final long budget;\n    private final IntToLongFunction compress;\n    private final Probe probe;\n\n    /**\n     * @param bytes    the size of each file, in archive order\n     * @param budget   the most bytes one task should compress\n     * @param compress compresses file i and returns its compressed size\n     */\n    public ArchiveJob(ForkJoinPool pool, long[] bytes, long budget, IntToLongFunction compress, Probe probe) {\n        this.pool = pool;\n        this.bytes = bytes.clone();\n        this.budget = budget;\n        this.compress = compress;\n        this.probe = probe;\n    }\n\n    /** Compresses every file and returns the archive's compressed size. */\n    public long run() {\n        return pool.invoke(new Batch(0, bytes.length));\n    }\n\n    /** Bytes of files from (inclusive) to to (exclusive). */\n    long bytesIn(int from, int to) {\n        long s = 0;\n        for (int i = from; i < to; i++) s += bytes[i];\n        return s;\n    }\n\n    /** Whether the files [from, to) are compressed by one task. */\n    boolean isLeaf(int from, int to) {\n        // TODO: a batch that fits the budget is one task's work.\n        throw new IllegalStateException(\"TODO: isLeaf\");\n    }\n\n    /**\n     * Where to cut the files [from, to), a batch that is not a leaf: the first file of the second\n     * half. Both halves hold at least one file.\n     */\n    int splitPoint(int from, int to) {\n        // TODO: cut where the batch's bytes, not its files, divide evenly.\n        throw new IllegalStateException(\"TODO: splitPoint\");\n    }\n\n    private final class Batch extends RecursiveTask<Long> {\n        private final int from, to;\n\n        Batch(int from, int to) {\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Long compute() {\n            if (isLeaf(from, to)) {\n                probe.batch(from, to);\n                long s = 0;\n                for (int i = from; i < to; i++) s += compress.applyAsLong(i);\n                return s;\n            }\n            int mid = splitPoint(from, to);\n            probe.cut(from, mid, to);\n            Batch left = new Batch(from, mid);\n            left.fork();\n            long r = new Batch(mid, to).compute();\n            return left.join() + r;\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,10 +70,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a2b96a5ec69f246a4d24497e3240b5e7501e6a2259353c3187010c6d07da946e",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.RecursiveTask;\n\npublic final class DotProduct extends RecursiveTask<Long> {\n\n    /** Told the range of each base case, before it is computed. */\n    public interface Probe {\n        void leaf(int start, int end);\n    }\n\n    public DotProduct(int[] a, int[] b, int start, int end, int threshold, Probe probe) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    @Override\n    protected Long compute() {\n        throw new UnsupportedOperationException(\"write compute\");\n    }\n}\n",
+  "content_sha256": "d03e96ae81f4aee6d9ea39f42f29e11cb34fc8328792fd5bb541cdfa158906bb",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.function.IntToLongFunction;\n\n/**\n * Compresses a list of files on a ForkJoinPool. A batch of files whose bytes fit the budget is\n * compressed by one task; a larger batch is cut in two.\n */\npublic class ArchiveJob {\n\n    /** Told about every batch the job compresses in one task, and every cut it makes. */\n    public interface Probe {\n        void batch(int from, int to);\n\n        void cut(int from, int mid, int to);\n    }\n\n    private final ForkJoinPool pool;\n    private final long[] bytes;\n    private final long budget;\n    private final IntToLongFunction compress;\n    private final Probe probe;\n\n    /**\n     * @param bytes    the size of each file, in archive order\n     * @param budget   the most bytes one task should compress\n     * @param compress compresses file i and returns its compressed size\n     */\n    public ArchiveJob(ForkJoinPool pool, long[] bytes, long budget, IntToLongFunction compress, Probe probe) {\n        this.pool = pool;\n        this.bytes = bytes.clone();\n        this.budget = budget;\n        this.compress = compress;\n        this.probe = probe;\n    }\n\n    /** Compresses every file and returns the archive's compressed size. */\n    public long run() {\n        return pool.invoke(new Batch(0, bytes.length));\n    }\n\n    /** Bytes of files from (inclusive) to to (exclusive). */\n    long bytesIn(int from, int to) {\n        long s = 0;\n        for (int i = from; i < to; i++) s += bytes[i];\n        return s;\n    }\n\n    /** Whether the files [from, to) are compressed by one task. */\n    boolean isLeaf(int from, int to) {\n        // TODO: a batch that fits the budget is one task's work.\n        throw new IllegalStateException(\"TODO: isLeaf\");\n    }\n\n    /**\n     * Where to cut the files [from, to), a batch that is not a leaf: the first file of the second\n     * half. Both halves hold at least one file.\n     */\n    int splitPoint(int from, int to) {\n        // TODO: cut where the batch's bytes, not its files, divide evenly.\n        throw new IllegalStateException(\"TODO: splitPoint\");\n    }\n\n    private final class Batch extends RecursiveTask<Long> {\n        private final int from, to;\n\n        Batch(int from, int to) {\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Long compute() {\n            if (isLeaf(from, to)) {\n                probe.batch(from, to);\n                long s = 0;\n                for (int i = from; i < to; i++) s += compress.applyAsLong(i);\n                return s;\n            }\n            int mid = splitPoint(from, to);\n            probe.cut(from, mid, to);\n            Batch left = new Batch(from, mid);\n            left.fork();\n            long r = new Batch(mid, to).compute();\n            return left.join() + r;\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-05/practice-2/src/main/java/practice/DotProduct.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-05/practice-2/src/test/java/practice/DotProductTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-05/practice-2/src/main/java/practice/ArchiveJob.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-05/practice-2/src/test/java/practice/ArchiveJobTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,29 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DotProductTest#multipliesAndAdds",
+        "id": "practice.ArchiveJobTest#compressesEveryFileOnce",
         "kind": "main",
-        "says": "The task returns the sum of a[i] * b[i] over its range."
+        "says": "every file is compressed exactly once, in batches that follow each other and fit the budget"
       },
       {
-        "id": "practice.DotProductTest#halvesRunAtTheSameTime",
+        "id": "practice.ArchiveJobTest#eachCutDividesTheBytesEvenly",
         "kind": "edge",
-        "says": "The forked half is joined only after the other half is computed, so the two halves run at the same time."
+        "says": "a batch is cut where its bytes divide evenly, not where its files do"
       },
       {
-        "id": "practice.DotProductTest#arraysOfDifferentLengthsAreRefused",
+        "id": "practice.ArchiveJobTest#aBatchEndingInAHugeFileIsCut",
         "kind": "edge",
-        "says": "Arrays of different lengths are refused with IllegalArgumentException in the constructor."
+        "says": "a batch whose last file holds more than half its bytes is still cut into two non-empty halves"
       },
       {
-        "id": "practice.DotProductTest#largeProductsAreLongs",
+        "id": "practice.ArchiveJobTest#aFileOverTheBudgetIsABatchOfItsOwn",
         "kind": "edge",
-        "says": "100,000 times 100,000 is 10 billion: each product is taken as a long, not an int that overflows."
-      },
-      {
-        "id": "practice.DotProductTest#aLongerFirstArrayIsRefusedToo",
-        "kind": "edge",
-        "says": "The constructor refuses arrays of different lengths either way round, a longer a as well as a longer b."
+        "says": "a single file bigger than the budget is compressed as a batch of its own"
       }
     ],
     "report": {
@@ -162,10 +132,11 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.4.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "When You Know What Each Item Costs, Split by Cost"
     },
     "concepts": [
-      "Joining a forked task before computing the other half forces sequential execution; the fix is fork, compute the other half, then join."
+      "A single item over the budget must be a leaf, and the split point must stay strictly inside the range, or the task splits into itself until the stack overflows.",
+      "When item costs are known, a threshold in cost and a split point at half the cost balance the work with few tasks."
     ]
   }
 }

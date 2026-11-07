@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "06-multithreading-and-concurrency",
+    "25-fork-join"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "ordinal": 4,
+  "title": "Check yourself: RecursiveAction",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-progress-field",
+        "stem": "An image job's RecursiveAction converts 30 million pixels to greyscale in place, in leaves of 4,000 pixels, on a pool of 12 workers. For a progress bar, each leaf ends with stats.converted += localCount; where stats is one object with a plain long field, shared by every leaf. What does stats.converted hold after pool.invoke returns?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Exactly 30 million, since each leaf touches the field only once and two leaves rarely end at the same moment",
+            "correct": false,
+            "says": "+= on a plain field reads, adds and writes; adding once per leaf makes a lost update rarer, not impossible"
+          },
+          {
+            "id": "b",
+            "text": "Possibly less than 30 million, since two leaves can read the same old value and each write back its own sum",
+            "correct": true,
+            "says": "the read, add and write of two workers can interleave, and the second write overwrites the first leaf's addition"
+          },
+          {
+            "id": "c",
+            "text": "Exactly 30 million, since invokeAll waits for every leaf before invoke returns, which puts their writes in order",
+            "correct": false,
+            "says": "invokeAll waits for the leaves to finish; it does nothing to make two leaves' read-add-write steps exclusive while they run"
+          },
+          {
+            "id": "d",
+            "text": "Possibly more than 30 million, since one leaf's addition can be applied twice when two workers write the field at once",
+            "correct": false,
+            "says": "a lost update overwrites another leaf's addition; it does not add a count twice, and the page's plain-field run comes out low"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.3.md",
+          "section": "Leaves Count Locally and Add to the Shared Total Once"
+        }
+      },
+      {
+        "id": "q-sharpen",
+        "stem": "A RecursiveAction sharpens one million sensor readings in place: each a[i] becomes 2 * a[i] - (a[i - 1] + a[i + 1]) / 2. The array is split into leaves of about 5,000 readings, and the halves are run with invokeAll. Two runs on the same input give arrays that differ at a few hundred places. Why?",
+        "options": [
+          {
+            "id": "a",
+            "text": "A leaf at the end of its range reads a reading of the next range, which the leaf that owns it has rewritten in some runs and not in others",
+            "correct": true,
+            "says": "the leaves write disjoint ranges but read across the boundary, so what a leaf reads there depends on the schedule; reading one array and writing another gives the same result every run"
+          },
+          {
+            "id": "b",
+            "text": "A leaf at the end of its range reads a reading of the next range, which both leaves were given, since the split overlaps there in some runs and not in others",
+            "correct": false,
+            "says": "the ranges come from the task's own from/mid/to arithmetic, which is the same in every run, so an overlap, when there is one, changes the same elements every run"
+          },
+          {
+            "id": "c",
+            "text": "invokeAll gives each leaf its own copy of its range, and the copies are written back in an order that changes from run to run",
+            "correct": false,
+            "says": "fork/join tasks share the one array; nothing is copied or written back, and in-place work depends on exactly that"
+          },
+          {
+            "id": "d",
+            "text": "invokeAll returns before the second half has been written, so each run starts from a partly sharpened array",
+            "correct": false,
+            "says": "invokeAll waits for both halves; it is a forked half that nobody joins that is still running when invoke returns"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.3.md",
+          "section": "Subtasks Write Disjoint Ranges and Read Nothing Another Subtask Writes"
+        }
+      },
+      {
+        "id": "q-rollback",
+        "stem": "A RecursiveAction normalises 4 million records in place. The caller takes a snapshot with clone() first; if pool.invoke throws, it copies the snapshot back with System.arraycopy and logs that nothing changed. After one failed run, the array holds normalised records. How did they get there?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The subtask that invokeAll cancelled while it was running kept on through its whole range, and wrote records after the snapshot had been copied back",
+            "correct": true,
+            "says": "invokeAll rethrows as soon as the task it ran fails and cancels the other, but cancelling stops a task only if it has not started; one already running keeps writing"
+          },
+          {
+            "id": "b",
+            "text": "The subtask that invokeAll cancelled before it started was still taken by an idle worker, and wrote records after the snapshot had been copied back",
+            "correct": false,
+            "says": "cancelling a task that has not started suppresses it (ForkJoinTask.cancel javadoc); it is a subtask already running that keeps going"
+          },
+          {
+            "id": "c",
+            "text": "The subtask that invokeAll cancelled while it was running stopped a few records later, and wrote those records after the snapshot had been copied back",
+            "correct": false,
+            "says": "cancel does not stop a task that is already running: it keeps going through its whole range, and so do the subtasks it forks"
+          },
+          {
+            "id": "d",
+            "text": "The subtask that threw, a leaf of a few thousand records, went on through the rest of its range after the throw, and wrote records after the snapshot had been copied back",
+            "correct": false,
+            "says": "a leaf stops at its throw and writes nothing more; the late records come from another subtask that was still running"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.3.md",
+          "section": "A Failure Leaves the Array Partly Changed, So Write to a Copy"
+        }
+      },
+      {
+        "id": "q-eviction",
+        "stem": "A RecursiveAction clears the expired entries of a 10-million-entry cache array, with a threshold of 1,000. Its compute() forks both halves and returns, since it has no result to join. On 300 test entries the eviction report, run right after pool.invoke(action), is right; in production it counts expired entries that are still there. Which change fixes the report?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Replace the two fork() calls with invokeAll(left, right), since it waits until both of the tasks it is given have finished their work",
+            "correct": true,
+            "says": "invokeAll forks one half, runs the other and waits for the first, so the root's compute(), and with it invoke, returns only when every leaf is done"
+          },
+          {
+            "id": "b",
+            "text": "Replace the two fork() calls with invokeAll(left, right), since it waits for both of the tasks it is given by running them itself, in turn",
+            "correct": false,
+            "says": "invokeAll forks one half, which another worker can run; it fixes the report by waiting, not by running everything on one thread"
+          },
+          {
+            "id": "c",
+            "text": "Keep the forks and declare the cache array field volatile, since the report then sees each leaf's write as soon as it is made",
+            "correct": false,
+            "says": "the leaves are still running when invoke returns; no field modifier makes the report wait until they are done"
+          },
+          {
+            "id": "d",
+            "text": "Keep the forks and call pool.invoke(action) a second time before the report, since that call waits for the tasks the first one forked",
+            "correct": false,
+            "says": "invoke waits for the task's own compute() to return; the forked halves are separate tasks that nothing waits for"
+          }
+        ],
+        "origin": {
+          "path": "25-fork-join/README_6.6.1.3.md",
+          "section": "A RecursiveAction Is Finished Only When compute() Has Waited for Its Subtasks"
+        }
+      }
+    ]
+  }
+}

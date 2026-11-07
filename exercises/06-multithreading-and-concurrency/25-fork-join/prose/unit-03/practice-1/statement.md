@@ -1,27 +1,15 @@
-The page's Q1 walks through `SumTask extends RecursiveTask<Long>`:
+The warehouse team needs the value of its stock: for every SKU, the quantity on hand times the
+unit price, summed, plus the number of SKUs that are out of stock. A big warehouse has a few
+million SKUs, and each price is a lookup in the price list, so the valuation runs on a
+`ForkJoinPool`. One `StockValuation` is created at startup and shared: the nightly report uses it,
+and so does the "value now" button on the warehouse screen, which people press at any time,
+including while the nightly report is running.
 
-1. **Base case**: if `end - start <= threshold`, sum the range sequentially.
-2. Otherwise split at `mid = start + (end - start) / 2` and run the two
-   halves **at the same time**, then return the two sums added. The page's way
-   is to fork the left subtask, compute the right one in the current thread and
-   join the left last.
+Finish `Totals.plus` and `compute()` of the `Value` task in
+`src/main/java/practice/StockValuation.java`. When you're done:
 
-Its edge cases add: use `long` for sums of large `int` arrays.
+- every valuation returns the value and the out-of-stock count of the SKUs it was given, including
+  for an empty warehouse and for values far beyond 21 million euros;
+- a valuation gives the same totals the second time it is asked, and while another one runs.
 
-Write `SumTask(array, start, end, threshold, probe)`. It sums
-`array[start..end)`. In each base case, call
-`probe.leaf(start, end)` once with the leaf's range (the tests use it to see how
-you split).
-
-| array | range | threshold | answer | leaves |
-|---|---|---|---|---|
-| `1..10` | `[0, 10)` | 3 | `55` | `[0,2) [2,5) [5,7) [7,10)` |
-| `1..10` | `[2, 5)` | 3 | `12` | `[2,5)` |
-| four times `Integer.MAX_VALUE` | `[0, 4)` | 2 | `8589934588` | `[0,2) [2,4)` |
-| `1, 2, 3, 4` | `[0, 4)` | 4 | `10` | `[0,4)` |
-
-The halves really run in parallel: the tests check that the two leaves of a
-split can be inside `probe.leaf` **at the same time**, in a pool of two workers.
-Summing both halves in the current thread one after the other, or joining the
-forked half before computing the other, runs them one at a time and fails that
-check.
+About fifteen lines in total. The tests run real pools of two and three workers.

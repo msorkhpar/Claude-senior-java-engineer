@@ -1,16 +1,15 @@
-A switch expression's arrow case can list several labels, separated by commas, and it
-never falls through into the next case: `case MONDAY, FRIDAY, SUNDAY -> "Relax";`.
+The help desk is moving its ticket routing out of a rules spreadsheet and into code. Each ticket
+has a category and a severity from 1 (most urgent) to 4, and lands in one team's queue:
 
-Write `points(char grade)` in `GradePoints` as one switch expression. It returns the grade
-points of a letter, in either case:
+| Category | Queue | Who is paged |
+|---|---|---|
+| `BILLING`, `REFUND` | `"finance"` | nobody |
+| `OUTAGE` | `"operations"` | the on-call engineer, when the severity is 1 or 2 |
+| `SECURITY` | `"security"` | the security lead, always |
+| `FEATURE_REQUEST`, `OTHER` | `"product"` | nobody |
 
-| grade | points |
-|---|---|
-| `'A'` or `'a'` | `4.0` |
-| `'B'` or `'b'` | `3.0` |
-| `'C'` or `'c'` | `2.0` |
-| `'D'` or `'d'` | `1.0` |
-| `'F'` or `'f'` | `0.0` |
+A page is recorded by adding `"on-call: <ticket id>"` or `"security-lead: <ticket id>"` to the
+list the router was built with.
 
-Any other character is not a grade: throw `IllegalArgumentException` (a `default` arm may
-`throw`).
+Write `route(...)` in `src/main/java/practice/TicketRouter.java` as one `return switch`. A ticket
+pages at most one person, and only the one its row names. About ten lines in total.

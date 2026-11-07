@@ -1,167 +1,286 @@
 # 1.2.3 While and Do-While Loops in Java
 
-## Concept Explanation
+The nightly settlement import had run for a year. One night it never finished: one core at 100 %,
+no exception, and no log line after "import started". The thread dump showed the worker inside a
+`while` loop over the file's lines. That night's file was the first one with a comment line.
 
-While and do-while loops are fundamental control flow structures in Java used for repetitive execution of code blocks.
-They are particularly useful when the number of iterations is not known in advance.
+A `while` loop tests its condition before each pass and a `do`-`while` after it. The bugs come
+from what the body does to the condition, and interviewers test them by handing you a loop and
+asking whether it ends.
 
-### While Loop
+## continue in a while Loop Jumps to the Condition, Past the Update at the Bottom
 
-A while loop repeatedly executes a block of code as long as a specified condition is true. The condition is checked
-before each iteration.
-
-Syntax:
-
-```java
-while (condition) {
-    // code block to be executed
-}
-```
-
-### Do-While Loop
-
-A do-while loop is similar to a while loop, but it guarantees that the code block is executed at least once before
-checking the condition. The condition is checked after each iteration.
-
-Syntax:
+The import counts records and skips comment lines:
 
 ```java
-do {
-    // code block to be executed
-} while (condition);
-```
-
-## Key Points to Remember
-
-1. The condition in a while loop is evaluated before the first iteration.
-2. The condition in a do-while loop is evaluated after the first iteration.
-3. If the condition is false initially, a while loop's body may never execute.
-4. A do-while loop's body always executes at least once.
-5. Ensure that the loop condition eventually becomes false to avoid infinite loops.
-6. Use while loops when you need to check the condition before the first iteration.
-7. Use do-while loops when you want to guarantee at least one execution of the loop body.
-
-## Common Pitfalls and How to Avoid Them
-
-1. Infinite Loops: Ensure that the loop condition can eventually become false.
-2. Off-by-one errors: Be careful when using counters in loop conditions.
-3. Forgetting to update the loop control variable: Always update the variable that affects the loop condition.
-4. Using `=` instead of `==` in a condition: Double-check your comparison operators (with a `boolean` variable,
-   `while (done = true)` compiles and loops forever).
-
-## Best Practices and Optimization Techniques
-
-1. Keep loop bodies as short and focused as possible for better readability.
-2. Consider using for loops when the number of iterations is known in advance.
-3. Use meaningful variable names for loop control variables.
-4. Avoid modifying loop control variables within the loop body (except for intentional early termination).
-5. Consider using the enhanced for loop (for-each) for iterating over collections when possible.
-
-## Edge Cases and Their Handling
-
-1. Empty loops: Be aware that a while loop with a false initial condition will not execute at all.
-2. Single iteration: A do-while loop will always execute at least once, even if the condition is initially false.
-3. Loop variable overflow: Be cautious when using integer counters that might overflow.
-
-## Interview-specific Insights
-
-Interviewers often ask about the differences between while and do-while loops, and scenarios where one might be
-preferred over the other. Be prepared to discuss:
-
-- When you would choose a while loop over a do-while loop and vice versa.
-- How to ensure loop termination and prevent infinite loops.
-- The performance implications of different loop constructs.
-
-Q1: What is the main difference between a while loop and a do-while loop?
-A1: The main difference is the point at which the condition is checked. In a while loop, the condition is checked before
-the first iteration, so the loop body may never execute if the condition is initially false. In a do-while loop, the
-condition is checked after the first iteration, guaranteeing that the loop body executes at least once.
-
-Q2: Can you provide an example of when you would prefer a do-while loop over a while loop?
-A2: A do-while loop is preferred when you want to ensure that a block of code executes at least once, regardless of the
-condition. For example, when getting user input:
-
-```java
-String input;
-do {
-    System.out.print("Enter a positive number: ");
-    input = scanner.nextLine();
-} while (Integer.parseInt(input) <= 0);
-```
-
-This ensures that the user is prompted at least once, even if they provide a valid input on the first try.
-
-Q3: How can you prevent infinite loops when using while or do-while loops?
-A3: To prevent infinite loops:
-
-1. Ensure that the loop condition can eventually become false.
-2. Always update the variables involved in the loop condition within the loop body.
-3. Double-check the loop condition logic.
-4. Consider using a safety counter or timeout mechanism for long-running loops.
-
-Example of a safety counter:
-
-```java
-int safetyCounter = 0;
-int maxIterations = 1000000;
-while (condition && safetyCounter < maxIterations) {
-    // loop body
-    safetyCounter++;
-}
-if (safetyCounter >= maxIterations) {
-    throw new RuntimeException("Loop exceeded maximum iterations");
-}
-```
-
-Q4: What are some common use cases for while loops in real-world applications?
-A4: Common use cases for while loops include:
-
-1. Reading data from a file or stream until EOF is reached.
-2. Processing elements in a linked list or tree structure.
-3. Implementing retry mechanisms with backoff strategies.
-4. Game loops that continue until a certain condition is met.
-5. Polling for a resource to become available.
-
-Example of reading from a file:
-
-```java
-BufferedReader reader = new BufferedReader(new FileReader("file.txt"));
-String line;
-while ((line = reader.readLine()) != null) {
-    // Process the line
-}
-```
-
-Q5: How would you explain the concept of loop invariants in the context of while loops?
-A5: A loop invariant is a condition that remains true before and after each iteration of a loop. It helps in reasoning
-about the correctness of the loop. For a while loop, you typically have:
-
-1. Initialization: Establish the loop invariant before the loop starts.
-2. Maintenance: Ensure that if the invariant is true before an iteration, it remains true after the iteration.
-3. Termination: Use the invariant to help prove that the loop terminates and achieves its goal.
-
-Example:
-
-```java
-// Find the maximum element in an array
-int findMax(int[] arr) {
-    int max = arr[0]; // Initialization
-    int i = 1;
-    // Loop invariant: max is the largest element in arr[0..i-1]
-    while (i < arr.length) {
-        // Maintenance
-        if (arr[i] > max) {
-            max = arr[i];
-        }
+static int countRecords(List<String> lines) {
+    int i = 0;
+    int records = 0;
+    while (i < lines.size()) {
+        String line = lines.get(i);
+        if (line.startsWith("#")) continue;    // skip comments
+        records++;
         i++;
     }
-    // Termination: max is the largest element in the entire array
-    return max;
+    return records;
 }
 ```
 
-Understanding loop invariants is crucial for proving the correctness of algorithms and is often discussed in technical
-interviews for more senior positions.
+What does it return for a file whose first line is `# settlement 2026-11-05`? We ran it on three
+data lines without that comment, then on the same file with it, then the fix below, each on a
+thread we waited on for one second:
+
+```text
+no comment:   3 records
+with comment: still running after 1 s
+fixed:        2 records
+```
+
+`continue` ends the current pass and goes back to the condition. In a `while` loop the update is an
+ordinary statement of the body, so `continue` skips it: `i` stays at 0, the same comment line is
+read again, and the loop spins on it forever.
+
+The bug usually arrives in a refactoring. Written as a `for`, the loop counts 2 records, because
+`continue` there runs the update (unit 1.2.2). Move the update to the end of a `while` body and it
+hangs. The fix advances before anything can skip:
+
+```java
+String line = lines.get(i++);          // advance first
+if (line.startsWith("#")) continue;
+```
+
+When a `while` body has a `continue`, or an `if` whose path misses the update, put the update
+first or check that every path reaches it. The same holds in a `do`-`while`: there `continue`
+jumps to the condition at the bottom, so `do { ...; continue; } while (false);` makes one pass.
+
+<!-- practice 1 -->
+
+## A do-while Fits a Loop Whose First Pass Produces What the Condition Tests
+
+A partner's API returns transactions in pages. Each page carries a cursor for the next one, `null`
+on the last page, and `fetch(null)` asks for the first page. Two imports of the same three pages:
+
+```java
+static List<String> importWhile() {
+    List<String> imported = new ArrayList<>();
+    String cursor = null;
+    while (cursor != null) {
+        Page page = fetch(cursor);
+        imported.addAll(page.records());
+        cursor = page.next();
+    }
+    return imported;
+}
+
+static List<String> importDoWhile() {
+    List<String> imported = new ArrayList<>();
+    String cursor = null;
+    do {
+        Page page = fetch(cursor);
+        imported.addAll(page.records());
+        cursor = page.next();
+    } while (cursor != null);
+    return imported;
+}
+```
+
+```text
+while:    []
+do-while: [tx-1, tx-2, tx-3, tx-4, tx-5, tx-6, tx-7]
+```
+
+The `while` version reports success with nothing imported. Its condition asks a question that only
+the first fetch can answer, and `null` means both "start here" and "stop". A `do`-`while` makes the
+first call without asking. Use it when the test reads something only the body produces, such as
+the reply to a first attempt, or when counting the digits of a number that may be 0.
+
+The condition of a `do`-`while` can't see a variable declared in its body, because the body's
+block ends at the closing brace, before `while`:
+
+```java
+do {
+    Page page = fetch(cursor);
+    imported.addAll(page.records());
+} while (page.next() != null);
+```
+
+```text
+compile/scope/Scope.java:15: error: cannot find symbol
+        } while (page.next() != null);
+                 ^
+  symbol:   variable page
+  location: class Scope
+1 error
+```
+
+The reverse mistake: a `do`-`while` over input that may be empty runs once on nothing.
+`do { handled.add(queue.poll()); } while (!queue.isEmpty());` on an empty queue handles `[null]`.
+When there may be no input at all, test first.
+
+<!-- practice 2 -->
+
+## A Loop Ends Only If Its Condition Can Become False for Every Input
+
+The module's `Loop.sumUsingWhile` sums 1 to `n`, and its tests pass:
+
+```java
+public static int sumUsingWhile(int n) {
+    int sum = 0;
+    int i = 1;
+    while (i <= n) {
+        sum += i;
+        i++;
+    }
+    return sum;
+}
+```
+
+```text
+sumUsingWhile(65_535)            = 2147450880
+sumUsingWhile(65_536)            = -2147450880
+sumUsingWhile(Integer.MAX_VALUE) = still running after 1 s
+```
+
+The sum wraps past `Integer.MAX_VALUE` from 65,536 on (unit 1.1.1). The last call never returns:
+every `int` is `<= Integer.MAX_VALUE`, so when `i` reaches the maximum, `i++` wraps it to
+`Integer.MIN_VALUE` and the condition still holds. If `n` comes from a request parameter, one
+request holds a thread forever.
+
+To answer "does this loop end?", name a quantity that every pass moves toward the exit, and check
+that the exit exists for every input. Here the quantity is `i`, and the exit, an `int` above `n`,
+doesn't exist when `n` is the largest `int`. Declare `i` and `sum` as `long` and return `long`.
+The same check fails for `while (x != 1.0) x += 0.1;` from 0: ten steps give
+`0.9999999999999999`, and the next one steps past `1.0` without ever equalling it (unit 1.1.1).
+`while (x < 1.0)` ends, but after 11 passes, not 10. Count passes with an integer and compute
+`x = i * 0.1`.
+
+A condition that another thread makes false is a different problem: unit 6.2.2 shows a loop on a
+plain field that never sees the write, and unit 6.2.1 why `wait()` sits inside a `while`.
+
+<!-- practice 3 -->
+
+## The Invariant Decides the Condition, the Updates and the Midpoint
+
+Builds 1 to 2,000,000,000 have been released, and from some build on, all are broken, the latest
+included. Each probe deploys a build, so we binary-search for the first broken one. The invariant:
+*the first bad build is in `[low, high]`*.
+
+```java
+static int firstBad(int latest, IntPredicate isBad) {
+    int low = 1, high = latest;              // the first bad build is in [low, high]
+    while (low < high) {                     // stop when one candidate is left
+        int mid = (low + high) >>> 1;        // low <= mid < high
+        if (isBad.test(mid)) high = mid;     // mid may be the first bad one: keep it
+        else low = mid + 1;                  // mid is good: the first bad one is after it
+    }
+    return low;
+}
+```
+
+A bad `mid` may be the answer, so `high = mid` keeps it. That update needs `mid < high`, or it
+changes nothing, so the midpoint rounds down. The loop stops when one candidate is left, so the
+condition is `low < high`, and the answer is `low`.
+
+### Spot the Problem: Two Conventions in One Loop
+
+Each version changes one line of `firstBad`. What does each do when the first bad build is
+1,999,999,000?
+
+```java
+while (low <= high) {                        // (1)
+    int mid = (low + high) >>> 1;
+    if (isBad.test(mid)) high = mid;
+    else low = mid + 1;
+}
+```
+
+```java
+while (low < high) {
+    int mid = (low + high) / 2;              // (2)
+    if (isBad.test(mid)) high = mid;
+    else low = mid + 1;
+}
+```
+
+```text
+  1,000,000 probes, low=1999999000 high=1999999000 mid=1999999000
+overflow: java.lang.IllegalArgumentException: no build -647483647
+```
+
+(1) takes `<=` from the other convention, where both bounds move past `mid` (`high = mid - 1`),
+but keeps `high = mid`. Once `low == high`, `mid` is that build, it is bad, `high = mid` changes
+nothing, and the loop probes it forever. We stopped it at a million.
+
+(2) adds two `int`s near 2 billion: the sum wraps (unit 1.1.1), and the midpoint is a build that
+doesn't exist, which our `isBad` rejects. Arrays of a billion elements are rare; ranges of ids, offsets and timestamps are
+not. `low + (high - low) / 2` and `(low + high) >>> 1` stay in range, and the JDK's
+`Arrays.binarySearch` uses the second.
+
+That JDK method keeps both bounds inclusive, `while (low <= high)` with `low = mid + 1` and
+`high = mid - 1`, and returns as soon as it finds the key. Either convention works on its own; a
+search that moves `low = mid` instead needs a midpoint that rounds up, `low + (high - low + 1) / 2`,
+or it spins on the last two candidates.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **`continue` in a `while` skips everything after it, the update included.** One skipped element
+  then spins the loop forever without an error; advance before anything that can skip.
+- **A `do`-`while` makes its first pass before the test.** Use it when the test reads what a pass
+  produces, like a page cursor; a `while` there imports nothing, and a `do`-`while` on input that
+  may be empty handles `null`.
+- **A loop ends only if its exit is reachable for every input.** `i <= n` never fails when `n` is
+  `Integer.MAX_VALUE`, and `x != 1.0` never fails for a sum of tenths.
+- **A loop's invariant fixes its condition and its updates.** Mixing two binary-search conventions
+  spins on the last candidate, and `(low + high) / 2` overflows on large ranges.
+
+## Reference
+
+**Loops that compile and misbehave (Java 21, as run):**
+
+| Loop | Result |
+|---|---|
+| `while (i < n) { if (skip) continue; ...; i++; }` | spins on the first skipped element |
+| `while (r.readLine() != null) use(r.readLine());` | on lines `a` to `e`: uses `b`, `d`, then `null` |
+| `cursor = null; while (cursor != null) { ... }` | no pass |
+| `do { use(queue.poll()); } while (!queue.isEmpty());` on an empty queue | uses `null` once |
+| `do { Page page = ...; } while (page.next() != null);` | `error: cannot find symbol` |
+| `do { ...; continue; } while (false);` | one pass: `continue` jumps to the condition |
+| `short s = 0; while (s < 40_000) s++;` | never ends: `s++` wraps from 32,767 to -32,768 |
+| `int i = 1; while (i <= Integer.MAX_VALUE) i++;` | never ends: `i` wraps to `Integer.MIN_VALUE` |
+| `while (x != 1.0) x += 0.1;` from `0` | never ends: ten steps give `0.9999999999999999` |
+| `while (x < 1.0) x += 0.1;` from `0` | 11 passes, ends at `1.0999999999999999` |
+| `while (false) { ... }` | `error: unreachable statement` (unit 1.2.1) |
+
+**Binary search, the two conventions:**
+
+| Invariant | Condition | Updates | Midpoint |
+|---|---|---|---|
+| the answer is in `[low, high]` | `low < high` | `high = mid`, `low = mid + 1` | `(low + high) >>> 1` |
+| the key, if present, is in `[low, high]` (`Arrays.binarySearch`) | `low <= high` | `high = mid - 1`, `low = mid + 1`, return on a match | `(low + high) >>> 1` |
+
+## Challenges
+
+1. Find a `while` loop in your code base whose body has a `continue`. Name the quantity each pass
+   moves toward the exit, and check that every path changes it.
+2. A sender retries with `do { reply = send(request); } while (reply.retryable() && ++attempts < 5);`.
+   After the loop, how does the caller tell a success from a give-up, and where does the backoff
+   between attempts go?
+3. Make `Loop.sumUsingWhile` right, or clearly failing, for every `int`. Compare a `long` counter,
+   a condition that can't overflow and the formula `n * (n + 1L) / 2`: which still needs a loop,
+   and what must the return type become?
+
+## Design Note: Why Java Kept do-while
+
+Java took `do`-`while` from C for one shape: a first pass that must run because it produces what
+the test reads. Without it, that
+shape needs a copy of the body before the loop, or a `while (true)` with a `break` in the middle,
+which hides the exit inside the body.
+
+The price is the scope rule shown above. The condition is written after the block but sits outside
+it, so whatever it tests is declared before `do` and stays in scope after the loop, even when
+nothing needs it there.
 
 ## Code Examples
 

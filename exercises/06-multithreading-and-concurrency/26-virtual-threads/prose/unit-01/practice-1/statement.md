@@ -1,22 +1,18 @@
-Java 21 builds virtual threads with the `Thread.ofVirtual()` builder. The builder
-can name every thread it makes: `name("http-handler-", 0)` names the first thread
-`http-handler-0`, the next `http-handler-1`, and so on. Virtual threads are always
-**daemon** threads, so nothing keeps the JVM alive for them: whoever starts them
-must wait for them, and a thread that may never finish is joined with a timeout.
+The reporting service moved to virtual threads last month: the web server now runs every request
+on a virtual thread of its own and calls `ReportService.handle(...)` there. Since then, whenever
+finance pulls a batch of quarterly reports, the service's liveness probe times out, the
+orchestrator restarts the instance, and ordinary requests that render nothing see their latency
+jump. Rendering a report is pure computation, with no I/O: the `Renderer` you are given takes tens
+to hundreds of milliseconds of CPU per report.
 
-Write two methods in `Launch`:
+Finish the two `TODO`s in `src/main/java/practice/ReportService.java`:
 
-- `startAll(String prefix, long first, List<Runnable> tasks)` starts one
-  **virtual** thread per task and returns the started threads in task order. The
-  thread for `tasks.get(i)` is named `prefix + (first + i)`.
-- `awaitAll(List<Thread> threads, Duration limit)` waits for the threads, but
-  never much longer than `limit` in total, and returns the threads that are still
-  alive when it stops waiting (in their list order; empty when all finished). It stops as soon as every thread
-  has ended. Mind `Thread.join(long millis)`: `join(0)` means "wait for ever", so a deadline turned into whole
-  milliseconds can become an endless wait (the tests cannot force that moment, so it is not graded).
+- `newRenderPool(cores)`: called once, from the constructor;
+- `render(reportId)`: produces one report for the calling request.
 
-| call | answer |
-|---|---|
-| `startAll("job-", 7, [a, b])` | two started virtual threads, `job-7` running `a` and `job-8` running `b` |
-| `awaitAll(threads, 6 s)`, each thread runs for about 2 s | `[]`, after about 2 s, all threads finished |
-| `awaitAll([stuck], 200 ms)`, `stuck` never ends | `[stuck]`, after about 200 ms |
+When you're done, a batch of reports can no longer hold up the service's other requests, rendering
+never uses more than the `cores` the service was given, and when that many reports are requested
+together, they all render at once. About two lines in total.
+
+The tests send each request on a virtual thread of its own, as the web server does, and hold
+renders in progress to see where and how many run at once.

@@ -1,23 +1,16 @@
-A `RecursiveAction`'s `compute()` returns **nothing**: the page's actions change
-an array **in place**. Its Q2 splits with `invokeAll(left, right)`, which forks
-both subtasks and waits for both, and its pitfalls ask for **strictly disjoint**
-ranges `[start, mid)` and `[mid, end)`. Its best practices validate input **in
-the constructor**, not in `compute()`.
+At month end the bank adds interest to every account. The balances, in cents, sit in one `long[]`
+of a few million entries, and `Accrual` adjusts them in place on a `ForkJoinPool`. The month-end
+report reads the array the moment `accrue()` returns. On the test book of thirty accounts the
+report is always right; on the real one, auditors find accounts with no interest and accounts that
+got it twice.
 
-Write `ScaleAction(array, start, end, threshold, factor, offset, probe)`, a
-`RecursiveAction` that turns every `array[i]` of `[start, end)` into
-`array[i] * factor + offset`. While the range is longer than `threshold`, split
-it at the midpoint and run both halves **at the same time** (the page does it
-with `invokeAll(left, right)`). In each base case,
-call `probe.leaf(start, end)` once. A `null` array is
-refused by the constructor with `IllegalArgumentException`.
+Finish `compute()` of the `Adjust` task in `src/main/java/practice/Accrual.java`. `adjustHere()`
+already adjusts a task's own range on the current thread. When you're done:
 
-| array | range | threshold | factor, offset | array afterwards |
-|---|---|---|---|---|
-| `1, 2, 3, 4` | `[0, 4)` | 4 | `2, 1` | `3, 5, 7, 9` |
-| `1, 2, ..., 10` | `[1, 9)` | 3 | `10, 0` | `1, 20, 30, 40, 50, 60, 70, 80, 90, 10` |
-| `1, 2, ..., 10` | `[0, 10)` | 3 | `1, 0` | leaves `[0,2) [2,5) [5,7) [7,10)` |
-| `null` | `[0, 0)` | 1 | `1, 0` | `IllegalArgumentException` |
+- a range of up to `threshold` balances is adjusted by its own task;
+- a longer range is adjusted by several of the pool's workers at once;
+- on a book of any size, every balance gets exactly one month of interest;
+- when `accrue()` returns, the report sees every balance adjusted.
 
-The tests also check that the two leaves of one split can be inside
-`probe.leaf` **at the same time**, in a pool of two workers.
+About seven lines in total. The tests run `Accrual` on real pools of two and three workers, and
+one test holds a single account's adjustment for a while.

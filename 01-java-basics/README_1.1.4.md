@@ -1,141 +1,271 @@
 # 1.1.4 Arithmetic, Relational, and Logical Operators in Java
 
-## Table of Contents
+The rollout dashboard had four bugs in one release. The import progress bar sat at 0% until the
+import finished. Latency samples taken seconds before a deploy were charged to the new version.
+A re-pricing job reported success after repricing one SKU of three. Turning on feature 35 turned
+on feature 3. Nothing threw, and each operator did what Java defines it to do. Overflow, NaN
+comparisons and division by zero are in unit 1.1.1, and `==` on objects in unit 1.1.2.
 
-1. [Introduction](#introduction)
-2. [Arithmetic Operators](#arithmetic-operators)
-3. [Relational Operators](#relational-operators)
-4. [Logical Operators](#logical-operators)
-5. [Key Points to Remember](#key-points-to-remember)
-6. [Java 21 Features and Modern Practices](#java-21-features-and-modern-practices)
-7. [Common Pitfalls and How to Avoid Them](#common-pitfalls-and-how-to-avoid-them)
-8. [Best Practices and Optimization Techniques](#best-practices-and-optimization-techniques)
-9. [Edge Cases and Their Handling](#edge-cases-and-their-handling)
-10. [Interview-specific Insights](#interview-specific-insights)
-11. [References](#references)
+## Integer Division Truncates Toward Zero, and % Takes the Sign of the Dividend
 
-## Introduction
+The progress bar computed its percentage like this:
 
-Operators in Java are symbols that perform specific operations on one, two, or three operands and then return a result.
-Understanding these operators is crucial for writing efficient and correct Java code. This guide covers arithmetic,
-relational, and logical operators, their usage, and best practices.
+```java
+long done = 450, total = 1200;
+System.out.println("done / total * 100 = " + (done / total * 100));
+System.out.println("done * 100 / total = " + (done * 100 / total));
+```
 
-## Arithmetic Operators
+```text
+done / total * 100 = 0
+done * 100 / total = 37
+```
 
-Arithmetic operators perform mathematical operations on numeric operands.
+`/` on two integers discards the fraction, so 450 / 1200 is 0 and the multiplication comes too
+late. Multiply first, and check that the product fits (unit 1.1.1).
 
-| Operator | Description         | Example    |
-|----------|---------------------|------------|
-| +        | Addition            | a + b      |
-| -        | Subtraction         | a - b      |
-| *        | Multiplication      | a * b      |
-| /        | Division            | a / b      |
-| %        | Modulus (remainder) | a % b      |
-| ++       | Increment           | ++a or a++ |
-| --       | Decrement           | --a or a-- |
+Discarding the fraction rounds toward zero, not down, and that matters once values can be
+negative. The dashboard grouped samples into one-minute windows by their offset in seconds from
+the deploy, so a sample three seconds before it has offset -3:
 
-### Key Points:
+```java
+for (long offset : new long[] {-61, -3, 3, 61}) {
+    System.out.printf("offset %4d: / %2d  floorDiv %2d  %% %3d  floorMod %2d%n", offset,
+            offset / 60, Math.floorDiv(offset, 60), offset % 60, Math.floorMod(offset, 60));
+}
+```
 
-- The `/` operator performs integer division when both operands are integers.
-- The `%` operator works with floating-point numbers as well as integers.
-- Increment (`++`) and decrement (`--`) operators can be used as prefix or postfix.
+```text
+offset  -61: / -1  floorDiv -2  %  -1  floorMod 59
+offset   -3: /  0  floorDiv -1  %  -3  floorMod 57
+offset    3: /  0  floorDiv  0  %   3  floorMod  3
+offset   61: /  1  floorDiv  1  %   1  floorMod  1
+```
 
-## Relational Operators
+Pause on the `-3` row. `/` puts it in window 0 with the samples taken three seconds after the
+deploy, so the last slow requests of the old version count against the new one. Window 0 spans
+119 seconds, every other window 60. `Math.floorDiv` rounds toward
+negative infinity and puts the sample in window -1.
 
-Relational operators compare two values and return a boolean result.
+`%` follows `/`: Java defines it so that `(a / b) * b + a % b == a`, which gives the remainder
+the dividend's sign. `-3 % 60` is `-3`, and as an index into a 60-slot array it throws
+`ArrayIndexOutOfBoundsException`. `Math.floorMod` takes the divisor's sign and stays in 0 to 59.
+Use the plain operators where both operands are known to be non-negative, and the `floor`
+methods where either can be negative.
 
-| Operator | Description              | Example |
-|----------|--------------------------|---------|
-| ==       | Equal to                 | a == b  |
-| !=       | Not equal to             | a != b  |
-| >        | Greater than             | a > b   |
-| <        | Less than                | a < b   |
-| >=       | Greater than or equal to | a >= b  |
-| <=       | Less than or equal to    | a <= b  |
+<!-- practice 1 -->
 
-### Key Points:
+## Precedence and Associativity Group an Expression; Its Operands Still Run Left to Right
 
-- These operators return `true` or `false`.
-- Be cautious when comparing floating-point numbers due to precision issues.
-- For object comparison, use `equals()` method instead of `==`.
+Predict the four lines before reading the output:
 
-## Logical Operators
+```java
+int retries = 2;
+retries = retries++;
+System.out.println("retries = " + retries);
+System.out.println("Total: " + 10 + 20);
+System.out.println(10 + 20 + " items");
+int r = log("a", 1) + log("b", 2) * log("c", 3);   // log prints its name and returns the value
+System.out.println("= " + r);
+```
 
-Logical operators perform boolean logic operations.
+```text
+retries = 2
+Total: 1020
+30 items
+a b c = 7
+```
 
-| Operator | Description | Example  |
-|----------|-------------|----------|
-| &&       | Logical AND | a && b   |
-| \|\|     | Logical OR  | a \|\| b |
-| !        | Logical NOT | !a       |
-| &        | Bitwise AND (on booleans: logical AND, no short-circuit) | a & b    |
-| \|       | Bitwise OR (on booleans: logical OR, no short-circuit)  | a \| b   |
-| ^        | Bitwise XOR (on booleans: logical XOR)                  | a ^ b    |
+`retries++` has a value, the old one, and increments the variable as a side effect when it is
+evaluated. The assignment then stores the old value back: the increment is lost, and a retry
+loop bounded by this counter never reaches its limit. `++retries` has the new value; as a
+statement of its own, either form works.
 
-### Key Points:
+Operators of equal precedence group left to right, and `+` with a `String` on either side
+concatenates. `"Total: " + 10` is already a string, so `+ 20` appends "20". In
+`10 + 20 + " items"` the first `+` adds two `int`s. Parenthesise arithmetic inside a
+concatenation.
 
-- `&&` and `||` use short-circuit evaluation.
-- `&` and `|` evaluate both operands regardless of the first operand's value.
-- On boolean operands, the `^` operator returns `true` if the operands are different.
+Precedence decides how the expression is grouped: `b * c` is computed before it is added to `a`.
+It does not decide what runs first. Java evaluates the left operand of every binary operator
+fully before the right one, so `log` runs for a, b and c in that order. Assignment works the
+same way: in `a[i] = ...`, the index is read before the right side runs. Give each side effect
+its own statement, so nobody has to work this out.
 
-## Key Points to Remember
+<!-- practice 4 -->
 
-1. Operator precedence: Arithmetic > Relational > binary Logical (`&&`, `||`); the unary `!` binds tighter than all of
-   them, so `!a == b` means `(!a) == b`.
-2. Use parentheses to clarify complex expressions.
-3. Be aware of integer overflow and underflow.
-4. Short-circuit evaluation can improve performance and prevent errors.
-5. Floating-point arithmetic may lead to precision errors.
+## && and || Skip Their Right Operand; & and | Always Evaluate Both
 
-## Java 21 Features and Modern Practices
+On `boolean`s, `&`, `|` and `^` are logical operators too, and `&` gives the same result as
+`&&` whenever both sides can be evaluated. The difference is whether the right side runs:
 
-1. Use `Math.floorDiv()` and `Math.floorMod()` for consistent behavior with negative numbers.
-2. Consider using `java.util.concurrent.atomic` classes for thread-safe increment/decrement operations.
-3. Use `Double.compare()` or `Float.compare()` when you need a consistent total order (they treat NaN as equal to
-   itself and -0.0 as less than 0.0); they do not remove rounding error, so compare with a tolerance for that.
+```java
+String coupon = null;
+System.out.println("&&: " + (coupon != null && coupon.startsWith("VIP")));
+System.out.println("&: " + (coupon != null & coupon.startsWith("VIP")));
+```
 
-## Common Pitfalls and How to Avoid Them
+```text
+&&: false
+Exception in thread "main" java.lang.NullPointerException: Cannot invoke "String.startsWith(String)" because "coupon" is null
+```
 
-1. Using `==` to compare objects instead of `equals()`.
-2. Integer division truncation: Use casting or floating-point division when needed.
-3. Unintended side effects with increment/decrement operators in complex expressions.
-4. Ignoring operator precedence, leading to unexpected results.
+`&&` stops when its left side is `false`, and `||` when it is `true`, so the left side of `&&`
+can guard the right. `&` evaluates both and calls `startsWith` on `null`.
 
-## Best Practices and Optimization Techniques
+The re-pricing job hit the other side of the same rule. It ran every SKU and recorded whether any
+price changed:
 
-1. Use compound assignment operators (`+=`, `-=`, `*=`, `/=`) for readability; they are not faster. Note that they
-   contain an implicit narrowing cast: `byte b = 10; b += 300;` compiles and leaves `b == 54`.
-2. Prefer `&&` and `||` over `&` and `|` for boolean operations to leverage short-circuit evaluation.
-3. Use bitwise operators for performance-critical low-level operations.
-4. Consider using `BigDecimal` for precise decimal calculations, especially in financial applications.
+```java
+boolean changed = false;
+for (String sku : List.of("A-1", "B-2", "C-3")) {
+    changed = changed || reprice(sku);       // reprice prints a line and returns true
+}
+System.out.println("changed = " + changed);
+```
 
-## Edge Cases and Their Handling
+```text
+  repriced A-1
+changed = true
+```
 
-1. Division by zero: Use exception handling or check for zero before division.
-2. Overflow/Underflow: Use `Math.addExact()`, `Math.multiplyExact()`, etc., for checked arithmetic.
-3. NaN and Infinity: Be aware of special floating-point values and handle them appropriately.
-4. Comparing NaN: Use `Double.isNaN()` or `Float.isNaN()` instead of relational operators.
+After A-1, `changed` is `true`, so `||` never calls `reprice` again. B-2 and C-3 keep their old
+prices, and the job reports a change. Write `changed |= reprice(sku)` or
+`changed = reprice(sku) || changed`, so the call runs every time. A call whose side effect must
+happen goes on the left of `&&` and `||`, or outside them.
 
-## Interview-specific Insights
+<!-- practice 2 -->
 
-Common interview questions:
+## Bit Operators Bind Looser Than ==, and an int Shift Counts Only to 31
 
-1. Explain the difference between `++i` and `i++`.
-2. How does short-circuit evaluation work in logical operators?
-3. What's the difference between `&` and `&&`, or `|` and `||`?
-4. How would you handle potential integer overflow in Java?
-5. Explain the behavior of the modulus operator with negative numbers.
+On integers, `&`, `|` and `^` combine bits and `~` flips them, which is how a set of flags fits
+in one number. Their precedence is below `==` and `!=`, so this check doesn't compile:
 
-When answering these questions, focus on:
+```java
+static boolean isAdmin(int roles) {
+    return roles & ADMIN != 0;
+}
+```
 
-- Clear explanations with examples
-- Mentioning potential pitfalls and best practices
-- Discussing performance implications where relevant
+```text
+Precedence.java:5: error: bad operand types for binary operator '&'
+        return roles & ADMIN != 0;
+                     ^
+  first type:  int
+  second type: boolean
+```
 
-## References
+`ADMIN != 0` is grouped first. Write `(roles & ADMIN) != 0`. With `boolean` operands the same
+grouping compiles and means something else: `a & b == c` is `a & (b == c)`.
 
-- [Java Language Specification - Operators](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html#jls-15.17)
-- [Java Tutorials - Operators](https://docs.oracle.com/javase/tutorial/java/nutsandbolts/operators.html)
+That test reads one bit. For a set of several bits, `(roles & set) != 0` is true when any of them
+is on, and `(roles & set) == set` only when all are. `roles & ~set` clears the set's bits, while
+`roles ^ set` flips them: it clears the ones that were on and sets the ones that were off.
+
+The dashboard kept 48 feature flags in a `long`, and set flag 35 like this:
+
+```java
+long flags = 0;
+flags |= 1 << 35;
+System.out.println("1 << 35  -> " + flags);
+flags = 1L << 35;
+System.out.println("1L << 35 -> " + flags);
+```
+
+```text
+1 << 35  -> 8
+1L << 35 -> 34359738368
+```
+
+`1 << 35` is an `int` shift, and an `int` shift uses only the low five bits of its distance:
+35 becomes 3, and the result, 8, is widened to `long` afterwards. A `long` shift uses the low six
+bits, so `1L << 64` is 1. Only the left operand sets a shift's type, so make it a `long`.
+
+`>>` copies the sign bit into the top bits, and `>>>` fills them with zeros. The difference
+matters when an `int` holds a sum that overflowed, as in a binary search's midpoint over a large
+array:
+
+```java
+int low = 1_500_000_000, high = 2_000_000_000;
+System.out.println("(low + high) / 2   = " + (low + high) / 2);
+System.out.println("(low + high) >> 1  = " + ((low + high) >> 1));
+System.out.println("(low + high) >>> 1 = " + ((low + high) >>> 1));
+```
+
+```text
+(low + high) / 2   = -397483648
+(low + high) >> 1  = -397483648
+(low + high) >>> 1 = 1750000000
+```
+
+The sum wraps negative, and `/ 2` and `>> 1` keep it negative: an index that throws. The true
+sum still fits in 32 bits read as unsigned, and `>>> 1` halves it that way.
+`low + (high - low) / 2` gives the same result without the trick.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Integer `/` truncates toward zero and `%` takes the dividend's sign:** multiply before
+  dividing, and use `Math.floorDiv` and `Math.floorMod` where a value can be negative.
+- **Precedence groups an expression, and operands still run left to right:** `x = x++` loses
+  the increment, and `"s" + 1 + 2` concatenates.
+- **`&&` and `||` skip their right operand:** that makes a null guard safe, and silently skips a
+  call whose side effect was needed.
+- **Bit operators bind looser than `==`, and an `int` shift uses the low five bits of its distance:**
+  parenthesise masks, and shift a `long` when the bit can be 32 or higher.
+
+## Reference
+
+**Precedence, highest first** (it follows from the grammar in JLS chapter 15). Equal precedence groups left to right, except
+the unary operators, assignment and `?:`, which group right to left.
+
+| Operators | Kind |
+|---|---|
+| `x++` `x--` | postfix |
+| `++x` `--x` `+x` `-x` `~` `!` `(type)` | unary and cast: `(double) a / b` casts `a` only |
+| `*` `/` `%` | multiplicative |
+| `+` `-` | additive, string concatenation |
+| `<<` `>>` `>>>` | shift |
+| `<` `>` `<=` `>=` `instanceof` | relational |
+| `==` `!=` | equality |
+| `&`, then `^`, then `\|` | bitwise, or logical on `boolean` |
+| `&&`, then `\|\|` | conditional and, or |
+| `?:` | ternary |
+| `=` `+=` `-=` and the other compound assignments | assignment |
+
+**Edge cases (Java 21):**
+
+| Expression | Result |
+|---|---|
+| `7 / -2`, `7 % -2` | `-3`, `1` |
+| `Math.floorDiv(7, -2)`, `Math.floorMod(7, -2)` | `-4`, `-1` |
+| `-5.5 % 2` | `-1.5` (`%` works on `double` too) |
+| `Integer.MIN_VALUE / -1` | `Integer.MIN_VALUE` (overflows, doesn't throw) |
+| `1 << 32`, `1 << -1` | `1`, `Integer.MIN_VALUE` |
+| `0.0 == -0.0` | `true` |
+| `Double.compare(0.0, -0.0)`, `Double.valueOf(0.0).equals(-0.0)` | `1`, `false` |
+| `Double.compare(Double.NaN, Double.NaN)` | `0` (`==` gives `false`) |
+| `!a == b` | `(!a) == b` |
+
+## Challenges
+
+1. Find every `/` and `%` in a code base you know whose left operand can be negative: a time
+   offset, a delta, a hash. Which of them should be `floorDiv` or `floorMod`?
+2. A percentage must be rounded to the nearest whole number, not truncated, using only `long`
+   arithmetic. Write it, and decide what it returns when `total` is 0.
+3. Feature flags outgrow 64 bits. Compare `long[]`, `java.util.BitSet` and `EnumSet` for
+   storage, the cost of checking several flags at once, and how a wrong flag index fails.
+
+## Design Note: Why Integer Division Truncates
+
+Java defined `/` to truncate, as C compilers on common hardware already did (C itself required
+it only from C99), so `/` maps closely onto the processor's divide instruction, and `%` follows
+from it. Floor division would make every negative window and ring index correct, at the price of
+a sign test on every division and a correction when the signs differ and the remainder isn't
+zero. Java kept `/` close to the hardware and, in Java 8, added `Math.floorDiv` and
+`Math.floorMod` for the code that needs them, leaving the default that is wrong for negative
+offsets.
 
 ## Code Examples:
 

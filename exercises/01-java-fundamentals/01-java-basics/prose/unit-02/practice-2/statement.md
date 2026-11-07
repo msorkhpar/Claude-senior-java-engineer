@@ -1,15 +1,13 @@
-`==` on two references asks whether they point at **the same object**, not
-whether the objects hold the same value. `Integer.valueOf` returns a cached
-object for values from -128 to 127, so `==` on two `Integer`s often looks right
-in a quick test and then fails on bigger numbers. And a reference can be `null`,
-where calling a method on it throws a `NullPointerException`.
+Every morning the accounts team runs the reconciler over the bank's statement file. It matches
+each payment to the open invoice whose reference the payer typed, and sends the rest to a person
+for manual review. The team's tests pass, but in production almost every payment ends up in
+manual review, the run sometimes dies halfway through, and once a payment with no reference at all
+was booked against an invoice.
 
-Write `BoxedEquality.sameValue(Integer a, Integer b)`. It returns `true` when
-both hold the same number, or when both are `null`; otherwise `false`.
+`readStatement` and `match` already work. Finish the `TODO` in
+`src/main/java/practice/Reconciler.java`:
 
-| a | b | answer |
-|---|---|---|
-| `5` | `5` | `true` |
-| `1000` | `1000` | `true` |
-| `null` | `null` | `true` |
-| `null` | `5` | `false` |
+- `sameReference(invoiceRef, paymentRef)`: whether a payment with that reference pays an invoice
+  issued with that one.
+
+About two lines.

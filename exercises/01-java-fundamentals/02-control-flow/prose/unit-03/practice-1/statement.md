@@ -1,11 +1,11 @@
-How many times a loop runs is not always known in advance: dividing a number by 10 until
-nothing is left takes as many passes as the number has digits.
+The billing job summarises each electricity meter's day: one reading per minute, in watt-hours,
+and `MeterDay.GAP` for a minute in which the meter sent nothing. Billing stores the energy used
+and the number of missing minutes; the support team reads the longest outage, the longest run of
+missing minutes.
 
-Write `count(long n)` in `Digits`. It returns how many decimal digits `n` has, ignoring
-its sign:
+Meters on a flaky mobile link miss minutes every day, and the support team wants to see whether
+an outage was still going on at midnight.
 
-- `count(7)` is `1`, `count(120)` is `3`, and `count(9876543210L)` is `10`;
-- `0` is written with one digit, so `count(0)` is `1`;
-- the sign is not a digit: `count(-120)` is `3`, and `count(Long.MIN_VALUE)` is `19`.
-
-A `do`-`while` loop fits: its body runs once before the condition is checked.
+Finish the `TODO` inside the loop of `summarise(...)` in
+`src/main/java/practice/MeterDay.java`. When you're done, the summary is right for any day,
+wherever its missing minutes fall, and the job never stalls on one. About eight lines in total.

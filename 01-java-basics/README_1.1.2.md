@@ -1,248 +1,310 @@
 # 1.1.2 Reference Data Types
 
-Reference data types in Java are complex data types that hold references (memory addresses) to objects rather than the
-actual data. Unlike primitive types, reference types are created using the `new` keyword (with some exceptions like
-String literals) and are stored in the heap memory.
+The order service shipped an "amend order" screen, and three tickets came in the same week.
+Customers saw a placed order change while support was still editing the draft. The duplicate-order
+check, green in every unit test, let a retried API call through, and the customer paid twice. And
+the heap after each full collection grew daily until the pod died with `OutOfMemoryError`.
 
-## Key Points:
+All three come from what a variable of a reference type holds. Classes, interfaces, arrays, enums
+and records are reference types, and a variable of one holds a reference to an object, or `null`,
+never the object itself.
 
-- Reference types are classes, interfaces, arrays, and enums.
-- They store addresses pointing to objects in memory.
-- Default value is `null`.
-- Can be used to create user-defined types.
-- Subject to garbage collection when no longer referenced.
+## Assignment Copies the Reference, Not the Object
 
-## Relevant Java 21 Features:
-
-- Pattern Matching for `instanceof` (JEP 394)
-- Record Classes (JEP 395) - a concise way to declare classes that are transparent holders for shallowly immutable data
-- Sealed Classes (JEP 409) - restricting which classes may extend or implement them
-
-## Common Pitfalls:
-
-1. Null Pointer Exceptions (NPE)
-2. Memory leaks due to lingering references
-3. Unintended aliasing (multiple references to the same object)
-4. Overuse of inheritance leading to complex hierarchies (mitigated by sealed classes)
-
-## Best Practices:
-
-1. Use null checks or Optional to avoid NPEs
-2. Properly manage object lifecycles
-3. Understand and use immutability when appropriate
-4. Leverage the new record feature for data-centric classes
-5. Use sealed classes to create well-defined class hierarchies
-
-## Edge Cases:
-
-1. Circular references
-2. Deep vs shallow copying
-3. Serialization and deserialization of complex object graphs
-
-## Sealed Classes:
-
-Sealed classes, introduced in Java 17, provide a way to restrict which other classes or interfaces may extend or
-implement them. This feature allows for more precise control over class hierarchies.
-
-Key aspects of sealed classes:
-
-- Declared using the `sealed` modifier
-- Use the `permits` clause to specify allowed subclasses
-- Subclasses must be declared as either `final`, `sealed`, or `non-sealed`
-- Enhance API design by clearly defining valid subtypes
-- Work well with pattern matching in switch expressions
-
-Example of a sealed class hierarchy:
+In the examples an `Order` holds an id and a mutable `List<Line>`, which `lines()` returns as it
+is, and a `Line` holds a SKU and a quantity that `setQty` changes. Support opens a placed order and adds a juice to the draft. What
+does the placed order print?
 
 ```java
-public sealed class Shape permits Circle, Square, Triangle {
-   // Common shape properties and methods
+Order placed = new Order("A-1001", new ArrayList<>(List.of(new Line("espresso", 2), new Line("croissant", 1))));
+Order draft = placed;
+draft.lines().add(new Line("juice", 1));
+System.out.println("placed: " + placed);
+System.out.println("draft == placed: " + (draft == placed));
+```
+
+```text
+placed: A-1001 [2x espresso, 1x croissant, 1x juice]
+draft == placed: true
+```
+
+`new` created one `Order`. `draft = placed` copied the reference into a second variable, so both
+names reach the same object. The juice is on the customer's order before anyone presses Save.
+
+Passing an argument works the same way: the method receives a copy of the reference, so it can
+change the caller's object but can't make the caller's variable point elsewhere (unit 1.3.3). A
+report helper that sorts the list it was given reorders the caller's list.
+
+## A Copy Is Only as Deep as the Code That Made It
+
+The fix that went out gave the draft a list of its own:
+
+```java
+Order draft = new Order(placed.id(), new ArrayList<>(placed.lines()));
+draft.lines().add(new Line("juice", 1));
+draft.lines().get(0).setQty(5);
+```
+
+Before reading on: which of the two changes reaches the placed order?
+
+```text
+placed: A-1001 [5x espresso, 1x croissant]
+draft:  A-1001 [5x espresso, 1x croissant, 1x juice]
+same list: false, same first line: true
+```
+
+`new ArrayList<>(...)` made a new list and filled it with the references the old list held. The
+juice went into the new list only. The quantity change went into a `Line` that both lists refer
+to, so the customer is charged for five espressos while the amendment screen shows the juice as
+the only change.
+
+That is a shallow copy: a new container that shares everything below it. `List.copyOf` is no
+deeper. On the same lines:
+
+```text
+same first line: true
+add: java.lang.UnsupportedOperationException
+```
+
+It returns an unmodifiable list of the same elements: nobody can add a line to it, and anyone can
+still call `setQty` on a line in it. A copy that must be independent copies every mutable level:
+
+```java
+List<Line> copied = new ArrayList<>();
+for (Line l : placed.lines()) copied.add(new Line(l.sku(), l.qty()));
+Order draft = new Order(placed.id(), copied);
+draft.lines().get(0).setQty(5);
+```
+
+```text
+placed: A-1001 [2x espresso, 1x croissant]
+draft:  A-1001 [5x espresso, 1x croissant]
+```
+
+Deep copies go wrong at the level someone forgot: a `Line` with a mutable list of notes needs that
+list copied too, or the two lines share it. The other way out is to make the lower
+levels immutable: a `Line` that no one can change (a record of immutable values, unit 2.4.1) can
+be shared by any number of lists. An array's `clone()` and `Arrays.copyOf` are shallow as well.
+
+<!-- practice 1 -->
+
+## == Compares References; equals Compares What the Class Defines
+
+The duplicate check compared each incoming order id with the ids it had seen, using `==`. Its
+tests used string literals:
+
+```java
+String typed = "ORD-7";
+String parsed = "id=ORD-7".split("=")[1];
+int n = 7;
+String built = "ORD-" + n;
+System.out.println("typed == \"ORD-7\":   " + (typed == "ORD-7"));
+System.out.println("typed == \"ORD-\" + \"7\": " + (typed == "ORD-" + "7"));
+System.out.println("typed == parsed:    " + (typed == parsed));
+System.out.println("typed == built:     " + (typed == built));
+System.out.println("typed.equals(parsed): " + typed.equals(parsed));
+```
+
+```text
+typed == "ORD-7":   true
+typed == "ORD-" + "7": true
+typed == parsed:    false
+typed == built:     false
+typed.equals(parsed): true
+```
+
+On references, `==` is true only when both point to the same object. The JVM keeps one `String`
+object for each distinct literal, and the compiler turns `"ORD-" + "7"` into the literal
+`"ORD-7"`, so every `"ORD-7"` in the program is one object and the tests pass. `"ORD-" + n` is computed
+at run time, because `n` is a variable, not a constant. An id that arrives in a request is parsed
+at run time into a new `String` with the same characters. `==` says `false`, the check sees no
+duplicate, and the retried request charges again. `equals` compares the characters.
+
+A class that doesn't override `equals` inherits `Object.equals`, which is `==`. Two ids with the
+same field:
+
+```java
+final class OrderId {
+    private final String value;
+    OrderId(String value) { this.value = value; }
 }
 
-public final class Circle extends Shape {
-   private double radius;
-   // Circle-specific implementation
-}
+record OrderKey(String value) { }
+```
 
-public final class Square extends Shape {
-   private double side;
-   // Square-specific implementation
-}
+Each is added to a `HashSet`, which is then asked for a new object with the same value, and
+`equals` is called on two new objects:
 
-public non-sealed class Triangle extends Shape {
-   private double base;
-   private double height;
-   // Triangle-specific implementation
+```java
+Set<OrderId> seen = new HashSet<>();
+seen.add(new OrderId("ORD-7"));
+System.out.println("class:  " + seen.contains(new OrderId("ORD-7"))
+        + ", equals: " + new OrderId("ORD-7").equals(new OrderId("ORD-7")));
+```
+
+```text
+class:  false, equals: false
+record: true, equals: true
+```
+
+A set of `OrderId`s never finds an equal id that arrives as a new object. A record's generated
+`equals` and `hashCode` use its components (unit 2.4.1). Unit 1.1.1 showed the same trap with `Integer`, where `==` works only
+while the values are in the cache.
+
+## A Reference Field or Array Element Starts as null, and the NPE Comes Where It Is Used
+
+Fields and array elements of a reference type start as `null`: `new Customer[3]` creates an array
+of three `null`s and no `Customer`. A local variable gets no default, and reading one before it is
+assigned doesn't compile (javac: `variable owner might not have been initialized`).
+
+A `Customer` gets its name in the constructor, and the signup flow sets its `email` afterwards.
+One path through signup forgot. Hours later the nightly mail job reaches that customer:
+
+```java
+Customer c = new Customer("Jane Doe");
+System.out.println(c.email.toLowerCase());
+
+Customer[] batch = new Customer[3];
+System.out.println(batch[1].name);
+```
+
+```text
+Cannot invoke "String.toLowerCase()" because "c.email" is null
+Cannot read field "name" because "batch[1]" is null
+```
+
+The `NullPointerException`'s message names the `null` expression, but the trace is the mail
+job's, and nothing in it leads back to the signup request that made the mistake. A check where
+the reference enters the object moves the failure to the mistake:
+
+```java
+CheckedCustomer(String name, String email) {
+    this.name = Objects.requireNonNull(name, "name");
+    this.email = Objects.requireNonNull(email, "email");
 }
 ```
 
-Benefits of sealed classes:
-
-- Improved type safety and compiler checks
-- Support for exhaustive pattern matching
-- Better modeling of domain concepts
-- Middle ground between open inheritance and final classes
-
-## Interview Questions:
-
-Q1: What is the difference between primitive data types and reference data types in Java?
-
-A1: Primitive data types and reference data types in Java differ in several important ways:
-
-1. Storage:
-    - Primitive types store the actual value directly in memory.
-    - Reference types store a reference (memory address) to an object in memory.
-
-2. Memory allocation:
-    - A primitive value lives wherever its variable lives: a local variable on the thread's stack, a field inside
-      its object on the heap, an array element inside its array on the heap.
-    - Objects themselves are allocated on the heap; a reference variable (on the stack or in a field) only points to
-      them. (The JIT may avoid a heap allocation through escape analysis, but that is an optimisation, not the model.)
-
-3. Default values:
-    - Primitive types have default values (e.g., 0 for int, false for boolean).
-    - Reference types have a default value of null.
-
-4. Size:
-    - Primitive types have a fixed size depending on the type (e.g., int is always 32 bits).
-    - Reference types can vary in size and can be much larger.
-
-5. Usage:
-    - Primitive types are used for simple values like numbers or boolean flags.
-    - Reference types are used for more complex data structures and objects.
-
-6. Performance:
-    - Operations on primitive types are generally faster.
-    - Reference types involve an extra step of dereferencing, which can impact performance.
-
-7. Nullable:
-    - Primitive types cannot be null.
-    - Reference types can be null.
-
-8. Methods:
-    - Primitive types don't have methods.
-    - Reference types (objects) can have methods.
-
-Here's a code example to illustrate some of these differences:
-
-```java
-public class DataTypeComparison {
-    public static void main(String[] args) {
-        // Primitive type
-        int primitiveInt = 5;
-        
-        // Reference type
-        Integer referenceInt = Integer.valueOf(5); // new Integer(5) is deprecated for removal since Java 16
-        
-        // Null assignment
-        // primitiveInt = null; // This would cause a compilation error
-        referenceInt = null; // This is allowed
-        
-        // Default values apply to FIELDS and array elements only: an int field defaults to 0, an Integer field to null.
-        // Local variables get no default: reading one before assigning it is a compile error.
-        int defaultPrimitive;     // System.out.println(defaultPrimitive); -> "variable might not have been initialized"
-        Integer defaultReference; // same for a local reference variable
-        
-        // Method call
-        // primitiveInt.toString(); // This would cause a compilation error
-        if (referenceInt != null) {
-            referenceInt.toString(); // This is allowed and calls a method on the object
-        }
-    }
-}
+```text
+java.lang.NullPointerException: email
+	at java.base/java.util.Objects.requireNonNull(Objects.java:259)
+	at Nulls$CheckedCustomer.<init>(Nulls.java:17)
+	at Nulls.main(Nulls.java:37)
 ```
 
-In this example, we can see that:
+Below `requireNonNull`, the trace names the constructor and the code that called it with the
+`null`: in the service, the signup path.
 
-- The primitive int is directly assigned a value, while the Integer object is obtained from `Integer.valueOf` (which
-  may return a cached instance for values from -128 to 127).
-- We can assign null to the reference type but not to the primitive type.
-- The reference type allows method calls, while the primitive type doesn't.
+> **Local names need debug information.** The messages above name `c` and `batch` because the
+> class was compiled with `javac -g`. Without it the same lines say `"<local1>.email"` and
+> `"<local2>[1]"`. Field names appear either way.
 
-Understanding these differences is crucial for efficient memory management, performance optimization, and avoiding
-common pitfalls like null pointer exceptions in Java programming.
+<!-- practice 2 -->
 
-Q2: How does garbage collection work with reference types in Java?
-A2: Garbage collection in Java is an automatic memory management process that deals with reference types. Here's how it
-works:
+## An Object Lives While Something Reachable Refers to It
 
-Object Creation:
-
-- When an object is created, Java allocates memory for it in the heap.
-
-Reachability (not reference counting):
-
-- The JVM does not count references to each object. Instead, the collector traces which objects can be reached from
-  the GC roots (local variables of live threads, static fields, JNI references, etc.); this is why circular references
-  between otherwise unreachable objects are collected without any special handling.
-
-Unreachable Objects:
-
-- An object becomes eligible for garbage collection when it's no longer reachable from the program's root set (active
-  threads, static fields, etc.).
-
-Garbage Collection Process:
-
-- The garbage collector periodically runs to identify and remove unreachable objects.
-- It uses various algorithms (like mark-and-sweep or copying collection) to identify unreachable objects.
-- Memory occupied by unreachable objects is reclaimed and can be reused.
-
-Finalization:
-
-- If a class overrides finalize(), the JVM may call it at some point after the object becomes unreachable, but there
-  is no guarantee it runs at all (for example, the JVM may exit first). Finalization is deprecated for removal since
-  Java 18 (JEP 421); use try-with-resources or `java.lang.ref.Cleaner` instead.
-
-Here's a simple example to illustrate:
+The collector doesn't count references: it starts from the GC roots (the local variables of
+running threads, static fields) and keeps every object it can reach. The rest is garbage, whatever
+refers to it. Two cycles, watched through weak references (a
+`WeakReference` doesn't keep its object alive, and its `get()` returns `null` once the object is
+collected):
 
 ```java
-public class GarbageCollectionDemo {
-    public static void main(String[] args) {
-        createObjects();
-        System.gc(); // Request garbage collection (for demonstration purposes)
-    }
+Node a = new Node("a"), b = new Node("b");
+a.next = b; b.next = a;
+WeakReference<Node> cycle = new WeakReference<>(a);
 
-    static void createObjects() {
-        MyObject obj1 = new MyObject("Object 1");
-        MyObject obj2 = new MyObject("Object 2");
-        
-        obj1 = null; // obj1 is now eligible for garbage collection
-        // obj2 will be eligible for GC when createObjects() method exits
-    }
+Node c = new Node("c"), d = new Node("d");
+c.next = d; d.next = c;
+REGISTRY.add(c);                                   // a static List<Node>
+WeakReference<Node> registered = new WeakReference<>(c);
 
-    static class MyObject {
-        private String name;
-
-        MyObject(String name) {
-            this.name = name;
-            System.out.println(name + " created");
-        }
-
-        @Override
-        protected void finalize() {
-            System.out.println(name + " is being garbage collected");
-        }
-    }
-}
+a = null; b = null; c = null; d = null;
+System.gc();
 ```
 
-In this example:
+```text
+unreachable cycle collected:  true
+registered cycle collected:   false
+```
 
-- We create two MyObject instances.
-- We set obj1 to null, making it eligible for garbage collection.
-- When createObjects() method exits, obj2 also becomes eligible for GC as it goes out of scope.
-- We call System.gc() to suggest a garbage collection (note that in real applications, explicitly calling gc() is
-  generally not recommended).
-- The finalize() method (deprecated for removal; compiling it prints a `[removal]` warning) prints a message if and when
-  an object is finalized. Run the program a few times: sometimes both messages appear, often neither does, because
-  System.gc() is only a request and the JVM may exit before the finalizer thread runs.
+Each node of the first cycle is still referred to by the other, and the cycle was collected,
+because nothing reachable leads to it. The second cycle is reachable through a static field, and stays
+for as long as the list holds it.
 
-Key points to remember:
+A Java memory leak is an object that stays reachable after nothing needs it. The duplicate check
+kept every order id it had seen in a static list, and no code removed one. Every entry stayed
+reachable, so each full collection kept all of them. The heap after collection grew with traffic
+until the pod hit `OutOfMemoryError`. A bound fixes it: drop ids older than the retry window, or
+cap the list's size. The JVM runs those collections on its own as the heap fills. How the collector finds what is reachable is unit 10.2.2.
 
-- Garbage collection only deals with heap memory, where reference types are stored.
-- It's non-deterministic; you can't predict exactly when it will occur.
-- Modern JVMs use sophisticated algorithms to minimize the performance impact of GC.
-- Proper management of object references is crucial to assist the garbage collector and prevent memory leaks.
+> **`System.gc()` is a request.** On Java 21 with default settings the unreachable cycle was
+> collected in 10 runs out of 10 of this program. With `-XX:+DisableExplicitGC` the same program
+> printed `false` on both lines: nothing was collected. A test that relies on it passes or fails
+> with the JVM's flags.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Assignment copies the reference, not the object:** two variables, or a caller and a method,
+  can change one object.
+- **A copy is only as deep as the code that made it:** `new ArrayList<>(list)`, `List.copyOf`
+  and `clone()` share the elements; copy every mutable level, or make the elements immutable.
+- **`==` compares references:** it passes for string literals and fails for strings built at run
+  time. `equals` compares what the class defines, which is identity unless the class overrides it.
+- **A reference field or array element starts as `null`:** the NPE comes where it is used;
+  `Objects.requireNonNull` where the reference enters moves the failure to the mistake.
+- **An object lives while something reachable refers to it:** unreachable cycles are collected,
+  and anything a static collection holds is not.
+
+## Reference
+
+**What a copy of a list or array shares (Java 21):**
+
+| Copy of `a` | New container | Same elements | Can be edited | Sees later adds to `a` |
+|---|---|---|---|---|
+| `b = a` | no | yes | yes | yes |
+| `new ArrayList<>(a)` | yes | yes | yes | no |
+| `List.copyOf(a)` | yes, unless `a` is already unmodifiable | yes | no | no |
+| `a.stream().toList()` | yes | yes | no | no |
+| `Collections.unmodifiableList(a)` | a view of `a` | yes | no | yes |
+| `array.clone()`, `Arrays.copyOf(array, n)` | yes | yes | yes | n/a |
+
+A two-dimensional array's `clone()` copies only the outer array: after `copy[0][0] = 99`,
+`original[0][0]` is 99 too.
+
+**Defaults and lifetime:**
+
+| Situation | What happens |
+|---|---|
+| reference field, array element | starts as `null` |
+| local variable | no default: reading it before assignment is a compile error |
+| object reachable only through a `WeakReference` | may be collected; `get()` then returns `null` |
+| `Object.finalize()` | deprecated for removal since Java 18 (JEP 421), may never run; use try-with-resources or `java.lang.ref.Cleaner` |
+
+## Challenges
+
+1. A service caches `Customer` objects and hands them to its callers. Which callers can change the
+   cached copy? Compare returning a deep copy, an unmodifiable view and an immutable type: what does
+   each cost per request, and what does each still let a caller change?
+2. An `Order` whose `equals` and `hashCode` use its lines is put in a `HashSet`, and then a line is
+   added. Does the set still find it? Try it, and decide what a key's fields must be.
+3. Find a static collection in a code base you know that only grows. What bounds it, and how would
+   you show from a heap dump that it is what holds the memory?
+
+## Design Note: Why Java Copies References and Never Objects
+
+Every object in Java is reached through a reference, and assignment, argument passing and
+collections copy only the reference. Passing a ten-thousand-line order costs the same as passing an
+`int`, and because a program can't see or compute addresses, the collector is free to move objects
+and update every reference to them.
+
+The price: an object reachable through two references can change under
+either holder. Java's answer is immutability rather than copying. A `String`, an `Integer`, a
+`LocalDate` or a record of immutable values can be shared by any number of holders, which is what
+lets the JVM hand one `"ORD-7"` object to every literal in the program. A mutable object that
+crosses a boundary needs an owner who decides who may change it, and a copy or a read-only view
+for everyone else.
 
 ## Code Examples
 

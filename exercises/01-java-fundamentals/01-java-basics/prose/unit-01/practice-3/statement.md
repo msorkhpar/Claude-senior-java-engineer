@@ -1,15 +1,13 @@
-Write `IntegerMean.mean(int[] values)`. It returns the mean of the values as an
-`int`, truncated the way integer division truncates (toward zero).
+A shoe warehouse stocks every shoe as two SKUs, one per foot, and `StockLedger` counts the units
+on hand. Its pairing report lists the pairs whose left and right counts differ, so that someone
+goes and finds the missing shoes. Two problems reached the team: the stock report crashes as soon
+as it is asked about a SKU that hasn't arrived yet, and the big distribution centre's pairing
+report flags pairs that a manual count found complete.
 
-| values | answer |
-|---|---|
-| `{2, 4, 6}` | `4` |
-| `{1, 2}` | `1` |
-| `{-3, -4}` | `-3` |
+`report` and `unevenPairs` already work. Finish the two `TODO`s in
+`src/main/java/practice/StockLedger.java`:
 
-Two things the page warns about apply here:
+- `onHand(sku)`: the units on hand, for any SKU;
+- `sameStock(a, b)`: whether the two SKUs hold the same number of units, whatever that number is.
 
-- **Integer division by zero throws** `ArithmeticException`. An empty array has
-  no mean: return `0` for it rather than throwing.
-- **Integer overflow is silent.** The mean of `{Integer.MAX_VALUE, Integer.MAX_VALUE}`
-  is `Integer.MAX_VALUE`, but their sum does not fit in an `int`.
+About two lines in total.

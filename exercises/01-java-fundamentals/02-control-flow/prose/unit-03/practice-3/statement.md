@@ -1,13 +1,10 @@
-Walking a linked list is a classic `while` loop: follow `next` until it is `null`. The
-number of links is not known in advance, and a list may have none at all, so the
-condition has to be checked before the first pass.
+The nightly reconciliation checks every invoice, shard by shard. Invoice ids are positive `int`s,
+and each shard owns an inclusive range of them. The last shard's range ends at the largest `int`,
+and when shards are rebalanced some of them are left with an empty range, whose first id is above
+its last.
 
-`Chain` gives you a list link, `Chain.Node(int value, Node next)`. An empty list is a
-`null` head.
+Every night, every shard reports done except the last one. Its worker is still at 100 % CPU in
+the morning, and the reconciliation table has rows for invoice ids below zero.
 
-Write `indexOf(Node head, int target)` in `Chain`. It returns the position (from `0`) of
-the first link whose value is `target`, or `-1` when no link holds it.
-
-Examples, for the list `1 -> 3 -> 5 -> 3`: `indexOf(head, 1)` is `0`, `indexOf(head, 5)`
-is `2`, `indexOf(head, 3)` is `1`, and `indexOf(head, 4)` is `-1`. For the empty list,
-`indexOf(null, 1)` is `-1`.
+Write `forEachId(first, last, visit)` in `src/main/java/practice/InvoiceSweep.java`: hand every
+id of the range to `visit`, once each and in increasing order, for every shard. About five lines.

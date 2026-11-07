@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Compare two boxed numbers",
+  "title": "Match bank payments to invoices by reference",
   "blocks": [
     {
       "type": "heading",
@@ -19,41 +19,22 @@
     },
     {
       "type": "para",
-      "text": "`==` on two references asks whether they point at **the same object**, not whether the objects hold the same value. `Integer.valueOf` returns a cached object for values from -128 to 127, so `==` on two `Integer`s often looks right in a quick test and then fails on bigger numbers. And a reference can be `null`, where calling a method on it throws a `NullPointerException`."
+      "text": "Every morning the accounts team runs the reconciler over the bank's statement file. It matches each payment to the open invoice whose reference the payer typed, and sends the rest to a person for manual review. The team's tests pass, but in production almost every payment ends up in manual review, the run sometimes dies halfway through, and once a payment with no reference at all was booked against an invoice."
     },
     {
       "type": "para",
-      "text": "Write `BoxedEquality.sameValue(Integer a, Integer b)`. It returns `true` when both hold the same number, or when both are `null`; otherwise `false`."
+      "text": "`readStatement` and `match` already work. Finish the `TODO` in `src/main/java/practice/Reconciler.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "a",
-        "b",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`5`",
-          "`5`",
-          "`true`"
-        ],
-        [
-          "`1000`",
-          "`1000`",
-          "`true`"
-        ],
-        [
-          "`null`",
-          "`null`",
-          "`true`"
-        ],
-        [
-          "`null`",
-          "`5`",
-          "`false`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`sameReference(invoiceRef, paymentRef)`: whether a payment with that reference pays an invoice issued with that one."
       ]
+    },
+    {
+      "type": "para",
+      "text": "About two lines."
     },
     {
       "type": "heading",
@@ -68,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class BoxedEquality {\n\n    private BoxedEquality() {\n    }\n\n    /** Returns whether {@code a} and {@code b} hold the same number, or are both null. */\n    public static boolean sameValue(Integer a, Integer b) {\n        return Objects.equals(a, b);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Matches the payments on a bank statement to open invoices by the reference the payer typed.\n * Whatever it can't match goes to a person for manual review.\n */\npublic class Reconciler {\n\n    /** An open invoice. Its reference is null when it was issued without one. */\n    public record Invoice(String number, String reference) { }\n\n    /** A payment from the bank statement. Its reference is null when the payer left it empty. */\n    public record Payment(String id, String reference) { }\n\n    /**\n     * Reads the bank's statement file: one payment per line, as {@code id;reference}, with\n     * nothing after the semicolon when the payer gave no reference.\n     */\n    public static List<Payment> readStatement(String file) {\n        List<Payment> payments = new ArrayList<>();\n        for (String line : file.split(\"\\n\")) {\n            if (line.isBlank()) continue;\n            String[] fields = line.split(\";\", -1);\n            String reference = fields[1].strip();\n            payments.add(new Payment(fields[0].strip(), reference.isEmpty() ? null : reference));\n        }\n        return payments;\n    }\n\n    /** For every payment it could match, the number of the invoice it pays, keyed by payment id. */\n    public Map<String, String> match(List<Invoice> invoices, List<Payment> payments) {\n        Map<String, String> matched = new LinkedHashMap<>();\n        for (Payment payment : payments) {\n            for (Invoice invoice : invoices) {\n                if (sameReference(invoice.reference(), payment.reference())) {\n                    matched.put(payment.id(), invoice.number());\n                    break;\n                }\n            }\n        }\n        return matched;\n    }\n\n    /** Whether a payment carrying {@code paymentRef} pays the invoice issued with {@code invoiceRef}. */\n    boolean sameReference(String invoiceRef, String paymentRef) {\n        if (invoiceRef == null) return false;\n        return invoiceRef.equals(paymentRef);\n    }\n}\n"
         }
       ]
     },
@@ -80,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class BoxedEquality {\n\n    private BoxedEquality() {\n    }\n\n    /** Returns whether {@code a} and {@code b} hold the same number, or are both null. */\n    public static boolean sameValue(Integer a, Integer b) {\n        throw new UnsupportedOperationException(\"write sameValue\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Matches the payments on a bank statement to open invoices by the reference the payer typed.\n * Whatever it can't match goes to a person for manual review.\n */\npublic class Reconciler {\n\n    /** An open invoice. Its reference is null when it was issued without one. */\n    public record Invoice(String number, String reference) { }\n\n    /** A payment from the bank statement. Its reference is null when the payer left it empty. */\n    public record Payment(String id, String reference) { }\n\n    /**\n     * Reads the bank's statement file: one payment per line, as {@code id;reference}, with\n     * nothing after the semicolon when the payer gave no reference.\n     */\n    public static List<Payment> readStatement(String file) {\n        List<Payment> payments = new ArrayList<>();\n        for (String line : file.split(\"\\n\")) {\n            if (line.isBlank()) continue;\n            String[] fields = line.split(\";\", -1);\n            String reference = fields[1].strip();\n            payments.add(new Payment(fields[0].strip(), reference.isEmpty() ? null : reference));\n        }\n        return payments;\n    }\n\n    /** For every payment it could match, the number of the invoice it pays, keyed by payment id. */\n    public Map<String, String> match(List<Invoice> invoices, List<Payment> payments) {\n        Map<String, String> matched = new LinkedHashMap<>();\n        for (Payment payment : payments) {\n            for (Invoice invoice : invoices) {\n                if (sameReference(invoice.reference(), payment.reference())) {\n                    matched.put(payment.id(), invoice.number());\n                    break;\n                }\n            }\n        }\n        return matched;\n    }\n\n    /** Whether a payment carrying {@code paymentRef} pays the invoice issued with {@code invoiceRef}. */\n    boolean sameReference(String invoiceRef, String paymentRef) {\n        // TODO: Answer whether the payment pays this invoice. Both references are text the\n        //       service was given, and either one can be missing.\n        throw new IllegalStateException(\"TODO: sameReference\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -88,10 +69,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -99,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "92c375b854e1b475b1cbb0c8613f1a504f4fb3cd50e91d1896bbd43fccd89b49",
-  "starting_code": "package practice;\n\nimport java.util.Objects;\n\npublic final class BoxedEquality {\n\n    private BoxedEquality() {\n    }\n\n    /** Returns whether {@code a} and {@code b} hold the same number, or are both null. */\n    public static boolean sameValue(Integer a, Integer b) {\n        throw new UnsupportedOperationException(\"write sameValue\");\n    }\n}\n",
+  "content_sha256": "1b1cb0ad80f8f4b8a7279318f3abcba643aa7729500d60d870d472de62f1d598",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Matches the payments on a bank statement to open invoices by the reference the payer typed.\n * Whatever it can't match goes to a person for manual review.\n */\npublic class Reconciler {\n\n    /** An open invoice. Its reference is null when it was issued without one. */\n    public record Invoice(String number, String reference) { }\n\n    /** A payment from the bank statement. Its reference is null when the payer left it empty. */\n    public record Payment(String id, String reference) { }\n\n    /**\n     * Reads the bank's statement file: one payment per line, as {@code id;reference}, with\n     * nothing after the semicolon when the payer gave no reference.\n     */\n    public static List<Payment> readStatement(String file) {\n        List<Payment> payments = new ArrayList<>();\n        for (String line : file.split(\"\\n\")) {\n            if (line.isBlank()) continue;\n            String[] fields = line.split(\";\", -1);\n            String reference = fields[1].strip();\n            payments.add(new Payment(fields[0].strip(), reference.isEmpty() ? null : reference));\n        }\n        return payments;\n    }\n\n    /** For every payment it could match, the number of the invoice it pays, keyed by payment id. */\n    public Map<String, String> match(List<Invoice> invoices, List<Payment> payments) {\n        Map<String, String> matched = new LinkedHashMap<>();\n        for (Payment payment : payments) {\n            for (Invoice invoice : invoices) {\n                if (sameReference(invoice.reference(), payment.reference())) {\n                    matched.put(payment.id(), invoice.number());\n                    break;\n                }\n            }\n        }\n        return matched;\n    }\n\n    /** Whether a payment carrying {@code paymentRef} pays the invoice issued with {@code invoiceRef}. */\n    boolean sameReference(String invoiceRef, String paymentRef) {\n        // TODO: Answer whether the payment pays this invoice. Both references are text the\n        //       service was given, and either one can be missing.\n        throw new IllegalStateException(\"TODO: sameReference\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-2/src/main/java/practice/BoxedEquality.java",
-    "test_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-2/src/test/java/practice/BoxedEqualityTest.java",
+    "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-2/src/main/java/practice/Reconciler.java",
+    "test_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-2/src/test/java/practice/ReconcilerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -124,19 +105,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BoxedEqualityTest#comparesSmallValues",
+        "id": "practice.ReconcilerTest#aPaymentIsMatchedToTheInvoiceWithItsReference",
         "kind": "main",
-        "says": "It compares small numbers by value."
+        "says": "a payment is matched to the open invoice that carries its reference, and a payment with an unknown reference is not matched"
       },
       {
-        "id": "practice.BoxedEqualityTest#comparesValuesOutsideTheCache",
+        "id": "practice.ReconcilerTest#paymentsReadFromTheBanksFileAreMatched",
         "kind": "edge",
-        "says": "Equal numbers outside -128..127 are the same value although they are different objects."
+        "says": "payments read from the bank's statement file are matched to their invoices"
       },
       {
-        "id": "practice.BoxedEqualityTest#handlesNull",
+        "id": "practice.ReconcilerTest#anInvoiceIssuedWithoutAReferenceDoesNotStopTheRun",
         "kind": "edge",
-        "says": "Two nulls are the same, and a null never equals a number."
+        "says": "an open invoice issued without a reference doesn't stop the run, and the payments after it are still matched"
+      },
+      {
+        "id": "practice.ReconcilerTest#aPaymentWithoutAReferenceGoesToManualReview",
+        "kind": "edge",
+        "says": "a payment without a reference is not matched to an invoice without one"
       }
     ],
     "report": {
@@ -145,10 +131,11 @@
     },
     "origin": {
       "path": "01-java-basics/README_1.1.2.md",
-      "section": "Interview Questions:"
+      "section": "== Compares References; equals Compares What the Class Defines"
     },
     "concepts": [
-      "== on references compares identity, and Integer.valueOf caches only -128..127."
+      "== on references is true only for one object: string literals and compile-time constants share one object, while strings built at run time are new objects, so equals compares the text.",
+      "A reference that may be missing has to be checked before a method is called on it; equals on a null receiver throws."
     ]
   }
 }

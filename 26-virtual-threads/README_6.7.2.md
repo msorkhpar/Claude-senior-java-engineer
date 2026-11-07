@@ -1,724 +1,250 @@
 # 6.7.2. Differences Between Virtual Threads and Platform Threads
 
-## Concept Explanation
-
-Understanding the differences between virtual threads and platform threads is essential for choosing the right
-concurrency strategy in Java 21+. While both implement the `java.lang.Thread` API, they differ fundamentally in how
-they are scheduled, how they consume resources, and how they behave under blocking and synchronization.
-
-**Real-world analogy**: Platform threads are like dedicated employees sitting at individual desks — each employee
-occupies a desk (OS thread/stack) full-time, whether they are actively working or waiting for a phone call. Virtual
-threads are like tasks on a shared task board — workers (carrier threads) pick up tasks, work on them until they hit a
-waiting point (blocking I/O), then put the task back on the board and pick up another one. You can have millions of tasks
-on the board without needing millions of desks.
-
-### 6.7.2.1. Scalability and Resource Consumption
-
-The most dramatic difference between virtual and platform threads is their resource footprint:
-
-| Aspect                  | Platform Thread          | Virtual Thread                    |
-|-------------------------|--------------------------|-----------------------------------|
-| Stack memory            | ~1 MB (fixed, pre-allocated) | Starts at ~200-300 bytes, grows on demand |
-| OS thread mapping       | 1:1 (one OS thread each) | M:N (many virtual to few carrier) |
-| Creation cost           | Expensive (kernel allocation) | Cheap (JVM-managed object)       |
-| Max concurrent threads  | Thousands (OS-limited)   | Millions (JVM-limited)            |
-| Scheduling              | OS scheduler             | JVM scheduler (ForkJoinPool)      |
-| Context switch          | Expensive (kernel mode)  | Cheap (user-mode stack swap)      |
-
-For I/O-bound workloads, this difference is transformative. A traditional web server with a fixed thread pool of 200
-platform threads can handle at most 200 concurrent requests. With virtual threads, the same server can handle hundreds of
-thousands of concurrent requests because each request gets its own virtual thread, and the JVM efficiently multiplexes
-them onto a small number of carrier threads.
-
-### 6.7.2.2. Blocking and Synchronization Behavior
-
-When a platform thread blocks (e.g., on `Thread.sleep()`, network I/O, `Lock.lock()`), the underlying OS thread is
-blocked and cannot be used for anything else. This wastes a valuable resource.
-
-When a virtual thread blocks, it **unmounts** from its carrier thread. The carrier thread is freed to execute other
-virtual threads. When the blocking operation completes, the virtual thread is **remounted** onto an available carrier
-(possibly a different one).
-
-However, there is an important exception: **pinning**. A virtual thread becomes **pinned** to its carrier thread when
-it enters a `synchronized` block or method. If the virtual thread blocks while inside a `synchronized` section, the
-carrier thread is also blocked, reducing the pool of available carriers. This can cause throughput degradation if many
-virtual threads contend on synchronized blocks with blocking operations inside.
-
-The solution is to replace `synchronized` with `ReentrantLock` in code paths where virtual threads may block while
-holding the lock.
-
-### 6.7.2.3. Compatibility with Existing Code and Libraries
-
-Virtual threads are designed to be a drop-in replacement for platform threads in most scenarios:
-
-- **Full Thread API compatibility**: `sleep()`, `join()`, `interrupt()`, `isAlive()`, thread-local variables all work.
-- **Executor framework**: Virtual threads work with `ExecutorService`, `Future`, `Callable`, `CompletableFuture`.
-- **Synchronization**: `CountDownLatch`, `CyclicBarrier`, `Semaphore`, `BlockingQueue`, `ReentrantLock` all work.
-- **I/O**: `java.nio` channels, `java.net.Socket`, and `java.io` streams are virtual-thread-friendly in Java 21.
-
-Known compatibility considerations:
-- **`synchronized` keyword**: Causes pinning (see above). Replace with `ReentrantLock` where needed.
-- **Native methods/JNI**: Virtual threads are pinned during native method execution.
-- **`Thread.setPriority()`**: Silently ignored on virtual threads.
-- **`Thread.setDaemon(false)`**: Throws `IllegalArgumentException` on virtual threads.
-- **`ThreadGroup`**: Virtual threads always belong to the "VirtualThreads" thread group.
-- **Thread-local variables**: Work but can be memory-wasteful at scale.
-
-## Key Points to Remember
-
-1. **Virtual threads unmount on blocking; platform threads do not** — This is the key architectural difference that
-   enables scalability.
-2. **Pinning occurs with `synchronized`** — Use `ReentrantLock` instead to avoid pinning virtual threads.
-3. **Virtual threads are always daemon threads** — They cannot be set to non-daemon.
-4. **`setPriority()` is silently ignored** — Virtual threads always run at `NORM_PRIORITY`.
-5. **Do not pool virtual threads** — They are designed to be created per-task, not reused.
-6. **Platform threads are still preferred for CPU-bound work** — Virtual threads provide no benefit when threads
-   rarely block.
-7. **Virtual threads work with most existing Java APIs** — Including `ExecutorService`, `Future`,
-   `CompletableFuture`, `CountDownLatch`, `BlockingQueue`, etc.
-8. **Memory footprint differs dramatically** — Platform threads: ~1 MB each; virtual threads: a few hundred bytes
-   initially, growing as needed.
-9. **Context switching is cheaper** — Virtual thread context switches happen in user mode (JVM), not kernel mode (OS).
-10. **Native methods/JNI cause pinning** — Virtual threads cannot unmount during native method execution.
-
-## Relevant Java 21 Features
-
-- **JEP 444: Virtual Threads** — The implementation is based on `Continuation` (internal API) and uses a dedicated
-  `ForkJoinPool` for scheduling.
-- **Improved `synchronized` behavior** — Java 24 (JEP 491) removes pinning for `synchronized` blocks, but in Java 21,
-  pinning is still a concern.
-- **JFR events for virtual threads** — `jdk.VirtualThreadStart`, `jdk.VirtualThreadEnd`, `jdk.VirtualThreadPinned`
-  events for monitoring.
-- **`-Djdk.tracePinnedThreads=full|short`** — JVM flag to detect pinning at runtime (prints stack trace when a virtual
-  thread is pinned).
-
-### Monitoring Pinning
-
-Java 21 provides a system property to help detect pinning:
-
-```bash
-# Print stack trace when a virtual thread is pinned
-java -Djdk.tracePinnedThreads=full MyApp
-
-# Print shorter output
-java -Djdk.tracePinnedThreads=short MyApp
-```
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using `synchronized` blocks with blocking operations inside** — This pins the virtual thread to its carrier,
-   reducing concurrency.
-
-   ```java
-   // PROBLEMATIC: Pinning - carrier thread is blocked
-   synchronized (lock) {
-       Thread.sleep(1000); // Virtual thread is pinned during sleep
-       result = fetchFromDatabase();
-   }
-
-   // BETTER: Use ReentrantLock - no pinning
-   ReentrantLock lock = new ReentrantLock();
-   lock.lock();
-   try {
-       Thread.sleep(1000); // Virtual thread unmounts normally
-       result = fetchFromDatabase();
-   } finally {
-       lock.unlock();
-   }
-   ```
-
-2. **Assuming virtual threads make code faster** — Virtual threads improve throughput (more concurrent tasks), not
-   latency (individual task speed).
-
-   ```java
-   // MISCONCEPTION: This single task won't run faster on a virtual thread
-   Thread.startVirtualThread(() -> {
-       // CPU-bound computation takes the same time on virtual or platform thread
-       double result = computePI(1_000_000);
-   });
-
-   // CORRECT USE: Many I/O-bound tasks benefit from virtual threads
-   try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-       for (var url : urls) {
-           executor.submit(() -> fetchUrl(url)); // Each blocks on I/O
-       }
-   } // Handles thousands of concurrent I/O operations efficiently
-   ```
-
-3. **Treating virtual thread thread-group as configurable** — Virtual threads always belong to the "VirtualThreads"
-   group.
-
-   ```java
-   // This does NOT change the virtual thread's group
-   ThreadGroup myGroup = new ThreadGroup("my-group");
-   // Thread.ofVirtual() does not accept a ThreadGroup parameter
-   Thread vt = Thread.ofVirtual().unstarted(() -> {});
-   System.out.println(vt.getThreadGroup().getName()); // "VirtualThreads"
-   ```
-
-4. **Using `Thread.getAllStackTraces()` to monitor virtual threads** — This method does not include virtual threads.
-   Use JFR or thread dumps via `jcmd` instead.
-
-   ```java
-   // WRONG: Does not show virtual threads
-   Map<Thread, StackTraceElement[]> all = Thread.getAllStackTraces();
-
-   // CORRECT: Use jcmd for thread dumps that include virtual threads
-   // jcmd <pid> Thread.dump_to_file -format=json output.json
-   ```
-
-5. **Comparing performance using small numbers of tasks** — Virtual threads show their advantage only when the number
-   of concurrent tasks significantly exceeds the number of available platform threads.
-
-   ```java
-   // WRONG benchmark: 10 tasks - no visible difference
-   // CORRECT benchmark: 10,000+ I/O-bound tasks to see the difference
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Replace `synchronized` with `ReentrantLock`** in code that will run on virtual threads, especially if blocking
-   operations occur inside the critical section.
-
-2. **Use `-Djdk.tracePinnedThreads=short`** during development and testing to detect pinning early.
-
-3. **Use semaphores to limit resource access**, not thread pools:
-   ```java
-   Semaphore dbSemaphore = new Semaphore(20);
-   try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-       for (var query : queries) {
-           executor.submit(() -> {
-               dbSemaphore.acquire();
-               try {
-                   return executeQuery(query);
-               } finally {
-                   dbSemaphore.release();
-               }
-           });
-       }
-   }
-   ```
-
-4. **Profile with JFR** to understand virtual thread behavior in production:
-   ```bash
-   java -XX:StartFlightRecording=filename=recording.jfr,duration=60s MyApp
-   ```
-
-5. **Migrate gradually** — Start by replacing `Executors.newFixedThreadPool()` with
-   `Executors.newVirtualThreadPerTaskExecutor()` for I/O-bound services.
-
-6. **Test with realistic load** — Virtual thread benefits are most visible under high concurrency. Test with thousands
-   of concurrent tasks to validate throughput improvements.
-
-7. **Avoid deep synchronized nesting** — Deeply nested synchronized blocks increase the risk and duration of pinning.
-
-## Edge Cases and Their Handling
-
-1. **Virtual thread joining itself**: Calling `join()` on the current thread is not detected: without a timeout it
-   waits forever, and `join(millis)` simply returns after the timeout — the same as for platform threads.
-
-2. **Exhausting carrier threads due to pinning**: The scheduler does not compensate for pinning inside `synchronized`
-   (for example `sleep()` or socket I/O while holding a monitor): if every carrier is pinned, other virtual threads
-   wait. It does temporarily add carrier threads (up to `jdk.virtualThreadScheduler.maxPoolSize`) for operations that
-   capture the carrier, such as `Object.wait()` and most file I/O.
-
-3. **Thread.sleep(0)**: On virtual threads, `Thread.sleep(0)` yields the virtual thread, potentially allowing other
-   virtual threads to run on the carrier. On platform threads, it may or may not yield.
-
-4. **Virtual threads and `Object.wait()`**: Virtual threads can call `wait()` on monitors. However, if the monitor was
-   entered via `synchronized`, the virtual thread is pinned while waiting.
-
-5. **`InheritableThreadLocal` with virtual threads**: Works as expected — child virtual threads inherit values from
-   the parent. But be cautious of memory consumption at scale.
-
-6. **Creating virtual threads inside `synchronized` blocks**: The virtual thread itself is not pinned just because it
-   was created inside a synchronized block; it only pins when it enters its own synchronized block.
-
-## Interview-specific Insights
-
-This topic is a favorite in Java interviews for senior engineers because it tests deep understanding of concurrency:
-
-- **"How do virtual threads achieve scalability?"** — Explain the mounting/unmounting mechanism, not just "they're
-  lightweight."
-- **"What is thread pinning?"** — Critical to demonstrate knowledge of the `synchronized` limitation and the
-  `ReentrantLock` solution.
-- **"Would you use virtual threads for a CPU-bound computation pipeline?"** — Demonstrate understanding that virtual
-  threads are for I/O-bound workloads.
-- **"How do you monitor virtual threads in production?"** — Mention JFR events, `jcmd` thread dumps, and the
-  `-Djdk.tracePinnedThreads` flag.
-
-Whiteboard coding approaches:
-- Be prepared to sketch the mounting/unmounting lifecycle of a virtual thread on a carrier thread
-- Know how to refactor `synchronized` to `ReentrantLock` for virtual thread compatibility
-- Demonstrate migrating a `newFixedThreadPool` to `newVirtualThreadPerTaskExecutor`
-
-## Interview Q&A Section
-
-**Q1: What are the key differences between virtual threads and platform threads?**
-
-```text
-A1: The differences span several dimensions:
-
-1. Resource consumption:
-   - Platform threads: ~1 MB stack, one OS thread each
-   - Virtual threads: ~200-300 bytes initially, share a pool of carrier threads
-
-2. Scheduling:
-   - Platform threads: Scheduled by the OS kernel
-   - Virtual threads: Scheduled by the JVM (ForkJoinPool-based scheduler)
-
-3. Blocking behavior:
-   - Platform threads: OS thread is consumed while blocked
-   - Virtual threads: Unmount from carrier thread when blocked, freeing it
-
-4. Creation cost:
-   - Platform threads: Expensive (OS-level allocation)
-   - Virtual threads: Cheap (JVM-managed, like creating an object)
-
-5. Properties:
-   - Platform threads: Configurable daemon status and priority
-   - Virtual threads: Always daemon, fixed NORM_PRIORITY
-
-6. Scalability:
-   - Platform threads: Limited to thousands
-   - Virtual threads: Scales to millions
-
-7. Best use case:
-   - Platform threads: CPU-bound work
-   - Virtual threads: I/O-bound work with high concurrency
-```
+An order service runs its requests on `Executors.newFixedThreadPool(200)`. On Java 21 we change
+that one line to `Executors.newVirtualThreadPerTaskExecutor()`, the tests pass, and it ships.
+During the next peak the database refuses connections, the dashboard's "busy workers" gauge reads
+0, and one node stops answering for a second at a time while its CPU sits idle.
+
+Virtual threads implement the same `Thread` API as platform threads (unit 6.7.1), so the code
+compiles and runs; where the two kinds of thread differ, it can misbehave. Every output below is
+from Java 21 on a machine with 20 CPUs.
+
+## A Blocked Virtual Thread Gives Its Carrier Back; a Blocked Platform Thread Keeps Its OS Thread
+
+A platform thread is an OS thread: while it blocks, the OS thread blocks with it. A virtual thread
+runs on a platform thread, its **carrier**, only while it computes. When it blocks in `sleep`, a
+`java.util.concurrent` lock or queue, or a socket read, it **unmounts**, and the carrier runs
+another virtual thread. Unit 6.7.1 shows how, what a waiting virtual thread costs, and why a
+`ThreadLocal` stops being a cache.
+
+## A Fixed Pool Was Also a Limit: Put a Semaphore in Front of What Is Scarce
+
+A database has 10 connections and a query takes 20 ms. A caller that finds none free waits 20 ms
+for one, then gets an error, as a connection pool does when its timeout runs out. "In flight"
+counts the callers inside `query()`, holding a connection or waiting for one. 1,000 tasks query it, on a pool of 10,
+on virtual threads, and on virtual threads that first take a permit from a `Semaphore(10)`:
 
 ```java
-// Platform thread: expensive, limited scalability
-Thread platform = Thread.ofPlatform()
-        .name("platform-worker")
-        .daemon(false)                    // Can be non-daemon
-        .priority(Thread.MAX_PRIORITY)    // Priority respected
-        .start(() -> doWork());
-System.out.println(platform.isVirtual()); // false
-System.out.println(platform.isDaemon());  // false
-
-// Virtual thread: cheap, massive scalability
-Thread virtual = Thread.ofVirtual()
-        .name("virtual-worker")
-        // OfVirtual has no daemon() or priority() methods (they would not compile);
-        // on the thread, setDaemon(false) throws IllegalArgumentException and
-        // setPriority() is silently ignored
-        .start(() -> doWork());
-System.out.println(virtual.isVirtual()); // true
-System.out.println(virtual.isDaemon());  // always true
-```
-
-**Q2: What is thread pinning and how do you avoid it?**
-
-```text
-A2: Thread pinning occurs when a virtual thread cannot unmount from its carrier
-thread at a blocking point. This happens in two scenarios:
-
-1. When a virtual thread blocks inside a synchronized block or method
-2. When a virtual thread executes a native method (JNI)
-
-Why is pinning problematic?
-When a virtual thread is pinned, its carrier (platform) thread is also blocked.
-Since there are typically only as many carrier threads as CPU cores, pinning
-reduces the effective concurrency. If all carrier threads are pinned, the system
-can stall — new virtual threads cannot make progress until a carrier is freed.
-
-How to detect pinning:
-- Use -Djdk.tracePinnedThreads=full at runtime
-- Use JFR events (jdk.VirtualThreadPinned)
-- Profile under load to identify contention
-
-How to avoid pinning:
-- Replace synchronized blocks with ReentrantLock
-- Keep synchronized blocks short and non-blocking
-- Avoid blocking I/O inside synchronized sections
-- In Java 24+, JEP 491 eliminates synchronized pinning
-
-Note: Pinning for short, non-blocking synchronized sections is usually harmless.
-The concern is when blocking operations (sleep, I/O, lock wait) happen inside
-synchronized blocks.
-```
-
-```java
-// PROBLEMATIC: Pinning due to synchronized + blocking
-public class PinningExample {
-    private final Object lock = new Object();
-
-    public void problematic() {
-        synchronized (lock) {
-            // Virtual thread is PINNED here
-            try {
-                Thread.sleep(1000);          // Carrier thread blocked!
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            fetchFromDatabase();             // Carrier thread still blocked!
-        }
+executor.submit(() -> {
+    permits.acquire();
+    try {
+        db.query();
+    } finally {
+        permits.release();
     }
-}
+    return null;
+});
+```
 
-// FIXED: Using ReentrantLock avoids pinning
-public class NoPinningExample {
-    private final ReentrantLock lock = new ReentrantLock();
+```text
+pool of 10:                  peak in flight   10, refused   0, 2062 ms
+virtual, one per task:       peak in flight 1000, refused 990,   60 ms
+virtual + Semaphore(10):     peak in flight   10, refused   0, 2085 ms
+```
 
-    public void fixed() {
-        lock.lock();
-        try {
-            // Virtual thread can unmount here
-            try {
-                Thread.sleep(1000);          // Carrier thread freed!
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            fetchFromDatabase();             // Carrier thread freed!
-        } finally {
-            lock.unlock();
+`newFixedThreadPool(10)` did two jobs: it ran the tasks, and it kept more than 10 of them from
+reaching the database at once. Nobody wrote the second job down, and the migration removed it. A
+real pool's timeout is longer than our 20 ms, but once requests arrive faster than the connections
+can serve them for longer than that timeout, callers fail the same way, and their retries arrive on
+top of the next requests.
+
+A task waiting in `acquire()` is a parked virtual thread, an object on the heap rather than an OS
+thread, so 990 of them waiting are cheap. Size the semaphore to the resource (its connections, its
+concurrency limit), and take a permit for each call, not for each task: a task that answers from a
+cache, or the part of a task that formats the result, never touches the database and has no reason
+to hold a permit.
+
+`acquire()` goes before the `try`. If it throws `InterruptedException`, no permit was taken, yet a
+`finally` around it would release one. `Semaphore` doesn't check: its javadoc says a thread that
+releases a permit need not have acquired it, so the limit silently rises by one.
+
+> **Pooling virtual threads is not the fix.** `Executors.newFixedThreadPool(10,
+> Thread.ofVirtual().factory())` brings the limit back, but for every task, including the ones that
+> never reach the database.
+
+<!-- practice 1 -->
+
+## On Java 21, Blocking Inside synchronized Holds the Carrier
+
+A token cache refreshes an expired token with a 1-second call to the identity provider:
+
+```java
+final class SyncTokens {
+    private String token;
+    synchronized String token() throws InterruptedException {
+        if (token == null) {
+            Thread.sleep(1_000);                         // the call to the identity provider
+            token = "t-1";
         }
+        return token;
     }
 }
 ```
 
-**Q3: When should you use platform threads instead of virtual threads?**
+We run with `-Djdk.virtualThreadScheduler.parallelism=4`, so there are four carriers. Four requests
+call `token()` at once; then we start one unrelated virtual thread and time how long it takes to
+run. The second line uses the same cache with a `ReentrantLock` locked and unlocked around the
+same body:
 
 ```text
-A3: Platform threads remain the better choice in several scenarios:
-
-1. CPU-bound computation:
-   Virtual threads provide no benefit for CPU-intensive tasks because there are
-   no blocking points where unmounting can occur. A fixed pool of platform threads
-   sized to the number of CPU cores is optimal.
-
-2. When you need thread priority control:
-   Virtual threads ignore setPriority(). If your application relies on thread
-   priorities for scheduling, use platform threads.
-
-3. When you need non-daemon threads:
-   Virtual threads are always daemon threads. If you need threads that prevent
-   JVM shutdown, use platform threads.
-
-4. Low-concurrency scenarios:
-   If your application never has more than a few dozen concurrent tasks, the
-   overhead difference between platform and virtual threads is negligible.
-
-5. Heavy ThreadLocal usage with no migration path:
-   If your codebase relies heavily on expensive ThreadLocal values and you
-   cannot refactor, platform threads may be more memory-efficient since you
-   have fewer of them.
-
-6. Latency-sensitive real-time applications:
-   The JVM's virtual thread scheduler may introduce non-deterministic scheduling
-   delays. OS-level thread scheduling with real-time priorities may be needed.
-
-Rule of thumb: Use virtual threads for I/O-bound work, platform threads for
-CPU-bound work.
+synchronized:  an unrelated task waited  944 ms to start
+ReentrantLock: an unrelated task waited    0 ms to start
 ```
 
+On Java 21 a virtual thread can't unmount while it holds a monitor, or while it waits to enter
+one. It is **pinned**: its carrier blocks with it. The first request holds the monitor and sleeps
+on its carrier; the other three wait to enter on theirs. All four carriers are taken, so nothing
+else on the JVM runs until the refresh returns, although the CPU is idle. With `ReentrantLock`, the holder unmounts while it sleeps, the three waiters
+park, and the unrelated task starts at once.
+
+The scheduler adds no carrier for this kind of pinning, so the unrelated task waited until the
+refresh returned. It does add one while a virtual thread is in `Object.wait()`, which pins too, so
+waiting on a monitor costs an extra OS thread rather than a stall.
+
+On Java 21, use a `java.util.concurrent` lock where code blocks while holding the lock (a network
+call, a query, a `sleep`). A `synchronized` block that only updates memory pins its carrier for
+microseconds and can stay. To find the blocking ones, run with `-Djdk.tracePinnedThreads=short`.
+It prints the stack where a pinned virtual thread blocked:
+
+```text
+VirtualThread[#28]/runnable@ForkJoinPool-1-worker-1 reason:MONITOR
+    SyncTokens.token(Pinning.java:42) <== monitors:1
+```
+
+It names the holder only; the three threads waiting to enter don't appear. In production, a JFR
+recording does the same with the `jdk.VirtualThreadPinned` event, for each pinned block of 20 ms
+or more.
+
+> **Java 24 and later differ.** JEP 491 lets a virtual thread unmount inside `synchronized` and
+> while it waits to enter a monitor. On Java 25 the `synchronized` cache's unrelated task waits
+> 4 ms and this program records no `jdk.VirtualThreadPinned` event. The `jdk.tracePinnedThreads`
+> property is gone from the JDK's source and prints nothing; the JFR event remains for what still
+> pins, such as a native method on the stack.
+
+## A Virtual Thread Is Always a Daemon, at Normal Priority
+
+Code written for platform threads sets a thread's daemon status and priority. A virtual thread
+rejects the first and ignores the second:
+
 ```java
-// CPU-bound: Use platform thread pool
-ExecutorService cpuPool = Executors.newFixedThreadPool(
-        Runtime.getRuntime().availableProcessors());
+Thread flusher = Thread.ofVirtual().name("flusher").unstarted(() -> { });
+System.out.println("daemon: " + flusher.isDaemon() + ", group: " + flusher.getThreadGroup().getName());
+flusher.setPriority(Thread.MAX_PRIORITY);
+System.out.println("priority after setPriority(10): " + flusher.getPriority());
 try {
-    List<Future<Double>> results = cpuPool.invokeAll(
-        IntStream.range(0, 1000)
-            .mapToObj(i -> (Callable<Double>) () -> computePI(1_000_000))
-            .toList()
-    );
-} finally {
-    cpuPool.shutdown();
+    flusher.setDaemon(false);
+} catch (IllegalArgumentException e) {
+    System.out.println("setDaemon(false): " + e);
 }
-
-// I/O-bound: Use virtual threads
-try (var ioExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
-    List<Future<String>> results = ioExecutor.invokeAll(
-        urls.stream()
-            .map(url -> (Callable<String>) () -> fetchUrl(url))
-            .toList()
-    );
-}
-```
-
-**Q4: How do virtual threads work with existing concurrency utilities?**
-
-```text
-A4: Virtual threads are designed to be fully compatible with the existing
-java.util.concurrent utilities. This backward compatibility was a deliberate
-design goal of Project Loom.
-
-Compatible utilities include:
-- ExecutorService, Future, Callable - Submit tasks and get results
-- CompletableFuture - Compose async operations
-- CountDownLatch, CyclicBarrier - Coordinate threads
-- Semaphore - Control access to resources
-- ReentrantLock, ReadWriteLock - Mutual exclusion (preferred over synchronized)
-- BlockingQueue - Producer-consumer patterns
-- ConcurrentHashMap - Concurrent data structures
-- AtomicInteger, AtomicReference - Lock-free operations
-
-The only utility that behaves differently is the synchronized keyword, which
-causes pinning. All java.util.concurrent utilities are virtual-thread-friendly.
-
-Migration strategy:
-1. Replace Executors.newFixedThreadPool() with newVirtualThreadPerTaskExecutor()
-2. Replace synchronized with ReentrantLock where blocking occurs inside
-3. Replace ThreadLocal with ScopedValue where possible (preview)
-4. Keep everything else the same
-```
-
-```java
-// All of these work correctly with virtual threads:
-
-// 1. CountDownLatch
-CountDownLatch latch = new CountDownLatch(100);
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    for (int i = 0; i < 100; i++) {
-        executor.submit(() -> {
-            doWork();
-            latch.countDown();
-        });
-    }
-}
-latch.await();
-
-// 2. Semaphore to limit resource access
-Semaphore sem = new Semaphore(10);
-Thread.startVirtualThread(() -> {
-    try {
-        sem.acquire(); // a Runnable must handle InterruptedException itself
-        try {
-            accessLimitedResource();
-        } finally {
-            sem.release();
-        }
-    } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-    }
+Thread.ofVirtual().start(() -> {
+    try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+    System.out.println("flushed");                    // never printed: main returns first
 });
-
-// 3. BlockingQueue for producer-consumer
-BlockingQueue<String> queue = new LinkedBlockingQueue<>();
-Thread.startVirtualThread(() -> {
-    try {
-        queue.put("item");
-    } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-    }
-});
-Thread.startVirtualThread(() -> {
-    try {
-        String item = queue.take(); // Unmounts while waiting
-        process(item);
-    } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-    }
-});
-
-// 4. CompletableFuture with virtual thread executor
-var executor = Executors.newVirtualThreadPerTaskExecutor();
-CompletableFuture.supplyAsync(() -> fetchData(), executor)
-        .thenApply(data -> transform(data))
-        .thenAccept(result -> save(result));
+System.out.println("main returns");
 ```
-
-**Q5: How do you monitor and debug virtual threads in production?**
 
 ```text
-A5: Virtual threads require different monitoring strategies than platform threads
-because traditional tools may not display them:
-
-1. Thread.getAllStackTraces() does NOT include virtual threads
-   - Use jcmd <pid> Thread.dump_to_file -format=json output.json instead
-   - This produces a JSON thread dump that includes virtual threads
-
-2. Java Flight Recorder (JFR) events:
-   - jdk.VirtualThreadStart: When a virtual thread starts
-   - jdk.VirtualThreadEnd: When a virtual thread ends
-   - jdk.VirtualThreadPinned: When a virtual thread is pinned (critical!)
-   - jdk.VirtualThreadSubmitFailed: When scheduling fails
-
-3. Pinning detection:
-   - -Djdk.tracePinnedThreads=full prints stack traces on pinning
-   - -Djdk.tracePinnedThreads=short prints shorter output
-   - Essential during development and testing
-
-4. JMX/MBeans:
-   - Standard thread MBeans track platform threads only
-   - Use JFR for virtual thread metrics
-
-5. Logging:
-   - Name your virtual threads (Thread.ofVirtual().name("prefix-", 0))
-   - Use MDC (Mapped Diagnostic Context) for request tracking
-
-Best practices:
-- Enable JFR recording in production
-- Use pinning detection during development
-- Monitor carrier thread pool utilization
-- Track virtual thread creation rate and active count
+daemon: true, group: VirtualThreads
+priority after setPriority(10): 5
+setDaemon(false): java.lang.IllegalArgumentException: 'false' not legal for virtual threads
+main returns
 ```
+
+The JVM exits when its last non-daemon thread ends, and virtual threads never hold it up: the
+flush never ran. A virtual thread's priority is fixed at `NORM_PRIORITY`, `setPriority` with a
+value from 1 to 10 is ignored without an error, and every virtual thread is in the `VirtualThreads`
+group. `Thread.ofVirtual()` has no `daemon()` or `priority()` method, so builder code can't even
+ask; only a setter called on a thread you were handed fails, at run time.
+
+A thread that must keep the JVM alive until it finishes, such as a log flusher on shutdown, is a
+platform thread.
+
+<!-- practice 3 -->
+
+## Thread Listings Leave Virtual Threads Out
+
+The "busy workers" gauge counted the pool's threads that were running a request. After the
+migration it reads 0. Here 1,000 virtual threads, named `order-0`, `order-1`, … by
+`Thread.ofVirtual().name("order-", 0).factory()`, all wait on a latch while we look for them:
 
 ```java
-// Named virtual threads for better debugging
-ThreadFactory factory = Thread.ofVirtual()
-        .name("order-processor-", 0)
-        .factory();
-
-try (var executor = Executors.newThreadPerTaskExecutor(factory)) {
-    // Threads will be named order-processor-0, order-processor-1, etc.
-    executor.submit(() -> processOrder(order));
-}
-
-// Detecting pinning during development
-// Run with: java -Djdk.tracePinnedThreads=full MyApp
-// Output when pinning occurs (Java 21):
-// VirtualThread[#28]/runnable@ForkJoinPool-1-worker-1 reason:MONITOR
-//     java.base/java.lang.VirtualThread$VThreadContinuation.onPinned(VirtualThread.java:199)
-//     ...
-//     MyClass.synchronizedMethod(MyClass.java:42) <== monitors:1
-
-// JFR recording for production monitoring
-// java -XX:StartFlightRecording=filename=vt.jfr,duration=60s,
-//       settings=profile MyApp
+long listed = Thread.getAllStackTraces().keySet().stream()
+        .filter(t -> t.getName().startsWith("order-")).count();
 ```
-
-**Q6: What happens when you migrate an existing application from platform threads to virtual threads?**
 
 ```text
-A6: Migration is generally straightforward but requires attention to several areas:
-
-Step 1: Replace thread pool creation
-- Change Executors.newFixedThreadPool(N) to
-  Executors.newVirtualThreadPerTaskExecutor()
-- Change Executors.newCachedThreadPool() to
-  Executors.newVirtualThreadPerTaskExecutor()
-
-Step 2: Identify and fix synchronized pinning
-- Search for synchronized blocks that contain blocking operations
-- Replace with ReentrantLock
-- Use -Djdk.tracePinnedThreads=full to find remaining issues
-
-Step 3: Audit ThreadLocal usage
-- Check for expensive ThreadLocal initial values
-- Consider ScopedValue (preview) for new code
-- Ensure ThreadLocal.remove() is called appropriately
-
-Step 4: Test under load
-- Virtual threads may expose hidden concurrency bugs
-- Higher concurrency means more contention on shared resources
-- Database connection pools may need Semaphore-based throttling
-
-Step 5: Monitor
-- Set up JFR recording
-- Track pinning events
-- Monitor memory usage (more concurrent tasks = more objects in flight)
-
-Common surprises during migration:
-- Database connection pools exhausted (too many concurrent queries)
-- Higher memory usage due to more concurrent in-flight requests
-- Existing race conditions becoming more visible
-- synchronized-based third-party libraries causing pinning
+order- threads in Thread.getAllStackTraces(): 0
+ThreadMXBean.getThreadCount():               26
+order- threads in jcmd Thread.dump_to_file:  1000
 ```
 
-```java
-// Before migration: fixed thread pool
-ExecutorService executor = Executors.newFixedThreadPool(200);
-try {
-    for (var request : requests) {
-        executor.submit(() -> {
-            synchronized (this) {           // Potential pinning
-                var data = fetchFromDB();   // Blocking I/O inside sync
-                return process(data);
-            }
-        });
-    }
-} finally {
-    executor.shutdown();
-}
+`Thread.getAllStackTraces()` returns "all live platform threads", in its javadoc's words, and
+`ThreadMXBean` "does not support monitoring or management of virtual threads". Anything built on those APIs sees an idle
+service: a gauge, a watchdog that looks for a request stuck for a minute, a health check that
+counts workers.
 
-// After migration: virtual threads + ReentrantLock
-ReentrantLock lock = new ReentrantLock();
-Semaphore dbLimit = new Semaphore(50); // Protect DB pool
+`jcmd <pid> Thread.dump_to_file -format=json <file>` does write every virtual thread, with its
+stack. For a number on a dashboard, count the work yourself, in the code that starts and ends it.
 
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    for (var request : requests) {
-        executor.submit(() -> {
-            lock.lock();
-            try {
-                dbLimit.acquire();
-                try {
-                    var data = fetchFromDB();
-                    return process(data);
-                } finally {
-                    dbLimit.release();
-                }
-            } finally {
-                lock.unlock();
-            }
-        });
-    }
-} // AutoCloseable: waits for all tasks
-```
+<!-- practice 2 -->
 
-**Q7: How does the virtual thread scheduler work internally?**
+## Summary
 
-```text
-A7: The virtual thread scheduler is built on a work-stealing ForkJoinPool:
+- **A blocked virtual thread unmounts and frees its carrier.** Waiting tasks no longer need an OS
+  thread each.
+- **A fixed pool was also a limit on what the tasks call.** Without it, a `Semaphore` sized to the
+  resource keeps the database, or the API, from being flooded.
+- **On Java 21, blocking inside `synchronized` pins the carrier,** and enough pinned carriers stop
+  every virtual thread in the JVM. Use a `ReentrantLock` where code blocks while holding the lock;
+  Java 24 and later no longer pin there.
+- **A virtual thread is always a daemon at `NORM_PRIORITY`.** A thread that must keep the JVM alive
+  is a platform thread.
+- **Thread listings and `ThreadMXBean` show platform threads only.** Count virtual work yourself,
+  and use `jcmd` to see the threads.
 
-Architecture:
-- A dedicated ForkJoinPool serves as the carrier thread pool
-- Default parallelism = Runtime.getRuntime().availableProcessors()
-- Configurable via -Djdk.virtualThreadScheduler.parallelism=N
-- Max pool size via -Djdk.virtualThreadScheduler.maxPoolSize=N (default 256)
+## Reference
 
-Scheduling lifecycle:
-1. When a virtual thread is started, it is submitted to the ForkJoinPool
-2. A carrier thread picks it up and executes it (mounting)
-3. When the virtual thread hits a blocking point:
-   a. The JVM saves the virtual thread's stack (continuation)
-   b. The virtual thread unmounts from the carrier
-   c. The carrier thread picks up another runnable virtual thread
-4. When the blocking operation completes (I/O ready, sleep elapsed, etc.):
-   a. The virtual thread is re-submitted to the scheduler
-   b. Any available carrier thread can resume it (remounting)
-   c. The continuation is restored and execution continues
+**Platform and virtual threads side by side (Java 21):**
 
-Key implementation details:
-- Virtual threads use Continuation objects (internal API) to save/restore stack
-- The stack is stored on the heap, not on the native thread stack
-- Work-stealing ensures carrier threads are utilized efficiently
-- The scheduler is not configurable beyond parallelism/maxPoolSize
+| | Platform thread | Virtual thread |
+|---|---|---|
+| Runs on | its own OS thread | a carrier: a platform thread of a `ForkJoinPool`, one per available processor by default (`-Djdk.virtualThreadScheduler.parallelism`) |
+| Blocked in `sleep`, `ReentrantLock.lock`, `BlockingQueue.take`, a socket read | holds its OS thread | unmounts; the carrier runs other virtual threads |
+| Blocked inside `synchronized`, or waiting to enter it | holds its OS thread | pinned: holds its carrier, and no carrier is added (not on JDK 24+) |
+| `Object.wait()` | holds its OS thread | pinned, but the scheduler adds a carrier while it waits (measured; not on JDK 24+) |
+| `isDaemon()` | as set; by default that of the thread that created it | always `true`; `setDaemon(false)` throws `IllegalArgumentException` |
+| `getPriority()` | as set | always `NORM_PRIORITY` (5); `setPriority` ignored |
+| `getThreadGroup()` | as set | `VirtualThreads` |
+| `Thread.getAllStackTraces()`, `ThreadMXBean` | listed | not listed |
+| `jcmd <pid> Thread.dump_to_file -format=json` | listed | listed |
 
-Performance characteristics:
-- Mounting/unmounting is ~100-1000x cheaper than OS context switch
-- Stack storage is heap-allocated and GC-managed
-- No kernel transitions for virtual thread scheduling
-```
+**Finding pinning:**
 
-```java
-// The scheduler can be configured via system properties
-// Default: parallelism = available processors
-// -Djdk.virtualThreadScheduler.parallelism=8
-// -Djdk.virtualThreadScheduler.maxPoolSize=256
+| Tool | Java 21 | Java 24 and later |
+|---|---|---|
+| `-Djdk.tracePinnedThreads=short` or `=full` | prints the stack where a pinned virtual thread blocked | removed; prints nothing |
+| JFR event `jdk.VirtualThreadPinned` | a pinned block of 20 ms or more (default threshold) | only for what still pins, such as native frames |
 
-// You can observe the scheduling by looking at thread names
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    for (int i = 0; i < 50; i++) {
-        final int id = i;
-        executor.submit(() -> {
-            // toString() shows carrier: VirtualThread[#N]/runnable@ForkJoinPool-1-worker-M
-            System.out.printf("Task %d on: %s%n", id, Thread.currentThread());
+## Challenges
 
-            try {
-                Thread.sleep(100); // Unmount happens here
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+1. Your service calls three downstream systems with limits of 50 connections, 200 requests per
+   second and "be gentle". Which of them does a `Semaphore` protect, and what does the second one
+   need instead?
+2. A third-party client library you can't change uses `synchronized` around its network calls.
+   On Java 21, what can you do, and what would you measure to decide whether it matters?
+3. List the places in a service you know that read `Thread.getAllStackTraces()`, a thread pool's
+   `getActiveCount()` or a thread's name to report health. What does each report after a move to
+   virtual threads?
 
-            // After sleep, may be on a different carrier
-            System.out.printf("Task %d resumed on: %s%n", id, Thread.currentThread());
-        });
-    }
-}
-```
+## Design Note: One Thread Class for Two Kinds of Thread
+
+The JDK could have given virtual threads a type of their own. It made them `Thread`s instead, so
+that `ThreadLocal`, `Thread.currentThread()`, thread dumps, debuggers and twenty years of blocking
+code work on them unchanged. That is why the migration at the top of this unit was one line.
+
+The cost is that the differences don't show in the types. A pool-sized limit, a `ThreadLocal` cache
+(unit 6.7.1) and a `synchronized` block around a network call all compile and pass tests that run ten tasks. They
+show up under load, which is where the migration was meant to help.
 
 ## Code Examples
 

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Reach a shadowed field with this",
+  "title": "Stop the checkout doing work it then throws away",
   "blocks": [
     {
       "type": "heading",
@@ -19,25 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A parameter with the same name as a field shadows the field: inside the method, `owner` means the parameter. `this.owner` reaches the field. Writing `owner = owner;` assigns the parameter to itself and leaves the field untouched."
+      "text": "The checkout looks up the customer by email and the price of every item before it takes payment. Since the last release the customer table grows by one row on every visit of a returning customer, and the bill for the catalogue service shows one call per item in every basket, as if the price cache weren't there."
     },
     {
       "type": "para",
-      "text": "Complete `Account`, whose constructor and setter both take a parameter named `owner`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`new Account(owner)` stores the owner, trimmed of surrounding spaces;",
-        "`owner()` returns it;",
-        "`rename(owner)` replaces it, trimmed, and returns the old owner;",
-        "a `null` or blank owner is refused with `IllegalArgumentException`, in the constructor and in `rename` alike, and a refused rename leaves the owner as it was."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Example: `new Account(\" Ada \")` has owner `\"Ada\"`; `rename(\"Grace\")` returns `\"Ada\"`, and the owner is then `\"Grace\"`."
+      "text": "Finish `customerId(...)` and `price(...)` in `src/main/java/practice/Checkout.java`. When you're done, a customer's row is inserted on their first visit only, and the catalogue is asked for each SKU once, after which the cache answers. About two lines in total."
     },
     {
       "type": "heading",
@@ -52,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Account {\n\n    private String owner;\n\n    /** Creates an account for the owner, trimmed. */\n    public Account(String owner) {\n        this.owner = checked(owner);\n    }\n\n    /** Returns the owner. */\n    public String owner() {\n        return owner;\n    }\n\n    /** Replaces the owner and returns the old one. */\n    public String rename(String owner) {\n        String old = this.owner;\n        this.owner = checked(owner);\n        return old;\n    }\n\n    /** Returns the owner trimmed, refusing null and blank. */\n    private static String checked(String owner) {\n        if (owner == null || owner.isBlank()) {\n            throw new IllegalArgumentException(\"an owner is required\");\n        }\n        return owner.trim();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\n\n/** The checkout's view of customers and prices, over two slow back ends it counts calls to. */\npublic class Checkout {\n\n    /** The customer table: email to customer id. */\n    final Map<String, String> customers = new HashMap<>();\n    /** How many customer rows have been inserted. */\n    int inserts;\n\n    /** The catalogue service's prices, in cents, and how many times it has been asked. */\n    final Map<String, Long> catalogue;\n    int catalogueCalls;\n\n    /** Prices already fetched from the catalogue. */\n    final Map<String, Long> priceCache = new HashMap<>();\n\n    public Checkout(Map<String, Long> catalogue) {\n        this.catalogue = catalogue;\n    }\n\n    Optional<String> findCustomer(String email) {\n        return Optional.ofNullable(customers.get(email));\n    }\n\n    /** Inserts a customer row and returns its new id. */\n    String insertCustomer(String email) {\n        inserts++;\n        String id = \"cus-\" + (1000 + inserts);\n        customers.put(email, id);\n        return id;\n    }\n\n    /** Asks the catalogue service for a price: slow, and billed per call. */\n    long fetchPrice(String sku) {\n        catalogueCalls++;\n        Long cents = catalogue.get(sku);\n        if (cents == null) throw new IllegalArgumentException(\"unknown SKU \" + sku);\n        return cents;\n    }\n\n    /** The id of the customer with this email; a first-time customer gets a new row. */\n    public String customerId(String email) {\n        return findCustomer(email).orElseGet(() -> insertCustomer(email));\n    }\n\n    /** The price of a SKU in cents; the catalogue is asked once per SKU, then the cache answers. */\n    public long price(String sku) {\n        return priceCache.computeIfAbsent(sku, this::fetchPrice);\n    }\n}\n"
         }
       ]
     },
@@ -64,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Account {\n\n    private String owner;\n\n    /** Creates an account for the owner, trimmed. */\n    public Account(String owner) {\n        throw new UnsupportedOperationException(\"write Account\");\n    }\n\n    /** Returns the owner. */\n    public String owner() {\n        throw new UnsupportedOperationException(\"write owner\");\n    }\n\n    /** Replaces the owner and returns the old one. */\n    public String rename(String owner) {\n        throw new UnsupportedOperationException(\"write rename\");\n    }\n\n    /** Returns the owner trimmed, refusing null and blank. */\n    private static String checked(String owner) {\n        throw new UnsupportedOperationException(\"write checked\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\n\n/** The checkout's view of customers and prices, over two slow back ends it counts calls to. */\npublic class Checkout {\n\n    /** The customer table: email to customer id. */\n    final Map<String, String> customers = new HashMap<>();\n    /** How many customer rows have been inserted. */\n    int inserts;\n\n    /** The catalogue service's prices, in cents, and how many times it has been asked. */\n    final Map<String, Long> catalogue;\n    int catalogueCalls;\n\n    /** Prices already fetched from the catalogue. */\n    final Map<String, Long> priceCache = new HashMap<>();\n\n    public Checkout(Map<String, Long> catalogue) {\n        this.catalogue = catalogue;\n    }\n\n    Optional<String> findCustomer(String email) {\n        return Optional.ofNullable(customers.get(email));\n    }\n\n    /** Inserts a customer row and returns its new id. */\n    String insertCustomer(String email) {\n        inserts++;\n        String id = \"cus-\" + (1000 + inserts);\n        customers.put(email, id);\n        return id;\n    }\n\n    /** Asks the catalogue service for a price: slow, and billed per call. */\n    long fetchPrice(String sku) {\n        catalogueCalls++;\n        Long cents = catalogue.get(sku);\n        if (cents == null) throw new IllegalArgumentException(\"unknown SKU \" + sku);\n        return cents;\n    }\n\n    /** The id of the customer with this email; a first-time customer gets a new row. */\n    public String customerId(String email) {\n        // TODO: insert a row only for an email that has none yet.\n        throw new IllegalStateException(\"TODO: customerId\");\n    }\n\n    /** The price of a SKU in cents; the catalogue is asked once per SKU, then the cache answers. */\n    public long price(String sku) {\n        // TODO: ask the catalogue only for a SKU the cache doesn't hold, and cache what it says.\n        throw new IllegalStateException(\"TODO: price\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -72,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -83,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "cbb75bcbc9b02f028b7812ccedd6bb84606cfdcaa2bb92432e541fb16e53ef64",
-  "starting_code": "package practice;\n\npublic class Account {\n\n    private String owner;\n\n    /** Creates an account for the owner, trimmed. */\n    public Account(String owner) {\n        throw new UnsupportedOperationException(\"write Account\");\n    }\n\n    /** Returns the owner. */\n    public String owner() {\n        throw new UnsupportedOperationException(\"write owner\");\n    }\n\n    /** Replaces the owner and returns the old one. */\n    public String rename(String owner) {\n        throw new UnsupportedOperationException(\"write rename\");\n    }\n\n    /** Returns the owner trimmed, refusing null and blank. */\n    private static String checked(String owner) {\n        throw new UnsupportedOperationException(\"write checked\");\n    }\n}\n",
+  "content_sha256": "0a2b839f3d17035993de3f4025493ddd62a038786b6a5e603f310d1de795041b",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\n\n/** The checkout's view of customers and prices, over two slow back ends it counts calls to. */\npublic class Checkout {\n\n    /** The customer table: email to customer id. */\n    final Map<String, String> customers = new HashMap<>();\n    /** How many customer rows have been inserted. */\n    int inserts;\n\n    /** The catalogue service's prices, in cents, and how many times it has been asked. */\n    final Map<String, Long> catalogue;\n    int catalogueCalls;\n\n    /** Prices already fetched from the catalogue. */\n    final Map<String, Long> priceCache = new HashMap<>();\n\n    public Checkout(Map<String, Long> catalogue) {\n        this.catalogue = catalogue;\n    }\n\n    Optional<String> findCustomer(String email) {\n        return Optional.ofNullable(customers.get(email));\n    }\n\n    /** Inserts a customer row and returns its new id. */\n    String insertCustomer(String email) {\n        inserts++;\n        String id = \"cus-\" + (1000 + inserts);\n        customers.put(email, id);\n        return id;\n    }\n\n    /** Asks the catalogue service for a price: slow, and billed per call. */\n    long fetchPrice(String sku) {\n        catalogueCalls++;\n        Long cents = catalogue.get(sku);\n        if (cents == null) throw new IllegalArgumentException(\"unknown SKU \" + sku);\n        return cents;\n    }\n\n    /** The id of the customer with this email; a first-time customer gets a new row. */\n    public String customerId(String email) {\n        // TODO: insert a row only for an email that has none yet.\n        throw new IllegalStateException(\"TODO: customerId\");\n    }\n\n    /** The price of a SKU in cents; the catalogue is asked once per SKU, then the cache answers. */\n    public long price(String sku) {\n        // TODO: ask the catalogue only for a SKU the cache doesn't hold, and cache what it says.\n        throw new IllegalStateException(\"TODO: price\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/03-methods/prose/unit-01/practice-2/src/main/java/practice/Account.java",
-    "test_path": "practice/01-java-fundamentals/03-methods/prose/unit-01/practice-2/src/test/java/practice/AccountTest.java",
+    "main_path": "practice/01-java-fundamentals/03-methods/prose/unit-01/practice-2/src/main/java/practice/Checkout.java",
+    "test_path": "practice/01-java-fundamentals/03-methods/prose/unit-01/practice-2/src/test/java/practice/CheckoutTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -108,19 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AccountTest#storesTheOwner",
+        "id": "practice.CheckoutTest#aFirstTimeCustomerGetsOneNewRow",
         "kind": "main",
-        "says": "A new account keeps its owner, trimmed."
+        "says": "a first-time customer gets exactly one new row, and its id is returned"
       },
       {
-        "id": "practice.AccountTest#renameReplacesTheField",
-        "kind": "edge",
-        "says": "rename(\" Grace \") returns \"Ada\" and leaves the owner \"Grace\"."
+        "id": "practice.CheckoutTest#aFirstPriceComesFromTheCatalogue",
+        "kind": "main",
+        "says": "an uncached price is fetched from the catalogue once and cached"
       },
       {
-        "id": "practice.AccountTest#aMissingOwnerIsRefused",
+        "id": "practice.CheckoutTest#aReturningCustomerKeepsTheirRowAndNoNewOneIsInserted",
         "kind": "edge",
-        "says": "A null or blank owner is refused, and a refused rename changes nothing."
+        "says": "a returning customer gets their existing id and no row is inserted"
+      },
+      {
+        "id": "practice.CheckoutTest#aCachedPriceDoesNotCallTheCatalogueAgain",
+        "kind": "edge",
+        "says": "a cached price is answered without calling the catalogue"
       }
     ],
     "report": {
@@ -129,10 +120,10 @@
     },
     "origin": {
       "path": "03-methods/README_1.3.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Every Argument Is Evaluated, Left to Right, Before the Method Runs"
     },
     "concepts": [
-      "A parameter with a field's name shadows the field, and this.name reaches the field."
+      "Every argument is evaluated before the method runs, whether or not the method uses it, so work that may not be needed is passed as a Supplier or a function."
     ]
   }
 }

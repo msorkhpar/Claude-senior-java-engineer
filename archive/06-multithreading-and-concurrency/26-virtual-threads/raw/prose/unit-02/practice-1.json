@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Virtual when it can be, platform when it must be",
+  "title": "Stop the stock lookups from flooding the inventory API",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Virtual threads implement the whole `Thread` API, but two of its settings are fixed: a virtual thread is **always a daemon** (`setDaemon(false)` throws `IllegalArgumentException`) and always runs at **`Thread.NORM_PRIORITY`** (`setPriority` is silently ignored). `Thread.ofVirtual()` has no `daemon()` or `priority()` methods at all. The page's rule of thumb follows: use a virtual thread by default, and a platform thread where you need a non-daemon thread or a priority."
+      "text": "The storefront's `StockClient` used to run its lookups on a pool of 16 platform threads. Since it moved to one virtual thread per lookup, a busy page asks the warehouse's inventory API for hundreds of SKUs at once, and the API, which accepts 6 calls at a time, answers most of them with `429 Too Many Requests`. The storefront then shows \"out of stock\" for items on the shelf."
     },
     {
       "type": "para",
-      "text": "`Spec(String name, boolean daemon, int priority)` is given. Write `Threads.create(Spec spec, Runnable task)`, returning an **unstarted** thread that runs `task`, named `spec.name()`:"
+      "text": "Lookups already work. Finish the `TODO` in `src/main/java/practice/StockClient.java`: `callInventory(...)` must never let the API see more than `maxConcurrentCalls` calls in progress, whatever happens to the calls and the threads making them. You may add a field. About six lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "a **virtual** thread when the spec is a daemon at `NORM_PRIORITY`;",
-        "otherwise a **platform** thread with the spec's daemon flag and priority."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "spec",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`Spec(\"worker-1\", true, Thread.NORM_PRIORITY)`",
-          "unstarted virtual thread `worker-1` (daemon, `NORM_PRIORITY`)"
-        ],
-        [
-          "`Spec(\"keeper\", false, Thread.NORM_PRIORITY)`",
-          "unstarted platform thread `keeper`, not a daemon"
-        ],
-        [
-          "`Spec(\"urgent\", true, Thread.MAX_PRIORITY)`",
-          "unstarted platform thread `urgent`, daemon, `MAX_PRIORITY`"
-        ],
-        [
-          "`Spec(\"background\", true, Thread.MIN_PRIORITY)`",
-          "unstarted platform thread `background`, `MIN_PRIORITY`"
-        ],
-        [
-          "`Spec(\"both\", false, Thread.MAX_PRIORITY)`",
-          "unstarted platform thread `both`, not a daemon, `MAX_PRIORITY`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, the API is never over its limit, SKUs the client already knows are answered straight away even while the API is busy, and a lookup that fails, or whose caller is interrupted, doesn't change how many calls can be in progress."
     },
     {
       "type": "heading",
@@ -75,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Threads {\n\n    private Threads() {\n    }\n\n    /** What the caller asks of a thread. */\n    public record Spec(String name, boolean daemon, int priority) {\n    }\n\n    /** An unstarted thread for the spec: virtual when a virtual thread can honour it, platform otherwise. */\n    public static Thread create(Spec spec, Runnable task) {\n        if (spec.daemon() && spec.priority() == Thread.NORM_PRIORITY) {\n            return Thread.ofVirtual().name(spec.name()).unstarted(task);\n        }\n        return Thread.ofPlatform()\n                .name(spec.name())\n                .daemon(spec.daemon())\n                .priority(spec.priority())\n                .unstarted(task);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.Semaphore;\n\n/** Looks up stock levels, from its own cache or from the warehouse's inventory API. */\npublic class StockClient {\n\n    /** The warehouse's inventory API: one blocking HTTP call per SKU. */\n    public interface Inventory {\n        int stock(String sku) throws Exception;\n    }\n\n    private final Inventory inventory;\n    private final int maxConcurrentCalls;\n    private final Map<String, Integer> cache = new ConcurrentHashMap<>();\n    private final Semaphore calls;\n\n    /**\n     * @param inventory          the API\n     * @param maxConcurrentCalls how many calls the API accepts at once; it answers 429 to more\n     * @param known              stock levels already known, answered without a call\n     */\n    public StockClient(Inventory inventory, int maxConcurrentCalls, Map<String, Integer> known) {\n        this.inventory = inventory;\n        this.maxConcurrentCalls = maxConcurrentCalls;\n        this.cache.putAll(known);\n        this.calls = new Semaphore(maxConcurrentCalls);\n    }\n\n    /** The stock of one SKU. */\n    public int stock(String sku) throws Exception {\n        Integer known = cache.get(sku);\n        if (known != null) {\n            return known;\n        }\n        int level = callInventory(sku);\n        cache.put(sku, level);\n        return level;\n    }\n\n    /** The stock of every SKU, looked up at the same time, one virtual thread each. */\n    public Map<String, Integer> stockAll(List<String> skus) throws Exception {\n        Map<String, Future<Integer>> pending = new LinkedHashMap<>();\n        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {\n            for (String sku : skus) {\n                pending.put(sku, executor.submit(() -> stock(sku)));\n            }\n            Map<String, Integer> levels = new LinkedHashMap<>();\n            for (Map.Entry<String, Future<Integer>> e : pending.entrySet()) {\n                try {\n                    levels.put(e.getKey(), e.getValue().get());\n                } catch (ExecutionException failed) {\n                    throw (Exception) failed.getCause();\n                }\n            }\n            return levels;\n        }\n    }\n\n    /**\n     * One call to the inventory API. However many threads call this at once, the API must never\n     * see more than maxConcurrentCalls of them in progress.\n     */\n    int callInventory(String sku) throws Exception {\n        calls.acquire();\n        try {\n            return inventory.stock(sku);\n        } finally {\n            calls.release();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Threads {\n\n    private Threads() {\n    }\n\n    /** What the caller asks of a thread. */\n    public record Spec(String name, boolean daemon, int priority) {\n    }\n\n    /** An unstarted thread for the spec: virtual when a virtual thread can honour it, platform otherwise. */\n    public static Thread create(Spec spec, Runnable task) {\n        throw new UnsupportedOperationException(\"write create\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/** Looks up stock levels, from its own cache or from the warehouse's inventory API. */\npublic class StockClient {\n\n    /** The warehouse's inventory API: one blocking HTTP call per SKU. */\n    public interface Inventory {\n        int stock(String sku) throws Exception;\n    }\n\n    private final Inventory inventory;\n    private final int maxConcurrentCalls;\n    private final Map<String, Integer> cache = new ConcurrentHashMap<>();\n\n    /**\n     * @param inventory          the API\n     * @param maxConcurrentCalls how many calls the API accepts at once; it answers 429 to more\n     * @param known              stock levels already known, answered without a call\n     */\n    public StockClient(Inventory inventory, int maxConcurrentCalls, Map<String, Integer> known) {\n        this.inventory = inventory;\n        this.maxConcurrentCalls = maxConcurrentCalls;\n        this.cache.putAll(known);\n    }\n\n    /** The stock of one SKU. */\n    public int stock(String sku) throws Exception {\n        Integer known = cache.get(sku);\n        if (known != null) {\n            return known;\n        }\n        int level = callInventory(sku);\n        cache.put(sku, level);\n        return level;\n    }\n\n    /** The stock of every SKU, looked up at the same time, one virtual thread each. */\n    public Map<String, Integer> stockAll(List<String> skus) throws Exception {\n        Map<String, Future<Integer>> pending = new LinkedHashMap<>();\n        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {\n            for (String sku : skus) {\n                pending.put(sku, executor.submit(() -> stock(sku)));\n            }\n            Map<String, Integer> levels = new LinkedHashMap<>();\n            for (Map.Entry<String, Future<Integer>> e : pending.entrySet()) {\n                try {\n                    levels.put(e.getKey(), e.getValue().get());\n                } catch (ExecutionException failed) {\n                    throw (Exception) failed.getCause();\n                }\n            }\n            return levels;\n        }\n    }\n\n    /**\n     * One call to the inventory API. However many threads call this at once, the API must never\n     * see more than maxConcurrentCalls of them in progress.\n     */\n    int callInventory(String sku) throws Exception {\n        // TODO: keep the calls in progress at or under maxConcurrentCalls.\n        throw new IllegalStateException(\"TODO: callInventory\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7072af11fea27c8c051413e3fc6920fd8dfba4a78b343561b9a5df7080adfe4d",
-  "starting_code": "package practice;\n\npublic final class Threads {\n\n    private Threads() {\n    }\n\n    /** What the caller asks of a thread. */\n    public record Spec(String name, boolean daemon, int priority) {\n    }\n\n    /** An unstarted thread for the spec: virtual when a virtual thread can honour it, platform otherwise. */\n    public static Thread create(Spec spec, Runnable task) {\n        throw new UnsupportedOperationException(\"write create\");\n    }\n}\n",
+  "content_sha256": "38384aa568fb982d0d0125269808e98851f215284f9a81cc7f867ea320038df2",
+  "starting_code": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/** Looks up stock levels, from its own cache or from the warehouse's inventory API. */\npublic class StockClient {\n\n    /** The warehouse's inventory API: one blocking HTTP call per SKU. */\n    public interface Inventory {\n        int stock(String sku) throws Exception;\n    }\n\n    private final Inventory inventory;\n    private final int maxConcurrentCalls;\n    private final Map<String, Integer> cache = new ConcurrentHashMap<>();\n\n    /**\n     * @param inventory          the API\n     * @param maxConcurrentCalls how many calls the API accepts at once; it answers 429 to more\n     * @param known              stock levels already known, answered without a call\n     */\n    public StockClient(Inventory inventory, int maxConcurrentCalls, Map<String, Integer> known) {\n        this.inventory = inventory;\n        this.maxConcurrentCalls = maxConcurrentCalls;\n        this.cache.putAll(known);\n    }\n\n    /** The stock of one SKU. */\n    public int stock(String sku) throws Exception {\n        Integer known = cache.get(sku);\n        if (known != null) {\n            return known;\n        }\n        int level = callInventory(sku);\n        cache.put(sku, level);\n        return level;\n    }\n\n    /** The stock of every SKU, looked up at the same time, one virtual thread each. */\n    public Map<String, Integer> stockAll(List<String> skus) throws Exception {\n        Map<String, Future<Integer>> pending = new LinkedHashMap<>();\n        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {\n            for (String sku : skus) {\n                pending.put(sku, executor.submit(() -> stock(sku)));\n            }\n            Map<String, Integer> levels = new LinkedHashMap<>();\n            for (Map.Entry<String, Future<Integer>> e : pending.entrySet()) {\n                try {\n                    levels.put(e.getKey(), e.getValue().get());\n                } catch (ExecutionException failed) {\n                    throw (Exception) failed.getCause();\n                }\n            }\n            return levels;\n        }\n    }\n\n    /**\n     * One call to the inventory API. However many threads call this at once, the API must never\n     * see more than maxConcurrentCalls of them in progress.\n     */\n    int callInventory(String sku) throws Exception {\n        // TODO: keep the calls in progress at or under maxConcurrentCalls.\n        throw new IllegalStateException(\"TODO: callInventory\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-1/src/main/java/practice/Threads.java",
-    "test_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-1/src/test/java/practice/ThreadsTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-1/src/main/java/practice/StockClient.java",
+    "test_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-1/src/test/java/practice/StockClientTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,29 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ThreadsTest#aPlainSpecGetsAVirtualThread",
+        "id": "practice.StockClientTest#looksUpEverySku",
         "kind": "main",
-        "says": "A daemon spec at NORM_PRIORITY gets an unstarted virtual thread with the spec's name."
+        "says": "every SKU's stock comes back, from the cache or from the API"
       },
       {
-        "id": "practice.ThreadsTest#theThreadRunsTheTask",
-        "kind": "main",
-        "says": "Starting the returned thread runs the task."
-      },
-      {
-        "id": "practice.ThreadsTest#aNonDaemonSpecGetsAPlatformThread",
+        "id": "practice.StockClientTest#theApiNeverSeesMoreCallsThanItAccepts",
         "kind": "edge",
-        "says": "A non-daemon spec gets a non-daemon platform thread, since a virtual thread is always daemon."
+        "says": "the API never has more calls in progress than it accepts, however many lookups run at once"
       },
       {
-        "id": "practice.ThreadsTest#aPrioritySpecGetsAPlatformThread",
+        "id": "practice.StockClientTest#failedCallsDoNotUseUpTheLimit",
         "kind": "edge",
-        "says": "A spec with a priority other than NORM_PRIORITY, higher or lower, gets a platform thread with that priority, since a virtual thread ignores priorities."
+        "says": "calls that fail leave the limit as it was, so later calls still go through"
       },
       {
-        "id": "practice.ThreadsTest#aNonDaemonPrioritySpecKeepsBoth",
+        "id": "practice.StockClientTest#knownSkusAreAnsweredWhileTheApiIsBusy",
         "kind": "edge",
-        "says": "A spec that is neither a daemon nor at NORM_PRIORITY gets a platform thread with both settings: not a daemon, and its priority."
+        "says": "a SKU the client already knows is answered while the API is busy with other calls"
+      },
+      {
+        "id": "practice.StockClientTest#anInterruptedCallerDoesNotRaiseTheLimit",
+        "kind": "edge",
+        "says": "a caller interrupted before its turn does not let an extra call through"
       }
     ],
     "report": {
@@ -162,11 +129,12 @@
     },
     "origin": {
       "path": "26-virtual-threads/README_6.7.2.md",
-      "section": "6.7.2.3. Compatibility with Existing Code and Libraries"
+      "section": "A Fixed Pool Was Also a Limit: Put a Semaphore in Front of What Is Scarce"
     },
     "concepts": [
-      "A virtual thread is always a daemon at NORM_PRIORITY, so a thread that must be non-daemon or needs a priority is a platform thread.",
-      "Virtual threads always belong to the VirtualThreads thread group, which cannot be chosen."
+      "acquire() goes before the try and release() in its finally, so a failed call gives its permit back and an interrupted acquire doesn't release a permit it never took.",
+      "The permit is taken around each call to the resource, not around each task, and pooling virtual threads would limit tasks that never touch the resource.",
+      "A fixed pool also capped how many tasks reached a scarce resource at once; with one virtual thread per task that cap is gone, and a Semaphore sized to the resource puts it back."
     ]
   }
 }
