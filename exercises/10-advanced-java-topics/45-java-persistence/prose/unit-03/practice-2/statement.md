@@ -1,19 +1,16 @@
-The page's fourth pitfall: `catch (SQLException e) { conn.rollback(); throw e; }`
-loses the real error when `rollback()` itself throws. The fix catches the
-rollback's exception and attaches it with `e.addSuppressed(...)`.
+In the shop's back office, editors tag products by hand while a nightly job adds seasonal tags.
+Nobody holds a lock while editing: an editor may sit on a product page for minutes. Since the job
+started running during office hours, editors report tags that "didn't stick": they saved, saw the
+tag, and an hour later it was gone. Every product row already has a `version` column that nothing
+uses yet.
 
-Write `Transactions.inTransaction(connection, work)`. It turns autoCommit
-off, runs `work.run(connection)` and commits.
+Finish the two `TODO`s in `src/main/java/practice/ProductTags.java`:
 
-- If the work throws, roll back and rethrow the work's exception. **If the
-  rollback fails too, add its exception as suppressed and throw the
-  original error.**
-- **An unchecked exception from the work rolls back too**, and is rethrown
-  unchanged. (Careful: turning autoCommit back on commits an open transaction.)
-- **`autoCommit` is restored after a failure as well** as after success.
+- `addTag(...)`: add one tag and save it, trying at most `ATTEMPTS` times;
+- `save(...)`: write the new tags, unless someone else saved the product since it was read.
 
-| work | `rollback()` | thrown | rows kept |
-|---|---|---|---|
-| insert 1, insert 2 | - | nothing | 1, 2 |
-| insert 1, throw `SQLException("insert failed")` | throws `SQLException("rollback failed")` | `insert failed`, suppressed: `rollback failed` | - |
-| insert 1, throw `IllegalStateException` | works | `IllegalStateException` | none |
+Read products with `load(...)`. The other writers keep the `version` column the way your `save`
+does. When you're done, no writer's tag is lost, whoever saves first. About fifteen lines in total.
+
+The tests run each editor on its own connection to an in-memory H2 database, and use the `Pause`
+to let another writer save between an editor's read and its save.

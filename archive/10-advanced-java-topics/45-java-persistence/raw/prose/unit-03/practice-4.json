@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Watch isolation levels change what a transaction reads",
+  "title": "Make a transfer survive being a deadlock victim",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's isolation table says which anomalies each level allows. You can watch them with two connections driven step by step in one thread: the reader reads, the writer changes the row, the reader reads again."
+      "text": "Wallet transfers run all day; at midnight an interest job adds a little to every wallet, one transaction per batch, in its own order. Since the job moved earlier, a few transfers a night fail with SQLState 40001. Customers retry by hand, and support would like that to stop. A first attempt at an automatic retry made the nightly totals stop adding up, and a transfer to a wallet that is already near its limit now hammers the database three times before failing."
     },
     {
       "type": "para",
-      "text": "Write `Isolation.readTwice(reader, level, accountId, between)` over `accounts(id INT PRIMARY KEY, balance DECIMAL(15,2))`. It returns `Reads(first, second)`, the account's balance read twice with `between.run()` called in the middle (the tests' writer acts there)."
+      "text": "Finish `transfer(...)` in `src/main/java/practice/Transfers.java`, using `debit` and `credit`. The table's `CHECK` keeps every balance between 0 and 1000. When you're done, a transfer that collides with the interest job still completes with the right balances, and a transfer the database refuses for its own rules fails at once and changes nothing. About twelve lines."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Both reads run in one transaction**: turn autoCommit off before the first read and commit after the second.",
-        "**The transaction runs at the isolation level asked for** (`Connection.TRANSACTION_...`).",
-        "**The connection's previous isolation level and autoCommit are restored** afterwards; a pool will hand it to someone else."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "level",
-        "writer, between the reads",
-        "`Reads`"
-      ],
-      "rows": [
-        [
-          "READ_COMMITTED",
-          "sets 200.00 and commits",
-          "`100.00, 200.00` (non-repeatable read)"
-        ],
-        [
-          "REPEATABLE_READ",
-          "sets 200.00 and commits",
-          "`100.00, 100.00`"
-        ],
-        [
-          "READ_UNCOMMITTED",
-          "sets 200.00, not committed",
-          "`100.00, 200.00` (dirty read)"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests run on an in-memory H2 database. They start the interest job's transaction before the transfer and use the `Pause` after the debit to make the two cross."
     },
     {
       "type": "heading",
@@ -72,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\n\npublic final class Isolation {\n\n    private Isolation() {\n    }\n\n    public record Reads(BigDecimal first, BigDecimal second) {\n    }\n\n    /** Reads the balance twice in one transaction at the given level, running {@code between} in the middle. */\n    public static Reads readTwice(Connection reader, int level, int accountId, Runnable between) throws SQLException {\n        int previousLevel = reader.getTransactionIsolation();\n        boolean previousAutoCommit = reader.getAutoCommit();\n        reader.setTransactionIsolation(level);\n        reader.setAutoCommit(false);\n        try (PreparedStatement statement = reader.prepareStatement(\"SELECT balance FROM accounts WHERE id = ?\")) {\n            statement.setInt(1, accountId);\n            BigDecimal first = balance(statement);\n            between.run();\n            BigDecimal second = balance(statement);\n            reader.commit();\n            return new Reads(first, second);\n        } catch (SQLException | RuntimeException e) {\n            reader.rollback();\n            throw e;\n        } finally {\n            reader.setAutoCommit(previousAutoCommit);\n            reader.setTransactionIsolation(previousLevel);\n        }\n    }\n\n    private static BigDecimal balance(PreparedStatement statement) throws SQLException {\n        try (ResultSet rows = statement.executeQuery()) {\n            if (!rows.next()) {\n                throw new SQLException(\"no such account\");\n            }\n            return rows.getBigDecimal(1);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\n\n/**\n * Moves money between wallets, one transfer per transaction: the debit and the credit commit\n * together or not at all. Other transactions (other transfers, the interest job) change the same\n * wallets at the same time.\n *\n * <p>Table: {@code wallet(id INT PRIMARY KEY, balance INT NOT NULL CHECK (balance BETWEEN 0 AND 1000))}.\n */\npublic class Transfers {\n\n    /** Runs after every debit. Production passes nothing. */\n    public interface Pause {\n        void between() throws Exception;\n    }\n\n    /** How many times one call runs the transfer before it gives up. */\n    static final int ATTEMPTS = 3;\n\n    private final Pause pause;\n\n    public Transfers() {\n        this(() -> { });\n    }\n\n    public Transfers(Pause pause) {\n        this.pause = pause;\n    }\n\n    /** Moves the amount from one wallet to the other and commits; throws if it can't be done. */\n    public void transfer(Connection c, int from, int to, int amount) throws Exception {\n        c.setAutoCommit(false);\n        for (int attempt = 1; ; attempt++) {\n            try {\n                debit(c, from, amount);\n                credit(c, to, amount);\n                c.commit();\n                return;\n            } catch (SQLException e) {\n                c.rollback();\n                if (!\"40001\".equals(e.getSQLState()) || attempt == ATTEMPTS) throw e;\n            }\n        }\n    }\n\n    void debit(Connection c, int wallet, int amount) throws Exception {\n        change(c, wallet, -amount);\n        pause.between();\n    }\n\n    void credit(Connection c, int wallet, int amount) throws SQLException {\n        change(c, wallet, amount);\n    }\n\n    private static void change(Connection c, int wallet, int delta) throws SQLException {\n        try (PreparedStatement p = c.prepareStatement(\"UPDATE wallet SET balance = balance + ? WHERE id = ?\")) {\n            p.setInt(1, delta);\n            p.setInt(2, wallet);\n            p.executeUpdate();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Isolation {\n\n    private Isolation() {\n    }\n\n    public record Reads(BigDecimal first, BigDecimal second) {\n    }\n\n    /** Reads the balance twice in one transaction at the given level, running {@code between} in the middle. */\n    public static Reads readTwice(Connection reader, int level, int accountId, Runnable between) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\n\n/**\n * Moves money between wallets, one transfer per transaction: the debit and the credit commit\n * together or not at all. Other transactions (other transfers, the interest job) change the same\n * wallets at the same time.\n *\n * <p>Table: {@code wallet(id INT PRIMARY KEY, balance INT NOT NULL CHECK (balance BETWEEN 0 AND 1000))}.\n */\npublic class Transfers {\n\n    /** Runs after every debit. Production passes nothing. */\n    public interface Pause {\n        void between() throws Exception;\n    }\n\n    /** How many times one call runs the transfer before it gives up. */\n    static final int ATTEMPTS = 3;\n\n    private final Pause pause;\n\n    public Transfers() {\n        this(() -> { });\n    }\n\n    public Transfers(Pause pause) {\n        this.pause = pause;\n    }\n\n    /** Moves the amount from one wallet to the other and commits; throws if it can't be done. */\n    public void transfer(Connection c, int from, int to, int amount) throws Exception {\n        // TODO: Debit, credit and commit as one transaction. Some nights another transaction holds\n        //       one of the wallets in the other order; run at most ATTEMPTS times in all.\n        throw new IllegalStateException(\"TODO: transfer\");\n    }\n\n    void debit(Connection c, int wallet, int amount) throws Exception {\n        change(c, wallet, -amount);\n        pause.between();\n    }\n\n    void credit(Connection c, int wallet, int amount) throws SQLException {\n        change(c, wallet, amount);\n    }\n\n    private static void change(Connection c, int wallet, int delta) throws SQLException {\n        try (PreparedStatement p = c.prepareStatement(\"UPDATE wallet SET balance = balance + ? WHERE id = ?\")) {\n            p.setInt(1, delta);\n            p.setInt(2, wallet);\n            p.executeUpdate();\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -92,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -103,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "fb563215fc8c2fed8651834133cb89f53a05f5316e29626444a5ed0380ae0bba",
-  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Isolation {\n\n    private Isolation() {\n    }\n\n    public record Reads(BigDecimal first, BigDecimal second) {\n    }\n\n    /** Reads the balance twice in one transaction at the given level, running {@code between} in the middle. */\n    public static Reads readTwice(Connection reader, int level, int accountId, Runnable between) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "7af55dd3d3c15ad79cfa07e594a56b9011c6dbf95e28eeeada5861419271b96e",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\n\n/**\n * Moves money between wallets, one transfer per transaction: the debit and the credit commit\n * together or not at all. Other transactions (other transfers, the interest job) change the same\n * wallets at the same time.\n *\n * <p>Table: {@code wallet(id INT PRIMARY KEY, balance INT NOT NULL CHECK (balance BETWEEN 0 AND 1000))}.\n */\npublic class Transfers {\n\n    /** Runs after every debit. Production passes nothing. */\n    public interface Pause {\n        void between() throws Exception;\n    }\n\n    /** How many times one call runs the transfer before it gives up. */\n    static final int ATTEMPTS = 3;\n\n    private final Pause pause;\n\n    public Transfers() {\n        this(() -> { });\n    }\n\n    public Transfers(Pause pause) {\n        this.pause = pause;\n    }\n\n    /** Moves the amount from one wallet to the other and commits; throws if it can't be done. */\n    public void transfer(Connection c, int from, int to, int amount) throws Exception {\n        // TODO: Debit, credit and commit as one transaction. Some nights another transaction holds\n        //       one of the wallets in the other order; run at most ATTEMPTS times in all.\n        throw new IllegalStateException(\"TODO: transfer\");\n    }\n\n    void debit(Connection c, int wallet, int amount) throws Exception {\n        change(c, wallet, -amount);\n        pause.between();\n    }\n\n    void credit(Connection c, int wallet, int amount) throws SQLException {\n        change(c, wallet, amount);\n    }\n\n    private static void change(Connection c, int wallet, int delta) throws SQLException {\n        try (PreparedStatement p = c.prepareStatement(\"UPDATE wallet SET balance = balance + ? WHERE id = ?\")) {\n            p.setInt(1, delta);\n            p.setInt(2, wallet);\n            p.executeUpdate();\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-4/src/main/java/practice/Isolation.java",
-    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-4/src/test/java/practice/IsolationTest.java",
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-4/src/main/java/practice/Transfers.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-4/src/test/java/practice/TransfersTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.IsolationTest#readCommittedSeesACommittedChange",
+        "id": "practice.TransfersTest#movesMoneyBetweenTwoWallets",
         "kind": "main",
-        "says": "At READ_COMMITTED, a change another connection commits between the two reads shows in the second read: 100.00 then 200.00."
+        "says": "a transfer nobody interferes with debits one wallet, credits the other and commits"
       },
       {
-        "id": "practice.IsolationTest#repeatableReadKeepsTheFirstValue",
+        "id": "practice.TransfersTest#aTransferPickedAsADeadlockVictimNeitherLosesNorCreatesMoney",
         "kind": "edge",
-        "says": "At REPEATABLE_READ, the same committed change does not show: both reads give 100.00."
+        "says": "a transfer chosen as a deadlock victim leaves the total of the two wallets as it should be"
       },
       {
-        "id": "practice.IsolationTest#readUncommittedSeesADirtyValue",
+        "id": "practice.TransfersTest#aTransferPickedAsADeadlockVictimStillCompletes",
         "kind": "edge",
-        "says": "At READ_UNCOMMITTED, a change another connection has made but not committed shows in the second read."
+        "says": "a transfer chosen as a deadlock victim still moves the money and returns normally"
       },
       {
-        "id": "practice.IsolationTest#theConnectionsSettingsAreRestored",
+        "id": "practice.TransfersTest#aTransferTheDatabaseRefusesIsNotTriedAgain",
         "kind": "edge",
-        "says": "After readTwice, the connection has its previous isolation level (SERIALIZABLE here) and its previous autoCommit again, true or false."
+        "says": "a transfer the database refuses for a broken rule fails after one attempt and changes nothing"
       }
     ],
     "report": {
@@ -154,10 +124,10 @@
     },
     "origin": {
       "path": "45-java-persistence/README_10.7.3.md",
-      "section": "Transaction Isolation Levels"
+      "section": "On H2, a Lock Timeout Fails One Statement; a Deadlock Rolls Back the Whole Transaction"
     },
     "concepts": [
-      "Dirty, non-repeatable and phantom reads are the anomalies each isolation level allows or prevents."
+      "After SQLState 40001 the transaction is gone, so it is retried from its first statement, and failures that a retry cannot fix are not retried."
     ]
   }
 }
