@@ -1,35 +1,18 @@
-The page says the Java Memory Model reasons about **actions** and a **happens-before**
-order over them: if action X happens-before action Y, X's writes are visible to Y. Its
-Q2 answer lists the edges:
+Checkout prices every basket in euros through `RateTable`, which loads exchange rates from the
+rate store on first use and again after each `refresh()`. A full load takes a few seconds.
 
-1. **Program order**: in one thread, an earlier action happens-before a later one.
-2. **Monitor lock**: an unlock of a monitor happens-before every *later* lock of that
-   *same* monitor.
-3. **Volatile**: a write to a volatile field happens-before every *later* read of that field.
-4. **Thread start**: `t.start()` happens-before every action of thread `t`.
-5. **Thread join**: every action of thread `t` happens-before `t.join()` returning.
+Two incidents shaped what is wanted. The first version held a lock while it loaded, and after
+every refresh the checkout threads queued behind the load: p99 latency jumped by four seconds.
+The fix for that answered some baskets with "no rate for NOK" for as long as a load was running.
 
-Happens-before is **transitive**.
+Finish the two `TODO`s in `src/main/java/practice/RateTable.java`:
 
-Write `HappensBefore.happensBefore(List<Action> trace, int x, int y)`. The `trace` is one
-execution: every action of every thread, in the order they happened. Each `Action` names
-its thread, its `Kind` and its target: a variable for reads and writes, a monitor for
-`LOCK`/`UNLOCK`, and a thread name for `START`/`JOIN`. Return whether action `trace.get(x)`
-happens-before action `trace.get(y)`. An action does not happen-before itself.
+- `table()`: return the current table, loading it if there is none;
+- `load()`: one full load from the store.
 
-The page's `HappensBeforeDemo`, as a trace:
+When you're done, a lookup never waits for a load another thread started (two threads loading at
+the same time is acceptable, as both get the same rates), a lookup never sees a table that is
+missing rates the store has, and the map `rates()` hands to the end-of-day report can't be used to
+change the rates every other caller sees. About eight lines in total.
 
-| # | thread | action |
-|---|---|---|
-| 0 | A | `WRITE value` |
-| 1 | A | `VOLATILE_WRITE ready` |
-| 2 | B | `VOLATILE_READ ready` |
-| 3 | B | `READ value` |
-
-| x, y | answer |
-|---|---|
-| `0, 3` | `true` (program order, the volatile edge, program order) |
-| `3, 0` | `false` |
-| `0, 1` | `true` |
-
-With `ready` a plain field (`WRITE ready` and `READ ready`), `0, 3` is `false`.
+The tests hold the store in the middle of a load and make lookups from other threads meanwhile.

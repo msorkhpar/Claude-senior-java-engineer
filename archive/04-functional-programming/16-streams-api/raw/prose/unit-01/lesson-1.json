@@ -18,375 +18,402 @@
       "text": "4.4.1. Introduction to the Streams API"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
-    },
-    {
       "type": "para",
-      "text": "The Java Streams API, introduced in Java 8, represents a fundamental shift in how Java developers process collections of data. A stream is a sequence of elements that supports sequential and parallel aggregate operations. Unlike collections, streams do not store data; they carry values from a source through a pipeline of computational steps."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of a stream like an assembly line in a factory. Raw materials (data) enter one end, travel through a series of workstations (operations), and finished products (results) emerge at the other end. Each workstation performs a specific transformation or check. Crucially, the assembly line only runs when triggered — no product is made until someone presses the \"start\" button (the terminal operation)."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "The Stream Pipeline"
-    },
-    {
-      "type": "para",
-      "text": "A stream pipeline consists of three parts:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Source** — where the data comes from (collection, array, file, generator)",
-        "**Intermediate operations** — lazy transformations that return a new stream (filter, map, sorted, etc.)",
-        "**Terminal operation** — the trigger that consumes the stream and produces a result (collect, forEach, reduce, etc.)"
-      ]
+      "text": "The warehouse dashboard shows how many items are low on stock. After each deploy the first request gets an answer, and every request after it fails with an `IllegalStateException`. The class behind it passed review:"
     },
     {
       "type": "code",
-      "lang": "",
-      "text": "Source → [intermediate op 1] → [intermediate op 2] → ... → Terminal Op → Result"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Lazy Evaluation"
+      "lang": "java",
+      "text": "import java.util.List;\nimport java.util.stream.Stream;\n\nrecord Item(String sku, int onHand) {}\n\nclass LowStockReport {\n    private final Stream<Item> lowStock;\n\n    LowStockReport(List<Item> items) {\n        lowStock = items.stream().filter(i -> i.onHand() < 5);\n    }\n\n    long count() {\n        return lowStock.count();\n    }\n}"
     },
     {
       "type": "para",
-      "text": "One of the most important characteristics of streams is **lazy evaluation**. Intermediate operations are not executed until a terminal operation is invoked. This enables two key optimizations:"
+      "text": "Two requests against `A-1` (2 on hand), `B-7` (40) and `C-3` (0):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "request 1: 2 items low\nrequest 2: java.lang.IllegalStateException: stream has already been operated upon or closed"
+    },
+    {
+      "type": "para",
+      "text": "The field reads like a filtered view of the items. A `Stream` is something else: a one-shot pipeline that reads its source only when a terminal operation asks."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Building a Pipeline Runs Nothing; the Terminal Operation Runs It"
+    },
+    {
+      "type": "para",
+      "text": "A pipeline is a source, any number of intermediate operations (`filter`, `map`, `sorted`, each returning a `Stream`), and one terminal operation (`toList`, `count`, `forEach`, `findFirst`), which returns something else or nothing. Three SKUs, and a `filter` and a `map` that print when they are called. Pause before the output: what has been printed by the time the last line runs?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> skus = List.of(\"A-1\", \"B-7\", \"C-3\");\nStream<String> pipeline = skus.stream()\n        .filter(s -> { System.out.println(\"filter \" + s); return !s.startsWith(\"B\"); })\n        .map(s -> { System.out.println(\"map    \" + s); return s.toLowerCase(); });\nSystem.out.println(\"pipeline built\");"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "pipeline built"
+    },
+    {
+      "type": "para",
+      "text": "Neither lambda ran. `filter` and `map` only added a stage to a chain. The `Stream` they return holds that chain and the source, not elements. Waiting is what lets the library run all the stages in one pass, stop early, and read from a source that never ends (unit 4.4.2)."
+    },
+    {
+      "type": "para",
+      "text": "A pipeline written for its side effects with no terminal operation therefore compiles and does nothing (unit 4.2.1 shows it with `peek`). And each lambda runs when the terminal operation runs, which can be long after the line that wrote it."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Each Element Goes Through the Whole Pipeline Before the Next, and Short-Circuiting Stops the Pulling"
+    },
+    {
+      "type": "para",
+      "text": "Now the same pipeline gets its terminal operation. Does `filter` see all three SKUs before `map` sees any?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "System.out.println(pipeline.toList());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "filter A-1\nmap    A-1\nfilter B-7\nfilter C-3\nmap    C-3\n[a-1, c-3]"
+    },
+    {
+      "type": "para",
+      "text": "The terminal operation pulls one element from the source and pushes it through every stage before it pulls the next. `B-7` stops at the filter and never reaches `map`. No list is built between the stages."
+    },
+    {
+      "type": "para",
+      "text": "Because elements arrive one at a time, an operation that has its answer can stop pulling. A fraud check runs over 1,000 order ids and flags every 300th; a counter records how often the check is called. Each row below is a fresh `orderIds.stream()`, with the counter reset:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<Integer> orderIds = IntStream.rangeClosed(1, 1_000).boxed().toList();\nAtomicInteger checks = new AtomicInteger();\nPredicate<Integer> flagged = id -> { checks.incrementAndGet(); return id % 300 == 0; };"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "filter(flagged).findFirst()          Optional[300] checks=300\nanyMatch(flagged)                    true         checks=300\nfilter(flagged).limit(2).toList()    [300, 600]   checks=600\nfilter(flagged).toList().get(0)      300          checks=1000\nfilter(flagged).count() > 0          true         checks=1000"
+    },
+    {
+      "type": "para",
+      "text": "The first three stop as soon as they have their answer. The last two ask the same questions as the first two and check every order, because `toList()` and `count()` need every element. If the check is a 20 ms call to a fraud service, that is 6 seconds against 20 for the same answer, and over an infinite source the last two never produce a result."
+    },
+    {
+      "type": "para",
+      "text": "A stateful operation such as `sorted` breaks the one-at-a-time flow: it has to pull every element before it can pass the first one on. Unit 4.4.3 shows how that changes the trace."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Stream Can Be Consumed Once, So Keep a Supplier, Not the Stream"
+    },
+    {
+      "type": "para",
+      "text": "Back to the dashboard. The first `count()` pulled every item through the filter, and the stream was spent. The second `count()` found a stream that had already run. The check is stricter than \"one terminal operation\": a second operation that builds on the same `Stream` object throws, intermediate ones included. Branching one stream into two filters fails before anything has run:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Stream<String> base = skus.stream();\nStream<String> aisleA = base.filter(s -> s.startsWith(\"A\"));\nStream<String> aisleC = base.filter(s -> s.startsWith(\"C\"));   // throws"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "second filter: stream has already been operated upon or closed"
+    },
+    {
+      "type": "para",
+      "text": "A `Stream` reads its source through a `Spliterator`, a cursor that moves forward and can't be rewound, and each stage marks the one before it as used when it links to it. That mark is what the second `filter` tripped over."
+    },
+    {
+      "type": "para",
+      "text": "The dashboard's test called `count()` once, so it passed; production made a second request. A method that returns a stream it keeps in a field fails the same way for its second caller. The fix is to keep the recipe and build a new stream each time. A method that returns `items.stream().filter(...)` on every call does that, and so does a `Supplier`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.List;\nimport java.util.function.Supplier;\nimport java.util.stream.Stream;\n\nrecord Item(String sku, int onHand) {}\n\nclass LowStockReport {\n    private final Supplier<Stream<Item>> lowStock;\n\n    LowStockReport(List<Item> items) {\n        lowStock = () -> items.stream().filter(i -> i.onHand() < 5);\n    }\n\n    long count() {\n        return lowStock.get().count();\n    }\n\n    List<String> skus() {\n        return lowStock.get().map(Item::sku).toList();\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Over a mutable list this time, two requests, then a third after an item is added:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<Item> items = new ArrayList<>(List.of(new Item(\"A-1\", 2), new Item(\"B-7\", 40), new Item(\"C-3\", 0)));\nLowStockReport report = new LowStockReport(items);\nSystem.out.println(\"request 1: \" + report.count() + \" items low\");\nSystem.out.println(\"request 2: \" + report.count() + \" items low \" + report.skus());\nitems.add(new Item(\"D-9\", 1));\nSystem.out.println(\"after D-9 is added: \" + report.count() + \" items low \" + report.skus());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "request 1: 2 items low\nrequest 2: 2 items low [A-1, C-3]\nafter D-9 is added: 3 items low [A-1, C-3, D-9]"
+    },
+    {
+      "type": "para",
+      "text": "Each `get()` streams the list as it is at that moment. Collecting the low items into a list in the constructor would also survive the second request, but would keep answering with the items as they were when the report was built."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Source Is Read When the Terminal Operation Runs, and Must Not Change Under It"
+    },
+    {
+      "type": "para",
+      "text": "A stream is built over a queue of orders, an order is added, and only then does the terminal operation run. The same steps follow over a `CopyOnWriteArrayList`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> queue = new ArrayList<>(List.of(\"o-1\", \"o-2\"));\nStream<String> pending = queue.stream().map(String::toUpperCase);\nqueue.add(\"o-3\");\nSystem.out.println(\"ArrayList:            \" + pending.toList());\n\nList<String> snapshot = new CopyOnWriteArrayList<>(List.of(\"o-1\", \"o-2\"));\nStream<String> pendingCow = snapshot.stream().map(String::toUpperCase);\nsnapshot.add(\"o-3\");\nSystem.out.println(\"CopyOnWriteArrayList: \" + pendingCow.toList());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ArrayList:            [O-1, O-2, O-3]\nCopyOnWriteArrayList: [O-1, O-2]"
+    },
+    {
+      "type": "para",
+      "text": "`ArrayList`'s javadoc calls its spliterator *late-binding*: it binds to the list's elements at the first traversal, not when it is created, so `o-3` is in. `CopyOnWriteArrayList`'s javadoc promises a snapshot of the list as it was when the spliterator was created, and `stream()` creates it at once. The `java.util.stream` package javadoc uses the `ArrayList` case as its example and says streams from JDK collections behave that way; `CopyOnWriteArrayList` doesn't, despite that wording."
+    },
+    {
+      "type": "para",
+      "text": "Changing the source *while* the terminal operation runs is different. The package javadoc calls it interference and says it must never happen with a non-concurrent source. Here a shipping job re-queues order `o-2` from inside the pipeline:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> orders = new ArrayList<>(List.of(\"o-1\", \"o-2\", \"o-3\", \"o-4\"));\norders.stream()\n      .map(o -> { if (o.equals(\"o-2\")) orders.add(\"o-2-retry\"); return o; })\n      .forEach(o -> System.out.println(\"shipped \" + o));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "shipped o-1\nshipped o-2\nshipped o-3\nshipped o-4\njava.util.ConcurrentModificationException, orders now [o-1, o-2, o-3, o-4, o-2-retry]"
+    },
+    {
+      "type": "para",
+      "text": "The `add` succeeded, the retry was never shipped, and the exception came after all four orders had shipped. For `forEach` and `toList`, `ArrayList`'s spliterator compares the list's modification count once, after the last element. A short-circuiting operation compares after each element, so `filter(o -> o.equals(\"o-3\")).findFirst()` in place of `forEach` throws as soon as `o-2` is done. Either way the exception doesn't say how much work was already done, and a caller that retries the batch on failure ships all four orders again."
+    },
+    {
+      "type": "para",
+      "text": "Removing is worse. A cart cleanup removes an empty cart from inside `filter`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> carts = new ArrayList<>(List.of(\"c-1\", \"\", \"c-3\", \"c-4\"));\ncarts.stream()\n     .filter(c -> { System.out.println(\"checked \" + c); if (c.isEmpty()) carts.remove(c); return true; })\n     .forEach(c -> { });"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "checked c-1\nchecked \nchecked c-4\nchecked null\njava.lang.NullPointerException: Cannot invoke \"String.isEmpty()\" because \"c\" is null"
+    },
+    {
+      "type": "para",
+      "text": "Cart `c-3` moved into the removed cart's slot and was never checked, and the spliterator, still counting four elements, handed the lambda the `null` left at the end. The `NullPointerException` came first; with a null-safe check the same run ends in `ConcurrentModificationException` after the `null`. Collect what has to change into a new list and apply it after the terminal operation, or use `removeIf` (unit 4.2.4)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Loop Is Clearer When the Work Stops Early, Throws a Checked Exception, or Updates Several Variables"
+    },
+    {
+      "type": "para",
+      "text": "Stock adjustments arrive as lines like `A-1 +5`. The import must stop at the first bad line, and someone wrote it with `forEach`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void applyAll(List<String> adjustments) {\n    adjustments.stream().forEach(line -> {\n        if (!valid(line)) return;                     // meant: stop at the first bad line\n        applied.add(line);\n    });\n}"
+    },
+    {
+      "type": "para",
+      "text": "`valid` checks a line against `SKU ±n`, and `applied` is a list. With `List.of(\"A-1 +5\", \"B-7 -x\", \"C-3 +2\")`, then the same import written as the loop below:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "forEach applied: [A-1 +5, C-3 +2]\nloop applied:    [A-1 +5], then line 2: B-7 -x"
+    },
+    {
+      "type": "para",
+      "text": "`return` in a lambda ends that one call of the lambda, so it skipped one line and the stream carried on. A loop can `return`, `break` or throw out of the method in the middle of the work:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void applyAllLoop(List<String> adjustments) throws BadLineException {\n    for (int i = 0; i < adjustments.size(); i++) {\n        String line = adjustments.get(i);\n        if (!valid(line)) throw new BadLineException(i + 1, line);\n        applied.add(line);\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Checked exceptions and running totals are things a lambda can't handle. It can't throw a checked exception that `Consumer.accept` doesn't declare (unit 4.1.3), so a stream version has to wrap it, and the caller's `catch (BadLineException e)` no longer sees it. It can't assign the method's local variables (unit 4.1.1), so counting accepted lines, rejected lines and a total in one pass needs holders or a custom collector, where a loop needs three `+=`. A stream also has no index: after a `filter`, an element's position in the source is gone, while a loop has it in `i`. A stream reads best as one transformation from a source to a result; when the body is about control flow, write the loop."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Short-circuiting**: Operations like `findFirst()` or `limit()` can terminate early without processing all elements.",
-        "**Pipeline fusion**: The stream implementation pushes each element through all the stages in a single pass over the data, instead of building an intermediate collection after every operation."
+        "**Building a pipeline runs nothing.** Intermediate operations record stages; the terminal operation runs them, so a pipeline without one does nothing.",
+        "**Each element passes through every stage before the next one is pulled.** Short-circuiting operations (`findFirst`, `anyMatch`, `limit`) stop pulling; collecting first and picking later checks every element.",
+        "**A stream can be operated on once.** A second operation on the same `Stream`, intermediate or terminal, throws `IllegalStateException`; keep a `Supplier<Stream<T>>` or a method that builds a new stream.",
+        "**The source is read when the terminal operation runs, and must not change under it.** An `ArrayList` change made before the terminal operation is seen; one made during it ends in a `ConcurrentModificationException`, possibly after all the work is done; a removal also skips elements and passes on a `null`.",
+        "**A loop is clearer for early exits, checked exceptions and several running totals.** `return` in a `forEach` lambda skips one element and does not stop the stream."
       ]
     },
     {
-      "type": "code",
-      "lang": "java",
-      "text": "// Nothing executes until the terminal operation collect() is called\nStream<String> stream = list.stream()\n    .filter(s -> s.length() > 3)   // NOT executed yet\n    .map(String::toUpperCase);      // NOT executed yet\n\nList<String> result = stream.collect(Collectors.toList()); // NOW everything runs"
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "Streams vs Collections"
+      "type": "para",
+      "text": "**How much of the source a terminal operation reads (1,000 elements, the 300th matches; Java 21, sequential):**"
     },
     {
       "type": "table",
       "headers": [
-        "Feature",
-        "Collection",
-        "Stream"
+        "Pipeline",
+        "Elements checked by `p`"
       ],
       "rows": [
         [
-          "Data storage",
-          "Stores elements",
-          "Does not store elements"
+          "`filter(p).findFirst()`, `filter(p).findAny()`, `anyMatch(p)`",
+          "300"
         ],
         [
-          "Iteration",
-          "External (for loop)",
-          "Internal (declarative)"
+          "`allMatch(not p)`, `noneMatch(p)`",
+          "300 (stop at the first element that decides)"
         ],
         [
-          "Reuse",
-          "Can be iterated many times",
-          "Single-use (consumed once)"
+          "`filter(p).limit(2).toList()`",
+          "600 (until two matches)"
         ],
         [
-          "Evaluation",
-          "Eager",
-          "Lazy"
+          "`filter(p).toList().get(0)`, `filter(p).count() > 0`",
+          "1,000"
         ],
         [
-          "Modification",
-          "Elements can be added/removed",
-          "Cannot modify source"
+          "`sorted().filter(p).findFirst()`",
+          "300, but `sorted` pulls all 1,000 from the source first"
         ],
         [
-          "Parallel support",
-          "Manual synchronization needed",
-          "Built-in parallel support"
+          "`filter(p).sorted().findFirst()`",
+          "1,000"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**A second call on the same `Stream` object (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call",
+        "Second time"
+      ],
+      "rows": [
+        [
+          "an intermediate operation (`filter`, `map`, ...)",
+          "`IllegalStateException`"
+        ],
+        [
+          "a terminal operation, `iterator()`, `spliterator()`",
+          "`IllegalStateException`"
+        ],
+        [
+          "an intermediate or terminal operation after `close()`",
+          "`IllegalStateException`"
+        ],
+        [
+          "`onClose()`",
+          "`IllegalStateException` once the stream is used; before that, no exception"
+        ],
+        [
+          "`parallel()`, `sequential()`",
+          "no exception, even after use or `close()`: they return the same stream"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Changing an `ArrayList` source (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "When",
+        "What happens"
+      ],
+      "rows": [
+        [
+          "after `stream()`, before the terminal operation",
+          "the change is seen (late-binding spliterator)"
+        ],
+        [
+          "an add during `forEach` or `toList`",
+          "every original element processed, then `ConcurrentModificationException`"
+        ],
+        [
+          "an add during a short-circuiting operation that is still pulling",
+          "`ConcurrentModificationException` right after the element that changed it"
+        ],
+        [
+          "a remove during `forEach`",
+          "an element skipped and `null` passed on, then `ConcurrentModificationException`, or a `NullPointerException` first"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Streams are **single-use**: once consumed by a terminal operation, they cannot be reused.",
-        "Streams do **not modify the source**: all operations produce new streams or results.",
-        "Intermediate operations are **lazy**: they don't execute until a terminal operation is called.",
-        "**Short-circuit operations** can stop processing early (e.g., `findFirst`, `anyMatch`, `limit`).",
-        "Streams support both **sequential** and **parallel** execution.",
-        "There are specialized streams for primitives: `IntStream`, `LongStream`, `DoubleStream` — these avoid boxing overhead.",
-        "A stream pipeline has **zero or more** intermediate operations and **exactly one** terminal operation.",
-        "Stream operations should be **stateless and non-interfering** (should not modify the source or rely on mutable shared state)."
+        "A service method returns `Stream<Order>` so that callers can filter further. What does it promise about when the list or table behind it is read, and how many times a caller may use it? Compare it with returning `List<Order>`.",
+        "A pipeline calls a remote price service in `map` and ends with `findFirst`. Someone adds `sorted()` before `findFirst`. Predict the number of remote calls, then measure it.",
+        "Take a long loop from your codebase that keeps several counters and exits early. Write it as a stream, and decide which version you would rather debug during an incident."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Sequenced collections** (Java 21, JEP 431): `SequencedCollection`, `SequencedSet`, and `SequencedMap` provide uniform ordered access (`getFirst()`, `getLast()`, `reversed()`); `coll.reversed().stream()` streams a sequenced collection in reverse encounter order.",
-        "**Pattern matching in switch** (Java 21): Can be combined with stream operations for powerful data processing.",
-        "**Virtual threads** (Java 21, JEP 444): Not used by parallel streams, which run on the platform threads of the common `ForkJoinPool`; for I/O-bound work, use virtual threads (e.g. an executor) instead of a parallel stream.",
-        "**Gatherers** (preview in Java 22, JEP 461, and Java 23, JEP 473; final in Java 24, JEP 485 — not available in Java 21): A new mechanism for custom intermediate stream operations, extending what the built-in operations can do.",
-        [
-          "Stream API has been continuously enhanced since Java 8:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "Java 9: `takeWhile`, `dropWhile`, `Stream.iterate` with predicate, `Stream.ofNullable`",
-              "Java 10: `Collectors.toUnmodifiableList/Set/Map`",
-              "Java 16: `Stream.toList()` (unmodifiable) — shortcut for `collect(Collectors.toList())`"
-            ]
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Reusing a consumed stream**: Streams can only be consumed once.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BROKEN\nStream<String> stream = list.stream().filter(s -> s.length() > 3);\nlong count = stream.count();          // Stream consumed here\nList<String> result = stream.collect(Collectors.toList()); // IllegalStateException!"
-          },
-          "**Fix**: Create a new stream for each terminal operation.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "long count = list.stream().filter(s -> s.length() > 3).count();\nList<String> result = list.stream().filter(s -> s.length() > 3).collect(Collectors.toList());"
-          }
-        ],
-        [
-          "**Forgetting the terminal operation**: Without a terminal operation, nothing executes.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BROKEN — side effects never happen!\nlist.stream().filter(s -> s.length() > 3).map(String::toUpperCase);"
-          },
-          "**Fix**: Always end with a terminal operation.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "List<String> result = list.stream()\n    .filter(s -> s.length() > 3)\n    .map(String::toUpperCase)\n    .collect(Collectors.toList());"
-          }
-        ],
-        [
-          "**Modifying the source during streaming**: This leads to undefined behavior or `ConcurrentModificationException`.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BROKEN\nlist.stream().filter(s -> {\n    if (s.isEmpty()) list.remove(s); // Modifying source!\n    return true;\n}).count();"
-          },
-          "**Fix**: Collect to a new list; never modify the source inside a stream operation."
-        ],
-        [
-          "**Using stateful lambdas with parallel streams**: Lambdas that read or write shared mutable state produce wrong results in parallel streams.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BROKEN with parallel streams\nList<Integer> seen = new ArrayList<>(); // shared mutable state\nlist.parallelStream().filter(seen::add).collect(Collectors.toList()); // Race condition!"
-          },
-          "**Fix**: Use stateless operations, or proper concurrent collections."
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Prefer `Stream.toList()` (Java 16+)** over `collect(Collectors.toList())` for immutable results.",
-        "**Use primitive streams** (`IntStream`, `LongStream`, `DoubleStream`) when working with primitives to avoid boxing.",
-        "**Avoid storing streams in fields** — streams are ephemeral pipeline descriptors, not data containers.",
-        "**Keep lambdas in stream operations short and stateless** — extract complex logic to named methods.",
-        "**Use `peek()` only for debugging**, not for side effects in production code.",
-        "**Prefer method references** over equivalent lambdas for readability (e.g., `String::toUpperCase` vs `s -> s.toUpperCase()`).",
-        "**Short-circuit when possible**: use `findFirst()`, `anyMatch()`, `limit()` to avoid processing the entire stream."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Empty streams**: Most terminal operations handle empty streams gracefully.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Optional<String> first = Stream.<String>empty().findFirst(); // Optional.empty()\nlong count = Stream.empty().count(); // 0"
-          }
-        ],
-        [
-          "**Null elements**: Streams allow null elements, but some operations (like `sorted()` with natural ordering) will throw `NullPointerException`. Filter nulls explicitly.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "list.stream()\n    .filter(Objects::nonNull)\n    .sorted()\n    .collect(Collectors.toList());"
-          }
-        ],
-        [
-          "**Infinite streams**: `Stream.generate()` and `Stream.iterate()` create infinite streams. Always use `limit()` or short-circuiting terminal operations.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Stream.iterate(0, n -> n + 1).limit(10).forEach(System.out::println);"
-          }
-        ],
-        "**Stream of a single element**: Behaves correctly; just processes that one element."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why a Stream Runs Once"
     },
     {
       "type": "para",
-      "text": "Interviewers frequently ask about:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The difference between streams and collections",
-        "Lazy evaluation and when it matters",
-        "How streams handle null values",
-        "The distinction between intermediate and terminal operations",
-        "Why streams are single-use",
-        "Performance implications (when to use parallel streams)",
-        "`Stream.toList()` vs `Collectors.toList()` (Java 16 difference: the former is unmodifiable)"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Tricky questions to expect:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What happens if you don't call a terminal operation on a stream?\"",
-        "\"Can you have a stream pipeline with no intermediate operations?\"",
-        "\"What is the difference between `map` and `flatMap`?\"",
-        "\"Why should stream lambdas be stateless?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the Java Streams API and how does it differ from Collections?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The Java Streams API is a framework for processing sequences of elements with aggregate operations in a\ndeclarative, functional style. Key differences from Collections:\n\n1. Storage: Collections store data; Streams are computational pipelines over a data source.\n2. Iteration: Collections use external iteration (for loops); Streams use internal iteration (the framework\n   controls the traversal).\n3. Single-use: A Stream is consumed by a terminal operation and cannot be reused. A Collection can be iterated\n   any number of times.\n4. Laziness: Stream intermediate operations are lazy — they don't execute until a terminal operation is reached.\n   Collection operations are eager.\n5. Parallel execution: Streams have built-in support for parallel processing with parallelStream() or parallel().\n   Collections require manual synchronization.\n6. Modification: Streams do not allow modifying the underlying data source. Collections are mutable."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Collection: external iteration, eager\nList<String> result = new ArrayList<>();\nfor (String s : list) {\n    if (s.length() > 3) result.add(s.toUpperCase());\n}\n\n// Stream: internal iteration, lazy, declarative\nList<String> result2 = list.stream()\n    .filter(s -> s.length() > 3)\n    .map(String::toUpperCase)\n    .collect(Collectors.toList());"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What does \"lazy evaluation\" mean in the context of streams, and why does it matter?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Lazy evaluation means that intermediate stream operations are not executed until a terminal operation is\ninvoked. The stream pipeline is constructed as a description of what to do, but the actual computation is\ndeferred until needed.\n\nWhy it matters:\n1. Short-circuiting: Operations like findFirst(), anyMatch(), and limit() can terminate early without\n   processing all elements, potentially improving performance significantly for large datasets.\n2. Pipeline fusion: The stream implementation pushes each element through all intermediate operations in a\n   single pass over the data, reducing overhead compared to chaining eager operations.\n3. Infinite streams: Lazy evaluation makes it possible to work with infinite sequences (Stream.generate(),\n   Stream.iterate()) as long as a short-circuiting terminal operation is used.\n\nWithout laziness, every intermediate operation would produce an intermediate collection, wasting memory and time."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating short-circuiting with lazy evaluation\nList<String> names = List.of(\"Alice\", \"Bob\", \"Charlie\", \"David\", \"Eve\");\n\n// Only processes elements until it finds one starting with 'C'\nOptional<String> first = names.stream()\n    .filter(s -> {\n        System.out.println(\"Filtering: \" + s); // Observe how many times this runs\n        return s.startsWith(\"C\");\n    })\n    .findFirst();\n// Output: \"Filtering: Alice\", \"Filtering: Bob\", \"Filtering: Charlie\"\n// Stops after finding \"Charlie\" — \"David\" and \"Eve\" are never processed"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is the difference between intermediate and terminal stream operations?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3:\nIntermediate operations:\n- Return a new Stream (enabling chaining)\n- Are lazy — they do not execute until a terminal operation is invoked\n- Examples: filter(), map(), flatMap(), sorted(), distinct(), limit(), skip(), peek(), mapToInt()\n\nTerminal operations:\n- Consume the stream and produce a result (or side effect)\n- Trigger the execution of the entire pipeline\n- After a terminal operation, the stream is exhausted and cannot be reused\n- Examples: collect(), forEach(), reduce(), count(), findFirst(), anyMatch(), allMatch(), noneMatch(), min(), max(), toArray()\n\nShort-circuiting operations (subset of terminal or intermediate):\n- findFirst(), findAny(), anyMatch(), allMatch(), noneMatch() (terminal, short-circuit)\n- limit(), takeWhile() (intermediate, short-circuit)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Stream<String> stream = list.stream()        // Source\n    .filter(s -> s.length() > 3)             // Intermediate (lazy)\n    .map(String::toUpperCase)                 // Intermediate (lazy)\n    .sorted();                                // Intermediate (lazy — stateful!)\n\n// Nothing has executed yet. Now trigger:\nList<String> result = stream.collect(Collectors.toList()); // Terminal — executes all"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: Why can't a stream be reused after a terminal operation?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Stream design deliberately makes them single-use for several reasons:\n\n1. Implementation efficiency: Streams are pipelines, not data stores. Once data has flowed through the\n   pipeline to the terminal operation, there is nothing left to iterate.\n2. Parallel safety: Streams can be parallelized. Allowing reuse would require complex state tracking to\n   ensure correctness across threads.\n3. Design clarity: Enforcing single-use makes the data flow explicit and prevents subtle bugs where\n   developers assume a stream can be traversed multiple times.\n\nThe underlying source (the Collection, array, etc.) is unchanged — you simply create a new stream from the\nsource for each operation."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Stream<String> stream = List.of(\"a\", \"b\", \"c\").stream();\nstream.forEach(System.out::println); // Works fine\n\n// stream.forEach(System.out::println); // Throws IllegalStateException: stream has already been operated upon\n\n// Correct: create a new stream\nList<String> list = List.of(\"a\", \"b\", \"c\");\nlist.stream().forEach(System.out::println);\nlist.stream().forEach(System.out::println); // Works — new stream each time"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is the difference between `Stream.toList()` (Java 16+) and `collect(Collectors.toList())`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Both collect stream elements into a List, but with an important difference:\n\nStream.toList() (Java 16+):\n- Returns an unmodifiable List (attempting add/remove throws UnsupportedOperationException)\n- More concise syntax\n- Preserves encounter order\n- Accepts null elements (unlike Collectors.toUnmodifiableList(), which throws NullPointerException on a null)\n\nCollectors.toList():\n- In practice returns a mutable ArrayList, so elements can be added or removed after collection\n- But the API contract guarantees neither the type nor the mutability (implementation may vary); if you\n  need a mutable list, use Collectors.toCollection(ArrayList::new)\n- Accepts null elements\n\nIn most interview scenarios, prefer Stream.toList() for read-only results and Collectors.toList() when\nyou need to modify the resulting list."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Java 16+: immutable list\nList<String> immutable = Stream.of(\"a\", \"b\", \"c\").toList();\n// immutable.add(\"d\"); // UnsupportedOperationException\n\n// Mutable list\nList<String> mutable = Stream.of(\"a\", \"b\", \"c\").collect(Collectors.toList());\nmutable.add(\"d\"); // OK in the JDK (an ArrayList) — mutable.size() is now 4; the contract does not promise mutability\n\n// Explicitly unmodifiable with Collectors (Java 10+)\nList<String> unmodifiableViaCollectors = Stream.of(\"a\", \"b\", \"c\")\n    .collect(Collectors.toUnmodifiableList());"
+      "text": "A `Stream` is closer to an `Iterator` than to a `Collection`: it wraps a cursor over the source and a chain of stages that is fused into one pass when the terminal operation starts. Making it reusable would mean either buffering every element, which an infinite or very large source can't afford, or reading the source again, which a stream over a file, a socket or a generator can't do. The designers chose one pass and an exception for a second use. The cost is that one pipeline can't feed two results: counting and listing take two streams, or one collector that does both (`Collectors.teeing`; collectors are unit 4.4.4)."
     },
     {
       "type": "heading",
@@ -406,17 +433,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 13,
-    "paras": 11,
-    "code": 12,
-    "tables": 1,
-    "lists": 10,
+    "headings": 11,
+    "paras": 30,
+    "code": 22,
+    "tables": 3,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "b2f013581e743b8a8e7cc1c4ce9b03bc634c6c3489afaa9c019a3510580244a1"
+  "content_sha256": "8b962a298631005ee5cb136be466103823664c523608f02f68a196560c14e92f"
 }

@@ -1,21 +1,12 @@
-`takeWhile(p)` (Java 9) passes elements while `p` holds and stops for good at the
-first one that fails; `dropWhile(p)` skips elements while `p` holds and then passes
-that element and **everything after it**. `filter(p)`, by contrast, tests every
-element on its own.
+Operations staff page through the company's warehouse codes in the admin console, a few codes per
+page, in alphabetical order. They report that a page sometimes lists codes in no recognisable
+order, that the same page number shows different codes from one visit to the next, and that some
+warehouses never appear on any page.
 
-A sensor warms up: its first readings are below a threshold. Write two methods in
-`Readings`:
+The console runs on several instances behind a load balancer, and each one gets the codes from the
+inventory service as a `Set` that promises no order. Finish the `TODO` in
+`src/main/java/practice/WarehouseDirectory.java`: `page(page, size)` returns page `page` (counted
+from 0) of `size` codes in alphabetical order, so that paging from the first page to the last
+shows every code exactly once, whichever instance serves each page.
 
-1. `warmup(List<Integer> readings, int threshold)` returns the readings before the
-   first one that is at or above `threshold`.
-2. `afterWarmup(List<Integer> readings, int threshold)` returns that first reading at
-   or above `threshold` and every reading after it.
-
-| readings | threshold | warmup | afterWarmup |
-|---|---|---|---|
-| `[1, 2, 3, 4, 5, 6]` | `4` | `[1, 2, 3]` | `[4, 5, 6]` |
-| `[1, 2, 5, 3, 4]` | `5` | `[1, 2]` | `[5, 3, 4]` |
-| `[7, 1, 2]` | `5` | `[]` | `[7, 1, 2]` |
-
-Readings may be any `int`, however far below the threshold. The two lists always
-put the readings back together, in order.
+About three lines.

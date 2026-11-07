@@ -1,408 +1,301 @@
 # 5.1.1. Overview of the Java Memory Model
 
-## Concept Explanation
+An `Invoice` is immutable, and three values derived from it are expensive, so a teammate caches
+them lazily in plain fields: an `int` checksum of the line items, a `long` total in cents, and a
+`HashMap` of totals per tax code. Each getter checks for the field's default value, computes, and
+stores. The review comment says these fields are written by one thread and read by others with no
+synchronization. The reply: "`String.hashCode` does exactly this. The race is benign."
 
-The Java Memory Model (JMM), formally specified in Chapter 17 of the Java Language Specification, defines the rules
-governing how threads interact through memory. It answers a deceptively simple question: "If thread A writes a value,
-when can thread B read it?" Without the JMM, every platform—x86, ARM, SPARC—could provide different answers, making
-concurrent Java programs non-portable.
+One of the three caches is safe, and only if its getter is written with care. Deciding which takes
+the rule the Java Memory Model (JMM, chapter 17 of the Java Language Specification) states, not
+the usual picture of threads with private caches.
 
-**Real-world analogy**: Imagine a team of software engineers (threads) sharing a whiteboard (main memory). The JMM
-governs the rules of this collaboration: when can one engineer see what another has written? Can one engineer read a
-stale note that has already been updated? The JMM provides the rulebook that all engineers and the JVM must follow.
+Every output below comes from Java 21 (Temurin 21.0.12.1, HotSpot, x86-64, 20 cores).
 
-The JMM was introduced in Java 1.0 but had well-known flaws. Java 5 (JSR-133) introduced a corrected and
-comprehensive JMM that remains in effect today. It is usually explained with the following picture:
+## The JMM Says Which Writes a Read May Return, and a Test Shows Only Some of Them
 
-1. **Main Memory**: The shared memory area visible to all threads. This conceptually maps to heap memory where objects
-   and static fields live.
-2. **Working Memory (CPU Cache / Registers)**: Each thread has its own working memory — a thread-local view of the data
-   it is currently using. This conceptually maps to CPU registers and caches.
-3. **Happens-Before Relationships**: A partial order over all actions in a program. If action X happens-before action Y,
-   then X's effects are visible to Y. The JMM defines which actions establish happens-before edges.
+The JLS defines the model by checking reads: it "works by examining each read in an execution
+trace and checking that the write observed by that read is valid according to certain rules". It
+names no caches, registers or main memory. Happens-before is the order the JMM guarantees between
+two actions, from program order and from synchronization (unit 5.2.1 lists the edges). For a plain
+field the main rule is: a read may return any write to that field, unless the read happens-before
+that write, or another write to the field comes between the two in happens-before order. (JLS
+17.4.8 also rules out values no write produced.)
 
-Items 1 and 2 are a mental model, not the specification: the pre-Java 5 JMM was written in terms of main and working
-memory, but the current JMM (JLS §17.4) defines no memory regions or caches at all. It is defined through actions,
-program order, synchronization order and happens-before (item 3), which is what the guarantees below rest on. The
-"working memory" picture predicts the same failures and is used throughout these lessons as a shorthand.
-
-Without understanding the JMM, you may write code that:
-- Works perfectly in single-threaded tests but fails intermittently in production
-- Behaves correctly on your development machine (x86) but fails on ARM servers
-- Passes a code review but is silently broken by compiler or JIT optimizations
-
-Key actions defined by the JMM include: reads and writes to variables, lock acquisitions and releases, thread starts,
-and thread joins. Each of these actions may or may not create happens-before edges between threads.
-
-## Key Points to Remember
-
-1. The JMM is about **visibility** and **ordering**, not just atomicity.
-2. Threads may work with **stale cached copies** of variables unless proper synchronization is used.
-3. The **happens-before** relationship is the primary mechanism for reasoning about memory visibility.
-4. The JMM was significantly revised in **Java 5 (JSR-133)** to fix the broken double-checked locking pattern and
-   related bugs.
-5. **Volatile reads/writes**, **synchronized blocks**, **thread start/join**, and **Lock operations** all establish
-   happens-before edges.
-6. The JMM is an **abstraction**—it describes what the JVM must guarantee, not how hardware implements it.
-7. **Memory consistency errors** (reading stale values) are the most common JMM-related bugs.
-8. The JMM applies to both **heap variables** and **class-level (static) variables** — NOT to local variables, which
-   are always thread-local.
-
-## Relevant Java 21 Features
-
-- **Virtual Threads (JEP 444)**: Java 21 makes virtual threads standard. Virtual threads follow the same JMM rules
-  as platform threads. Synchronized blocks work correctly with virtual threads, though `ReentrantLock` is preferred
-  since virtual threads can be pinned to a carrier thread inside `synchronized`.
-- **Structured Concurrency (JEP 453, Preview)**: Provides a higher-level model where the lifetimes of subtasks are
-  scoped to a structured block, making happens-before relationships more predictable.
-- **VarHandle API (Java 9+)**: Fine-grained memory-ordering operations (plain, opaque, release/acquire, volatile)
-  that expose the JMM's ordering guarantees directly without requiring full `synchronized` blocks.
-- **StampedLock**: An alternative to `synchronized` and `ReentrantLock` that provides optimistic reads, useful when
-  understanding JMM visibility implications.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Assuming variables are visible across threads without synchronization**
-
-   ```java
-   // BROKEN: stopRequested may never be seen as true by the background thread
-   private boolean stopRequested = false;
-
-   public void runBroken() throws InterruptedException {
-       Thread t = new Thread(() -> {
-           while (!stopRequested) { /* spin */ }
-       });
-       t.start();
-       Thread.sleep(100);
-       stopRequested = true; // may not be visible to t
-   }
-   ```
-
-   **Fix**: Declare `stopRequested` as `volatile` or use `synchronized`:
-   ```java
-   private volatile boolean stopRequested = false;
-   ```
-
-2. **Check-then-act without synchronization**
-
-   ```java
-   // BROKEN: another thread may update between the check and the act
-   if (!map.containsKey(key)) {
-       map.put(key, computeValue(key));
-   }
-   ```
-
-   **Fix**: Use `ConcurrentHashMap.computeIfAbsent()` or explicit synchronization.
-
-3. **Publishing objects without synchronization**
-
-   ```java
-   // BROKEN: another thread may see a partially constructed object
-   public class UnsafePublisher {
-       static Helper helper;
-       static void initialize() { helper = new Helper(); }
-   }
-   ```
-
-   **Fix**: Use `volatile`, `final` fields, or synchronization for safe publication.
-
-4. **Over-trusting unit tests** — JMM bugs are timing-dependent and may not manifest in tests run on specific hardware.
-   Use tools like `jcstress` for stress-testing concurrency correctness.
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer immutability**: Immutable objects are inherently thread-safe because they are safely published via final
-   fields and their state never changes.
-2. **Use `volatile` for simple flags**: For single boolean flags or reference publication, `volatile` is sufficient and
-   has lower overhead than `synchronized`.
-3. **Use `java.util.concurrent` classes**: `AtomicInteger`, `ConcurrentHashMap`, `CountDownLatch`, etc. are built with
-   correct JMM semantics and save you from rolling your own synchronization.
-4. **Document thread-safety contracts**: Use `@GuardedBy`, `@ThreadSafe`, and `@NotThreadSafe` annotations
-   (from `com.google.code.findbugs:jsr305`) to communicate intent.
-5. **Use the minimum synchronization needed**: Over-synchronization kills performance; under-synchronization causes
-   bugs. Use `volatile` when only visibility is needed, `synchronized` when atomicity is also required.
-6. **Understand happens-before before using `volatile`**: Volatile guarantees visibility of the volatile variable
-   itself and all writes made before the volatile write (happens-before "piggybacking").
-
-## Edge Cases and Their Handling
-
-1. **64-bit long and double reads/writes**: Without `volatile`, reads and writes to `long` and `double` fields are
-   NOT atomic on 32-bit JVMs — they may be split into two 32-bit operations. Modern 64-bit JVMs guarantee atomicity,
-   but the JMM does not. Always use `volatile` or `AtomicLong` for shared `long`/`double` values.
-2. **Final fields**: Final fields have their own guarantee (JLS §17.5), separate from happens-before: any thread that
-   obtains a reference to the object after its constructor finishes sees the values the constructor wrote to its final
-   fields (and to objects reachable through them), even if the reference itself was shared through a data race — but
-   ONLY if `this` did not escape (leak) before the constructor finished.
-3. **Static initializers**: Class initialization is guaranteed to be thread-safe by the JVM (via the class loading
-   lock). Static final fields set during class initialization are visible to all threads without additional
-   synchronization.
-4. **Lazy initialization with volatile**: The double-checked locking pattern requires both `volatile` and `synchronized`
-   to be correct (since Java 5).
-
-## Interview-specific Insights
-
-Interviewers expect senior engineers to:
-
-- **Explain the JMM in plain English**: "What happens when thread A writes to a variable — when does thread B see it?"
-- **Know happens-before rules from memory**: volatile, synchronized, thread start/join — plus the separate
-  final-field guarantee
-- **Identify JMM bugs in code snippets**: spotting missing `volatile`, unsafe publication, double-checked locking errors
-- **Distinguish atomicity, visibility, and ordering**: These are three separate concerns and require different
-  solutions
-- **Know the history**: Why JSR-133 (Java 5) was needed; what was broken before
-
-Common tricky interview questions:
-- "Is `i++` atomic?" (No — it's read-modify-write, three separate operations)
-- "Can `volatile` replace `synchronized`?" (Only for visibility; not for compound actions like check-then-act)
-- "Why was double-checked locking broken before Java 5?" (partial construction / reordering without `volatile`)
-
-## Interview Q&A Section
-
-**Q1: What is the Java Memory Model and why does it exist?**
-
-```text
-A1: The Java Memory Model (JMM) is a specification (Java Language Specification, Chapter 17) that defines the rules
-governing how threads in a Java program interact through shared memory.
-
-It exists because:
-1. Modern hardware uses caches, registers, and out-of-order execution — so writes by one CPU core are not
-   immediately visible to another.
-2. Compilers and JIT optimizers reorder instructions for performance.
-3. Without a well-defined model, programs that work on one hardware/JVM combination could silently produce incorrect
-   results on another.
-
-The JMM abstracts over all of this hardware complexity and provides one portable set of rules for Java programmers:
-"As long as you synchronize correctly using the primitives defined by the JMM, your program will behave correctly
-on every JVM and hardware platform."
-
-Before JSR-133 (Java 5), the JMM had known bugs — for example, the double-checked locking pattern was broken
-because compilers were allowed to reorder object construction with the store of the reference. JSR-133 fixed this
-and provided a cleaner happens-before model.
-```
+Here is the checksum written the way most of us would write it first:
 
 ```java
-// JMM in action: visibility without synchronization
-public class JmmVisibilityDemo {
-    private boolean running = true; // NOT volatile
+final class Doc {
+    private final String text;
+    private int hash;                              // plain field, 0 until computed
 
-    public void stop() {
-        running = false; // Thread A writes
+    Doc(String text) { this.text = text; }
+
+    int hash() {
+        if (hash == 0) hash = text.hashCode();     // read 1, and maybe a write
+        return hash;                               // read 2
     }
+}
+```
 
-    public void run() {
-        // Thread B might spin forever — it may see a cached 'true'
-        while (running) {
-            // work
+Thread A stores the hash. Thread B's read 1 sees A's value, so B skips the computation. Can B's
+read 2 return 0?
+
+Two threads called `hash()` on the same fresh `Doc`s, a batch of 1,000 at a time. A counting copy
+of the class, run the same way, showed both threads computing the hash of more than a quarter of
+them, so the threads really did overlap:
+
+```text
+read twice: 1,000,000,000 calls, 0 returned 0
+read twice: 1,000,000,000 calls, 0 returned 0
+read twice: 1,000,000,000 calls, 0 returned 0
+```
+
+The JLS allows 0 all the same. It treats the default 0 as a write that happens-before every
+action of every thread. A's store is ordered with neither of B's reads, so it doesn't count as a
+write between the 0 and read 2, and read 2 may return either (for a reference field, null).
+
+Nothing makes two reads of one plain field see writes in the order they were made: `VarHandle`'s
+javadoc says plain accesses "impose no observable ordering constraints with respect to threads
+other than the executing thread", and promises "coherently ordered" accesses to one variable (every
+thread sees its writes in one order) only from opaque mode up. Within one thread nobody can tell,
+so a compiler may load the value it returns before the one it tests. No call returned 0 in three
+billion: allowed by the JLS, not observed here.
+
+A run shows what one JIT did on one CPU; the JMM defines the outcomes your code must be correct
+for. If `Doc.hashCode()` returned `hash()`, the day another compiler returns 0 a `HashMap` keyed by
+`Doc` misses an entry that is there (unit 5.3.1 describes jcstress, the tool built to hunt such
+outcomes).
+
+The fix is to read the field once, into a local, and return the local, as `String` does.
+
+## A Program Without Data Races Runs as Some Interleaving of Its Threads
+
+This is the JMM's central promise (JLS 17.4.5): "If a program is correctly synchronized, then all
+executions of the program will appear to be sequentially consistent." Correctly synchronized
+means free of data races: no two accesses to one variable, at least one of them a write, that
+happens-before leaves unordered (unit 5.3.1 has the full definition). Sequentially consistent means
+as if the threads' actions ran one at a time, in one order that keeps each thread's own order, with
+every read seeing the latest write before it.
+
+Compilers and CPUs keep the reorderings a single thread can't notice, except across
+synchronization actions such as volatile accesses and locks, and a program without races can't
+notice them either. You reason about
+interleavings and ignore the JIT, store buffers and caches. You don't need reorderings even to
+decide whether you have a race: the JLS counts a program correctly synchronized if its
+sequentially consistent executions have none.
+
+Does race-free mean safe? A rate limiter creates its map of limits lazily. Every access to the
+field is volatile and the map is a `ConcurrentHashMap`, so there is no data race:
+
+```java
+static volatile Map<String, Integer> limits;
+
+static Map<String, Integer> limits(CyclicBarrier bothChecked) throws Exception {
+    Map<String, Integer> m = limits;
+    if (m == null) {
+        m = new ConcurrentHashMap<>();
+        bothChecked.await(5, TimeUnit.SECONDS);   // both threads have seen null
+        limits = m;
+    }
+    return m;
+}
+```
+
+Two threads each put one tenant's limit through the same barrier `b`,
+`limits(b).put("tenant-a", 100)` and `limits(b).put("tenant-b", 250)`. The barrier holds both between the check and the write, where the
+scheduler could pause them in production:
+
+```text
+limits after both puts: {tenant-b=250}
+```
+
+Three runs kept `tenant-b` once and `tenant-a` twice, never both. Nothing surprising happened to
+memory: this is an ordinary interleaving. A checks, B checks, each creates a map and stores it, the
+later store wins, and the other tenant's limit sits in a map nobody can reach. Sequential
+consistency settles which write each read sees; it doesn't make a check and the write that depends
+on it one step. That is atomicity, a separate kind of failure (the last section maps them).
+
+The promise covers whole programs: the JLS gives it to programs with no data race, and says nothing
+of the race-free part of a program that races elsewhere.
+
+## A Plain long or double May Be Read Half Old, Half New
+
+JLS 17.7: "a single write to a non-volatile long or double value is treated as two separate
+writes: one to each 32-bit half". A reader can combine the high half of one write with the low half
+of another, and get a value no thread wrote. Reads and writes of `volatile` `long` and `double` are
+always atomic, and so are reads and writes of references.
+
+A writer stores values whose two halves are equal, `((long) i << 32) | (i & 0xFFFF_FFFFL)` for
+`i = 1, 2, 3, …`,
+into a static `long`, and a reader counts values whose halves differ:
+
+```java
+for (long n = 0; n < reads; n++) {
+    long v = useVolatile ? vol : plain;
+    if (stop) break;                                     // a volatile read: keeps the plain read inside the loop
+    if ((int) (v >>> 32) != (int) v) torn++;
+    if (v != last) { changes++; last = v; }
+}
+```
+
+```text
+plain    long: 1,000,000,000 reads, 21,964,812 new values seen, 0 torn
+plain    long: 1,000,000,000 reads, 10,521,451 new values seen, 0 torn
+plain    long: 1,000,000,000 reads, 24,063,759 new values seen, 0 torn
+volatile long: 1,000,000,000 reads, 24,492,069 new values seen, 0 torn
+```
+
+A further 100 million interpreted reads (`-Xint`) found none either: no read was torn, so tearing
+is allowed by the JLS, not observed here. The JLS lets any JVM split the write, whatever the
+hardware it runs on; the rule exists so that hardware
+without an atomic 64-bit access needs no lock for every `long`.
+
+What a torn read costs depends on where the halves meet. A byte counter going from 4,294,967,295
+to 4,294,967,296 changes both halves:
+
+```text
+before 4,294,967,295 (0x00000000FFFFFFFF)
+after  4,294,967,296 (0x0000000100000000)
+new high half, old low half: 8,589,934,591
+old high half, new low half: 0
+```
+
+A usage report that reads the counter at that moment bills 8 GiB, or nothing. Declare a shared
+`long` or `double` `volatile`, use `AtomicLong`, or read and write it under one lock.
+
+The JLS forbids the other kind of tearing (17.6): two threads writing neighbouring fields, or
+neighbouring elements of a `byte[]`, never overwrite each other's values.
+
+## A Race Is Benign Only When Every Thread Writes the Same Value, in One Indivisible Write, Read Once
+
+`String.hashCode()` in JDK 21 races on purpose, and its comment says on what condition:
+
+```java
+public int hashCode() {
+    // The hash or hashIsZero fields are subject to a benign data race,
+    // making it crucial to ensure that any observable result of the
+    // calculation in this method stays correct under any possible read of
+    // these fields. Necessary restrictions to allow this to be correct
+    // without explicit memory fences or similar concurrency primitives is
+    // that we can ever only write to one of these two fields for a given
+    // String instance, and that the computation is idempotent and derived
+    // from immutable state
+    int h = hash;
+    if (h == 0 && !hashIsZero) {
+        h = isLatin1() ? StringLatin1.hashCode(value)
+                       : StringUTF16.hashCode(value);
+        if (h == 0) {
+            hashIsZero = true;
+        } else {
+            hash = h;
         }
     }
-    // Fix: declare running as volatile
+    return h;
 }
 ```
 
-**Q2: What is a happens-before relationship?**
+The same barrier as before holds two threads after the check on a static `int` cache that reads
+its field once like `String`'s (without `hashIsZero`):
 
 ```text
-A2: A happens-before relationship is a partial order over actions in a Java program. If action X happens-before
-action Y, then:
-- All memory writes performed by X (and everything that happened-before X) are visible to Y.
-- X appears to execute before Y.
-
-Happens-before edges are established by:
-1. Program order: Within a single thread, action A that appears before action B in code happens-before B.
-2. Monitor lock: An unlock of a monitor happens-before every subsequent lock of that same monitor.
-3. Volatile write: A write to a volatile field happens-before every subsequent read of that field.
-4. Thread start: Thread.start() happens-before any action in the started thread.
-5. Thread join: All actions in a thread happen-before Thread.join() returns.
-Final fields are NOT a happens-before rule: JLS §17.5 gives them a separate guarantee — a thread that sees a
-reference to an object after its constructor finished sees the constructor's values of its final fields, even
-without synchronization, provided the reference did not leak from the constructor.
-
-Happens-before is TRANSITIVE: if X happens-before Y and Y happens-before Z, then X happens-before Z.
+hash computed 2 times; the threads got -474862093 and -474862093; the field holds -474862093
 ```
 
-```java
-public class HappensBeforeDemo {
-    private int value = 0;
-    private volatile boolean ready = false;
+The race cost a second computation and nothing else. It is safe because:
 
-    // Thread A
-    public void writer() {
-        value = 42;          // (1)
-        ready = true;        // (2) volatile write
-    }
+- **Every thread writes the same value.** The input is immutable and the computation idempotent,
+  so it doesn't matter which write a reader sees, or whether it sees one at all.
+- **One write, of a type that can't tear.** `hash` is an `int`. Only one of the two fields is ever
+  written for a given string, so no reader can see half of a two-field update.
+- **The field is read once.** `h` is tested and returned, so the first section's second read
+  doesn't exist.
 
-    // Thread B
-    public void reader() {
-        if (ready) {         // (3) volatile read — happens-after (2)
-            // (2) happens-after (1) by program order
-            // (3) happens-after (2) by volatile
-            // Therefore: (1) happens-before (3)
-            System.out.println(value); // Guaranteed to print 42
-        }
-    }
-}
-```
+Back to the `Invoice`. The `int` checksum is safe if its getter reads the field once, like
+`String`. The `long` total can tear on a JVM that splits it. The `HashMap` of totals is built from
+immutable data, so two threads build equal maps, but publishing it through a race fails:
+`HashMap`'s fields aren't final, so nothing orders them before the plain reference
+write, and a reader may see the reference and an empty table (allowed by the JLS; unit 5.1.4 shows
+what reordering does to a partly built object, and unit 5.2.3 the final-field rule that makes an
+immutable object safe to share through a race). A map that callers keep changing after it is
+published is worse still: the tenant's limit showed what happens to writes into a losing copy. A
+`volatile` field fixes it, and so does an unmodifiable map (`Map.copyOf`) built first, stored once
+and read once, because the final fields inside it carry its contents along with the reference.
 
-**Q3: What is the difference between atomicity, visibility, and ordering in the context of the JMM?**
+<!-- practice 1 -->
 
-```text
-A3: These are three distinct concerns:
+## Every Failure Here Is One of Three Kinds, and Each Has Its Unit
 
-1. ATOMICITY: An operation is atomic if it appears to happen as a single, indivisible unit.
-   - int read/write: atomic by JMM spec
-   - long/double read/write: NOT guaranteed atomic (may be split into two 32-bit ops) without volatile
-   - i++: NOT atomic — it is read, increment, write (three ops)
-   - Solution: synchronized blocks, AtomicInteger, AtomicLong, etc.
+The failures on this page fall into three kinds:
 
-2. VISIBILITY: When thread A writes a value, will thread B see the updated value or a stale cached copy?
-   - Without synchronization: NO guarantee
-   - volatile: a write happens-before every later read of the same field, so a read that sees the write also sees
-     everything the writer did before it (pictured as "flush on write, refresh on read")
-   - synchronized: an unlock happens-before every later lock of the same monitor (pictured as "flush on exit,
-     refresh on entry")
+| Kind | What a thread sees | Example | Fixed by | Units |
+|---|---|---|---|---|
+| Visibility | another thread's write late, or never | a plain stop flag the JIT reads once (unit 6.2.2) | any happens-before edge: `volatile`, a lock, `start`/`join`, a concurrent collection | 5.1.2, 5.1.3, 5.2.1, 5.2.2, 5.3.3 |
+| Ordering | writes in an order nobody made them | the read-twice hash returning 0; a reference seen before the object's fields | `volatile` publication, final fields, safe publication | 5.1.4, 5.2.3 |
+| Atomicity | an operation half done | a torn `long`; the lost tenant limit; `count++` losing updates | a lock, `AtomicLong` and friends, one immutable holder swapped whole | 5.3.1, 5.3.2, 6.2.1, 6.2.2 |
 
-3. ORDERING: Can the compiler/JIT/CPU reorder instructions?
-   - Without synchronization: YES — compilers and CPUs reorder instructions aggressively
-   - volatile: establishes happens-before ordering; writes before a volatile write cannot be moved after it
-   - synchronized: code inside the block may be reordered within it but not moved out of it, and threads that use
-     the same lock observe the block's effects as a unit
+A data race causes the first two, and removing every race removes them. Atomicity failures can
+come from a race (the torn `long`, `count++` on a plain field) but don't need one: the tenant's
+limit was lost in a race-free program. Unit 5.3.4 collects the design
+habits that prevent all three.
 
-Senior engineers understand that different problems need different tools:
-- Only atomicity? → AtomicInteger
-- Only visibility? → volatile
-- Both atomicity and visibility? → synchronized / explicit Lock
-```
+<!-- practice 2 -->
 
-```java
-public class ThreeConcernsDemo {
-    // Visibility issue only
-    private volatile boolean flag = false;
+## Summary
 
-    // Atomicity issue only (on 32-bit JVM)
-    private volatile long largeCounter = 0L; // volatile fixes split-word reads
+- **The JMM specifies which writes each read may return.** A test shows what one JIT did on one
+  CPU; a plain field read twice may return 0 after the hash was stored, though no run here did.
+- **A program without data races behaves as an interleaving of its threads.** That removes
+  reordering surprises, not check-then-act failures: a race-free lazy map still lost a limit.
+- **A plain `long` or `double` may be read half old, half new.** 64-bit HotSpot never tore one in
+  three billion reads; the JLS still allows it, and `volatile` forbids it.
+- **A race is benign only when every thread writes the same value, in one indivisible write, read
+  once.** `String.hashCode` qualifies; a lazy `long` or a lazy mutable map doesn't.
+- **Visibility, ordering, atomicity.** Races cause the first two; the third can happen without a
+  race.
 
-    // Both atomicity and visibility
-    private int compound = 0;
+## Reference
 
-    public synchronized void incrementCompound() {
-        compound++; // read-modify-write: needs synchronized for atomicity + visibility
-    }
+**What the JLS promises (chapter 17):**
 
-    // Better: use AtomicInteger for lock-free atomicity
-    private final java.util.concurrent.atomic.AtomicInteger atomic =
-            new java.util.concurrent.atomic.AtomicInteger(0);
+| Access | Atomic | Ordered with other threads |
+|---|---|---|
+| plain `int`, `short`, `byte`, `char`, `boolean`, `float`, reference | yes | only through happens-before |
+| plain `long`, `double` | not guaranteed: may be split into two 32-bit halves (17.7) | only through happens-before |
+| `volatile` field of any type | yes | a write happens-before every later read of that field (later in the synchronization order) |
+| neighbouring fields or array elements | each updated independently, never torn into each other (17.6) | — |
 
-    public void incrementAtomic() {
-        atomic.incrementAndGet(); // atomic + visible
-    }
-}
-```
+**`VarHandle` access modes, weakest to strongest (from its javadoc):**
 
-**Q4: What happens-before rules does the JMM define for synchronized blocks?**
+| Mode | Adds |
+|---|---|
+| plain | atomic only for references and values of at most 32 bits; no ordering seen by other threads |
+| opaque | atomic, and accesses to one variable are coherently ordered |
+| acquire / release | an acquire read and what follows it are ordered after the matching release write and what precedes it |
+| volatile | all volatile accesses totally ordered with each other |
 
-```text
-A4: For synchronized blocks, the JMM provides two critical rules:
+## Challenges
 
-1. UNLOCK → LOCK (monitor release happens-before subsequent acquisition):
-   When thread A releases a monitor (exits synchronized block), all writes made by thread A before the release —
-   inside the block or earlier — are flushed to main memory. When thread B subsequently acquires the same monitor, thread B's working
-   memory is invalidated and it refreshes from main memory. Therefore, thread B sees all writes made by thread A.
+1. Your service runs on 64-bit HotSpot only. Would you still make a shared `long` counter
+   `volatile`? What would you gain beyond atomicity, and what would you measure first?
+2. The lost tenant limit came from a race-free program. Fix it three ways (a lock, a
+   `ConcurrentHashMap` created eagerly, an `AtomicReference` with `compareAndSet`) and compare what
+   each costs on the path where the map already exists.
+3. Pick a lazily cached field in a codebase you know. Which of the three conditions does it meet,
+   and would you rather enforce them with `volatile` or with a comment like `String`'s?
 
-2. Within a thread, all actions within a synchronized block have program-order happens-before edges between them.
+## Design Note: Why Plain Fields Promise So Little
 
-By transitivity, this means:
-- All writes by thread A inside synchronized(lock){...}
-- are visible to thread B after thread B enters synchronized(lock){...}
+The JMM leaves plain accesses unordered, and not even coherent, so that the compiler can treat a
+plain field almost like a local: keep it in a register, read it once for a whole loop, reorder two
+reads that a single thread can't tell apart. Most fields are never shared, and they lose nothing.
+Where ordering is needed you ask for it, and `VarHandle` offers each guarantee separately: opaque
+for coherence, acquire and release for one-way ordering, volatile for a single order everyone
+agrees on.
 
-This provides BOTH visibility and atomicity for the protected code region.
-
-Important subtlety: The happens-before edge is only established for threads that synchronize on the SAME monitor
-object. Synchronizing on different objects provides no cross-thread visibility guarantees.
-```
-
-```java
-public class SynchronizedHappensBefore {
-    private final Object lock = new Object();
-    private int sharedValue = 0;
-    private String sharedName = null;
-
-    public void writer() {
-        synchronized (lock) {
-            sharedValue = 100;    // (1)
-            sharedName = "Alice"; // (2)
-        } // monitor release (3): flushes (1) and (2)
-    }
-
-    public void reader() {
-        synchronized (lock) { // monitor acquire (4): invalidates cache
-            // (4) happens-after (3) by monitor rule
-            // (3) happens-after (1) and (2) by program order
-            // Therefore: if the reader's acquire comes after the writer's release, it sees
-            // sharedValue=100, sharedName="Alice"; if it acquires first, it sees 0 and null
-            System.out.println(sharedValue + " " + sharedName);
-        }
-    }
-}
-```
-
-**Q5: How does the JMM handle final fields and safe publication?**
-
-```text
-A5: The JMM provides a special guarantee for final fields:
-
-FINAL FIELD RULE (JLS 17.5, a guarantee separate from happens-before): a thread that obtains a reference to an
-object after its constructor has finished is guaranteed to see the values the constructor wrote to the object's
-final fields — and, through a final field, the state of the referenced object as of the end of the constructor —
-even if the reference was passed through a data race, provided the reference to the object is not published
-(leaked) before the constructor completes.
-
-This means:
-- An object whose ALL mutable state is set through final fields is inherently thread-safe without additional
-  synchronization, assuming no reference escape from the constructor.
-- This is why immutable classes (all fields final, no mutation after construction) are the gold standard for
-  thread safety.
-
-Safe publication methods (ways to make an object's reference visible to other threads safely):
-1. Store it in a static field during class initialization (static initializers are thread-safe)
-2. Store it in a volatile field or AtomicReference
-3. Store it in a field guarded by a lock (synchronized setter)
-4. Store it in a final field (then publish the holder object)
-
-Unsafe publication:
-- Storing in a plain non-volatile, non-final, non-synchronized field allows other threads to see a
-  partially constructed object.
-```
-
-```java
-// Safe publication via final fields
-public final class ImmutablePoint {
-    private final int x;
-    private final int y;
-
-    public ImmutablePoint(int x, int y) {
-        this.x = x;
-        this.y = y;
-        // Constructor completes — final field guarantee kicks in
-    }
-
-    public int getX() { return x; }
-    public int getY() { return y; }
-    // No synchronization needed — final fields ensure visibility
-}
-
-// Safe publication via volatile
-public class SafePublisher {
-    private volatile ImmutablePoint point;
-
-    public void publish(int x, int y) {
-        point = new ImmutablePoint(x, y); // volatile write
-    }
-
-    public ImmutablePoint get() {
-        return point; // volatile read — sees latest write
-    }
-}
-```
+The cost falls on every field that is shared. Its default is the weakest guarantee, and nothing
+warns when a field crosses threads. The benign race lives inside that default, and
+`String.hashCode` needs a paragraph of comment to justify it.
 
 ## Code Examples
 

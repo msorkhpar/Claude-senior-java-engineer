@@ -1,18 +1,12 @@
-`Stream.builder()` gives a mutable `Stream.Builder<T>`: `add` elements one at a time,
-under whatever conditions you like, then call `build()` once to get the stream. After
-`build()` the builder accepts nothing more.
+The composer under a post's text box shows `used/limit`, and the preview cuts a post that is over
+the limit. The product spec counts one character per Unicode code point, so 🎉 is one character.
+Users report that a post with a few emoji shows a count higher than the characters they typed,
+and that some previews end in a `?` box where an emoji was cut.
 
-Write `ReportLines.lines(List<String> items, boolean header, boolean footer)`; a
-`Stream.Builder<String>` suits it. The result starts with `"HEADER"` if `header` is true, then
-holds the items in their order, repeats included, each trimmed of surrounding spaces (spaces
-inside an item stay), and ends with `"FOOTER"` if `footer` is
-true. Items that are `null` or blank are left out.
+Finish the two `TODO` methods in `src/main/java/practice/PostLimit.java`:
 
-| items | header | footer | answer |
-|---|---|---|---|
-| `["item1", "item2"]` | `true` | `true` | `["HEADER", "item1", "item2", "FOOTER"]` |
-| `["item1"]` | `false` | `true` | `["item1", "FOOTER"]` |
-| `[]` | `true` | `true` | `["HEADER", "FOOTER"]` |
+- `length(post)`: the post's length by the spec's count;
+- `truncate(post, max)`: the first `max` characters of the post, by the same count.
 
-Items are ASCII text, so the only whitespace they carry is ASCII. The items come
-from user input: expect stray spaces, blank entries and the odd `null`.
+About four lines in total. The tests use emoji that are each one code point; flags and emoji with
+skin tones, which are several, are out of scope.

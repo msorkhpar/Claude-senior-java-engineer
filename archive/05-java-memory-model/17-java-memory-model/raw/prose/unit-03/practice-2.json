@@ -10,100 +10,138 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "What synchronization does and does not promise",
+  "title": "Fetch the tax tables once, and let checkouts read them without queueing",
   "blocks": [
     {
       "type": "heading",
       "level": 2,
-      "text": "Check yourself"
+      "text": "Problem statement"
     },
     {
       "type": "para",
-      "text": "Questions on what this page has just taught. Choose one answer for each."
+      "text": "Checkout computes VAT from tables that the tax service publishes. Fetching them takes seconds and the tax service bills every call, so the shop fetches them the first time a checkout needs them and keeps them. At peak, a few hundred thousand checkouts a second ask for the tables, from many threads. Last quarter's version fetched the tables twice during the morning rush, and the version before it made every checkout wait in line for the tables."
+    },
+    {
+      "type": "para",
+      "text": "Finish `src/main/java/practice/TaxTables.java`: the body of `rates()`, and the declaration of the `rates` field it keeps the tables in (there is a `TODO` on each). Use the `lock` field the class already has."
+    },
+    {
+      "type": "para",
+      "text": "When you're done:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "the tax service is called on the first call to `rates()` and never again, even when two checkouts make the first call at the same moment;",
+        "once the tables are fetched, `rates()` returns them without waiting, even while some other thread holds the lock;",
+        "a checkout on any thread that gets the tables gets them as the tax service built them."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "About ten lines in total. Some of the tests hold the tax service or the lock on one thread and call `rates()` on another; one of them also reads how the `rates` field is declared."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Map;\n\n/**\n * VAT rates by country, fetched from the tax service the first time a checkout needs them. Every\n * checkout thread calls rates(), a few hundred thousand times a second at peak.\n */\npublic class TaxTables {\n\n    /** Fetches the current tables. Takes seconds, and the tax service bills every call. */\n    public interface Loader {\n        Rates load();\n    }\n\n    /** The tables as fetched: a version and the rate per country, in basis points. */\n    public static class Rates {\n        String version;\n        Map<String, Integer> basisPointsByCountry;\n\n        public Rates(String version, Map<String, Integer> basisPointsByCountry) {\n            this.version = version;\n            this.basisPointsByCountry = basisPointsByCountry;\n        }\n\n        public String version() {\n            return version;\n        }\n\n        public int basisPoints(String country) {\n            return basisPointsByCountry.get(country);\n        }\n    }\n\n    private final Object lock = new Object();\n    private final Loader loader;\n    private volatile Rates rates;\n\n    public TaxTables(Loader loader) {\n        this.loader = loader;\n    }\n\n    /** The tables, fetched on the first call; later calls return the same tables. */\n    public Rates rates() {\n        Rates r = rates;\n        if (r == null) {\n            synchronized (lock) {\n                r = rates;\n                if (r == null) {\n                    r = loader.load();\n                    rates = r;\n                }\n            }\n        }\n        return r;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Map;\n\n/**\n * VAT rates by country, fetched from the tax service the first time a checkout needs them. Every\n * checkout thread calls rates(), a few hundred thousand times a second at peak.\n */\npublic class TaxTables {\n\n    /** Fetches the current tables. Takes seconds, and the tax service bills every call. */\n    public interface Loader {\n        Rates load();\n    }\n\n    /** The tables as fetched: a version and the rate per country, in basis points. */\n    public static class Rates {\n        String version;\n        Map<String, Integer> basisPointsByCountry;\n\n        public Rates(String version, Map<String, Integer> basisPointsByCountry) {\n            this.version = version;\n            this.basisPointsByCountry = basisPointsByCountry;\n        }\n\n        public String version() {\n            return version;\n        }\n\n        public int basisPoints(String country) {\n            return basisPointsByCountry.get(country);\n        }\n    }\n\n    private final Object lock = new Object();\n    private final Loader loader;\n    // TODO: rates() reads this field on every call. Decide how it must be declared.\n    private Rates rates;\n\n    public TaxTables(Loader loader) {\n        this.loader = loader;\n    }\n\n    /** The tables, fetched on the first call; later calls return the same tables. */\n    public Rates rates() {\n        // TODO: Fetch the tables on the first call and keep them. Two checkouts can make the\n        //       first call at the same moment, and the tax service must be called once. After\n        //       that, checkouts must not queue for anything: return the tables you kept.\n        throw new IllegalStateException(\"TODO: rates\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 1,
-    "paras": 1,
-    "code": 0,
+    "headings": 3,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
-    "lists": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
     "html": 0,
-    "disclosures": 0
+    "disclosures": 1
   },
-  "content_sha256": "01381f530bdd3fd2ea9a42929589b34280a234f0332b7b83c66b27688cf7ac41",
+  "content_sha256": "1fb2b2922e2bdc2cfa1b0c69de02271dfe784890630c462db608549d95841568",
+  "starting_code": "package practice;\n\nimport java.util.Map;\n\n/**\n * VAT rates by country, fetched from the tax service the first time a checkout needs them. Every\n * checkout thread calls rates(), a few hundred thousand times a second at peak.\n */\npublic class TaxTables {\n\n    /** Fetches the current tables. Takes seconds, and the tax service bills every call. */\n    public interface Loader {\n        Rates load();\n    }\n\n    /** The tables as fetched: a version and the rate per country, in basis points. */\n    public static class Rates {\n        String version;\n        Map<String, Integer> basisPointsByCountry;\n\n        public Rates(String version, Map<String, Integer> basisPointsByCountry) {\n            this.version = version;\n            this.basisPointsByCountry = basisPointsByCountry;\n        }\n\n        public String version() {\n            return version;\n        }\n\n        public int basisPoints(String country) {\n            return basisPointsByCountry.get(country);\n        }\n    }\n\n    private final Object lock = new Object();\n    private final Loader loader;\n    // TODO: rates() reads this field on every call. Decide how it must be declared.\n    private Rates rates;\n\n    public TaxTables(Loader loader) {\n        this.loader = loader;\n    }\n\n    /** The tables, fetched on the first call; later calls return the same tables. */\n    public Rates rates() {\n        // TODO: Fetch the tables on the first call and keep them. Two checkouts can make the\n        //       first call at the same moment, and the tax service must be called once. After\n        //       that, checkouts must not queue for anything: return the tables you kept.\n        throw new IllegalStateException(\"TODO: rates\");\n    }\n}\n",
   "exercise": {
+    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-2/src/main/java/practice/TaxTables.java",
+    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-2/src/test/java/practice/TaxTablesTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-2/pom.xml",
+      "test"
+    ],
     "provenance": "generated",
     "trust": "advisory",
-    "kind": "quiz",
-    "questions": [
+    "cases": [
       {
-        "id": "q-race-free",
-        "stem": "Per this page, what does the JMM guarantee for a program that has no data races?",
-        "options": [
-          {
-            "id": "a",
-            "text": "Its threads may still see each other's writes reordered",
-            "correct": false,
-            "says": "The page says only programs with data races can observe the weaker, reordered behaviour."
-          },
-          {
-            "id": "b",
-            "text": "Every execution of it appears sequentially consistent",
-            "correct": true,
-            "says": "The page cites JLS §17.4.5: a correctly synchronized program with no data races appears sequentially consistent in every execution."
-          },
-          {
-            "id": "c",
-            "text": "Only its volatile accesses appear in one total order",
-            "correct": false,
-            "says": "The page says the whole race-free program appears sequentially consistent, not only its volatile accesses."
-          }
-        ],
-        "origin": {
-          "path": "17-java-memory-model/README_5.1.3.md",
-          "section": "Sequentially Consistent vs. Happens-Before Consistency"
-        }
+        "id": "practice.TaxTablesTest#fetchesOnFirstUseAndKeepsWhatItFetched",
+        "kind": "main",
+        "says": "nothing is fetched until the first call; later calls return the same tables without fetching again"
       },
       {
-        "id": "q-two-monitors",
-        "stem": "Per this page, what decides whether a write made inside one `synchronized` block is visible to a read made inside another?",
-        "options": [
-          {
-            "id": "a",
-            "text": "The reader's block must start only after the writer's block has exited",
-            "correct": false,
-            "says": "The page's key point 2 says the edge from a release goes only to later acquisitions of the SAME monitor, so exiting first is not enough on its own."
-          },
-          {
-            "id": "b",
-            "text": "The reader's block must lock the same monitor the writer's block released",
-            "correct": true,
-            "says": "The page's key point 2: an unlock of a monitor happens-before any later lock of that same monitor, and different objects give no guarantee."
-          },
-          {
-            "id": "c",
-            "text": "The reader's block must read the very field the writer's block wrote",
-            "correct": false,
-            "says": "The page says the lock itself establishes happens-before for all prior writes, so which field is read is not what decides it."
-          }
-        ],
-        "origin": {
-          "path": "17-java-memory-model/README_5.1.3.md",
-          "section": "Key Points to Remember"
-        }
+        "id": "practice.TaxTablesTest#twoFirstCallsAtOnceFetchTheTablesOnce",
+        "kind": "edge",
+        "says": "a second caller that arrives while the first fetch is running waits for it and gets its tables, and the tax service is called once"
+      },
+      {
+        "id": "practice.TaxTablesTest#onceFetchedACheckoutDoesNotQueueBehindTheLock",
+        "kind": "edge",
+        "says": "once the tables are fetched, a call returns them even while another thread holds the lock"
+      },
+      {
+        "id": "practice.TaxTablesTest#theFieldReadWithoutTheLockPublishesTheTables",
+        "kind": "edge",
+        "says": "the field that calls read without the lock is volatile, so a caller that sees the reference sees the finished tables"
       }
     ],
+    "report": {
+      "format": "junit",
+      "path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "17-java-memory-model/README_5.1.3.md",
+      "section": "Double-Checked Locking Reads Without the Lock, So Its Field Must Be volatile"
+    },
     "concepts": [
-      "The JMM is happens-before consistent, weaker than sequential consistency, but a program with no data races appears sequentially consistent.",
-      "A monitor release gives an edge only to later acquisitions of the same monitor."
+      "Double-checked locking's first check reads without the lock, so without a volatile field a caller can get a reference to an object whose constructor's writes it doesn't see.",
+      "The check under the lock is what stops a second caller that also found the field empty from creating the object again."
     ]
   }
 }

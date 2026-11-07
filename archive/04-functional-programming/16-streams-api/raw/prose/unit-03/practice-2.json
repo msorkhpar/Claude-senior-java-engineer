@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Remove duplicates, by value and in first-seen order",
+  "title": "Fill the fraud review queue from a live feed",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`distinct()` removes duplicates using `equals()` and `hashCode()`, and on an ordered stream it keeps the **first** occurrence of each value, in encounter order. A class that does not override those two methods compares by identity, so `distinct()` keeps every instance of it."
+      "text": "The fraud team reviews large payments as they come in. `PaymentWatch` reads the live payment feed and puts the next few payments of at least a set amount on the reviewers' sheet, each scored by the risk service, highest score first. Two problems reach you at once: the risk service's quota is used up by mid-morning, and since the service switched from hourly batch files to the live feed, the review sheet never loads."
     },
     {
       "type": "para",
-      "text": "The file you are given declares a small `Point` class next to `Dedupe`. Write two methods in `Dedupe`, and change `Point` however you need (keep its constructor `Point(int x, int y)`):"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`distinctPoints(List<Point> points)` returns the points without duplicates; two points are the same when their coordinates are.",
-        "`firstSeen(List<String> names)` returns the names without duplicates, in the order each name first appears."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`distinctPoints([Point(1,2), Point(3,4), Point(1,2)])`",
-          "`[Point(1,2), Point(3,4)]`"
-        ],
-        [
-          "`firstSeen([\"a\", \"b\", \"a\", \"c\", \"b\"])`",
-          "`[\"a\", \"b\", \"c\"]`"
-        ],
-        [
-          "`firstSeen([\"pear\", \"apple\", \"pear\", \"fig\"])`",
-          "`[\"pear\", \"apple\", \"fig\"]`"
-        ]
-      ]
+      "text": "`PaymentWatch.reviewSheet(...)` already formats the sheet. Finish the `TODO` in `src/main/java/practice/PaymentWatch.java`: `nextForReview(...)` returns the next `slots` payments at or above `reviewFromCents`, in the order they arrive, each assessed once, sorted by score from highest to lowest. Only payments that go on the sheet are sent to the risk service."
     },
     {
       "type": "para",
-      "text": "A duplicate is a matter of value, not of identity; and the order asked for is the order of first appearance, not any sorted order."
+      "text": "The feed is a `Stream` that doesn't end while the service runs. About five lines."
     },
     {
       "type": "heading",
@@ -71,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class Dedupe {\n\n    private Dedupe() {\n    }\n\n    /** Returns the points without duplicates; points with equal coordinates are the same. */\n    public static List<Point> distinctPoints(List<Point> points) {\n        return points.stream().distinct().toList();\n    }\n\n    /** Returns the names without duplicates, in first-seen order. */\n    public static List<String> firstSeen(List<String> names) {\n        return names.stream().distinct().toList();\n    }\n}\n\n/** A point on a grid; a record defines equals() and hashCode() from its components. */\nrecord Point(int x, int y) {\n\n    @Override\n    public String toString() {\n        return \"Point(\" + x + \",\" + y + \")\";\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.stream.Collectors;\nimport java.util.stream.Stream;\n\n/**\n * Picks payments for the fraud team's review queue from the live payment feed. Every payment the\n * queue takes is scored by the risk service, which is slow and allows few calls per second.\n */\npublic class PaymentWatch {\n\n    public record Payment(String id, String account, long amountCents) {}\n\n    public record Assessment(Payment payment, int score) {}\n\n    /** The risk service: one remote call per payment. */\n    public interface RiskService {\n        Assessment assess(Payment payment);\n    }\n\n    private final RiskService risk;\n    private final long reviewFromCents;\n\n    public PaymentWatch(RiskService risk, long reviewFromCents) {\n        this.risk = risk;\n        this.reviewFromCents = reviewFromCents;\n    }\n\n    /** The sheet the reviewers see: one line per payment, \"id score\". */\n    public String reviewSheet(Stream<Payment> feed, int slots) {\n        return nextForReview(feed, slots).stream()\n                .map(a -> a.payment().id() + \" \" + a.score())\n                .collect(Collectors.joining(\"\\n\"));\n    }\n\n    /**\n     * The next {@code slots} payments of at least {@code reviewFromCents}, taken in the order they\n     * arrive on the feed, each assessed once, highest score first.\n     */\n    List<Assessment> nextForReview(Stream<Payment> feed, int slots) {\n        return feed.filter(p -> p.amountCents() >= reviewFromCents)\n                .limit(slots)\n                .map(risk::assess)\n                .sorted(Comparator.comparingInt(Assessment::score).reversed())\n                .toList();\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Dedupe {\n\n    private Dedupe() {\n    }\n\n    /** Returns the points without duplicates; points with equal coordinates are the same. */\n    public static List<Point> distinctPoints(List<Point> points) {\n        throw new UnsupportedOperationException(\"write distinctPoints\");\n    }\n\n    /** Returns the names without duplicates, in first-seen order. */\n    public static List<String> firstSeen(List<String> names) {\n        throw new UnsupportedOperationException(\"write firstSeen\");\n    }\n}\n\n/** A point on a grid. */\nfinal class Point {\n\n    private final int x;\n    private final int y;\n\n    Point(int x, int y) {\n        this.x = x;\n        this.y = y;\n    }\n\n    int x() {\n        return x;\n    }\n\n    int y() {\n        return y;\n    }\n\n    @Override\n    public String toString() {\n        return \"Point(\" + x + \",\" + y + \")\";\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.stream.Collectors;\nimport java.util.stream.Stream;\n\n/**\n * Picks payments for the fraud team's review queue from the live payment feed. Every payment the\n * queue takes is scored by the risk service, which is slow and allows few calls per second.\n */\npublic class PaymentWatch {\n\n    public record Payment(String id, String account, long amountCents) {}\n\n    public record Assessment(Payment payment, int score) {}\n\n    /** The risk service: one remote call per payment. */\n    public interface RiskService {\n        Assessment assess(Payment payment);\n    }\n\n    private final RiskService risk;\n    private final long reviewFromCents;\n\n    public PaymentWatch(RiskService risk, long reviewFromCents) {\n        this.risk = risk;\n        this.reviewFromCents = reviewFromCents;\n    }\n\n    /** The sheet the reviewers see: one line per payment, \"id score\". */\n    public String reviewSheet(Stream<Payment> feed, int slots) {\n        return nextForReview(feed, slots).stream()\n                .map(a -> a.payment().id() + \" \" + a.score())\n                .collect(Collectors.joining(\"\\n\"));\n    }\n\n    /**\n     * The next {@code slots} payments of at least {@code reviewFromCents}, taken in the order they\n     * arrive on the feed, each assessed once, highest score first.\n     */\n    List<Assessment> nextForReview(Stream<Payment> feed, int slots) {\n        // TODO: Fill the review queue from the feed. The feed is live: it doesn't end while the\n        //       service runs. Every call to the risk service costs time and quota, so a payment\n        //       that doesn't go to the queue must not be assessed.\n        throw new IllegalStateException(\"TODO: nextForReview\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6aa9e9f22b734b877f2957f5066c2aa9916a9fbe716ebe33bb0883c05020553a",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Dedupe {\n\n    private Dedupe() {\n    }\n\n    /** Returns the points without duplicates; points with equal coordinates are the same. */\n    public static List<Point> distinctPoints(List<Point> points) {\n        throw new UnsupportedOperationException(\"write distinctPoints\");\n    }\n\n    /** Returns the names without duplicates, in first-seen order. */\n    public static List<String> firstSeen(List<String> names) {\n        throw new UnsupportedOperationException(\"write firstSeen\");\n    }\n}\n\n/** A point on a grid. */\nfinal class Point {\n\n    private final int x;\n    private final int y;\n\n    Point(int x, int y) {\n        this.x = x;\n        this.y = y;\n    }\n\n    int x() {\n        return x;\n    }\n\n    int y() {\n        return y;\n    }\n\n    @Override\n    public String toString() {\n        return \"Point(\" + x + \",\" + y + \")\";\n    }\n}\n",
+  "content_sha256": "14d3178c0fed236ab439324a024a93b667e52b4cb87f7d9bd0aeb0fea9ae52cc",
+  "starting_code": "package practice;\n\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.stream.Collectors;\nimport java.util.stream.Stream;\n\n/**\n * Picks payments for the fraud team's review queue from the live payment feed. Every payment the\n * queue takes is scored by the risk service, which is slow and allows few calls per second.\n */\npublic class PaymentWatch {\n\n    public record Payment(String id, String account, long amountCents) {}\n\n    public record Assessment(Payment payment, int score) {}\n\n    /** The risk service: one remote call per payment. */\n    public interface RiskService {\n        Assessment assess(Payment payment);\n    }\n\n    private final RiskService risk;\n    private final long reviewFromCents;\n\n    public PaymentWatch(RiskService risk, long reviewFromCents) {\n        this.risk = risk;\n        this.reviewFromCents = reviewFromCents;\n    }\n\n    /** The sheet the reviewers see: one line per payment, \"id score\". */\n    public String reviewSheet(Stream<Payment> feed, int slots) {\n        return nextForReview(feed, slots).stream()\n                .map(a -> a.payment().id() + \" \" + a.score())\n                .collect(Collectors.joining(\"\\n\"));\n    }\n\n    /**\n     * The next {@code slots} payments of at least {@code reviewFromCents}, taken in the order they\n     * arrive on the feed, each assessed once, highest score first.\n     */\n    List<Assessment> nextForReview(Stream<Payment> feed, int slots) {\n        // TODO: Fill the review queue from the feed. The feed is live: it doesn't end while the\n        //       service runs. Every call to the risk service costs time and quota, so a payment\n        //       that doesn't go to the queue must not be assessed.\n        throw new IllegalStateException(\"TODO: nextForReview\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-03/practice-2/src/main/java/practice/Dedupe.java",
-    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-03/practice-2/src/test/java/practice/DedupeTest.java",
+    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-03/practice-2/src/main/java/practice/PaymentWatch.java",
+    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-03/practice-2/src/test/java/practice/PaymentWatchTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,29 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DedupeTest#dropsRepeatedValues",
+        "id": "practice.PaymentWatchTest#largePaymentsAreQueuedHighestScoreFirst",
         "kind": "main",
-        "says": "It drops repeated points and repeated names."
+        "says": "a feed of exactly as many large payments as there are slots gives a sheet of all of them, highest score first"
       },
       {
-        "id": "practice.DedupeTest#equalPointsCollapse",
+        "id": "practice.PaymentWatchTest#aFeedThatNeverEndsStillFillsTheQueue",
         "kind": "edge",
-        "says": "Two separate points are duplicates exactly when both coordinates are equal: distinct() needs Point to define equals() and hashCode() over x and y, as a record does."
+        "says": "on a feed that never ends, the queue is the first large payments to arrive, and the call returns"
       },
       {
-        "id": "practice.DedupeTest#firstSeenOrderIsKept",
+        "id": "practice.PaymentWatchTest#smallPaymentsDoNotTakeQueueSlots",
         "kind": "edge",
-        "says": "The names keep the order in which each was first seen, as distinct() on an ordered stream does."
+        "says": "small payments ahead of large ones don't use up slots; the slots go to the first large payments, not the highest scored"
       },
       {
-        "id": "practice.DedupeTest#firstSeenComparesByValue",
+        "id": "practice.PaymentWatchTest#onlyQueuedPaymentsAreAssessed",
         "kind": "edge",
-        "says": "Names built at run time are duplicates when their text is equal: distinct() uses equals(), not identity."
-      },
-      {
-        "id": "practice.DedupeTest#equalsNeedsAMatchingHashCode",
-        "kind": "edge",
-        "says": "Equal points must also have equal hash codes: distinct() hashes first, so equals() without hashCode() still keeps duplicates."
+        "says": "the risk service is called once for each payment on the sheet and for no other"
       }
     ],
     "report": {
@@ -158,11 +124,11 @@
     },
     "origin": {
       "path": "16-streams-api/README_4.4.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Cheap filter Goes Before an Expensive map, Because map Runs for Every Element That Reaches It"
     },
     "concepts": [
-      "distinct() compares with equals() and hashCode(), so a value type needs them, as a record provides.",
-      "On an ordered stream distinct() keeps the first occurrence of each value, in encounter order."
+      "The stream runs the stages in the order written, so an expensive map before a filter runs for every element, and a limit before a filter counts elements the filter drops.",
+      "sorted buffers every element before it emits one, so a limit or findFirst after it doesn't stop the source and on an endless stream it never returns."
     ]
   }
 }

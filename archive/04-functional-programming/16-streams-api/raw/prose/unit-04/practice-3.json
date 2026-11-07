@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Index words by length with toMap, merging the words that collide",
+  "title": "Fix the bakery's daily city report",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,11 @@
     },
     {
       "type": "para",
-      "text": "`Collectors.toMap(keyMapper, valueMapper)` builds a map from a stream, but it throws `IllegalStateException` the moment two elements produce the same key. The three-argument form takes a merge function for that case, and the four-argument form also takes the map to fill."
+      "text": "A bakery chain sends its city managers a report every evening: each city's revenue and number of customers, in alphabetical order, then how many sales were large. The managers have three complaints. The cities come in an order nobody can explain, the customer numbers are higher than the loyalty cards say, and on the quiet Sunday after a holiday the report wasn't sent at all."
     },
     {
       "type": "para",
-      "text": "Write `LengthIndex.byLength(List<String> words)`. It returns a map from each word length to the words of that length, joined with `\", \"` in list order. The map's keys come in the order each length first appears in the list."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "words",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`[\"apple\", \"avocado\", \"blueberry\"]`",
-          "`{5=apple, 7=avocado, 9=blueberry}`"
-        ],
-        [
-          "`[\"apple\", \"banana\", \"cherry\", \"avocado\", \"blueberry\"]`",
-          "`{5=apple, 6=banana, cherry, 7=avocado, 9=blueberry}`"
-        ],
-        [
-          "`[\"blueberry\", \"apple\"]`",
-          "`{9=blueberry, 5=apple}`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Mind the collisions, the order of the keys, and the order of the words inside one value. A word that appears twice in the list appears twice in its value."
+      "text": "`render(...)` already formats the report. Finish the three `TODO`s in `src/main/java/practice/CityReport.java`: `revenueByCity`, `customersByCity` and `splitBySize`, each one stream ending in a collector. About six lines in total."
     },
     {
       "type": "heading",
@@ -63,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Collectors;\n\npublic final class LengthIndex {\n\n    private LengthIndex() {\n    }\n\n    /** Each word length mapped to its words joined with \", \" in list order; keys in first-seen order. */\n    public static Map<Integer, String> byLength(List<String> words) {\n        return words.stream()\n                .collect(Collectors.toMap(String::length, w -> w, (a, b) -> a + \", \" + b, LinkedHashMap::new));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeMap;\nimport java.util.stream.Collectors;\n\n/** The daily sales report a bakery chain sends to its city managers. */\npublic class CityReport {\n\n    public record Sale(String city, String customer, long cents) {}\n\n    /** The report, one line per city in alphabetical order, then the large and small sales. */\n    public static String render(List<Sale> sales, long largeFromCents) {\n        StringBuilder out = new StringBuilder();\n        Map<String, Integer> customers = customersByCity(sales);\n        revenueByCity(sales).forEach((city, cents) -> out.append(city).append(\": \").append(cents)\n                .append(\" cents from \").append(customers.get(city)).append(\" customers\\n\"));\n        Map<Boolean, List<Sale>> bySize = splitBySize(sales, largeFromCents);\n        out.append(\"large sales: \").append(bySize.get(true).size())\n                .append(\", small sales: \").append(bySize.get(false).size()).append('\\n');\n        return out.toString();\n    }\n\n    /** Revenue per city. The report prints the cities in the order this map iterates them. */\n    static Map<String, Long> revenueByCity(List<Sale> sales) {\n        return sales.stream().collect(Collectors.groupingBy(Sale::city, TreeMap::new,\n                Collectors.summingLong(Sale::cents)));\n    }\n\n    /** How many different customers bought in each city. */\n    static Map<String, Integer> customersByCity(List<Sale> sales) {\n        return sales.stream().collect(Collectors.groupingBy(Sale::city,\n                Collectors.collectingAndThen(Collectors.mapping(Sale::customer, Collectors.toSet()), Set::size)));\n    }\n\n    /** The sales of at least largeFromCents under true, the others under false. */\n    static Map<Boolean, List<Sale>> splitBySize(List<Sale> sales, long largeFromCents) {\n        return sales.stream().collect(Collectors.partitioningBy(s -> s.cents() >= largeFromCents));\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic final class LengthIndex {\n\n    private LengthIndex() {\n    }\n\n    /** Each word length mapped to its words joined with \", \" in list order; keys in first-seen order. */\n    public static Map<Integer, String> byLength(List<String> words) {\n        throw new UnsupportedOperationException(\"write byLength\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeMap;\nimport java.util.stream.Collectors;\n\n/** The daily sales report a bakery chain sends to its city managers. */\npublic class CityReport {\n\n    public record Sale(String city, String customer, long cents) {}\n\n    /** The report, one line per city in alphabetical order, then the large and small sales. */\n    public static String render(List<Sale> sales, long largeFromCents) {\n        StringBuilder out = new StringBuilder();\n        Map<String, Integer> customers = customersByCity(sales);\n        revenueByCity(sales).forEach((city, cents) -> out.append(city).append(\": \").append(cents)\n                .append(\" cents from \").append(customers.get(city)).append(\" customers\\n\"));\n        Map<Boolean, List<Sale>> bySize = splitBySize(sales, largeFromCents);\n        out.append(\"large sales: \").append(bySize.get(true).size())\n                .append(\", small sales: \").append(bySize.get(false).size()).append('\\n');\n        return out.toString();\n    }\n\n    /** Revenue per city. The report prints the cities in the order this map iterates them. */\n    static Map<String, Long> revenueByCity(List<Sale> sales) {\n        // TODO: Each city's total in cents. The report prints the cities in the order this map\n        //       iterates them, and the managers expect alphabetical order.\n        throw new IllegalStateException(\"TODO: revenueByCity\");\n    }\n\n    /** How many different customers bought in each city. */\n    static Map<String, Integer> customersByCity(List<Sale> sales) {\n        // TODO: For each city, the number of different customers who bought there. A regular\n        //       who comes back three times is one customer.\n        throw new IllegalStateException(\"TODO: customersByCity\");\n    }\n\n    /** The sales of at least largeFromCents under true, the others under false. */\n    static Map<Boolean, List<Sale>> splitBySize(List<Sale> sales, long largeFromCents) {\n        // TODO: The large sales (at least largeFromCents) under true, the others under false.\n        //       render() reads both lists on every day, busy or quiet.\n        throw new IllegalStateException(\"TODO: splitBySize\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -83,9 +58,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -94,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "36f1ac694097b8d8fe257d3ac81b7da54661a7d11374ab9797721bdf26bfb051",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic final class LengthIndex {\n\n    private LengthIndex() {\n    }\n\n    /** Each word length mapped to its words joined with \", \" in list order; keys in first-seen order. */\n    public static Map<Integer, String> byLength(List<String> words) {\n        throw new UnsupportedOperationException(\"write byLength\");\n    }\n}\n",
+  "content_sha256": "80556d9f775d7880f7541c8e96a252899e8d4979b41ec00e374057b8f1e0db58",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeMap;\nimport java.util.stream.Collectors;\n\n/** The daily sales report a bakery chain sends to its city managers. */\npublic class CityReport {\n\n    public record Sale(String city, String customer, long cents) {}\n\n    /** The report, one line per city in alphabetical order, then the large and small sales. */\n    public static String render(List<Sale> sales, long largeFromCents) {\n        StringBuilder out = new StringBuilder();\n        Map<String, Integer> customers = customersByCity(sales);\n        revenueByCity(sales).forEach((city, cents) -> out.append(city).append(\": \").append(cents)\n                .append(\" cents from \").append(customers.get(city)).append(\" customers\\n\"));\n        Map<Boolean, List<Sale>> bySize = splitBySize(sales, largeFromCents);\n        out.append(\"large sales: \").append(bySize.get(true).size())\n                .append(\", small sales: \").append(bySize.get(false).size()).append('\\n');\n        return out.toString();\n    }\n\n    /** Revenue per city. The report prints the cities in the order this map iterates them. */\n    static Map<String, Long> revenueByCity(List<Sale> sales) {\n        // TODO: Each city's total in cents. The report prints the cities in the order this map\n        //       iterates them, and the managers expect alphabetical order.\n        throw new IllegalStateException(\"TODO: revenueByCity\");\n    }\n\n    /** How many different customers bought in each city. */\n    static Map<String, Integer> customersByCity(List<Sale> sales) {\n        // TODO: For each city, the number of different customers who bought there. A regular\n        //       who comes back three times is one customer.\n        throw new IllegalStateException(\"TODO: customersByCity\");\n    }\n\n    /** The sales of at least largeFromCents under true, the others under false. */\n    static Map<Boolean, List<Sale>> splitBySize(List<Sale> sales, long largeFromCents) {\n        // TODO: The large sales (at least largeFromCents) under true, the others under false.\n        //       render() reads both lists on every day, busy or quiet.\n        throw new IllegalStateException(\"TODO: splitBySize\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-04/practice-3/src/main/java/practice/LengthIndex.java",
-    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-04/practice-3/src/test/java/practice/LengthIndexTest.java",
+    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-04/practice-3/src/main/java/practice/CityReport.java",
+    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-04/practice-3/src/test/java/practice/CityReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,34 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LengthIndexTest#indexesDistinctLengths",
+        "id": "practice.CityReportTest#aBusyDayIsSummedPerCityAndSplitBySize",
         "kind": "main",
-        "says": "It maps each length to its word when no two words share a length."
+        "says": "on a busy day, revenue and customers are given per city, and the sales are split into large and small"
       },
       {
-        "id": "practice.LengthIndexTest#sharedLengthsAreJoined",
+        "id": "practice.CityReportTest#citiesComeOutInAlphabeticalOrder",
         "kind": "edge",
-        "says": "Words of the same length are merged into one entry instead of throwing IllegalStateException."
+        "says": "the revenue map iterates its cities in alphabetical order"
       },
       {
-        "id": "practice.LengthIndexTest#keysKeepFirstSeenOrder",
+        "id": "practice.CityReportTest#aQuietDayWithNoLargeSaleStillHasBothLists",
         "kind": "edge",
-        "says": "The map lists lengths in the order they first appear, which a plain HashMap does not keep."
+        "says": "on a day with no large sale, the split still has an empty list of large sales, and the report renders"
       },
       {
-        "id": "practice.LengthIndexTest#mergedWordsKeepListOrder",
+        "id": "practice.CityReportTest#aRegularWhoComesBackCountsAsOneCustomer",
         "kind": "edge",
-        "says": "Merged words appear in list order: the earlier word comes first."
-      },
-      {
-        "id": "practice.LengthIndexTest#longLengthsStillMerge",
-        "kind": "edge",
-        "says": "Two words of length 200 still share one entry: lengths are compared with equals, and == on boxed Integers only works for small values."
-      },
-      {
-        "id": "practice.LengthIndexTest#repeatedWordsAreKept",
-        "kind": "edge",
-        "says": "A word the list holds twice is joined twice: [fig, fig] gives 3=fig, fig."
+        "says": "a customer who buys several times in a city is counted once there"
       }
     ],
     "report": {
@@ -155,11 +120,11 @@
     },
     "origin": {
       "path": "16-streams-api/README_4.4.4.md",
-      "section": "Interview Q&A Section"
+      "section": "partitioningBy Always Has Both Keys; groupingBy Has Only the Keys It Saw"
     },
     "concepts": [
-      "toMap throws IllegalStateException on a duplicate key unless it is given a merge function.",
-      "The four-argument toMap chooses the map, such as a LinkedHashMap that keeps first-seen order."
+      "groupingBy's downstream collector decides what each group becomes (counting counts elements, mapping to a set keeps distinct values), and its map has no promised type or order unless a map factory such as TreeMap::new is given.",
+      "partitioningBy always has both the true and the false key; groupingBy by a predicate has only the keys some element mapped to, so a missing group reads as null."
     ]
   }
 }

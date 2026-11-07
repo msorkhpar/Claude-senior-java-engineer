@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Stream values that may be null without tripping over them",
+  "title": "Stop the log scanner from running out of file handles",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,27 @@
     },
     {
       "type": "para",
-      "text": "`Stream.of((String) null)` is **not** an empty stream: it holds one `null` element. `Stream.ofNullable(value)` (Java 9) is the null-safe tap: empty for `null`, a one-element stream otherwise. And `Arrays.stream(array)` on a `null` array throws, so a source that may be `null` must be guarded before it is streamed."
+      "text": "The support team's service runs `LogScanner.countErrors(dir)` every few minutes to show how many `ERROR` lines today's logs hold. The numbers are right, and the service runs fine for a day or two. Then every scan, and everything else in the process that opens a file, fails with `Too many open files`, until someone restarts it."
     },
     {
       "type": "para",
-      "text": "Write two methods in `NullSafe`:"
+      "text": "Finish the two `TODO` methods in `src/main/java/practice/LogScanner.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`nicknames(List<NullSafe.Person> people)` returns the nicknames of the people, in their order. A `Person(String name, String nickname)` may have a `null` nickname; such a person contributes nothing. Every other nickname is listed, even an empty one, and a repeated one each time.",
-        "`countItems(String[] items)` returns how many slots the array has, `null` entries included; a `null` array holds none."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`nicknames([Person(\"Robert\", \"Bob\"), Person(\"Katherine\", \"Kate\")])`",
-          "`[\"Bob\", \"Kate\"]`"
-        ],
-        [
-          "`nicknames([Person(\"Robert\", \"Bob\"), Person(\"Ann\", null)])`",
-          "`[\"Bob\"]`"
-        ],
-        [
-          "`countItems([\"a\", \"b\", \"c\"])`",
-          "`3`"
-        ],
-        [
-          "`countItems(null)`",
-          "`0`"
-        ]
+        "`listLogs(dir)`: the `.log` files of the directory, sorted by name;",
+        "`errorsIn(log)`: how many lines of one log contain `ERROR`."
       ]
     },
     {
       "type": "para",
-      "text": "Neither method throws on a `null`, and neither lets one into its answer."
+      "text": "Open the directory with `openDir` and each log with `openLog`, never with `Files` directly: the tests replace those two methods to watch what the scanner opens. A log can fail while it is being read (a disk unmounted, a file truncated under you); that failure should reach the caller of `countErrors`. About seven lines in total."
+    },
+    {
+      "type": "para",
+      "text": "When you're done, the scanner can run every few minutes for weeks and hold no file open between scans, whether a scan succeeds or fails."
     },
     {
       "type": "heading",
@@ -75,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.List;\nimport java.util.stream.Stream;\n\npublic final class NullSafe {\n\n    private NullSafe() {\n    }\n\n    /** A person whose nickname may be null. */\n    public record Person(String name, String nickname) {\n    }\n\n    /** Returns the non-null nicknames, in the order of the people. */\n    public static List<String> nicknames(List<Person> people) {\n        return people.stream()\n                .flatMap(person -> Stream.ofNullable(person.nickname()))\n                .toList();\n    }\n\n    /** Returns how many items the array holds; a null array holds none. */\n    public static long countItems(String[] items) {\n        return Stream.ofNullable(items)\n                .flatMap(Arrays::stream)\n                .count();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.stream.Stream;\n\n/**\n * Counts the lines that contain \"ERROR\" in every log of a directory. The support team runs it\n * every few minutes from a long-lived service.\n */\npublic class LogScanner {\n\n    /** Opens a directory listing. Always use this, never Files.list directly. */\n    Stream<Path> openDir(Path dir) throws IOException {\n        return Files.list(dir);\n    }\n\n    /** Opens the lines of one log. Always use this, never Files.lines directly. */\n    Stream<String> openLog(Path log) throws IOException {\n        return Files.lines(log);\n    }\n\n    /** How many lines of all the logs in dir contain \"ERROR\". */\n    public long countErrors(Path dir) throws IOException {\n        long total = 0;\n        for (Path log : listLogs(dir)) {\n            total += errorsIn(log);\n        }\n        return total;\n    }\n\n    /** The files in dir whose names end in \".log\", sorted by name. */\n    List<Path> listLogs(Path dir) throws IOException {\n        try (Stream<Path> entries = openDir(dir)) {\n            return entries.filter(p -> p.getFileName().toString().endsWith(\".log\")).sorted().toList();\n        }\n    }\n\n    /** How many lines of this log contain \"ERROR\". */\n    long errorsIn(Path log) throws IOException {\n        try (Stream<String> lines = openLog(log)) {\n            return lines.filter(line -> line.contains(\"ERROR\")).count();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class NullSafe {\n\n    private NullSafe() {\n    }\n\n    /** A person whose nickname may be null. */\n    public record Person(String name, String nickname) {\n    }\n\n    /** Returns the non-null nicknames, in the order of the people. */\n    public static List<String> nicknames(List<Person> people) {\n        throw new UnsupportedOperationException(\"write nicknames\");\n    }\n\n    /** Returns how many items the array holds; a null array holds none. */\n    public static long countItems(String[] items) {\n        throw new UnsupportedOperationException(\"write countItems\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.stream.Stream;\n\n/**\n * Counts the lines that contain \"ERROR\" in every log of a directory. The support team runs it\n * every few minutes from a long-lived service.\n */\npublic class LogScanner {\n\n    /** Opens a directory listing. Always use this, never Files.list directly. */\n    Stream<Path> openDir(Path dir) throws IOException {\n        return Files.list(dir);\n    }\n\n    /** Opens the lines of one log. Always use this, never Files.lines directly. */\n    Stream<String> openLog(Path log) throws IOException {\n        return Files.lines(log);\n    }\n\n    /** How many lines of all the logs in dir contain \"ERROR\". */\n    public long countErrors(Path dir) throws IOException {\n        long total = 0;\n        for (Path log : listLogs(dir)) {\n            total += errorsIn(log);\n        }\n        return total;\n    }\n\n    /** The files in dir whose names end in \".log\", sorted by name. */\n    List<Path> listLogs(Path dir) throws IOException {\n        // TODO: List the directory through openDir and keep the \".log\" files, sorted by name.\n        //       This runs every few minutes for as long as the service is up.\n        throw new IllegalStateException(\"TODO: listLogs\");\n    }\n\n    /** How many lines of this log contain \"ERROR\". */\n    long errorsIn(Path log) throws IOException {\n        // TODO: Count this log's lines that contain \"ERROR\", reading it through openLog.\n        //       A log can fail halfway through reading; that failure goes to the caller.\n        throw new IllegalStateException(\"TODO: errorsIn\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -106,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7e0ba5ba3fa0971cf0e47b9c99e3c38a095fd9651ba7bd342f50c9a0c98e1814",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class NullSafe {\n\n    private NullSafe() {\n    }\n\n    /** A person whose nickname may be null. */\n    public record Person(String name, String nickname) {\n    }\n\n    /** Returns the non-null nicknames, in the order of the people. */\n    public static List<String> nicknames(List<Person> people) {\n        throw new UnsupportedOperationException(\"write nicknames\");\n    }\n\n    /** Returns how many items the array holds; a null array holds none. */\n    public static long countItems(String[] items) {\n        throw new UnsupportedOperationException(\"write countItems\");\n    }\n}\n",
+  "content_sha256": "d4f7bd851d0f3683c6d212ddd28147f4037b33926a17e0f3944cba6d1fbdf856",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.stream.Stream;\n\n/**\n * Counts the lines that contain \"ERROR\" in every log of a directory. The support team runs it\n * every few minutes from a long-lived service.\n */\npublic class LogScanner {\n\n    /** Opens a directory listing. Always use this, never Files.list directly. */\n    Stream<Path> openDir(Path dir) throws IOException {\n        return Files.list(dir);\n    }\n\n    /** Opens the lines of one log. Always use this, never Files.lines directly. */\n    Stream<String> openLog(Path log) throws IOException {\n        return Files.lines(log);\n    }\n\n    /** How many lines of all the logs in dir contain \"ERROR\". */\n    public long countErrors(Path dir) throws IOException {\n        long total = 0;\n        for (Path log : listLogs(dir)) {\n            total += errorsIn(log);\n        }\n        return total;\n    }\n\n    /** The files in dir whose names end in \".log\", sorted by name. */\n    List<Path> listLogs(Path dir) throws IOException {\n        // TODO: List the directory through openDir and keep the \".log\" files, sorted by name.\n        //       This runs every few minutes for as long as the service is up.\n        throw new IllegalStateException(\"TODO: listLogs\");\n    }\n\n    /** How many lines of this log contain \"ERROR\". */\n    long errorsIn(Path log) throws IOException {\n        // TODO: Count this log's lines that contain \"ERROR\", reading it through openLog.\n        //       A log can fail halfway through reading; that failure goes to the caller.\n        throw new IllegalStateException(\"TODO: errorsIn\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-02/practice-1/src/main/java/practice/NullSafe.java",
-    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-02/practice-1/src/test/java/practice/NullSafeTest.java",
+    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-02/practice-1/src/main/java/practice/LogScanner.java",
+    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-02/practice-1/src/test/java/practice/LogScannerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,19 +110,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NullSafeTest#collectsNicknamesAndCountsItems",
+        "id": "practice.LogScannerTest#countsTheErrorLinesOfEveryLog",
         "kind": "main",
-        "says": "It lists every nickname in order and counts the items of an array."
+        "says": "the scanner counts the lines containing ERROR across every .log file of the directory"
       },
       {
-        "id": "practice.NullSafeTest#missingNicknamesAreSkipped",
-        "kind": "edge",
-        "says": "A missing nickname adds nothing: Stream.ofNullable(null) is empty, while Stream.of((String) null) holds one null."
+        "id": "practice.LogScannerTest#listsOnlyTheLogsInNameOrder",
+        "kind": "main",
+        "says": "only files ending in .log are scanned, in name order"
       },
       {
-        "id": "practice.NullSafeTest#aNullArrayCountsZero",
+        "id": "practice.LogScannerTest#everyLogItReadsIsClosedAgain",
         "kind": "edge",
-        "says": "A null array counts zero items instead of throwing NullPointerException."
+        "says": "every log stream the scanner opens is closed once its errors are counted"
+      },
+      {
+        "id": "practice.LogScannerTest#theDirectoryListingIsClosedAgain",
+        "kind": "edge",
+        "says": "the stream that lists the directory is closed too, not only the streams over the logs"
+      },
+      {
+        "id": "practice.LogScannerTest#aLogWhoseReadingFailsIsClosedToo",
+        "kind": "edge",
+        "says": "a log whose reading fails partway is still closed before the failure reaches the caller"
       }
     ],
     "report": {
@@ -152,11 +141,10 @@
     },
     "origin": {
       "path": "16-streams-api/README_4.4.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Stream Over a File Holds It Open Until close(), Not Until the Terminal Operation"
     },
     "concepts": [
-      "Streaming a null array or collection throws, so a source that may be null is guarded first.",
-      "Stream.ofNullable gives an empty stream for null, while Stream.of((T) null) gives a stream holding one null."
+      "A stream from Files.lines, Files.list or Files.walk keeps its file or directory open after the terminal operation, until close(); try-with-resources closes it even when reading fails."
     ]
   }
 }

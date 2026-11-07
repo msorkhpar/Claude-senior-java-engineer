@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "17-java-memory-model"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 2,
+  "title": "Check yourself: the Java Memory Model",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-header-load-test",
+        "stem": "A feed handler caches a parsed header in a plain field: `if (header == null) header = parse(raw); return header;`, where `parse` never returns null. A load test calls this from 32 threads, five billion times in all, on x86 servers running HotSpot, and it never returns null. What does that run establish?",
+        "options": [
+          {
+            "id": "a",
+            "text": "That it can't return null on any JVM, since five billion racing calls would have produced every outcome the memory model allows",
+            "correct": false,
+            "says": "a run shows what one JIT did on one CPU; the JMM allows outcomes that five billion calls never showed"
+          },
+          {
+            "id": "b",
+            "text": "That it can't return null on any x86 JVM, since the memory model leaves outcomes to the CPU, and x86 keeps two reads of one address in order",
+            "correct": false,
+            "says": "the JMM is defined over reads and the writes they may see, not over a CPU; a compiler may reorder the two reads even where the hardware wouldn't"
+          },
+          {
+            "id": "c",
+            "text": "Only that this JVM on these CPUs didn't return null, since the memory model lets the second read see an older write than the first read saw",
+            "correct": true,
+            "says": "nothing orders two plain reads of one field against another thread's write, so the second read may return the default null after the first saw the header"
+          },
+          {
+            "id": "d",
+            "text": "Only that this JVM on these CPUs didn't return null, since the memory model lets a reference be read half from one write and half from another",
+            "correct": false,
+            "says": "reads and writes of references are always atomic; the risk is the second read returning an older write"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.1.md",
+          "section": "The JMM Says Which Writes a Read May Return, and a Test Shows Only Some of Them"
+        }
+      },
+      {
+        "id": "q-last-seat",
+        "stem": "A booking service keeps the number of free seats in a volatile int field, and every method reads and writes that field directly: `if (seatsLeft > 0) { seatsLeft = seatsLeft - 1; confirm(); }`. No other field is shared. One seat is left when two customers book at the same moment. What can happen?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Both bookings are confirmed, since a program without data races still runs as an interleaving, and both checks can come before either write",
+            "correct": true,
+            "says": "every access is volatile, so the program is race-free and sequentially consistent; one of its interleavings has both threads read 1 before either writes"
+          },
+          {
+            "id": "b",
+            "text": "Both bookings are confirmed, since a volatile read can still return a value that another thread's volatile write has already replaced",
+            "correct": false,
+            "says": "a volatile read sees the latest volatile write before it; the problem is the interleaving of check and write, not a stale read"
+          },
+          {
+            "id": "c",
+            "text": "Only one booking is confirmed, since a program without data races behaves as if each method call ran alone, start to finish",
+            "correct": false,
+            "says": "sequential consistency interleaves single actions, not whole methods; a check and the write that depends on it are two steps"
+          },
+          {
+            "id": "d",
+            "text": "Only one booking is confirmed, since a volatile read followed by a volatile write of the same field is carried out as one atomic step",
+            "correct": false,
+            "says": "each volatile read and each volatile write is atomic on its own; nothing joins a read and a later write into one step"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.1.md",
+          "section": "A Program Without Data Races Runs as Some Interleaving of Its Threads"
+        }
+      },
+      {
+        "id": "q-session-expiry",
+        "stem": "A library's `Session` keeps `long expiresAt` in a plain field; one thread renews it, request threads check it. The library's README says: \"Safe without volatile: every JVM we support is 64-bit.\" Taking the JLS alone as the contract, what is that claim worth?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The JLS backs it, since a JVM running on 64-bit hardware is required to read and write a long field in a single access",
+            "correct": false,
+            "says": "the JLS lets any JVM treat a plain long write as two 32-bit writes; 64-bit HotSpot not splitting it is an observation, not a promise"
+          },
+          {
+            "id": "b",
+            "text": "The JLS backs it, since a write can be split only when two threads write the field, and here a single thread renews it",
+            "correct": false,
+            "says": "a reader can combine the halves of two successive writes by the same thread"
+          },
+          {
+            "id": "c",
+            "text": "The JLS doesn't back it, since it lets any JVM carry out a plain long write as two separate writes of 32 bits each",
+            "correct": true,
+            "says": "JLS 17.7 treats a write to a non-volatile long or double as two writes, one per 32-bit half, whatever the hardware"
+          },
+          {
+            "id": "d",
+            "text": "The JLS doesn't back it, since it lets any JVM carry out a write wider than a byte as several separate writes",
+            "correct": false,
+            "says": "only plain long and double may be split; int, reference and smaller writes are atomic, and neighbouring fields never tear into each other"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.1.md",
+          "section": "A Plain long or double May Be Read Half Old, Half New"
+        }
+      },
+      {
+        "id": "q-route-caches",
+        "stem": "An immutable `Route` lazily caches derived values, each in a plain field that its getter checks for the default value, computes, and stores. Each getter reads its field once into a local and returns the local. Which of these caches can stay a plain field, threads that race simply computing it again?",
+        "options": [
+          {
+            "id": "a",
+            "text": "An int count of the stops, since every thread computes the same value and stores it with a single write that can't be split",
+            "correct": true,
+            "says": "the value is derived from immutable state, so every write is the same, and an int write is atomic: the conditions String.hashCode relies on"
+          },
+          {
+            "id": "b",
+            "text": "A long length in metres, since every thread computes the same value and stores it with a single write that can't be split",
+            "correct": false,
+            "says": "a plain long write may be split into two halves, so a reader can see a value made of two writes"
+          },
+          {
+            "id": "c",
+            "text": "An ArrayList of stop names, filled and then stored, since a reference write is atomic and the list is complete before it",
+            "correct": false,
+            "says": "ArrayList's fields aren't final, so nothing orders the filling before the plain reference write; a reader may see the reference and not the contents"
+          },
+          {
+            "id": "d",
+            "text": "An ArrayList of stop names, stored and then filled, since a reference write is atomic and readers see the stops as they are added",
+            "correct": false,
+            "says": "a reader can see the list before it is complete, and the list is mutable shared state with no ordering at all"
+          }
+        ],
+        "origin": {
+          "path": "17-java-memory-model/README_5.1.1.md",
+          "section": "A Race Is Benign Only When Every Thread Writes the Same Value, in One Indivisible Write, Read Once"
+        }
+      }
+    ]
+  }
+}

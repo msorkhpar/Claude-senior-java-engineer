@@ -1,374 +1,344 @@
 # 4.4.2. Creating and Using Streams
 
-## Concept Explanation
+A log indexer counts the `ERROR` lines in every file of a directory, one
+`Files.lines(log).filter(...).count()` per file. It passes every test. In production, after a few
+hours, it dies with `FileSystemException: ... Too many open files`.
 
-Streams can be created from many different sources in Java. Understanding the various creation methods is essential
-because each source has different characteristics regarding ordering, nullability, and finiteness.
+The method that creates a stream decides more than where its elements come from: whether it holds a
+file, in what order the elements arrive, what type they have, where the sequence ends and which
+arithmetic you get. Seven rules, one per heading. The pipeline itself, lazy and single-use, is
+unit 4.4.1.
 
-**Real-world analogy**: Creating a stream is like opening a water tap to a pipe. The source (collection, array, file,
-generator) is the reservoir. The tap controls how water (data) flows into the pipe (stream pipeline). Different taps
-(creation methods) connect to different reservoirs and may have different flow characteristics.
+## A Stream Over a File Holds It Open Until close(), Not Until the Terminal Operation
 
-### Stream Creation Sources
-
-1. **Collections**: The most common source — any `Collection` has a `stream()` and `parallelStream()` method.
-2. **Arrays**: `Arrays.stream(array)` or `Stream.of(elements...)` — only `Arrays.stream` (and `IntStream.of` etc.) turns a
-   primitive array into a specialized stream; `Stream.of(intArray)` is a `Stream<int[]>` with one element.
-3. **Stream factory methods**: `Stream.of()`, `Stream.empty()`, `Stream.ofNullable()`, `Stream.generate()`, `Stream.iterate()`, `Stream.builder()`.
-4. **Primitive streams**: `IntStream.range()`, `IntStream.rangeClosed()`, `LongStream.range()` — efficient iteration without boxing.
-5. **I/O operations**: `Files.lines()`, `BufferedReader.lines()` — line-by-line file processing.
-6. **String operations**: `Pattern.splitAsStream()`, `String.chars()`, `String.codePoints()`.
-7. **Other streams**: `Stream.concat()` to merge two streams.
-
-### Key Creation Methods
+We count the errors in 1,000 small log files, with and without try-with-resources, and count the
+process's open descriptors in `/proc/self/fd` (Linux):
 
 ```java
-// From Collection
-List<String> list = List.of("a", "b", "c");
-Stream<String> fromList = list.stream();
-
-// From array
-String[] arr = {"a", "b", "c"};
-Stream<String> fromArray = Arrays.stream(arr);
-
-// Stream.of (varargs)
-Stream<String> ofStream = Stream.of("a", "b", "c");
-
-// Empty stream (useful as a neutral element in stream composition)
-Stream<String> empty = Stream.empty();
-
-// Nullable (Java 9) — returns empty stream if null, otherwise singleton stream
-Stream<String> nullable = Stream.ofNullable(possiblyNull);
-
-// Infinite streams
-Stream<Double> randoms = Stream.generate(Math::random);      // infinite
-Stream<Integer> sequence = Stream.iterate(0, n -> n + 1);   // infinite: 0, 1, 2, ...
-Stream<Integer> bounded = Stream.iterate(0, n -> n < 10, n -> n + 1); // Java 9: 0..9
-
-// Primitive ranges (no boxing)
-IntStream range = IntStream.range(0, 10);        // 0 to 9 (exclusive end)
-IntStream rangeClosed = IntStream.rangeClosed(1, 10); // 1 to 10 (inclusive end)
-
-// Files
-Stream<String> lines = Files.lines(Path.of("file.txt")); // AutoCloseable!
-```
-
-## Key Points to Remember
-
-1. **`Collection.stream()`** is the most common creation method; returns a sequential stream.
-2. **`Arrays.stream()`** is the preferred way to stream arrays — it supports primitive arrays directly without boxing.
-3. **`Stream.of()`** is for ad-hoc streams from varargs; note that `Stream.of((T) null)` creates a stream with one null element, not an empty stream.
-4. **`Stream.ofNullable()`** (Java 9) creates an empty stream if the argument is null, or a singleton stream otherwise.
-5. **`Stream.generate()`** creates an infinite stream from a `Supplier<T>` — always use with `limit()` or short-circuit terminal.
-6. **`Stream.iterate()`** with three arguments (Java 9) creates a bounded sequence similar to a for-loop.
-7. **Primitive streams** (`IntStream`, `LongStream`, `DoubleStream`) have `range()` and `rangeClosed()` factory methods and additional operations like `sum()`, `average()`, `summaryStatistics()`.
-8. **`Files.lines()`** returns an `AutoCloseable` stream — always use in try-with-resources.
-9. **`Stream.builder()`** allows dynamically adding elements before building the stream.
-10. **`Stream.concat()`** concatenates two streams lazily; both streams are consumed by the resulting stream.
-
-## Relevant Java 21 Features
-
-- **`Stream.ofNullable()`** (Java 9): Simplifies null-safe stream creation patterns.
-- **`Stream.iterate(seed, hasNext, next)`** (Java 9): Three-argument form that replaces common `iterate().takeWhile()` patterns.
-- **`Stream.toList()`** (Java 16): Convenient terminal operation producing unmodifiable list.
-- **`takeWhile()` / `dropWhile()`** (Java 9): New intermediate operations for conditional slicing.
-- **Sequenced collections** (Java 21): a `SequencedCollection` has a defined encounter order (insertion order for a
-  `List` or `LinkedHashSet`, sorted order for a `TreeSet`), and `reversed().stream()` streams it back to front.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Streaming a null array/collection without null check**:
-   ```java
-   // BROKEN — NullPointerException
-   String[] arr = null;
-   Arrays.stream(arr).forEach(System.out::println);
-   ```
-   **Fix**: Guard against null before streaming.
-   ```java
-   Optional.ofNullable(arr)
-       .map(Arrays::stream)
-       .ifPresent(s -> s.forEach(System.out::println));
-   ```
-
-2. **Forgetting to close resource-backed streams**:
-   ```java
-   // BROKEN — resource leak!
-   Stream<String> lines = Files.lines(path);
-   lines.forEach(System.out::println);
-   // File handle never closed!
-   ```
-   **Fix**: Use try-with-resources.
-   ```java
-   try (Stream<String> lines = Files.lines(path)) {
-       lines.forEach(System.out::println);
-   }
-   ```
-
-3. **Confusing `Stream.of((String) null)` with `Stream.ofNullable(null)`**:
-   ```java
-   // BROKEN — creates a stream with ONE null element, not empty
-   Stream.of((String) null).count(); // Returns 1, not 0
-   ```
-   **Fix**: Use `Stream.ofNullable()` for null-safe singleton streams.
-   ```java
-   Stream.ofNullable(null).count(); // Returns 0
-   ```
-
-4. **Infinite stream without limit**:
-   ```java
-   // BROKEN — runs forever
-   Stream.generate(Math::random).forEach(System.out::println);
-   ```
-   **Fix**: Always bound infinite streams.
-   ```java
-   Stream.generate(Math::random).limit(10).forEach(System.out::println);
-   ```
-
-5. **Reusing a Stream.Builder after build()**:
-   ```java
-   // BROKEN — builder is in terminal state after build()
-   Stream.Builder<String> builder = Stream.builder();
-   builder.add("a");
-   Stream<String> s = builder.build();
-   builder.add("b"); // IllegalStateException!
-   ```
-   **Fix**: Add all elements before calling `build()`.
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer `Collection.stream()`** over `Stream.of()` with collection elements for better clarity.
-2. **Use primitive streams** for numeric ranges — `IntStream.range(0, n)` is far more efficient than `Stream.iterate(0, n -> n < limit, n -> n + 1)` boxing integers.
-3. **Always close I/O streams** with try-with-resources.
-4. **Use `Stream.concat()` sparingly** — for many streams, collect into a list and stream that, or use `flatMap`.
-5. **Prefer `Stream.ofNullable()`** (Java 9) for null-safe streaming instead of ternary with `Stream.empty()`.
-6. **Builder pattern** (`Stream.builder()`) is useful when elements are generated conditionally in a loop — add all elements first, then call `build()`.
-
-## Edge Cases and Their Handling
-
-1. **Empty source**: `Collections.emptyList().stream()` and `Stream.empty()` both produce empty streams; all operations handle this gracefully.
-2. **Single-element streams**: Work correctly with all operations; `Optional` terminal operations return the single element.
-3. **`IntStream.range(n, n)`**: Returns an empty stream (not an error).
-4. **`Arrays.stream(arr, from, to)`**: Supports sub-array streaming; `from == to` returns empty stream.
-5. **Concurrent modification of the source**: Modifying a collection while iterating its stream causes undefined behavior or `ConcurrentModificationException`.
-
-## Interview-specific Insights
-
-Interviewers often ask:
-- "What are the different ways to create a stream?"
-- "When would you use `Stream.generate()` vs `Stream.iterate()`?"
-- "What's special about primitive streams like `IntStream`?"
-- "How do you safely stream from a file?"
-- "What does `Stream.ofNullable()` do and when is it useful?"
-
-Tricky questions:
-- "What is `Stream.of(null)` — is it an empty stream?" (No — an untyped `null` binds to the varargs array parameter, so
-  `Stream.of(null).count()` throws `NullPointerException` (javac warns); `Stream.of((String) null)` is a stream with one
-  null element; only `Stream.ofNullable(null)` is empty)
-- "Can you create a stream from a Map?" (Yes — `map.entrySet().stream()`, `map.keySet().stream()`, `map.values().stream()`)
-- "How would you create a stream of all lines in a file without loading the whole file into memory?" (`Files.lines()`)
-
-## Interview Q&A Section
-
-**Q1: What are the main ways to create a Stream in Java?**
-
-```text
-A1: Java provides many stream creation methods:
-
-1. From Collections: list.stream(), set.stream(), map.entrySet().stream()
-2. From arrays: Arrays.stream(arr), Arrays.stream(arr, start, end)
-3. Factory methods: Stream.of(elements...), Stream.empty(), Stream.ofNullable(value)
-4. Infinite streams: Stream.generate(supplier), Stream.iterate(seed, function)
-5. Bounded iterate (Java 9): Stream.iterate(seed, hasNextPredicate, nextFunction)
-6. Primitive ranges: IntStream.range(start, end), IntStream.rangeClosed(start, end)
-7. I/O: Files.lines(path), bufferedReader.lines()
-8. String operations: "hello".chars() (IntStream), Pattern.compile(",").splitAsStream(str)
-9. Stream.builder(): for dynamic element addition
-10. Stream.concat(stream1, stream2): merge two streams
-```
-
-```java
-import java.util.*;
-import java.util.stream.*;
-import java.nio.file.*;
-
-// 1. From collection
-List.of("a","b","c").stream();
-
-// 2. From array
-Arrays.stream(new int[]{1, 2, 3});         // IntStream — no boxing
-Arrays.stream(new String[]{"a", "b"});     // Stream<String>
-
-// 3. Factory methods
-Stream.of("x", "y", "z");
-Stream.empty();
-Stream.ofNullable(null);    // Empty stream
-Stream.ofNullable("value"); // Stream with one element
-
-// 4. Infinite
-Stream.generate(Math::random).limit(5);
-Stream.iterate(1, n -> n * 2).limit(10); // 1, 2, 4, 8, ...
-
-// 5. Bounded iterate (Java 9)
-Stream.iterate(0, n -> n < 5, n -> n + 1); // 0, 1, 2, 3, 4
-
-// 6. Primitive ranges
-IntStream.range(0, 5);        // 0, 1, 2, 3, 4
-IntStream.rangeClosed(1, 5);  // 1, 2, 3, 4, 5
-
-// 7. Files (must close!)
-try (Stream<String> lines = Files.lines(Path.of("data.txt"))) {
-    lines.forEach(System.out::println);
-}
-```
-
-**Q2: When should you use `IntStream`, `LongStream`, or `DoubleStream` instead of `Stream<Integer>`?**
-
-```text
-A2: Use primitive streams whenever you are working with primitive numeric values. The benefits are:
-
-1. No boxing/unboxing overhead: Stream<Integer> boxes each int into an Integer object. IntStream operates
-   on raw int values, which is faster and uses less memory.
-2. Specialized operations: sum(), average(), summaryStatistics(), and min()/max() without a Comparator are only
-   available on primitive streams. On Stream<Integer>, you would need reduce(), min/max(Comparator), or
-   Collectors.summarizingInt().
-3. Efficient range generation: IntStream.range() and IntStream.rangeClosed() provide efficient numeric
-   ranges without creating an intermediate collection.
-
-Conversion between stream types:
-- Stream<T> to IntStream: stream.mapToInt(T::someIntMethod)
-- IntStream to Stream<Integer>: intStream.boxed()
-- IntStream to Stream<String>: intStream.mapToObj(Integer::toString)
-```
-
-```java
-// Slow: boxing overhead
-int sum1 = Stream.of(1, 2, 3, 4, 5)
-    .mapToInt(Integer::intValue)  // Unboxes
-    .sum();
-
-// Fast: no boxing
-int sum2 = IntStream.of(1, 2, 3, 4, 5).sum();
-int sum3 = IntStream.rangeClosed(1, 5).sum(); // 15
-
-// Specialized statistics
-IntSummaryStatistics stats = IntStream.of(3, 1, 4, 1, 5, 9, 2, 6)
-    .summaryStatistics();
-System.out.println("Sum: " + stats.getSum());         // 31
-System.out.println("Average: " + stats.getAverage()); // 3.875
-System.out.println("Min: " + stats.getMin());          // 1
-System.out.println("Max: " + stats.getMax());          // 9
-
-// Conversions
-IntStream intStream = Stream.of("hello", "world").mapToInt(String::length);
-Stream<Integer> boxed = IntStream.range(0, 5).boxed();
-Stream<String> asStrings = IntStream.range(0, 5).mapToObj(Integer::toString);
-```
-
-**Q3: How do you safely stream the contents of a file?**
-
-```text
-A3: Use Files.lines() with try-with-resources. Files.lines() returns a Stream<String> that is backed by
-an I/O resource (a BufferedReader). If this stream is not closed, the file handle is leaked. Try-with-resources
-ensures the stream (and thus the underlying reader) is closed when the block exits, even if an exception occurs.
-
-Key considerations:
-- The stream is lazy — file lines are read on demand, not all at once.
-- The charset defaults to UTF-8; specify another if needed: Files.lines(path, StandardCharsets.ISO_8859_1).
-- For very large files, this is memory-efficient (no need to load all lines into a List first).
-- Files.readAllLines() is an alternative that eagerly loads all lines into a List — suitable for small files.
-```
-
-```java
-import java.io.IOException;
-import java.nio.file.*;
-import java.util.stream.*;
-
-// Safe file streaming with try-with-resources
-Path path = Path.of("data.txt");
-try (Stream<String> lines = Files.lines(path)) {
-    long count = lines
-        .filter(line -> !line.isBlank())
-        .count();
-    System.out.println("Non-blank lines: " + count);
-} catch (IOException e) {
-    throw new RuntimeException("Failed to read file: " + path, e);
+static long errorsLeaky(Path log) throws IOException {
+    return Files.lines(log).filter(l -> l.contains("ERROR")).count();
 }
 
-// Collecting all non-empty lines
-List<String> nonEmpty;
-try (Stream<String> lines = Files.lines(path)) {
-    nonEmpty = lines.filter(l -> !l.isBlank()).toList();
-}
-```
-
-**Q4: What is `Stream.Builder` and when would you use it?**
-
-```text
-A4: Stream.Builder is a mutable builder for Stream objects. It allows you to add elements one at a time
-before creating the stream. Once build() is called, the builder enters a terminal state and cannot accept
-more elements.
-
-Use cases:
-1. When you don't know all elements upfront and build them conditionally in a loop.
-2. When combining elements from different sources into a single stream without creating an intermediate collection.
-3. When you want to create a stream of a fixed, small set of elements where the elements are computed
-   programmatically (as opposed to Stream.of() which requires all elements at once).
-
-Prefer Stream.of() or collection.stream() when possible — Stream.Builder adds complexity without benefit
-for straightforward cases.
-```
-
-```java
-Stream.Builder<String> builder = Stream.builder();
-
-// Conditionally add elements
-if (includeHeader) builder.add("HEADER");
-for (String item : items) {
-    if (item != null && !item.isBlank()) {
-        builder.add(item.trim());
+static long errorsClosed(Path log) throws IOException {
+    try (Stream<String> lines = Files.lines(log)) {
+        return lines.filter(l -> l.contains("ERROR")).count();
     }
 }
-if (includeFooter) builder.add("FOOTER");
-
-Stream<String> stream = builder.build();
-// builder.add("extra"); // IllegalStateException — already built!
-
-stream.forEach(System.out::println);
 ```
-
-**Q5: What is `Stream.concat()` and what are its limitations?**
 
 ```text
-A5: Stream.concat(Stream<T> a, Stream<T> b) creates a lazily concatenated stream whose elements are all
-elements of the first stream followed by all elements of the second stream.
-
-Limitations:
-1. Only two streams at a time: to concat many streams, you must nest concat() calls or use flatMap().
-2. Ordered: the result is ordered if both input streams are ordered.
-3. Parallel: the result is parallel if either input stream is parallel.
-4. Both streams must share a compatible type T.
-5. Deeply nested concat() calls (for many streams) can cause StackOverflowError due to deep call chains.
-
-For concatenating many streams, prefer:
-  Stream.of(stream1, stream2, stream3).flatMap(Function.identity())
-or collect all elements and stream the collection.
+open before:          8
+with try, 1000 errors: open after 8
+without, 1000 errors:  open after 981
 ```
+
+`count()` read every line, and the file stayed open. A terminal operation finishes the pipeline;
+only `close()` releases what the source holds, and javac compiled `errorsLeaky` without a warning.
+`Files.lines`, `Files.list` and `Files.walk` all keep descriptors open until closed. The leaked
+ones do close eventually: 981 rather than 1,008 because a collection ran during the loop, and in a
+second run a `System.gc()` after the loop took the count from 1,008 back to 8. So the garbage
+collector decides when your files close. With `ulimit -n 512`, the same loop failed partway:
+
+```text
+Exception in thread "main" java.nio.file.FileSystemException: ./logs9662185227350139375/app-881.log: Too many open files
+```
+
+`onClose` handlers also run only on `close()`:
 
 ```java
-Stream<String> first = Stream.of("a", "b", "c");
-Stream<String> second = Stream.of("d", "e", "f");
-Stream<String> combined = Stream.concat(first, second);
-combined.forEach(System.out::println); // a, b, c, d, e, f
-
-// Concatenating many streams with flatMap (preferred for >2 streams)
-Stream<String> merged = Stream.of(
-    Stream.of("a", "b"),
-    Stream.of("c", "d"),
-    Stream.of("e", "f")
-).flatMap(s -> s);
-
-merged.toList(); // [a, b, c, d, e, f]
+Stream<String> s = Stream.of("a", "b").onClose(() -> System.out.println("  onClose ran"));
+System.out.println("count = " + s.count());
+System.out.println("terminal operation done");
+s.close();
 ```
+
+```text
+count = 2
+terminal operation done
+  onClose ran
+```
+
+`flatMap` closes each stream it maps to once that stream's elements have passed, so a `flatMap`
+that opens one file per element doesn't leak the inner streams; the outer stream is still yours to
+close. `BufferedReader.lines()` is the opposite case: closing the stream leaves the reader open, so
+you close the reader. A read error inside such a stream arrives as `UncheckedIOException` from the
+terminal operation (unit 3.2.4).
+
+<!-- practice 1 -->
+
+## A Collection's Stream Has the Collection's Order, and a HashSet Has None
+
+Five codes, added in the same order to four collections:
+
+```java
+List<String> codes = List.of("delta", "alpha", "echo", "bravo", "charlie");
+Set<String> hash = new HashSet<>(codes);
+System.out.println("List          " + codes.stream().toList());
+System.out.println("HashSet       " + hash.stream().toList() + "  findFirst=" + hash.stream().findFirst().orElseThrow());
+System.out.println("LinkedHashSet " + new LinkedHashSet<>(codes).stream().toList());
+System.out.println("TreeSet       " + new TreeSet<>(codes).stream().toList());
+for (int i = 0; i < 20; i++) hash.add("x" + i);
+hash.removeIf(s -> s.startsWith("x"));
+System.out.println("HashSet, same 5 after growing and shrinking " + hash.stream().toList()
+        + "  findFirst=" + hash.stream().findFirst().orElseThrow());
+```
+
+```text
+List          [delta, alpha, echo, bravo, charlie]
+HashSet       [bravo, alpha, delta, echo, charlie]  findFirst=bravo
+LinkedHashSet [delta, alpha, echo, bravo, charlie]
+TreeSet       [alpha, bravo, charlie, delta, echo]
+HashSet, same 5 after growing and shrinking [delta, echo, bravo, alpha, charlie]  findFirst=delta
+```
+
+A `HashSet` has no encounter order: its spliterator doesn't report `ORDERED`, and what you see is
+its bucket layout. The set held the same five codes both times, but resizing for 20 temporary
+entries moved them, and `findFirst()` changed from `bravo` to `delta`. A `Set.of` set changes
+order between JVM runs: two runs of one program printed `[echo, charlie, delta, bravo, alpha]` and
+`[alpha, bravo, delta, charlie, echo]`. A report that takes "the first" element of a set, or a test
+that compares one to a list, works until the set resizes, the JDK changes or, for `Set.of`, the JVM
+restarts.
+
+A `Map` isn't a `Collection`: stream one of its views, `entrySet()`, `keySet()` or `values()`.
+They have the map's order: none for a `HashMap`, key order for a `TreeMap`, insertion order for a
+`LinkedHashMap`.
+
+## Stream.of Streams Its Arguments: an int[] Is One Element, and So Is null
+
+`Stream` has `of(T t)` beside `of(T... values)`. An `int[]` isn't a `T[]`, so `Stream.of(ports)`
+picks `of(T t)` with `T = int[]`: a stream of one array.
+
+```java
+int[] ports = {8080, 8443, 9090, 9443};
+System.out.println("Stream.of(ports).count()          = " + Stream.of(ports).count());
+System.out.println("Arrays.stream(ports).count()      = " + Arrays.stream(ports).count());
+System.out.println("Arrays.stream(ports, 1, 3)        = " + Arrays.toString(Arrays.stream(ports, 1, 3).toArray()));
+System.out.println("Stream.of(ports).contains 8080?   = " + Stream.of(ports).anyMatch(p -> p.equals(8080)));
+
+String nickname = null;
+System.out.println("Stream.of(nickname).count()       = " + Stream.of(nickname).count());
+System.out.println("Stream.ofNullable(nickname).count() = " + Stream.ofNullable(nickname).count());
+```
+
+```text
+Stream.of(ports).count()          = 1
+Arrays.stream(ports).count()      = 4
+Arrays.stream(ports, 1, 3)        = [8443, 9090]
+Stream.of(ports).contains 8080?   = false
+Stream.of(nickname).count()       = 1
+Stream.ofNullable(nickname).count() = 0
+```
+
+The lookup compiles because `p` is the whole `int[]`, and an array never equals an `Integer`.
+`Arrays.stream(int[])` and `IntStream.of(int...)` give an `IntStream` of the values, and
+`Arrays.stream(array, from, to)` a slice with `to` excluded. A `String[] hosts` has no such trap:
+`Stream.of(hosts)` streams its elements.
+
+A `null` variable is one argument too, so `Stream.of(nickname)` holds one `null`, which fails later
+in whatever calls a method on it. `Stream.ofNullable` (Java 9) is empty for `null`. With a bare
+`Stream.of(null)`, javac warns, the `null` binds to the array parameter, and `Stream.of` itself
+throws `NullPointerException`.
+
+<!-- practice 2 -->
+
+## A Generated Sequence Ends Only Where Its Factory Says
+
+`Stream.iterate(seed, next)` never ends; the Java 9 form `iterate(seed, hasNext, next)` stops like
+a `for` loop. A filter doesn't end a stream, it only drops elements:
+
+```java
+System.out.println("3-arg: " + Stream.iterate(1, n -> n < 1000, n -> n * 2).toList());
+// the 2-arg form with a filter: the first 14 of the elements that pass it
+System.out.println("2-arg + filter: " + Stream.iterate(1, n -> n * 2).filter(n -> n < 1000).limit(14).toList());
+```
+
+```text
+3-arg: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+2-arg + filter: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, -2147483648, 0, 0, 0]
+```
+
+Without `limit(14)` the second line never prints. The doubling overflows to `-2147483648`, then to
+`0`, and `0 < 1000` passes forever. Ending at the first element that fails a test is `takeWhile`
+(unit 4.2.4); `Stream.generate` is endless in the same way (unit 4.2.2).
+
+`IntStream.range(1, 5)` is `1, 2, 3, 4`, and `rangeClosed(1, 5)` adds the `5`. `range(5, 5)` and
+`range(5, 1)` are empty, not errors; `rangeClosed` is empty only when the end is below the start.
+
+## Only Primitive Streams Have sum() and average(), and IntStream.sum() Overflows
+
+`Stream<Integer>` has no `sum()`:
+
+```text
+NoSum.java:6: error: cannot find symbol
+        int total = latencies.stream().sum();
+                                      ^
+  symbol:   method sum()
+  location: interface Stream<Integer>
+```
+
+`sum()`, `average()` and `summaryStatistics()` exist on `IntStream`, `LongStream` and
+`DoubleStream`, where the elements are known to be numbers. `mapToInt` gets there; `boxed()` and
+`mapToObj` come back:
+
+```java
+List<Integer> latencies = List.of(120, 85, 240, 95);
+int total = latencies.stream().mapToInt(Integer::intValue).sum();
+OptionalDouble mean = latencies.stream().mapToInt(Integer::intValue).average();
+System.out.println("sum " + total + ", average " + mean);
+OptionalDouble none = IntStream.empty().average();
+System.out.println("empty: sum " + IntStream.empty().sum() + ", average " + none);
+int[] uploads = {1_500_000_000, 1_500_000_000};   // bytes
+System.out.println("IntStream.sum()        = " + IntStream.of(uploads).sum());
+System.out.println("asLongStream().sum()   = " + IntStream.of(uploads).asLongStream().sum());
+System.out.println("mapToObj " + IntStream.rangeClosed(1, 3).mapToObj(i -> "node-" + i).toList());
+```
+
+```text
+sum 540, average OptionalDouble[135.0]
+empty: sum 0, average OptionalDouble.empty
+IntStream.sum()        = -1294967296
+asLongStream().sum()   = 3000000000
+mapToObj [node-1, node-2, node-3]
+```
+
+The sum of nothing is 0, but the mean of nothing doesn't exist, so `average()` returns an
+`OptionalDouble`. `getAsDouble()` on the empty one throws `NoSuchElementException`, and
+`orElse(0)` shows an idle service as answering in 0 ms. `IntStream.sum()` returns an `int` and
+wraps silently: two 1.5 GB uploads total -1.3 GB. `summaryStatistics().getSum()` and
+`asLongStream().sum()` are `long`.
+
+<!-- practice 3 -->
+
+## String.chars() Streams UTF-16 Units, Not Characters
+
+A post may be at most 280 characters long. How long is `"Ship it 🚀"`?
+
+```java
+String status = "Ship it 🚀";   // "Ship it " and a rocket emoji
+System.out.println("chars().count()        " + status.chars().count());
+System.out.println("codePoints().count()   " + status.codePoints().count());
+String cut = status.chars().limit(9)
+        .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
+System.out.println("first 9 chars:      " + cut + "  last unit is surrogate? " + Character.isSurrogate(cut.charAt(cut.length() - 1)));
+```
+
+```text
+chars().count()        10
+codePoints().count()   9
+first 9 chars:      Ship it ?  last unit is surrogate? true
+```
+
+`chars()` streams a `String`'s 16-bit UTF-16 units. The rocket, U+1F680, doesn't
+fit in one, so it is stored as the pair `U+D83D U+DE80`: `chars()` counts it twice, and a cut after
+nine units keeps half of it, which prints as `?`. `codePoints()` streams one element per Unicode
+code point. A flag or an emoji with a skin tone is several code points; counting the symbols a
+reader sees takes `java.text.BreakIterator`.
+
+`Pattern.splitAsStream` streams the pieces between matches. Its argument is a regular expression,
+so `Pattern.compile(".")` matches every character and leaves no pieces, while
+`Pattern.compile(Pattern.quote("."))` matches a dot. A delimiter at the start gives an empty first
+piece, and trailing empty pieces are dropped:
+
+```java
+Pattern sep = Pattern.compile("\\s*,\\s*");
+System.out.println("splitAsStream: " + sep.splitAsStream(", red ,green,, blue,").map(s -> "[" + s + "]").toList());
+```
+
+```text
+splitAsStream: [[], [red], [green], [], [blue]]
+```
+
+<!-- practice 4 -->
+
+## Builder and concat Assemble a Stream; Repeated concat Overflows the Stack
+
+`Stream.builder()` collects elements until `build()`; after that, `add` throws
+`IllegalStateException`. `Stream.concat(a, b)` joins two streams lazily, and each `concat` in a
+loop wraps the previous result:
+
+```java
+for (int pages : new int[] {1_000, 10_000, 20_000, 50_000, 100_000}) {
+    String step = "concat";
+    try {
+        Stream<String> all = Stream.empty();
+        for (int p = 0; p < pages; p++) all = Stream.concat(all, Stream.of("page-" + p));
+        step = "toList";
+        System.out.println(pages + " concats: toList size " + all.toList().size());
+    } catch (StackOverflowError e) {
+        System.out.println(pages + " concats: StackOverflowError in " + step);
+    }
+}
+List<List<String>> pagesOfRows = IntStream.range(0, 100_000).mapToObj(p -> List.of("page-" + p)).toList();
+System.out.println("flatMap over 100000 pages: toList size " + pagesOfRows.stream().flatMap(List::stream).toList().size());
+```
+
+```text
+1000 concats: toList size 1000
+10000 concats: toList size 10000
+20000 concats: toList size 20000
+50000 concats: StackOverflowError in concat
+100000 concats: StackOverflowError in concat
+flatMap over 100000 pages: toList size 100000
+```
+
+With the default stack, 50,000 overflowed inside `concat` itself, before any element was read: the stack trace is one `ConcatSpliterator.characteristics` calling the next. The
+`concat` javadoc warns that deep concatenation can end in `StackOverflowError`. For more than a few
+streams, put them in a list and `flatMap` it, as the last line did.
+
+## Summary
+
+- **A stream over a file holds it open until `close()`.** Wrap `Files.lines`, `Files.list` and
+  `Files.walk` in try-with-resources; the terminal operation doesn't close, and `onClose` handlers
+  run only on `close()`.
+- **A collection's stream has the collection's order.** A `HashSet` or `Set.of` has none, and the
+  order you see changes when the set resizes, or for `Set.of` when the JVM restarts.
+- **`Stream.of` streams its arguments.** An `int[]` is one element and a `null` variable is one
+  `null`; use `Arrays.stream` and `Stream.ofNullable`.
+- **A generated sequence ends only where its factory says.** The two-argument `iterate` is endless,
+  a `filter` doesn't stop it, and `range` excludes its end.
+- **Only primitive streams have `sum()` and `average()`.** `average()` is empty for no elements, and
+  `IntStream.sum()` overflows silently.
+- **`String.chars()` streams UTF-16 units.** Count and cut with `codePoints()`.
+- **Repeated `concat` overflows the stack.** Use `flatMap` over a list of streams.
+
+## Reference
+
+| Source | Gives | Order | Ends | Close it? |
+|---|---|---|---|---|
+| `collection.stream()` | `Stream<T>` | the collection's; none for `HashSet`, `Set.of` | yes | no |
+| `map.entrySet().stream()` | `Stream<Map.Entry<K,V>>` | the map's | yes | no |
+| `Arrays.stream(array[, from, to])` | `Stream<T>`, or `IntStream`/`LongStream`/`DoubleStream` | index order | yes | no |
+| `Stream.of(a, b, ...)`, `Stream.ofNullable(x)` | `Stream<T>`; `ofNullable(null)` is empty | argument order | yes | no |
+| `Stream.iterate(seed, next)` | `Stream<T>` | iteration order | never | no |
+| `Stream.generate(supplier)` | `Stream<T>` | unordered | never | no |
+| `Stream.iterate(seed, hasNext, next)` | `Stream<T>` | iteration order | when `hasNext` is false | no |
+| `IntStream.range(a, b)`, `rangeClosed(a, b)` | `IntStream` | ascending | `b` excluded / included | no |
+| `str.chars()`, `str.codePoints()` | `IntStream` of UTF-16 units / code points | string order | yes | no |
+| `pattern.splitAsStream(text)` | `Stream<String>` | text order | yes | no |
+| `reader.lines()` | `Stream<String>` | line order | yes | close the reader |
+| `Files.lines(path)` | `Stream<String>` | line order | yes | yes |
+| `Files.list(dir)`, `Files.walk(dir)` | `Stream<Path>` | not specified | yes | yes |
+| `Stream.builder()` ... `build()` | `Stream<T>` | `add` order | yes | no |
+| `Stream.concat(a, b)` | `Stream<T>` | ordered if both are | yes | closing it closes both |
+
+## Challenges
+
+1. A service streams a directory tree with `Files.walk` and returns the stream to its caller. Who
+   closes it, and how do you make that hard to forget?
+2. A test asserts that `set.stream().findFirst()` equals a value, and it passes on your machine.
+   What change would make it fail, and what would you assert instead?
+3. Measure a sum over a `List<Integer>` of ten million elements with `mapToInt(...).sum()` and with
+   `reduce(0, Integer::sum)`. Where does the difference come from?
+
+## Design Note: Every Stream Is AutoCloseable, Few Need Closing
+
+`BaseStream` extends `AutoCloseable`, so every stream has `close()`. The `Stream` javadoc says most streams
+don't need it, since collections, arrays and generating functions hold nothing to release. Putting `close()` on every stream lets a stream over a
+file travel as an ordinary `Stream<T>`, and lets code that consumes a stream ignore where it came
+from. The cost is that the type no longer tells you whether closing matters, so a convention has
+to: whoever
+opens a stream over a resource closes it with try-with-resources, and a method that returns one
+says so in its javadoc.
 
 ## Code Examples
 

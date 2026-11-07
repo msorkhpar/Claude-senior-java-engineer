@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Count and list the long words from one stream supplier",
+  "title": "Make the price import stop at the first bad line",
   "blocks": [
     {
       "type": "heading",
@@ -19,43 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A stream is **single-use**: once a terminal operation has consumed it, using it again throws `IllegalStateException`. When the same pipeline must answer two questions, the fix is a new stream for each terminal operation, and a `Supplier<Stream<T>>` is a tidy way to hand them out."
+      "text": "Every night a supplier sends a price file, one `SKU;cents` line per product, with `#` comments and blank lines in between. Last week a file arrived with a broken line in the middle. The import should have stopped there so that someone could fix the file and run it again, but half a file of prices went live, and nobody was told which line was wrong."
     },
     {
       "type": "para",
-      "text": "Write two methods in `LongWords`:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`longerThan(List<String> words, int min)` returns a `Supplier<Stream<String>>` whose every `get()` yields a stream of the words longer than `min` characters, in their order.",
-        "`report(List<String> words, int min)` returns a `LongWords.Report(long count, List<String> words)` holding how many words are longer than `min` and the words themselves (a word that repeats counts, and is listed, each time). The supplier of method 1 is a natural way to get both parts."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "words",
-        "min",
-        "report"
-      ],
-      "rows": [
-        [
-          "`[\"hi\", \"coffee\", \"juice\", \"milk\"]`",
-          "`3`",
-          "`Report[count=3, words=[coffee, juice, milk]]`"
-        ],
-        [
-          "`[\"hi\", \"ok\"]`",
-          "`3`",
-          "`Report[count=0, words=[]]`"
-        ]
-      ]
+      "text": "`PriceImport` already parses a line (`parse` throws the checked `BadLineException`), recognises comments and stores a price. Finish the `TODO` in `src/main/java/practice/PriceImport.java`: `importAll(lines)`, which returns how many prices it stored."
     },
     {
       "type": "para",
-      "text": "A caller may call `get()` as often as it likes. Mind the word that is exactly `min` long."
+      "text": "When you're done, a good file is stored in full, and the first bad line ends the import: the prices before it stay, nothing after it is stored, and the caller's `catch (PriceImport.BadLineException e)` gets the line's number as an editor would show it. About eight lines."
     },
     {
       "type": "heading",
@@ -70,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Supplier;\nimport java.util.stream.Stream;\n\npublic final class LongWords {\n\n    private LongWords() {\n    }\n\n    /** How many words are longer than the minimum, and which. */\n    public record Report(long count, List<String> words) {\n    }\n\n    /** Returns a supplier whose every get() streams the words longer than {@code min}. */\n    public static Supplier<Stream<String>> longerThan(List<String> words, int min) {\n        return () -> words.stream().filter(word -> word.length() > min);\n    }\n\n    /** Returns the count and the list of the words longer than {@code min}. */\n    public static Report report(List<String> words, int min) {\n        Supplier<Stream<String>> longWords = longerThan(words, min);\n        return new Report(longWords.get().count(), longWords.get().toList());\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports the supplier's nightly price file into the price store. A line is {@code SKU;cents},\n * for example {@code TEA-0042;1299}. Blank lines and lines starting with '#' are comments.\n */\npublic class PriceImport {\n\n    /** A line that is neither a comment nor a valid price. */\n    public static class BadLineException extends Exception {\n        private final int lineNumber;\n\n        public BadLineException(int lineNumber, String line) {\n            super(\"line \" + lineNumber + \": \" + line);\n            this.lineNumber = lineNumber;\n        }\n\n        /** The line's position in the file, counting from 1, comments included. */\n        public int lineNumber() {\n            return lineNumber;\n        }\n    }\n\n    public record Price(String sku, long cents) {}\n\n    private final Map<String, Long> store = new LinkedHashMap<>();\n\n    /** The prices stored so far, in the order they were stored. */\n    public Map<String, Long> prices() {\n        return Collections.unmodifiableMap(store);\n    }\n\n    static boolean isComment(String line) {\n        return line.isBlank() || line.startsWith(\"#\");\n    }\n\n    /** Parses one price line; {@code lineNumber} is only used to report a bad line. */\n    static Price parse(String line, int lineNumber) throws BadLineException {\n        String[] parts = line.split(\";\", -1);\n        if (parts.length != 2 || parts[0].isBlank() || !parts[1].matches(\"\\\\d{1,9}\")) {\n            throw new BadLineException(lineNumber, line);\n        }\n        return new Price(parts[0].strip(), Long.parseLong(parts[1]));\n    }\n\n    void store(Price price) {\n        store.put(price.sku(), price.cents());\n    }\n\n    /**\n     * Imports the file's lines in order and returns how many prices it stored. The first bad line\n     * ends the import: prices before it stay stored, nothing after it is stored, and the caller\n     * gets a BadLineException that names it.\n     */\n    public int importAll(List<String> lines) throws BadLineException {\n        int stored = 0;\n        for (int i = 0; i < lines.size(); i++) {\n            String line = lines.get(i);\n            if (isComment(line)) continue;\n            store(parse(line, i + 1));\n            stored++;\n        }\n        return stored;\n    }\n}\n"
         }
       ]
     },
@@ -82,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Supplier;\nimport java.util.stream.Stream;\n\npublic final class LongWords {\n\n    private LongWords() {\n    }\n\n    /** How many words are longer than the minimum, and which. */\n    public record Report(long count, List<String> words) {\n    }\n\n    /** Returns a supplier whose every get() streams the words longer than {@code min}. */\n    public static Supplier<Stream<String>> longerThan(List<String> words, int min) {\n        throw new UnsupportedOperationException(\"write longerThan\");\n    }\n\n    /** Returns the count and the list of the words longer than {@code min}. */\n    public static Report report(List<String> words, int min) {\n        throw new UnsupportedOperationException(\"write report\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports the supplier's nightly price file into the price store. A line is {@code SKU;cents},\n * for example {@code TEA-0042;1299}. Blank lines and lines starting with '#' are comments.\n */\npublic class PriceImport {\n\n    /** A line that is neither a comment nor a valid price. */\n    public static class BadLineException extends Exception {\n        private final int lineNumber;\n\n        public BadLineException(int lineNumber, String line) {\n            super(\"line \" + lineNumber + \": \" + line);\n            this.lineNumber = lineNumber;\n        }\n\n        /** The line's position in the file, counting from 1, comments included. */\n        public int lineNumber() {\n            return lineNumber;\n        }\n    }\n\n    public record Price(String sku, long cents) {}\n\n    private final Map<String, Long> store = new LinkedHashMap<>();\n\n    /** The prices stored so far, in the order they were stored. */\n    public Map<String, Long> prices() {\n        return Collections.unmodifiableMap(store);\n    }\n\n    static boolean isComment(String line) {\n        return line.isBlank() || line.startsWith(\"#\");\n    }\n\n    /** Parses one price line; {@code lineNumber} is only used to report a bad line. */\n    static Price parse(String line, int lineNumber) throws BadLineException {\n        String[] parts = line.split(\";\", -1);\n        if (parts.length != 2 || parts[0].isBlank() || !parts[1].matches(\"\\\\d{1,9}\")) {\n            throw new BadLineException(lineNumber, line);\n        }\n        return new Price(parts[0].strip(), Long.parseLong(parts[1]));\n    }\n\n    void store(Price price) {\n        store.put(price.sku(), price.cents());\n    }\n\n    /**\n     * Imports the file's lines in order and returns how many prices it stored. The first bad line\n     * ends the import: prices before it stay stored, nothing after it is stored, and the caller\n     * gets a BadLineException that names it.\n     */\n    public int importAll(List<String> lines) throws BadLineException {\n        // TODO: Skip comments, parse and store each price line, and count what you stored.\n        //       isComment, parse and store are ready to use.\n        throw new IllegalStateException(\"TODO: importAll\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -92,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -101,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2e01842c36c6cb63732dfecfed732ef004f0fda2ba39b66b088356f9897b8be1",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.Supplier;\nimport java.util.stream.Stream;\n\npublic final class LongWords {\n\n    private LongWords() {\n    }\n\n    /** How many words are longer than the minimum, and which. */\n    public record Report(long count, List<String> words) {\n    }\n\n    /** Returns a supplier whose every get() streams the words longer than {@code min}. */\n    public static Supplier<Stream<String>> longerThan(List<String> words, int min) {\n        throw new UnsupportedOperationException(\"write longerThan\");\n    }\n\n    /** Returns the count and the list of the words longer than {@code min}. */\n    public static Report report(List<String> words, int min) {\n        throw new UnsupportedOperationException(\"write report\");\n    }\n}\n",
+  "content_sha256": "1c2d60c87d7fa6ad11ea7913bc3663759a0048a84e421ebbb31e31303f6a039a",
+  "starting_code": "package practice;\n\nimport java.util.Collections;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports the supplier's nightly price file into the price store. A line is {@code SKU;cents},\n * for example {@code TEA-0042;1299}. Blank lines and lines starting with '#' are comments.\n */\npublic class PriceImport {\n\n    /** A line that is neither a comment nor a valid price. */\n    public static class BadLineException extends Exception {\n        private final int lineNumber;\n\n        public BadLineException(int lineNumber, String line) {\n            super(\"line \" + lineNumber + \": \" + line);\n            this.lineNumber = lineNumber;\n        }\n\n        /** The line's position in the file, counting from 1, comments included. */\n        public int lineNumber() {\n            return lineNumber;\n        }\n    }\n\n    public record Price(String sku, long cents) {}\n\n    private final Map<String, Long> store = new LinkedHashMap<>();\n\n    /** The prices stored so far, in the order they were stored. */\n    public Map<String, Long> prices() {\n        return Collections.unmodifiableMap(store);\n    }\n\n    static boolean isComment(String line) {\n        return line.isBlank() || line.startsWith(\"#\");\n    }\n\n    /** Parses one price line; {@code lineNumber} is only used to report a bad line. */\n    static Price parse(String line, int lineNumber) throws BadLineException {\n        String[] parts = line.split(\";\", -1);\n        if (parts.length != 2 || parts[0].isBlank() || !parts[1].matches(\"\\\\d{1,9}\")) {\n            throw new BadLineException(lineNumber, line);\n        }\n        return new Price(parts[0].strip(), Long.parseLong(parts[1]));\n    }\n\n    void store(Price price) {\n        store.put(price.sku(), price.cents());\n    }\n\n    /**\n     * Imports the file's lines in order and returns how many prices it stored. The first bad line\n     * ends the import: prices before it stay stored, nothing after it is stored, and the caller\n     * gets a BadLineException that names it.\n     */\n    public int importAll(List<String> lines) throws BadLineException {\n        // TODO: Skip comments, parse and store each price line, and count what you stored.\n        //       isComment, parse and store are ready to use.\n        throw new IllegalStateException(\"TODO: importAll\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-01/practice-3/src/main/java/practice/LongWords.java",
-    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-01/practice-3/src/test/java/practice/LongWordsTest.java",
+    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-01/practice-3/src/main/java/practice/PriceImport.java",
+    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-01/practice-3/src/test/java/practice/PriceImportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -126,19 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LongWordsTest#reportsCountAndWords",
+        "id": "practice.PriceImportTest#storesEveryPriceOfAGoodFile",
         "kind": "main",
-        "says": "The report carries how many words are longer than the minimum, and which."
+        "says": "every price of a file with no bad line is stored, in file order, and counted"
       },
       {
-        "id": "practice.LongWordsTest#eachGetGivesAFreshStream",
-        "kind": "edge",
-        "says": "Every get() on the supplier returns a new stream: a stream consumed once cannot be used again."
+        "id": "practice.PriceImportTest#skipsCommentsAndBlankLines",
+        "kind": "main",
+        "says": "comment lines and blank lines are skipped and not counted"
       },
       {
-        "id": "practice.LongWordsTest#aWordOfExactlyMinIsNotLonger",
+        "id": "practice.PriceImportTest#nothingAfterABadLineIsStored",
         "kind": "edge",
-        "says": "A word whose length equals the minimum is not longer than it."
+        "says": "a bad line ends the import: the prices before it stay stored and none after it is stored"
+      },
+      {
+        "id": "practice.PriceImportTest#theCallerCanCatchTheBadLine",
+        "kind": "edge",
+        "says": "the caller gets the checked BadLineException for the first bad line"
+      },
+      {
+        "id": "practice.PriceImportTest#theBadLineIsNumberedAsInTheFile",
+        "kind": "edge",
+        "says": "the bad line's number counts every line of the file, comments and blank lines included"
       }
     ],
     "report": {
@@ -147,10 +129,10 @@
     },
     "origin": {
       "path": "16-streams-api/README_4.4.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Loop Is Clearer When the Work Stops Early, Throws a Checked Exception, or Updates Several Variables"
     },
     "concepts": [
-      "A stream is single-use, so each terminal operation needs a fresh stream from the source."
+      "A loop is clearer than a stream when the work must stop early, throw a checked exception or track positions and several totals; return in a forEach lambda only skips one element."
     ]
   }
 }

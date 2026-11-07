@@ -1,24 +1,12 @@
-Streams do not need a collection behind them. `Stream.iterate(seed, hasNext, next)`
-(Java 9) runs like a `for` loop and stops by itself; `Stream.generate(supplier)` is
-endless and needs a `limit()`; `IntStream.range(a, b)` excludes `b` while
-`IntStream.rangeClosed(a, b)` includes it.
+The file-transfer dashboard shows two figures: the total bytes moved today and the mean duration
+of the most recent transfers. On the day the team mirrored three large disk images, the total
+went negative. On a quiet night with no transfers at all, the dashboard said the recent transfers took
+0.0 ms on average, which paged nobody but convinced someone the service was fast.
 
-Write three methods in `Sequences`:
+Finish the two `TODO` methods in `src/main/java/practice/TransferStats.java`:
 
-1. `powersBelow(int bound)` returns the powers of two 1, 2, 4, ... that are
-   **less than** `bound` (the three-argument `Stream.iterate` fits; `bound` is at
-   most `1 << 20`).
-2. `repeated(String text, int times)` returns `text` repeated `times` times
-   (`Stream.generate` with a `limit` fits; `times` is never negative).
-3. `labels(String prefix, int count)` returns `prefix + 1`, `prefix + 2`, ... up to
-   `prefix + count`.
+- `totalBytes(sizes)`: the total of all the sizes;
+- `meanOfLast(durationsMs, n)`: the mean of the last `n` durations (all of them if there are
+  fewer), and nothing when there are none, so the dashboard can show `n/a`.
 
-| call | answer |
-|---|---|
-| `powersBelow(100)` | `[1, 2, 4, 8, 16, 32, 64]` |
-| `powersBelow(1)` | `[]` |
-| `repeated("ab", 3)` | `"ababab"` |
-| `labels("row", 3)` | `["row1", "row2", "row3"]` |
-| `labels("row", 0)` | `[]` |
-
-Mind which end of each sequence is included.
+The sizes and durations arrive as `int[]`. About four lines in total.
