@@ -2,10 +2,10 @@
    VENDORED, UNMODIFIED apart from this header. Do not edit: re-vendor with
    `npm pack prismjs` and concatenate the Components below IN THAT ORDER,
    each stripped of its trailing newline and joined with one. clike is
-   required by java, javascript and kotlin; markup must precede javascript,
+   required by java, javascript and kotlin, javascript by typescript; markup must precede javascript,
    whose inlined `<script>` support attaches only if markup is loaded first.
-   Components: core clike markup gherkin java javascript json kotlin properties python sql.
-   Languages: atom clike gherkin html java javascript js json kotlin kt kts markup mathml plain plaintext properties py python rss sql ssml svg text txt webmanifest xml.
+   Components: core clike markup gherkin java javascript json kotlin properties python sql bash markdown toml typescript yaml.
+   Languages: atom bash clike gherkin html java javascript js json kotlin kt kts markdown markup mathml md plain plaintext properties py python rss sh shell sql ssml svg text toml ts txt typescript webmanifest xml yaml yml.
    Every name in Prism.languages, checked by test_highlight_grammars.py. */
 var _self="undefined"!=typeof window?window:"undefined"!=typeof WorkerGlobalScope&&self instanceof WorkerGlobalScope?self:{},Prism=function(e){var n=/(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i,t=0,r={},a={manual:e.Prism&&e.Prism.manual,disableWorkerMessageHandler:e.Prism&&e.Prism.disableWorkerMessageHandler,util:{encode:function e(n){return n instanceof i?new i(n.type,e(n.content),n.alias):Array.isArray(n)?n.map(e):n.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/\u00a0/g," ")},type:function(e){return Object.prototype.toString.call(e).slice(8,-1)},objId:function(e){return e.__id||Object.defineProperty(e,"__id",{value:++t}),e.__id},clone:function e(n,t){var r,i;switch(t=t||{},a.util.type(n)){case"Object":if(i=a.util.objId(n),t[i])return t[i];for(var l in r={},t[i]=r,n)n.hasOwnProperty(l)&&(r[l]=e(n[l],t));return r;case"Array":return i=a.util.objId(n),t[i]?t[i]:(r=[],t[i]=r,n.forEach((function(n,a){r[a]=e(n,t)})),r);default:return n}},getLanguage:function(e){for(;e;){var t=n.exec(e.className);if(t)return t[1].toLowerCase();e=e.parentElement}return"none"},setLanguage:function(e,t){e.className=e.className.replace(RegExp(n,"gi"),""),e.classList.add("language-"+t)},currentScript:function(){if("undefined"==typeof document)return null;if(document.currentScript&&"SCRIPT"===document.currentScript.tagName)return document.currentScript;try{throw new Error}catch(r){var e=(/at [^(\r\n]*\((.*):[^:]+:[^:]+\)$/i.exec(r.stack)||[])[1];if(e){var n=document.getElementsByTagName("script");for(var t in n)if(n[t].src==e)return n[t]}return null}},isActive:function(e,n,t){for(var r="no-"+n;e;){var a=e.classList;if(a.contains(n))return!0;if(a.contains(r))return!1;e=e.parentElement}return!!t}},languages:{plain:r,plaintext:r,text:r,txt:r,extend:function(e,n){var t=a.util.clone(a.languages[e]);for(var r in n)t[r]=n[r];return t},insertBefore:function(e,n,t,r){var i=(r=r||a.languages)[e],l={};for(var o in i)if(i.hasOwnProperty(o)){if(o==n)for(var s in t)t.hasOwnProperty(s)&&(l[s]=t[s]);t.hasOwnProperty(o)||(l[o]=i[o])}var u=r[e];return r[e]=l,a.languages.DFS(a.languages,(function(n,t){t===u&&n!=e&&(this[n]=l)})),l},DFS:function e(n,t,r,i){i=i||{};var l=a.util.objId;for(var o in n)if(n.hasOwnProperty(o)){t.call(n,o,n[o],r||o);var s=n[o],u=a.util.type(s);"Object"!==u||i[l(s)]?"Array"!==u||i[l(s)]||(i[l(s)]=!0,e(s,t,o,i)):(i[l(s)]=!0,e(s,t,null,i))}}},plugins:{},highlightAll:function(e,n){a.highlightAllUnder(document,e,n)},highlightAllUnder:function(e,n,t){var r={callback:t,container:e,selector:'code[class*="language-"], [class*="language-"] code, code[class*="lang-"], [class*="lang-"] code'};a.hooks.run("before-highlightall",r),r.elements=Array.prototype.slice.apply(r.container.querySelectorAll(r.selector)),a.hooks.run("before-all-elements-highlight",r);for(var i,l=0;i=r.elements[l++];)a.highlightElement(i,!0===n,r.callback)},highlightElement:function(n,t,r){var i=a.util.getLanguage(n),l=a.languages[i];a.util.setLanguage(n,i);var o=n.parentElement;o&&"pre"===o.nodeName.toLowerCase()&&a.util.setLanguage(o,i);var s={element:n,language:i,grammar:l,code:n.textContent};function u(e){s.highlightedCode=e,a.hooks.run("before-insert",s),s.element.innerHTML=s.highlightedCode,a.hooks.run("after-highlight",s),a.hooks.run("complete",s),r&&r.call(s.element)}if(a.hooks.run("before-sanity-check",s),(o=s.element.parentElement)&&"pre"===o.nodeName.toLowerCase()&&!o.hasAttribute("tabindex")&&o.setAttribute("tabindex","0"),!s.code)return a.hooks.run("complete",s),void(r&&r.call(s.element));if(a.hooks.run("before-highlight",s),s.grammar)if(t&&e.Worker){var c=new Worker(a.filename);c.onmessage=function(e){u(e.data)},c.postMessage(JSON.stringify({language:s.language,code:s.code,immediateClose:!0}))}else u(a.highlight(s.code,s.grammar,s.language));else u(a.util.encode(s.code))},highlight:function(e,n,t){var r={code:e,grammar:n,language:t};if(a.hooks.run("before-tokenize",r),!r.grammar)throw new Error('The language "'+r.language+'" has no grammar.');return r.tokens=a.tokenize(r.code,r.grammar),a.hooks.run("after-tokenize",r),i.stringify(a.util.encode(r.tokens),r.language)},tokenize:function(e,n){var t=n.rest;if(t){for(var r in t)n[r]=t[r];delete n.rest}var a=new s;return u(a,a.head,e),o(e,a,n,a.head,0),function(e){for(var n=[],t=e.head.next;t!==e.tail;)n.push(t.value),t=t.next;return n}(a)},hooks:{all:{},add:function(e,n){var t=a.hooks.all;t[e]=t[e]||[],t[e].push(n)},run:function(e,n){var t=a.hooks.all[e];if(t&&t.length)for(var r,i=0;r=t[i++];)r(n)}},Token:i};function i(e,n,t,r){this.type=e,this.content=n,this.alias=t,this.length=0|(r||"").length}function l(e,n,t,r){e.lastIndex=n;var a=e.exec(t);if(a&&r&&a[1]){var i=a[1].length;a.index+=i,a[0]=a[0].slice(i)}return a}function o(e,n,t,r,s,g){for(var f in t)if(t.hasOwnProperty(f)&&t[f]){var h=t[f];h=Array.isArray(h)?h:[h];for(var d=0;d<h.length;++d){if(g&&g.cause==f+","+d)return;var v=h[d],p=v.inside,m=!!v.lookbehind,y=!!v.greedy,k=v.alias;if(y&&!v.pattern.global){var x=v.pattern.toString().match(/[imsuy]*$/)[0];v.pattern=RegExp(v.pattern.source,x+"g")}for(var b=v.pattern||v,w=r.next,A=s;w!==n.tail&&!(g&&A>=g.reach);A+=w.value.length,w=w.next){var P=w.value;if(n.length>e.length)return;if(!(P instanceof i)){var E,S=1;if(y){if(!(E=l(b,A,e,m))||E.index>=e.length)break;var L=E.index,O=E.index+E[0].length,C=A;for(C+=w.value.length;L>=C;)C+=(w=w.next).value.length;if(A=C-=w.value.length,w.value instanceof i)continue;for(var j=w;j!==n.tail&&(C<O||"string"==typeof j.value);j=j.next)S++,C+=j.value.length;S--,P=e.slice(A,C),E.index-=A}else if(!(E=l(b,0,P,m)))continue;L=E.index;var N=E[0],_=P.slice(0,L),M=P.slice(L+N.length),W=A+P.length;g&&W>g.reach&&(g.reach=W);var I=w.prev;if(_&&(I=u(n,I,_),A+=_.length),c(n,I,S),w=u(n,I,new i(f,p?a.tokenize(N,p):N,k,N)),M&&u(n,w,M),S>1){var T={cause:f+","+d,reach:W};o(e,n,t,w.prev,A,T),g&&T.reach>g.reach&&(g.reach=T.reach)}}}}}}function s(){var e={value:null,prev:null,next:null},n={value:null,prev:e,next:null};e.next=n,this.head=e,this.tail=n,this.length=0}function u(e,n,t){var r=n.next,a={value:t,prev:n,next:r};return n.next=a,r.prev=a,e.length++,a}function c(e,n,t){for(var r=n.next,a=0;a<t&&r!==e.tail;a++)r=r.next;n.next=r,r.prev=n,e.length-=a}if(e.Prism=a,i.stringify=function e(n,t){if("string"==typeof n)return n;if(Array.isArray(n)){var r="";return n.forEach((function(n){r+=e(n,t)})),r}var i={type:n.type,content:e(n.content,t),tag:"span",classes:["token",n.type],attributes:{},language:t},l=n.alias;l&&(Array.isArray(l)?Array.prototype.push.apply(i.classes,l):i.classes.push(l)),a.hooks.run("wrap",i);var o="";for(var s in i.attributes)o+=" "+s+'="'+(i.attributes[s]||"").replace(/"/g,"&quot;")+'"';return"<"+i.tag+' class="'+i.classes.join(" ")+'"'+o+">"+i.content+"</"+i.tag+">"},!e.document)return e.addEventListener?(a.disableWorkerMessageHandler||e.addEventListener("message",(function(n){var t=JSON.parse(n.data),r=t.language,i=t.code,l=t.immediateClose;e.postMessage(a.highlight(i,a.languages[r],r)),l&&e.close()}),!1),a):a;var g=a.util.currentScript();function f(){a.manual||a.highlightAll()}if(g&&(a.filename=g.src,g.hasAttribute("data-manual")&&(a.manual=!0)),!a.manual){var h=document.readyState;"loading"===h||"interactive"===h&&g&&g.defer?document.addEventListener("DOMContentLoaded",f):window.requestAnimationFrame?window.requestAnimationFrame(f):window.setTimeout(f,16)}return a}(_self);"undefined"!=typeof module&&module.exports&&(module.exports=Prism),"undefined"!=typeof global&&(global.Prism=Prism);
 Prism.languages.clike={comment:[{pattern:/(^|[^\\])\/\*[\s\S]*?(?:\*\/|$)/,lookbehind:!0,greedy:!0},{pattern:/(^|[^\\:])\/\/.*/,lookbehind:!0,greedy:!0}],string:{pattern:/(["'])(?:\\(?:\r\n|[\s\S])|(?!\1)[^\\\r\n])*\1/,greedy:!0},"class-name":{pattern:/(\b(?:class|extends|implements|instanceof|interface|new|trait)\s+|\bcatch\s+\()[\w.\\]+/i,lookbehind:!0,inside:{punctuation:/[.\\]/}},keyword:/\b(?:break|catch|continue|do|else|finally|for|function|if|in|instanceof|new|null|return|throw|try|while)\b/,boolean:/\b(?:false|true)\b/,function:/\b\w+(?=\()/,number:/\b0x[\da-f]+\b|(?:\b\d+(?:\.\d*)?|\B\.\d+)(?:e[+-]?\d+)?/i,operator:/[<>]=?|[!=]=?=?|--?|\+\+?|&&?|\|\|?|[?*/~^%]/,punctuation:/[{}[\];(),.:]/};
@@ -18,6 +18,11 @@ Prism.languages.json={property:{pattern:/(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/
 Prism.languages.properties={comment:/^[ \t]*[#!].*$/m,value:{pattern:/(^[ \t]*(?:\\(?:\r\n|[\s\S])|[^\\\s:=])+(?: *[=:] *(?! )| ))(?:\\(?:\r\n|[\s\S])|[^\\\r\n])+/m,lookbehind:!0,alias:"attr-value"},key:{pattern:/^[ \t]*(?:\\(?:\r\n|[\s\S])|[^\\\s:=])+(?= *[=:]| )/m,alias:"attr-name"},punctuation:/[=:]/};
 Prism.languages.python={comment:{pattern:/(^|[^\\])#.*/,lookbehind:!0,greedy:!0},"string-interpolation":{pattern:/(?:f|fr|rf)(?:("""|''')[\s\S]*?\1|("|')(?:\\.|(?!\2)[^\\\r\n])*\2)/i,greedy:!0,inside:{interpolation:{pattern:/((?:^|[^{])(?:\{\{)*)\{(?!\{)(?:[^{}]|\{(?!\{)(?:[^{}]|\{(?!\{)(?:[^{}])+\})+\})+\}/,lookbehind:!0,inside:{"format-spec":{pattern:/(:)[^:(){}]+(?=\}$)/,lookbehind:!0},"conversion-option":{pattern:/![sra](?=[:}]$)/,alias:"punctuation"},rest:null}},string:/[\s\S]+/}},"triple-quoted-string":{pattern:/(?:[rub]|br|rb)?("""|''')[\s\S]*?\1/i,greedy:!0,alias:"string"},string:{pattern:/(?:[rub]|br|rb)?("|')(?:\\.|(?!\1)[^\\\r\n])*\1/i,greedy:!0},function:{pattern:/((?:^|\s)def[ \t]+)[a-zA-Z_]\w*(?=\s*\()/g,lookbehind:!0},"class-name":{pattern:/(\bclass\s+)\w+/i,lookbehind:!0},decorator:{pattern:/(^[\t ]*)@\w+(?:\.\w+)*/m,lookbehind:!0,alias:["annotation","punctuation"],inside:{punctuation:/\./}},keyword:/\b(?:_(?=\s*:)|and|as|assert|async|await|break|case|class|continue|def|del|elif|else|except|exec|finally|for|from|global|if|import|in|is|lambda|match|nonlocal|not|or|pass|print|raise|return|try|while|with|yield)\b/,builtin:/\b(?:__import__|abs|all|any|apply|ascii|basestring|bin|bool|buffer|bytearray|bytes|callable|chr|classmethod|cmp|coerce|compile|complex|delattr|dict|dir|divmod|enumerate|eval|execfile|file|filter|float|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|int|intern|isinstance|issubclass|iter|len|list|locals|long|map|max|memoryview|min|next|object|oct|open|ord|pow|property|range|raw_input|reduce|reload|repr|reversed|round|set|setattr|slice|sorted|staticmethod|str|sum|super|tuple|type|unichr|unicode|vars|xrange|zip)\b/,boolean:/\b(?:False|None|True)\b/,number:/\b0(?:b(?:_?[01])+|o(?:_?[0-7])+|x(?:_?[a-f0-9])+)\b|(?:\b\d+(?:_\d+)*(?:\.(?:\d+(?:_\d+)*)?)?|\B\.\d+(?:_\d+)*)(?:e[+-]?\d+(?:_\d+)*)?j?(?!\w)/i,operator:/[-+%=]=?|!=|:=|\*\*?=?|\/\/?=?|<[<=>]?|>[=>]?|[&|^~]/,punctuation:/[{}[\];(),.:]/},Prism.languages.python["string-interpolation"].inside.interpolation.inside.rest=Prism.languages.python,Prism.languages.py=Prism.languages.python;
 Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#).*)/,lookbehind:!0},variable:[{pattern:/@(["'`])(?:\\[\s\S]|(?!\1)[^\\])+\1/,greedy:!0},/@[\w.$]+/],string:{pattern:/(^|[^@\\])("|')(?:\\[\s\S]|(?!\2)[^\\]|\2\2)*\2/,greedy:!0,lookbehind:!0},identifier:{pattern:/(^|[^@\\])`(?:\\[\s\S]|[^`\\]|``)*`/,greedy:!0,lookbehind:!0,inside:{punctuation:/^`|`$/}},function:/\b(?:AVG|COUNT|FIRST|FORMAT|LAST|LCASE|LEN|MAX|MID|MIN|MOD|NOW|ROUND|SUM|UCASE)(?=\s*\()/i,keyword:/\b(?:ACTION|ADD|AFTER|ALGORITHM|ALL|ALTER|ANALYZE|ANY|APPLY|AS|ASC|AUTHORIZATION|AUTO_INCREMENT|BACKUP|BDB|BEGIN|BERKELEYDB|BIGINT|BINARY|BIT|BLOB|BOOL|BOOLEAN|BREAK|BROWSE|BTREE|BULK|BY|CALL|CASCADED?|CASE|CHAIN|CHAR(?:ACTER|SET)?|CHECK(?:POINT)?|CLOSE|CLUSTERED|COALESCE|COLLATE|COLUMNS?|COMMENT|COMMIT(?:TED)?|COMPUTE|CONNECT|CONSISTENT|CONSTRAINT|CONTAINS(?:TABLE)?|CONTINUE|CONVERT|CREATE|CROSS|CURRENT(?:_DATE|_TIME|_TIMESTAMP|_USER)?|CURSOR|CYCLE|DATA(?:BASES?)?|DATE(?:TIME)?|DAY|DBCC|DEALLOCATE|DEC|DECIMAL|DECLARE|DEFAULT|DEFINER|DELAYED|DELETE|DELIMITERS?|DENY|DESC|DESCRIBE|DETERMINISTIC|DISABLE|DISCARD|DISK|DISTINCT|DISTINCTROW|DISTRIBUTED|DO|DOUBLE|DROP|DUMMY|DUMP(?:FILE)?|DUPLICATE|ELSE(?:IF)?|ENABLE|ENCLOSED|END|ENGINE|ENUM|ERRLVL|ERRORS|ESCAPED?|EXCEPT|EXEC(?:UTE)?|EXISTS|EXIT|EXPLAIN|EXTENDED|FETCH|FIELDS|FILE|FILLFACTOR|FIRST|FIXED|FLOAT|FOLLOWING|FOR(?: EACH ROW)?|FORCE|FOREIGN|FREETEXT(?:TABLE)?|FROM|FULL|FUNCTION|GEOMETRY(?:COLLECTION)?|GLOBAL|GOTO|GRANT|GROUP|HANDLER|HASH|HAVING|HOLDLOCK|HOUR|IDENTITY(?:COL|_INSERT)?|IF|IGNORE|IMPORT|INDEX|INFILE|INNER|INNODB|INOUT|INSERT|INT|INTEGER|INTERSECT|INTERVAL|INTO|INVOKER|ISOLATION|ITERATE|JOIN|KEYS?|KILL|LANGUAGE|LAST|LEAVE|LEFT|LEVEL|LIMIT|LINENO|LINES|LINESTRING|LOAD|LOCAL|LOCK|LONG(?:BLOB|TEXT)|LOOP|MATCH(?:ED)?|MEDIUM(?:BLOB|INT|TEXT)|MERGE|MIDDLEINT|MINUTE|MODE|MODIFIES|MODIFY|MONTH|MULTI(?:LINESTRING|POINT|POLYGON)|NATIONAL|NATURAL|NCHAR|NEXT|NO|NONCLUSTERED|NULLIF|NUMERIC|OFF?|OFFSETS?|ON|OPEN(?:DATASOURCE|QUERY|ROWSET)?|OPTIMIZE|OPTION(?:ALLY)?|ORDER|OUT(?:ER|FILE)?|OVER|PARTIAL|PARTITION|PERCENT|PIVOT|PLAN|POINT|POLYGON|PRECEDING|PRECISION|PREPARE|PREV|PRIMARY|PRINT|PRIVILEGES|PROC(?:EDURE)?|PUBLIC|PURGE|QUICK|RAISERROR|READS?|REAL|RECONFIGURE|REFERENCES|RELEASE|RENAME|REPEAT(?:ABLE)?|REPLACE|REPLICATION|REQUIRE|RESIGNAL|RESTORE|RESTRICT|RETURN(?:ING|S)?|REVOKE|RIGHT|ROLLBACK|ROUTINE|ROW(?:COUNT|GUIDCOL|S)?|RTREE|RULE|SAVE(?:POINT)?|SCHEMA|SECOND|SELECT|SERIAL(?:IZABLE)?|SESSION(?:_USER)?|SET(?:USER)?|SHARE|SHOW|SHUTDOWN|SIMPLE|SMALLINT|SNAPSHOT|SOME|SONAME|SQL|START(?:ING)?|STATISTICS|STATUS|STRIPED|SYSTEM_USER|TABLES?|TABLESPACE|TEMP(?:ORARY|TABLE)?|TERMINATED|TEXT(?:SIZE)?|THEN|TIME(?:STAMP)?|TINY(?:BLOB|INT|TEXT)|TOP?|TRAN(?:SACTIONS?)?|TRIGGER|TRUNCATE|TSEQUAL|TYPES?|UNBOUNDED|UNCOMMITTED|UNDEFINED|UNION|UNIQUE|UNLOCK|UNPIVOT|UNSIGNED|UPDATE(?:TEXT)?|USAGE|USE|USER|USING|VALUES?|VAR(?:BINARY|CHAR|CHARACTER|YING)|VIEW|WAITFOR|WARNINGS|WHEN|WHERE|WHILE|WITH(?: ROLLUP|IN)?|WORK|WRITE(?:TEXT)?|YEAR)\b/i,boolean:/\b(?:FALSE|NULL|TRUE)\b/i,number:/\b0x[\da-f]+\b|\b\d+(?:\.\d*)?|\B\.\d+\b/i,operator:/[-+*\/=%^~]|&&?|\|\|?|!=?|<(?:=>?|<|>)?|>[>=]?|\b(?:AND|BETWEEN|DIV|ILIKE|IN|IS|LIKE|NOT|OR|REGEXP|RLIKE|SOUNDS LIKE|XOR)\b/i,punctuation:/[;[\]()`,.]/};
+!function(e){var t="\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b",a={pattern:/(^(["']?)\w+\2)[ \t]+\S.*/,lookbehind:!0,alias:"punctuation",inside:null},n={bash:a,environment:{pattern:RegExp("\\$"+t),alias:"constant"},variable:[{pattern:/\$?\(\([\s\S]+?\)\)/,greedy:!0,inside:{variable:[{pattern:/(^\$\(\([\s\S]+)\)\)/,lookbehind:!0},/^\$\(\(/],number:/\b0x[\dA-Fa-f]+\b|(?:\b\d+(?:\.\d*)?|\B\.\d+)(?:[Ee]-?\d+)?/,operator:/--|\+\+|\*\*=?|<<=?|>>=?|&&|\|\||[=!+\-*/%<>^&|]=?|[?~:]/,punctuation:/\(\(?|\)\)?|,|;/}},{pattern:/\$\((?:\([^)]+\)|[^()])+\)|`[^`]+`/,greedy:!0,inside:{variable:/^\$\(|^`|\)$|`$/}},{pattern:/\$\{[^}]+\}/,greedy:!0,inside:{operator:/:[-=?+]?|[!\/]|##?|%%?|\^\^?|,,?/,punctuation:/[\[\]]/,environment:{pattern:RegExp("(\\{)"+t),lookbehind:!0,alias:"constant"}}},/\$(?:\w+|[#?*!@$])/],entity:/\\(?:[abceEfnrtv\\"]|O?[0-7]{1,3}|U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{1,2})/};e.languages.bash={shebang:{pattern:/^#!\s*\/.*/,alias:"important"},comment:{pattern:/(^|[^"{\\$])#.*/,lookbehind:!0},"function-name":[{pattern:/(\bfunction\s+)[\w-]+(?=(?:\s*\(?:\s*\))?\s*\{)/,lookbehind:!0,alias:"function"},{pattern:/\b[\w-]+(?=\s*\(\s*\)\s*\{)/,alias:"function"}],"for-or-select":{pattern:/(\b(?:for|select)\s+)\w+(?=\s+in\s)/,alias:"variable",lookbehind:!0},"assign-left":{pattern:/(^|[\s;|&]|[<>]\()\w+(?:\.\w+)*(?=\+?=)/,inside:{environment:{pattern:RegExp("(^|[\\s;|&]|[<>]\\()"+t),lookbehind:!0,alias:"constant"}},alias:"variable",lookbehind:!0},parameter:{pattern:/(^|\s)-{1,2}(?:\w+:[+-]?)?\w+(?:\.\w+)*(?=[=\s]|$)/,alias:"variable",lookbehind:!0},string:[{pattern:/((?:^|[^<])<<-?\s*)(\w+)\s[\s\S]*?(?:\r?\n|\r)\2/,lookbehind:!0,greedy:!0,inside:n},{pattern:/((?:^|[^<])<<-?\s*)(["'])(\w+)\2\s[\s\S]*?(?:\r?\n|\r)\3/,lookbehind:!0,greedy:!0,inside:{bash:a}},{pattern:/(^|[^\\](?:\\\\)*)"(?:\\[\s\S]|\$\([^)]+\)|\$(?!\()|`[^`]+`|[^"\\`$])*"/,lookbehind:!0,greedy:!0,inside:n},{pattern:/(^|[^$\\])'[^']*'/,lookbehind:!0,greedy:!0},{pattern:/\$'(?:[^'\\]|\\[\s\S])*'/,greedy:!0,inside:{entity:n.entity}}],environment:{pattern:RegExp("\\$?"+t),alias:"constant"},variable:n.variable,function:{pattern:/(^|[\s;|&]|[<>]\()(?:add|apropos|apt|apt-cache|apt-get|aptitude|aspell|automysqlbackup|awk|basename|bash|bc|bconsole|bg|bzip2|cal|cargo|cat|cfdisk|chgrp|chkconfig|chmod|chown|chroot|cksum|clear|cmp|column|comm|composer|cp|cron|crontab|csplit|curl|cut|date|dc|dd|ddrescue|debootstrap|df|diff|diff3|dig|dir|dircolors|dirname|dirs|dmesg|docker|docker-compose|du|egrep|eject|env|ethtool|expand|expect|expr|fdformat|fdisk|fg|fgrep|file|find|fmt|fold|format|free|fsck|ftp|fuser|gawk|git|gparted|grep|groupadd|groupdel|groupmod|groups|grub-mkconfig|gzip|halt|head|hg|history|host|hostname|htop|iconv|id|ifconfig|ifdown|ifup|import|install|ip|java|jobs|join|kill|killall|less|link|ln|locate|logname|logrotate|look|lpc|lpr|lprint|lprintd|lprintq|lprm|ls|lsof|lynx|make|man|mc|mdadm|mkconfig|mkdir|mke2fs|mkfifo|mkfs|mkisofs|mknod|mkswap|mmv|more|most|mount|mtools|mtr|mutt|mv|nano|nc|netstat|nice|nl|node|nohup|notify-send|npm|nslookup|op|open|parted|passwd|paste|pathchk|ping|pkill|pnpm|podman|podman-compose|popd|pr|printcap|printenv|ps|pushd|pv|quota|quotacheck|quotactl|ram|rar|rcp|reboot|remsync|rename|renice|rev|rm|rmdir|rpm|rsync|scp|screen|sdiff|sed|sendmail|seq|service|sftp|sh|shellcheck|shuf|shutdown|sleep|slocate|sort|split|ssh|stat|strace|su|sudo|sum|suspend|swapon|sync|sysctl|tac|tail|tar|tee|time|timeout|top|touch|tr|traceroute|tsort|tty|umount|uname|unexpand|uniq|units|unrar|unshar|unzip|update-grub|uptime|useradd|userdel|usermod|users|uudecode|uuencode|v|vcpkg|vdir|vi|vim|virsh|vmstat|wait|watch|wc|wget|whereis|which|who|whoami|write|xargs|xdg-open|yarn|yes|zenity|zip|zsh|zypper)(?=$|[)\s;|&])/,lookbehind:!0},keyword:{pattern:/(^|[\s;|&]|[<>]\()(?:case|do|done|elif|else|esac|fi|for|function|if|in|select|then|until|while)(?=$|[)\s;|&])/,lookbehind:!0},builtin:{pattern:/(^|[\s;|&]|[<>]\()(?:\.|:|alias|bind|break|builtin|caller|cd|command|continue|declare|echo|enable|eval|exec|exit|export|getopts|hash|help|let|local|logout|mapfile|printf|pwd|read|readarray|readonly|return|set|shift|shopt|source|test|times|trap|type|typeset|ulimit|umask|unalias|unset)(?=$|[)\s;|&])/,lookbehind:!0,alias:"class-name"},boolean:{pattern:/(^|[\s;|&]|[<>]\()(?:false|true)(?=$|[)\s;|&])/,lookbehind:!0},"file-descriptor":{pattern:/\B&\d\b/,alias:"important"},operator:{pattern:/\d?<>|>\||\+=|=[=~]?|!=?|<<[<-]?|[&\d]?>>|\d[<>]&?|[<>][&=]?|&[>&]?|\|[&|]?/,inside:{"file-descriptor":{pattern:/^\d/,alias:"important"}}},punctuation:/\$?\(\(?|\)\)?|\.\.|[{}[\];\\]/,number:{pattern:/(^|\s)(?:[1-9]\d*|0)(?:[.,]\d+)?\b/,lookbehind:!0}},a.inside=e.languages.bash;for(var s=["comment","function-name","for-or-select","assign-left","parameter","string","environment","function","keyword","builtin","boolean","file-descriptor","operator","punctuation","number"],o=n.variable[1].inside,i=0;i<s.length;i++)o[s[i]]=e.languages.bash[s[i]];e.languages.sh=e.languages.bash,e.languages.shell=e.languages.bash}(Prism);
+!function(n){function e(n){return n=n.replace(/<inner>/g,(function(){return"(?:\\\\.|[^\\\\\n\r]|(?:\n|\r\n?)(?![\r\n]))"})),RegExp("((?:^|[^\\\\])(?:\\\\{2})*)(?:"+n+")")}var t="(?:\\\\.|``(?:[^`\r\n]|`(?!`))+``|`[^`\r\n]+`|[^\\\\|\r\n`])+",a="\\|?__(?:\\|__)+\\|?(?:(?:\n|\r\n?)|(?![^]))".replace(/__/g,(function(){return t})),i="\\|?[ \t]*:?-{3,}:?[ \t]*(?:\\|[ \t]*:?-{3,}:?[ \t]*)+\\|?(?:\n|\r\n?)";n.languages.markdown=n.languages.extend("markup",{}),n.languages.insertBefore("markdown","prolog",{"front-matter-block":{pattern:/(^(?:\s*[\r\n])?)---(?!.)[\s\S]*?[\r\n]---(?!.)/,lookbehind:!0,greedy:!0,inside:{punctuation:/^---|---$/,"front-matter":{pattern:/\S+(?:\s+\S+)*/,alias:["yaml","language-yaml"],inside:n.languages.yaml}}},blockquote:{pattern:/^>(?:[\t ]*>)*/m,alias:"punctuation"},table:{pattern:RegExp("^"+a+i+"(?:"+a+")*","m"),inside:{"table-data-rows":{pattern:RegExp("^("+a+i+")(?:"+a+")*$"),lookbehind:!0,inside:{"table-data":{pattern:RegExp(t),inside:n.languages.markdown},punctuation:/\|/}},"table-line":{pattern:RegExp("^("+a+")"+i+"$"),lookbehind:!0,inside:{punctuation:/\||:?-{3,}:?/}},"table-header-row":{pattern:RegExp("^"+a+"$"),inside:{"table-header":{pattern:RegExp(t),alias:"important",inside:n.languages.markdown},punctuation:/\|/}}}},code:[{pattern:/((?:^|\n)[ \t]*\n|(?:^|\r\n?)[ \t]*\r\n?)(?: {4}|\t).+(?:(?:\n|\r\n?)(?: {4}|\t).+)*/,lookbehind:!0,alias:"keyword"},{pattern:/^```[\s\S]*?^```$/m,greedy:!0,inside:{"code-block":{pattern:/^(```.*(?:\n|\r\n?))[\s\S]+?(?=(?:\n|\r\n?)^```$)/m,lookbehind:!0},"code-language":{pattern:/^(```).+/,lookbehind:!0},punctuation:/```/}}],title:[{pattern:/\S.*(?:\n|\r\n?)(?:==+|--+)(?=[ \t]*$)/m,alias:"important",inside:{punctuation:/==+$|--+$/}},{pattern:/(^\s*)#.+/m,lookbehind:!0,alias:"important",inside:{punctuation:/^#+|#+$/}}],hr:{pattern:/(^\s*)([*-])(?:[\t ]*\2){2,}(?=\s*$)/m,lookbehind:!0,alias:"punctuation"},list:{pattern:/(^\s*)(?:[*+-]|\d+\.)(?=[\t ].)/m,lookbehind:!0,alias:"punctuation"},"url-reference":{pattern:/!?\[[^\]]+\]:[\t ]+(?:\S+|<(?:\\.|[^>\\])+>)(?:[\t ]+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\)))?/,inside:{variable:{pattern:/^(!?\[)[^\]]+/,lookbehind:!0},string:/(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))$/,punctuation:/^[\[\]!:]|[<>]/},alias:"url"},bold:{pattern:e("\\b__(?:(?!_)<inner>|_(?:(?!_)<inner>)+_)+__\\b|\\*\\*(?:(?!\\*)<inner>|\\*(?:(?!\\*)<inner>)+\\*)+\\*\\*"),lookbehind:!0,greedy:!0,inside:{content:{pattern:/(^..)[\s\S]+(?=..$)/,lookbehind:!0,inside:{}},punctuation:/\*\*|__/}},italic:{pattern:e("\\b_(?:(?!_)<inner>|__(?:(?!_)<inner>)+__)+_\\b|\\*(?:(?!\\*)<inner>|\\*\\*(?:(?!\\*)<inner>)+\\*\\*)+\\*"),lookbehind:!0,greedy:!0,inside:{content:{pattern:/(^.)[\s\S]+(?=.$)/,lookbehind:!0,inside:{}},punctuation:/[*_]/}},strike:{pattern:e("(~~?)(?:(?!~)<inner>)+\\2"),lookbehind:!0,greedy:!0,inside:{content:{pattern:/(^~~?)[\s\S]+(?=\1$)/,lookbehind:!0,inside:{}},punctuation:/~~?/}},"code-snippet":{pattern:/(^|[^\\`])(?:``[^`\r\n]+(?:`[^`\r\n]+)*``(?!`)|`[^`\r\n]+`(?!`))/,lookbehind:!0,greedy:!0,alias:["code","keyword"]},url:{pattern:e('!?\\[(?:(?!\\])<inner>)+\\](?:\\([^\\s)]+(?:[\t ]+"(?:\\\\.|[^"\\\\])*")?\\)|[ \t]?\\[(?:(?!\\])<inner>)+\\])'),lookbehind:!0,greedy:!0,inside:{operator:/^!/,content:{pattern:/(^\[)[^\]]+(?=\])/,lookbehind:!0,inside:{}},variable:{pattern:/(^\][ \t]?\[)[^\]]+(?=\]$)/,lookbehind:!0},url:{pattern:/(^\]\()[^\s)]+/,lookbehind:!0},string:{pattern:/(^[ \t]+)"(?:\\.|[^"\\])*"(?=\)$)/,lookbehind:!0}}}}),["url","bold","italic","strike"].forEach((function(e){["url","bold","italic","strike","code-snippet"].forEach((function(t){e!==t&&(n.languages.markdown[e].inside.content.inside[t]=n.languages.markdown[t])}))})),n.hooks.add("after-tokenize",(function(n){"markdown"!==n.language&&"md"!==n.language||function n(e){if(e&&"string"!=typeof e)for(var t=0,a=e.length;t<a;t++){var i=e[t];if("code"===i.type){var r=i.content[1],o=i.content[3];if(r&&o&&"code-language"===r.type&&"code-block"===o.type&&"string"==typeof r.content){var l=r.content.replace(/\b#/g,"sharp").replace(/\b\+\+/g,"pp"),s="language-"+(l=(/[a-z][\w-]*/i.exec(l)||[""])[0].toLowerCase());o.alias?"string"==typeof o.alias?o.alias=[o.alias,s]:o.alias.push(s):o.alias=[s]}}else n(i.content)}}(n.tokens)})),n.hooks.add("wrap",(function(e){if("code-block"===e.type){for(var t="",a=0,i=e.classes.length;a<i;a++){var s=e.classes[a],d=/language-(.+)/.exec(s);if(d){t=d[1];break}}var p=n.languages[t];if(p)e.content=n.highlight(e.content.replace(r,"").replace(/&(\w{1,8}|#x?[\da-f]{1,8});/gi,(function(n,e){var t;return"#"===(e=e.toLowerCase())[0]?(t="x"===e[1]?parseInt(e.slice(2),16):Number(e.slice(1)),l(t)):o[e]||n})),p,t);else if(t&&"none"!==t&&n.plugins.autoloader){var u="md-"+(new Date).valueOf()+"-"+Math.floor(1e16*Math.random());e.attributes.id=u,n.plugins.autoloader.loadLanguages(t,(function(){var e=document.getElementById(u);e&&(e.innerHTML=n.highlight(e.textContent,n.languages[t],t))}))}}}));var r=RegExp(n.languages.markup.tag.pattern.source,"gi"),o={amp:"&",lt:"<",gt:">",quot:'"'},l=String.fromCodePoint||String.fromCharCode;n.languages.md=n.languages.markdown}(Prism);
+!function(e){function n(e){return e.replace(/__/g,(function(){return"(?:[\\w-]+|'[^'\n\r]*'|\"(?:\\\\.|[^\\\\\"\r\n])*\")"}))}e.languages.toml={comment:{pattern:/#.*/,greedy:!0},table:{pattern:RegExp(n("(^[\t ]*\\[\\s*(?:\\[\\s*)?)__(?:\\s*\\.\\s*__)*(?=\\s*\\])"),"m"),lookbehind:!0,greedy:!0,alias:"class-name"},key:{pattern:RegExp(n("(^[\t ]*|[{,]\\s*)__(?:\\s*\\.\\s*__)*(?=\\s*=)"),"m"),lookbehind:!0,greedy:!0,alias:"property"},string:{pattern:/"""(?:\\[\s\S]|[^\\])*?"""|'''[\s\S]*?'''|'[^'\n\r]*'|"(?:\\.|[^\\"\r\n])*"/,greedy:!0},date:[{pattern:/\b\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?\b/i,alias:"number"},{pattern:/\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b/,alias:"number"}],number:/(?:\b0(?:x[\da-zA-Z]+(?:_[\da-zA-Z]+)*|o[0-7]+(?:_[0-7]+)*|b[10]+(?:_[10]+)*))\b|[-+]?\b\d+(?:_\d+)*(?:\.\d+(?:_\d+)*)?(?:[eE][+-]?\d+(?:_\d+)*)?\b|[-+]?\b(?:inf|nan)\b/,boolean:/\b(?:false|true)\b/,punctuation:/[.,=[\]{}]/}}(Prism);
+!function(e){e.languages.typescript=e.languages.extend("javascript",{"class-name":{pattern:/(\b(?:class|extends|implements|instanceof|interface|new|type)\s+)(?!keyof\b)(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*(?:\s*<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>)?/,lookbehind:!0,greedy:!0,inside:null},builtin:/\b(?:Array|Function|Promise|any|boolean|console|never|number|string|symbol|unknown)\b/}),e.languages.typescript.keyword.push(/\b(?:abstract|declare|is|keyof|readonly|require)\b/,/\b(?:asserts|infer|interface|module|namespace|type)\b(?=\s*(?:[{_$a-zA-Z\xA0-\uFFFF]|$))/,/\btype\b(?=\s*(?:[\{*]|$))/),delete e.languages.typescript.parameter,delete e.languages.typescript["literal-property"];var s=e.languages.extend("typescript",{});delete s["class-name"],e.languages.typescript["class-name"].inside=s,e.languages.insertBefore("typescript","function",{decorator:{pattern:/@[$\w\xA0-\uFFFF]+/,inside:{at:{pattern:/^@/,alias:"operator"},function:/^[\s\S]+/}},"generic-function":{pattern:/#?(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*\s*<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>(?=\s*\()/,greedy:!0,inside:{function:/^#?(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*/,generic:{pattern:/<[\s\S]+/,alias:"class-name",inside:s}}}}),e.languages.ts=e.languages.typescript}(Prism);
+!function(e){var n=/[*&][^\s[\]{},]+/,r=/!(?:<[\w\-%#;/?:@&=+$,.!~*'()[\]]+>|(?:[a-zA-Z\d-]*!)?[\w\-%#;/?:@&=+$.~*'()]+)?/,t="(?:"+r.source+"(?:[ \t]+"+n.source+")?|"+n.source+"(?:[ \t]+"+r.source+")?)",a="(?:[^\\s\\x00-\\x08\\x0e-\\x1f!\"#%&'*,\\-:>?@[\\]`{|}\\x7f-\\x84\\x86-\\x9f\\ud800-\\udfff\\ufffe\\uffff]|[?:-]<PLAIN>)(?:[ \t]*(?:(?![#:])<PLAIN>|:<PLAIN>))*".replace(/<PLAIN>/g,(function(){return"[^\\s\\x00-\\x08\\x0e-\\x1f,[\\]{}\\x7f-\\x84\\x86-\\x9f\\ud800-\\udfff\\ufffe\\uffff]"})),d="\"(?:[^\"\\\\\r\n]|\\\\.)*\"|'(?:[^'\\\\\r\n]|\\\\.)*'";function o(e,n){n=(n||"").replace(/m/g,"")+"m";var r="([:\\-,[{]\\s*(?:\\s<<prop>>[ \t]+)?)(?:<<value>>)(?=[ \t]*(?:$|,|\\]|\\}|(?:[\r\n]\\s*)?#))".replace(/<<prop>>/g,(function(){return t})).replace(/<<value>>/g,(function(){return e}));return RegExp(r,n)}e.languages.yaml={scalar:{pattern:RegExp("([\\-:]\\s*(?:\\s<<prop>>[ \t]+)?[|>])[ \t]*(?:((?:\r?\n|\r)[ \t]+)\\S[^\r\n]*(?:\\2[^\r\n]+)*)".replace(/<<prop>>/g,(function(){return t}))),lookbehind:!0,alias:"string"},comment:/#.*/,key:{pattern:RegExp("((?:^|[:\\-,[{\r\n?])[ \t]*(?:<<prop>>[ \t]+)?)<<key>>(?=\\s*:\\s)".replace(/<<prop>>/g,(function(){return t})).replace(/<<key>>/g,(function(){return"(?:"+a+"|"+d+")"}))),lookbehind:!0,greedy:!0,alias:"atrule"},directive:{pattern:/(^[ \t]*)%.+/m,lookbehind:!0,alias:"important"},datetime:{pattern:o("\\d{4}-\\d\\d?-\\d\\d?(?:[tT]|[ \t]+)\\d\\d?:\\d{2}:\\d{2}(?:\\.\\d*)?(?:[ \t]*(?:Z|[-+]\\d\\d?(?::\\d{2})?))?|\\d{4}-\\d{2}-\\d{2}|\\d\\d?:\\d{2}(?::\\d{2}(?:\\.\\d*)?)?"),lookbehind:!0,alias:"number"},boolean:{pattern:o("false|true","i"),lookbehind:!0,alias:"important"},null:{pattern:o("null|~","i"),lookbehind:!0,alias:"important"},string:{pattern:o(d),lookbehind:!0,greedy:!0},number:{pattern:o("[+-]?(?:0x[\\da-f]+|0o[0-7]+|(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[+-]?\\d+)?|\\.inf|\\.nan)","i"),lookbehind:!0},tag:r,important:n,punctuation:/---|[:[\]{}\-,|>?]|\.\.\./},e.languages.yml=e.languages.yaml}(Prism);
 
 /* Plyr 3.8.4 -- plyr.io -- MIT, see plyr.LICENSE beside this file.
    VENDORED, UNMODIFIED apart from this header. Do not edit: re-vendor with
@@ -260,7 +265,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
   /* ⭐ **A quiz passed, by its practice key** — the same machinery as the
      marks, over its own key. ⛔ A quiz is graded in its page and the server
-     records nothing about it (register ruling), so its pass is the reader's
+     records nothing about it, so its pass is the reader's
      own record, kept where the read marks are; it is never a RUN's pass. */
   function passes() {
     var held = record(QUIZZES_KEY);
@@ -402,7 +407,15 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
    system scheme. A reader who has CHOSEN a theme has made those media queries
    wrong, so the chosen one is widened to `all` and the other is switched off;
    choosing *system* puts both media queries back exactly as the skeleton wrote
-   them. */
+   them.
+
+   ⭐ **THE CONTROL IS ONE ICON BUTTON IN THE TOP BAR.** It shows the theme the page is in and
+   pressing it chooses the other, so a reader who follows their system and presses it stores
+   the opposite of what the system says. *System* is still the stored default and still what
+   an absent record means; the button simply no longer offers a way back to it, and a reader
+   who wants that clears the site data. ⛔ Its two accessible names are attributes of the
+   button in `page.html` (`data-to-dark`, `data-to-light`); this part picks one and types
+   nothing. The icon itself is chosen by `topbar.css` from the same attribute and scheme. */
 
 (function () {
   'use strict';
@@ -420,7 +433,8 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      every hook on this page has: markup and script cannot import one another. */
   var THEME = 'data-theme';
   var CONTROL = '[data-section="theme"]';
-  var CHOICE = 'data-theme-choice';
+  var TO_DARK = 'data-to-dark';
+  var TO_LIGHT = 'data-to-light';
 
   /* The browser-chrome colour, one per system scheme, and what switches one
      off. ⚠️ `not all` rather than removing the element: the skeleton's own two
@@ -428,15 +442,15 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var COLOUR = 'meta[name="theme-color"]';
   var EVERY = 'all';
   var NONE = 'not all';
-
+  var SCHEME = '(prefers-color-scheme: dark)';
 
   var store = window.studyforge.progress;
   var root = document.documentElement;
 
   var control = document.querySelector(CONTROL);
   if (!control) { return; }
-  var buttons = [].slice.call(control.querySelectorAll('[' + CHOICE + ']'));
-  if (!buttons.length) { return; }
+
+  var system = window.matchMedia ? window.matchMedia(SCHEME) : null;
 
   /* Each theme-colour element with the media query the skeleton gave it, read
      once, before anything here has had a chance to change one. */
@@ -451,10 +465,14 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     return held === LIGHT || held === DARK ? held : SYSTEM;
   }
 
+  /* The theme the page is showing, whether it was chosen or followed. */
+  function showing(choice) {
+    if (choice !== SYSTEM) { return choice; }
+    return system && system.matches ? DARK : LIGHT;
+  }
+
   /* ⛔ The cache the head boot reads, kept in step with every paint and kept by
-     the STORE rather than by this part. ⚠️ One part touches the browser's
-     storage (`test_progress` asserts it), and that does not stop being true
-     because the area is a different one. ⭐ *System* caches NOTHING: an absent
+     the STORE rather than by this part. ⭐ *System* caches NOTHING: an absent
      cache and a cached word must not be two answers to one question. */
   function remember(choice) {
     store.cache(PREFERENCE, choice === SYSTEM ? null : choice);
@@ -477,10 +495,11 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
         );
       }
     });
-    buttons.forEach(function (button) {
-      var mine = button.getAttribute(CHOICE) === choice;
-      button.setAttribute('aria-pressed', mine ? 'true' : 'false');
-    });
+    var name = control.getAttribute(showing(choice) === DARK ? TO_LIGHT : TO_DARK);
+    if (name) {
+      control.setAttribute('aria-label', name);
+      control.setAttribute('title', name);
+    }
   }
 
   /* ⛔ Shown from the STORE's answer, never from what was just pressed: a write
@@ -493,11 +512,503 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   paint(chosen());
   control.hidden = false;
 
-  buttons.forEach(function (button) {
-    button.addEventListener('click', function () {
-      choose(button.getAttribute(CHOICE));
-    });
+  control.addEventListener('click', function () {
+    choose(showing(chosen()) === DARK ? LIGHT : DARK);
   });
+
+  /* A page that follows the system follows it when it changes. */
+  if (system && system.addEventListener) {
+    system.addEventListener('change', function () {
+      if (chosen() === SYSTEM) { paint(SYSTEM); }
+    });
+  }
+}());
+
+/* The rail keeps its scroll position from one page to the next.
+
+   ⭐ **WHAT THIS PART DOES AND WHAT IT DOES NOT.** It SAVES where the rail is scrolled to; it
+   never puts the rail back. The putting-back is the small inline script in `page.html` right
+   after the rail, which runs as the page is parsed and so before the first paint: a deferred
+   part such as this one runs after it, and a rail that painted at the top for a frame and then
+   jumped is the defect being removed. That script also brings the current page's row into view
+   with the rail's own scroll offset (never `scrollIntoView`, which would move the page
+   as well) when the saved position does not show it, and does the same when nothing was saved.
+
+   ⛔ **THE STORE KEEPS THE RECORD, NOT THIS PART.** `window.studyforge.progress.cache` is the one
+   place that touches the browser's storage, and it answers `false` when the browser refuses
+   it, which costs nothing here: the next page then opens with the current row in view.
+   ⚠️ The name is spelled here and in `page.html`, the two-sided spelling every hook has;
+   the store files it as `studyforge.boot.rail.v1`.
+
+   ⭐ Saved when the reader scrolls the rail (once per frame) and again when they follow a link
+   out of it or leave the page, so the last position always wins. */
+
+(function () {
+  'use strict';
+
+  var NAME = 'rail';
+  var RAIL = 'nav[aria-label="Containers"]';
+
+  var store = window.studyforge.progress;
+  var rail = document.querySelector(RAIL);
+  if (!rail) { return; }
+
+  var waiting = false;
+
+  function save() {
+    waiting = false;
+    store.cache(NAME, String(Math.round(rail.scrollTop)));
+  }
+
+  rail.addEventListener('scroll', function () {
+    if (!waiting) {
+      waiting = true;
+      window.requestAnimationFrame(save);
+    }
+  }, { passive: true });
+
+  rail.addEventListener('click', save, true);
+  window.addEventListener('pagehide', save);
+}());
+
+/* The reading line under the top bar, and the outline's "you are here" (the 2026-11 redesign).
+
+   ⭐ Its width is the share of the page already scrolled past, so a reader
+   sees how far through a long unit they are. ⛔ It is decoration for a
+   sighted reader only: the element is aria-hidden, and with scripting off it
+   stays at no width rather than lying. ⚠️ Measured on scroll and resize, at
+   most once a frame.
+
+   ⭐ Scroll-spy: the outline link whose section heading was last scrolled past
+   (under the bar) carries `aria-current="location"`, so a reader always sees
+   which part of the unit they are in. The outline is a list of links to ids
+   on this page; a link whose target is missing is skipped. */
+(function () {
+  "use strict";
+  var line = document.querySelector('body > header > div[data-section="reading-progress"]');
+  var spied = [];
+  var outline = document.querySelectorAll('nav[aria-label="Outline"] a[href^="#"]');
+  for (var i = 0; i < outline.length; i++) {
+    var target = document.getElementById(decodeURIComponent(outline[i].getAttribute("href").slice(1)));
+    if (target) { spied.push({ link: outline[i], target: target }); }
+  }
+  if (!line && !spied.length) { return; }
+  var current = null;
+  function spy() {
+    var bar = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 80;
+    var found = null;
+    for (var j = 0; j < spied.length; j++) {
+      if (spied[j].target.getBoundingClientRect().top - bar <= 1) { found = spied[j].link; } else { break; }
+    }
+    if (found === current) { return; }
+    if (current) { current.removeAttribute("aria-current"); }
+    if (found) { found.setAttribute("aria-current", "location"); }
+    current = found;
+  }
+  var queued = false;
+  function measure() {
+    queued = false;
+    var root = document.documentElement;
+    var room = root.scrollHeight - root.clientHeight;
+    var share = room > 0 ? Math.min(1, Math.max(0, root.scrollTop / room)) : 0;
+    if (line) { line.style.width = (share * 100).toFixed(2) + "%"; }
+    if (spied.length) { spy(); }
+  }
+  function queue() {
+    if (!queued) { queued = true; window.requestAnimationFrame(measure); }
+  }
+  window.addEventListener("scroll", queue, { passive: true });
+  window.addEventListener("resize", queue);
+  measure();
+})();
+
+/* The search: Ctrl or Cmd + K, or `/`, opens a box over the page; results appear as the reader types.
+
+   ⭐ **LOCAL AND OFFLINE.** The ranking library (`minisearch.js`, vendored) and the index
+   (`search-index.js`, written by the build from the pages themselves) are two files beside
+   `page.js`, loaded from the site on the first time the box is opened, and never from anywhere
+   else. ⛔ They are scripts and not fetched JSON so the search also works from a page opened
+   as a file. ⭐ The index was built by the build: this part hands it to `MiniSearch.loadJSON`
+   and builds nothing. A large one comes in string pieces (`search-index-0.js` and on), joined in
+   order before the one load. ⚠️ A site built without `node` holds the records instead (versions 1
+   and 2), and only then a third file, `search-build.js`, that builds them here. A version this
+   part does not know fails, and so does a piece that is missing.
+
+   ⭐ **ONE RECORD PER HEADING, GROUPED BY PAGE.** A result names the page (and the module it is
+   in) once, and under it the parts of the page that matched, each with the matched words marked
+   and a snippet around the first one. Enter opens the chosen part at its heading.
+
+   ⛔ **THE WORDS A READER SEES ARE IN `page.html`** as `data-search-*` attributes of the dialog;
+   this part types none. ⛔ Results are built with `textContent` and `<mark>` elements, never
+   markup from the index, so nothing in a page can inject into the box.
+
+   ⭐ Keys: Up and Down move, Enter opens, Esc closes, Tab stays inside the box. `/` is left
+   alone while the reader is typing in a field or an editor. */
+
+(function () {
+  'use strict';
+
+  var OPEN = '[data-section="search-open"]';
+  var DIALOG = '[data-section="search"]';
+  var LIBRARY = 'minisearch.js';
+  var INDEX = 'search-index.js';
+  var BUILDER = 'search-build.js';
+  var KINDS = { 1: 'records', 2: 'records', 3: 'precompiled' };
+  var SEARCH = { prefix: true, fuzzy: 0.15, boost: { title: 3, heading: 2 }, combineWith: 'AND' };
+  var BUNDLE = /\/page\.js(?:\?|#|$)/;
+  var MAX_PAGES = 8;
+  var MAX_PARTS = 3;
+  var LOOK_BEHIND = 60;
+  var LOOK_AHEAD = 150;
+  var ELLIPSIS = '…';
+
+  var opener = document.querySelector(OPEN);
+  var dialog = document.querySelector(DIALOG);
+  if (!opener || !dialog) { return; }
+  var field = dialog.querySelector('[data-search-field]');
+  var list = dialog.querySelector('[data-search-results]');
+  var status = dialog.querySelector('[data-search-status]');
+  var hints = dialog.querySelector('[data-search-hints]');
+  var close = dialog.querySelector('[data-search-close]');
+
+  var engine = null;
+  var entry = null;
+  var state = 'idle';
+  var pending = null;
+  var returnTo = null;
+  var active = -1;
+  var timer = 0;
+
+  function word(name) { return dialog.getAttribute('data-search-' + name) || ''; }
+
+  /* ⭐ The input is made here, with the words the dialog carries: the page has no search box
+     to show without this part, so it ships none. */
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-owns', 'search-results');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-label', word('placeholder'));
+  input.setAttribute('placeholder', word('placeholder'));
+  input.setAttribute('autocomplete', 'off');
+  input.setAttribute('autocapitalize', 'off');
+  input.setAttribute('spellcheck', 'false');
+  input.setAttribute('enterkeyhint', 'go');
+  field.parentNode.replaceChild(input, field);
+
+  /* --- the files ---------------------------------------------------------- */
+
+  function base() {
+    var scripts = [].slice.call(document.scripts);
+    for (var i = 0; i < scripts.length; i += 1) {
+      if (BUNDLE.test(scripts[i].src)) { return scripts[i].src; }
+    }
+    return '';
+  }
+
+  function script(name, done, failed) {
+    var tag = document.createElement('script');
+    tag.src = new URL(name, base()).href;
+    tag.onload = done;
+    tag.onerror = failed;
+    document.head.appendChild(tag);
+  }
+
+  function fail() {
+    state = 'failed';
+    status.textContent = word('failed');
+  }
+
+  function load() {
+    if (state !== 'idle') { return; }
+    state = 'loading';
+    status.textContent = word('loading');
+    script(LIBRARY, function () {
+      script(INDEX, opened, fail);
+    }, fail);
+  }
+
+  function opened() {
+    var found = window.studyforge && window.studyforge.searchIndex;
+    var kind = found && Object.prototype.hasOwnProperty.call(KINDS, found.version) && KINDS[found.version];
+    if (!kind || !window.MiniSearch) { fail(); return; }
+    if (kind === 'precompiled') { pieces(found); return; }
+    script(BUILDER, function () { built(found); }, fail);
+  }
+
+  /* ⭐ A precompiled index: whole in the manifest, or its pieces loaded one after the other. */
+  function pieces(found) {
+    if (typeof found.index === 'string') { loaded(found, found.index); return; }
+    var names = found.parts;
+    if (!names || !names.length) { fail(); return; }
+    var joined = [];
+    (function next(at) {
+      if (at === names.length) { loaded(found, joined.join('')); return; }
+      script(names[at], function () {
+        var piece = window.studyforge.searchParts && window.studyforge.searchParts[names[at]];
+        if (typeof piece !== 'string') { fail(); return; }
+        joined.push(piece);
+        next(at + 1);
+      }, fail);
+    }(0));
+  }
+
+  function loaded(found, json) {
+    try {
+      engine = window.MiniSearch.loadJSON(json, {
+        fields: found.fields, storeFields: found.storeFields, searchOptions: SEARCH
+      });
+    } catch (error) { fail(); return; }
+    entry = function (hit) {
+      var page = Number(String(hit.id).split('.')[0]);
+      return { key: page, url: found.pages[page], title: hit.title, trail: hit.trail,
+        heading: hit.heading, anchor: hit.anchor, text: hit.snippet };
+    };
+    ready();
+  }
+
+  /* ⚠️ The records of a site built without `node`: `search-build.js` joins and builds them. */
+  function built(found) {
+    if (!window.studyforge.searchBuild) { fail(); return; }
+    window.studyforge.searchBuild(found, SEARCH, script, function (made, named) {
+      engine = made;
+      entry = named;
+      ready();
+    }, fail);
+  }
+
+  function ready() {
+    state = 'ready';
+    status.textContent = '';
+    if (input.value.trim()) { run(); }
+  }
+
+  /* --- matching and showing ------------------------------------------------ */
+
+  function tokens(query) {
+    return query.toLowerCase().split(/[\s\p{P}]+/u).filter(Boolean);
+  }
+
+  function escaped(text) { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  function matcher(terms) {
+    var unique = terms.filter(function (term, at) { return terms.indexOf(term) === at; });
+    unique.sort(function (a, b) { return b.length - a.length; });
+    return unique.length ? new RegExp('(' + unique.map(escaped).join('|') + ')', 'giu') : null;
+  }
+
+  function marked(into, text, pattern) {
+    var last = 0;
+    if (pattern) {
+      text.replace(pattern, function (hit, whole, at) {
+        if (at > last) { into.appendChild(document.createTextNode(text.slice(last, at))); }
+        var mark = document.createElement('mark');
+        mark.textContent = hit;
+        into.appendChild(mark);
+        last = at + hit.length;
+        return hit;
+      });
+    }
+    if (last < text.length) { into.appendChild(document.createTextNode(text.slice(last))); }
+  }
+
+  function snippet(text, pattern) {
+    if (!text) { return ''; }
+    var at = 0;
+    if (pattern) {
+      pattern.lastIndex = 0;
+      var found = pattern.exec(text);
+      at = found ? found.index : 0;
+    }
+    var from = Math.max(0, at - LOOK_BEHIND);
+    var to = Math.min(text.length, at + LOOK_AHEAD);
+    if (from > 0) {
+      var space = text.indexOf(' ', from);
+      from = space !== -1 && space < at ? space + 1 : from;
+    }
+    if (to < text.length) {
+      var back = text.lastIndexOf(' ', to);
+      to = back > at ? back : to;
+    }
+    return (from > 0 ? ELLIPSIS : '') + text.slice(from, to) + (to < text.length ? ELLIPSIS : '');
+  }
+
+  function ranked(query) {
+    var found = engine.search(query);
+    if (!found.length && tokens(query).length > 1) { found = engine.search(query, { combineWith: 'OR' }); }
+    return found;
+  }
+
+  function grouped(found) {
+    var order = [];
+    var by = {};
+    found.slice(0, 80).forEach(function (hit) {
+      var part = entry(hit);
+      if (!by[part.key]) { by[part.key] = []; order.push(part.key); }
+      by[part.key].push(part);
+    });
+    return order.slice(0, MAX_PAGES).map(function (key) { return { page: by[key][0], parts: by[key] }; });
+  }
+
+  function target(part) {
+    var url = new URL(part.url, base()).href;
+    return part.anchor ? url + '#' + part.anchor : url;
+  }
+
+  function show(groups, query, terms) {
+    list.textContent = '';
+    var count = 0;
+    var pattern = matcher(terms.concat(tokens(query)));
+    groups.forEach(function (group, g) {
+      var box = document.createElement('div');
+      box.setAttribute('role', 'group');
+      var title = document.createElement('p');
+      title.id = 'search-page-' + g;
+      title.setAttribute('data-search-page', '');
+      title.textContent = group.page.title;
+      if (group.page.trail) {
+        var crumb = document.createElement('small');
+        crumb.textContent = group.page.trail;
+        title.appendChild(crumb);
+      }
+      box.setAttribute('aria-labelledby', title.id);
+      box.appendChild(title);
+      group.parts.slice(0, MAX_PARTS).forEach(function (part) {
+        var row = document.createElement('a');
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', 'false');
+        row.id = 'search-hit-' + count;
+        row.href = target(part);
+        var head = document.createElement('strong');
+        marked(head, part.heading || part.title, pattern);
+        row.appendChild(head);
+        var text = snippet(part.text, pattern);
+        if (text) {
+          var body = document.createElement('span');
+          marked(body, text, pattern);
+          row.appendChild(body);
+        }
+        box.appendChild(row);
+        count += 1;
+      });
+      list.appendChild(box);
+    });
+    input.setAttribute('aria-expanded', count ? 'true' : 'false');
+    var rows = options();
+    status.textContent = count ? '' : word('none') + ' “' + query + '”';
+    activate(rows.length ? 0 : -1);
+  }
+
+  function run() {
+    var query = input.value.trim();
+    if (state !== 'ready') { return; }
+    if (!query) {
+      list.textContent = '';
+      status.textContent = '';
+      input.setAttribute('aria-expanded', 'false');
+      active = -1;
+      return;
+    }
+    var found = ranked(query);
+    var terms = [];
+    found.slice(0, 80).forEach(function (hit) { terms = terms.concat(hit.terms || []); });
+    show(grouped(found), query, terms);
+  }
+
+  /* --- keys, focus and the box itself --------------------------------------- */
+
+  function options() { return [].slice.call(list.querySelectorAll('a[role="option"]')); }
+
+  function activate(at) {
+    var rows = options();
+    rows.forEach(function (row, i) { row.setAttribute('aria-selected', i === at ? 'true' : 'false'); });
+    active = rows.length ? Math.max(0, Math.min(at, rows.length - 1)) : -1;
+    if (active === -1) { input.removeAttribute('aria-activedescendant'); return; }
+    rows[active].setAttribute('aria-selected', 'true');
+    input.setAttribute('aria-activedescendant', rows[active].id);
+    rows[active].scrollIntoView({ block: 'nearest' });
+  }
+
+  function openBox() {
+    if (!dialog.hidden) { return; }
+    returnTo = document.activeElement;
+    dialog.hidden = false;
+    load();
+    input.focus();
+    input.select();
+  }
+
+  function closeBox() {
+    if (dialog.hidden) { return; }
+    dialog.hidden = true;
+    if (returnTo && returnTo.focus) { returnTo.focus(); }
+  }
+
+  function typing(node) {
+    if (!node || !node.tagName) { return false; }
+    var tag = node.tagName.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || node.isContentEditable
+      || !!(node.closest && node.closest('.monaco-editor, [contenteditable="true"]'));
+  }
+
+  document.addEventListener('keydown', function (event) {
+    var key = event.key;
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && (key === 'k' || key === 'K')) {
+      event.preventDefault();
+      if (dialog.hidden) { openBox(); } else { closeBox(); }
+      return;
+    }
+    if (key === '/' && dialog.hidden && !event.ctrlKey && !event.metaKey && !event.altKey && !typing(event.target)) {
+      event.preventDefault();
+      openBox();
+    }
+  });
+
+  dialog.addEventListener('keydown', function (event) {
+    var rows = options();
+    if (event.key === 'Escape') { event.preventDefault(); closeBox(); }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); activate(active + 1 >= rows.length ? 0 : active + 1); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); activate(active - 1 < 0 ? rows.length - 1 : active - 1); }
+    else if (event.key === 'Enter' && active !== -1 && event.target === input) {
+      event.preventDefault();
+      rows[active].click();
+    } else if (event.key === 'Tab') {
+      event.preventDefault();
+      (document.activeElement === input ? close : input).focus();
+    }
+  });
+
+  dialog.addEventListener('click', function (event) {
+    if (event.target === dialog || event.target === close) { closeBox(); }
+    else if (event.target.closest && event.target.closest('a[role="option"]')) { closeBox(); }
+  });
+
+  dialog.addEventListener('mousemove', function (event) {
+    var row = event.target.closest && event.target.closest('a[role="option"]');
+    var at = options().indexOf(row);
+    if (row && at !== active) { activate(at); }
+  });
+
+  input.addEventListener('input', function () {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(run, 40);
+  });
+
+  opener.addEventListener('click', openBox);
+
+  /* ⭐ The label on the opener names the key the reader's platform has. */
+  var mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+  var keys = opener.querySelector('kbd');
+  if (keys) { keys.textContent = opener.getAttribute(mac ? 'data-keys-mac' : 'data-keys-other') || ''; }
+
+  ['move', 'open', 'close'].forEach(function (name) {
+    var hint = document.createElement('span');
+    hint.textContent = word('hint-' + name);
+    hints.appendChild(hint);
+  });
+
+  opener.hidden = false;
 }());
 
 /* The copy button on a code block.
@@ -1163,6 +1674,139 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   });
 }());
 
+/* What a run reported about each case beyond pass or fail: the failure message and the text the reader's own code wrote.
+
+   ⭐ **A collector the panel calls, and nothing else.** `practice.js` hands every `--- detail {json} ---` line of a
+   run to `window.studyforge.practiceDetail.collect(panel)`'s `add`, and calls `draw` when the run settles. This file
+   never talks to the API and never reads storage; the lines arrive on the stream the panel already reads, and only
+   because the panel ASKED (`start(..., { detail: true })`). ⛔ **A page whose server sends no such line draws
+   nothing here**, so a course built before the lines existed renders exactly as it always did.
+
+   ⛔ **Text is text.** Every line goes in with `textContent`; a program's log is not markup.
+
+   ⭐ **Two kinds of text, kept apart.** *Your log* is what the code wrote through its language's logger, attributed to
+   the case that was running. *Printed output* is what it printed; where the test tool records it per case it sits
+   under the case, and where it does not it is shown once for the whole run and the page SAYS so. A practice that
+   grades printed output is marked `data-practice-graded-output` on its panel, and its printed text is then called
+   *Graded output*, so debug logging is never mistaken for what the checks compare. */
+
+(function () {
+  'use strict';
+
+  var LINE = /^--- detail (\{.*\}) ---$/;
+  var CASE = 'data-practice-case';
+  var PART = 'data-practice-part';
+  var WORDS = {
+    log: 'Your log',
+    out: 'Printed output',
+    graded: 'Graded output',
+    err: 'Printed to the error stream',
+    run: 'Whole run',
+    runNote: 'This test tool does not record printed text per case, so it is shown once for the whole run.',
+    logNote: 'Log lines no case claimed.',
+    cut: 'Only the last lines are kept; earlier ones were dropped.'
+  };
+
+  function element(tag, part, text) {
+    var made = document.createElement(tag);
+    if (part) { made.setAttribute(PART, part); }
+    if (text !== undefined) { made.textContent = text; }
+    return made;
+  }
+
+  function fold(title, lines, part) {
+    var box = element('details', part);
+    box.appendChild(element('summary', null, title + ' (' + lines.length + (lines.length === 1 ? ' line)' : ' lines)')));
+    box.appendChild(element('pre', part + '-lines', lines.join('\n')));
+    return box;
+  }
+
+  function list(value) {
+    return Array.isArray(value) ? value.map(String) : [];
+  }
+
+  /* One record off the stream, or null when it is not one this file knows. */
+  function parse(line) {
+    var found = LINE.exec(line);
+    if (!found) { return null; }
+    try {
+      var record = JSON.parse(found[1]);
+      return record && record.v === 1 ? record : null;
+    } catch (ignored) { return null; }
+  }
+
+  function collect(panel) {
+    var cases = {};
+    var run = null;
+
+    function clear() {
+      cases = {};
+      run = null;
+      [].slice.call(panel.querySelectorAll('[' + PART + '="case-detail"], [' + PART + '="run-detail"]'))
+        .forEach(function (node) { node.remove(); });
+    }
+
+    /* Takes a stream line; answers the record when it was a detail line, so the panel keeps it off the output. */
+    function add(line) {
+      var record = parse(line);
+      if (!record) { return null; }
+      if (record.run) { run = record; } else if (typeof record.case === 'string') { cases[record.case] = record; }
+      return record;
+    }
+
+    function printed(record) {
+      var graded = panel.hasAttribute('data-practice-graded-output');
+      var box = element('div', 'case-detail');
+      if (record.message) { box.appendChild(element('pre', 'case-message', record.message)); }
+      var log = list(record.log);
+      if (log.length) {
+        var folded = fold(WORDS.log, log, 'case-log');
+        /* A case that did not pass opens its log: that is the text a reader came for. */
+        folded.open = record.passed !== true;
+        box.appendChild(folded);
+      }
+      var out = list(record.out).concat(list(record.err));
+      if (out.length) { box.appendChild(fold(graded ? WORDS.graded : WORDS.out, out, 'case-out')); }
+      return box.childNodes.length ? box : null;
+    }
+
+    function wholeRun(summary) {
+      var log = list(run.log);
+      var out = list(run.out);
+      var err = list(run.err);
+      if (!log.length && !out.length && !err.length && !run.truncated) { return; }
+      var box = element('div', 'run-detail');
+      if (log.length) {
+        box.appendChild(fold(WORDS.log + ': ' + WORDS.logNote.toLowerCase(), log, 'run-log'));
+      }
+      if (out.length || err.length) {
+        box.appendChild(element('p', 'run-note', WORDS.run + ': ' + WORDS.runNote));
+        if (out.length) { box.appendChild(fold(WORDS.out, out, 'run-out')); }
+        if (err.length) { box.appendChild(fold(WORDS.err, err, 'run-err')); }
+      }
+      if (run.truncated) { box.appendChild(element('p', 'run-note', WORDS.cut)); }
+      summary.appendChild(box);
+    }
+
+    /* Put each case's text under its row, and the whole run's under the breakdown. */
+    function draw() {
+      var region = panel.querySelector('[' + PART + '="breakdown"]');
+      if (!region) { return; }
+      [].slice.call(region.querySelectorAll('[' + CASE + ']')).forEach(function (row) {
+        var record = cases[row.getAttribute(CASE)];
+        var box = record ? printed(record) : null;
+        if (box) { row.appendChild(box); }
+      });
+      if (run) { wholeRun(region); }
+    }
+
+    return { add: add, draw: draw, clear: clear, passed: function () { return cases; } };
+  }
+
+  window.studyforge = window.studyforge || {};
+  window.studyforge.practiceDetail = { collect: collect, parse: parse };
+}());
+
 /* The practice panel: Run, Submit, the result, and what the Submit reported.
 
    ⛔ **This file draws; it never talks to the API.** Everything it sends goes
@@ -1248,8 +1892,10 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var VERDICT = 'data-practice-verdict';
   var MAIN = 'main';
   var EDGE = 'edge';
+  var KEPT = 'kept';
   var PASSED = 'passed';
   var FAILED = 'failed';
+  var SKIPPED = 'skipped';
 
   /* Every word the breakdown says, kept where the markup is: a label spelled
      in the script too would be a second place for it to drift. */
@@ -1257,8 +1903,10 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     done: 'data-practice-ask-done',
     missed: 'data-practice-ask-missed',
     edges: 'data-practice-edges',
+    kept: 'data-practice-kept',
     passed: 'data-practice-passed',
-    failed: 'data-practice-failed'
+    failed: 'data-practice-failed',
+    skipped: 'data-practice-skipped'
   };
 
   /* What one case's verdict looks like on the stream. ⛔ Anchored whole, and the
@@ -1266,7 +1914,14 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      this shape out of a grader's own output reaches a case set that does not
      match and is shown as nothing. ⚠️ The record is unaffected either way: it is
      folded from the grader's report on the server, never from this text. */
-  var CASE_LINE = /^--- case (.+): (passed|failed) ---$/;
+  var CASE_LINE = /^--- case (.+): (passed|failed|skipped without ([a-z0-9_-]+)) ---$/;
+
+  /* ⭐ A case the server reported SKIPPED (it declared `skips_without` and the run lacked that
+     capability): neither passed nor failed, drawn as such with what it needed, and left out of
+     every count. It is said as an object so `true`/`false` keep meaning passed/failed. */
+  function skippedFor(value) {
+    return value && typeof value === 'object' && value.skipped ? value.skipped : '';
+  }
 
   function part(panel, name) {
     return panel.querySelector('[' + PART + '="' + name + '"]');
@@ -1339,19 +1994,30 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       var edges = 0;
       var passed = 0;
       var ask = true;
+      var kept = [0, 0];
       rows.forEach(function (row) {
         var right = said[row.getAttribute(CASE)];
         var edge = row.getAttribute(CASE_KIND) === EDGE;
         var mark = part(row, 'verdict');
+        var without = skippedFor(right);
+        if (without) {
+          row.setAttribute(VERDICT, SKIPPED);
+          if (mark) { mark.textContent = (words(region, 'skipped') || 'Skipped') + ' (needs ' + without + ')'; }
+          return;
+        }
         row.setAttribute(VERDICT, right ? PASSED : FAILED);
         if (mark) { mark.textContent = words(region, right ? 'passed' : 'failed'); }
         if (edge) { edges += 1; }
         if (edge && right) { passed += 1; }
         if (row.getAttribute(CASE_KIND) === MAIN && !right) { ask = false; }
+        if (row.getAttribute(CASE_KIND) === KEPT) { kept[1] += 1; kept[0] += right ? 1 : 0; }
       });
       if (summary) {
         summary.textContent = words(region, ask ? 'done' : 'missed') + ' ' +
-          words(region, 'edges').replace('{passed}', passed).replace('{total}', edges);
+          words(region, 'edges').replace('{passed}', passed).replace('{total}', edges) +
+          /* ⭐ A project step says how many earlier requirements still hold. */
+          (kept[1] ? ' ' + words(region, 'kept').replace('{passed}', kept[0])
+            .replace('{total}', kept[1]) : '');
       }
       show(region, true);
     }
@@ -1368,6 +2034,8 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     var acts = [].slice.call(panel.querySelectorAll('[' + ACT + ']'));
     if (!key || !corpus || !controls || !status || !output || !acts.length) { return; }
     var cases = breakdown(panel);
+    /* ⭐ What each case's message and captured text will be drawn by (`practice-detail.js`), or nothing. */
+    var detail = window.studyforge && window.studyforge.practiceDetail ? window.studyforge.practiceDetail.collect(panel) : null;
 
     /* ⭐ The editor slot is shown, and what it shows is the sentence saying the
        editor is not running. Hiding it instead would be the blank panel this
@@ -1424,6 +2092,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       handedBack = false;
       status.textContent = text;
       if (cases && said) { cases.draw(said); }
+      if (detail) { detail.draw(); }
       live(false);
       /* ⛔ AFTER `live(false)`: the button that was pressed is disabled while
          the run is live, and focusing a disabled control does nothing at all. */
@@ -1441,6 +2110,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
         show(output, true);
         status.textContent = 'Running…';
         if (cases) { cases.clear(); }
+        if (detail) { detail.clear(); }
         live(true);
         if (keyboard && stop) { stop.focus(); }
         run.start(corpus, key, mode, function (line) {
@@ -1450,8 +2120,18 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
              already takes the exit line. ⚠️ Every other line, the breakdown's
              own refusal included, reaches the reader unchanged. */
           var found = said ? CASE_LINE.exec(line) : null;
-          if (found) { said[found[1]] = found[2] === PASSED; } else { append(output, line); }
-        }).then(
+          /* ⭐ A detail line is asked for and taken off the stream too; a Run that wrote a report is told what
+             each case said, so it draws the same breakdown (never recorded) and the same text. */
+          var record = !found && detail ? detail.add(line) : null;
+          if (record && !record.run && typeof record.case === 'string') {
+            said = said || {};
+            /* ⛔ A detail never undoes a skip the case line already said. */
+            if (!skippedFor(said[record.case])) { said[record.case] = record.passed === true; }
+          }
+          if (found) {
+            said[found[1]] = found[3] ? { skipped: found[3] } : found[2] === PASSED;
+          } else if (!record) { append(output, line); }
+        }, { detail: true }).then(
           function (answer) { settle(verdict(answer, mode), said); },
           function (answer) { settle(refusal(answer), null); }
         );
@@ -1477,6 +2157,99 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var run = window.studyforge && window.studyforge.run;
   if (!run || !run.available()) { return; }
   panels.forEach(function (panel) { wire(panel, run); });
+}());
+
+/* The further files of a practice, and the link that opens its editor in a tab of its own.
+
+   ⭐ **Split out of `practice-editor.js` at its seam**: that part is *the two windows of the editor
+   and the tablist over them*, and this is *what more than two windows adds*: a tab for each further
+   file the reader edits, and a link beside the tablist. It publishes its helpers as
+   `window.studyforge.editorFiles`, which `practice-editor.js` calls when a practice opens, so this
+   part comes before it and defines nothing it reads at load.
+
+   ⛔ **Every URL is the SERVER's answer (`where`) and none is built here.** A practice of one file
+   answers no `files`, gets no extra tab, and its tablist is what it was. The link exists only where
+   the server answered a window: a page opened as a file, or with no editor up, has none. It opens
+   with `noopener`, as no page of this site hands its window to another. */
+(function () {
+  'use strict';
+
+  var TAB = 'data-practice-tab';
+  var EXTRA = 'data-practice-extra';
+  var POP = 'data-practice-popout';
+  var FILE_TAB = 'file:';
+  /* ⭐ A project's read-only file (`render/page/project.py`): `ro:N` is `where.read_only[N]`. */
+  var RO_TAB = 'ro:';
+  /* The two windows, and what the frame is called to a screen reader. ⚠️ These are the
+     framework's own words for its own controls, not the material's (R1). */
+  var TITLES = { main: 'Your code', test: 'Tests' };
+
+  function windowOf(where, name) {
+    if (name.indexOf(FILE_TAB) === 0) {
+      return (where.files || [])[Number(name.slice(FILE_TAB.length))] || null;
+    }
+    if (name.indexOf(RO_TAB) === 0) {
+      return (where.read_only || [])[Number(name.slice(RO_TAB.length))] || null;
+    }
+    return where[name] || null;
+  }
+
+  function titleOf(where, name) {
+    var found = name in TITLES ? null : windowOf(where, name);
+    return found ? String(found.path || '').split('/').pop() : TITLES[name];
+  }
+
+  /* One tab, named for its file, before the Tests tab (`after`). ⭐ A project's explorer already
+     has a button for every file, so it gets none. */
+  function tabs(where, bar, after) {
+    if (bar && bar.hasAttribute('data-practice-explorer')) { return; }
+    (where.files || []).forEach(function (one, index) {
+      if (!bar || !one || !one.url) { return; }
+      var tab = document.createElement('button');
+      tab.type = 'button';
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute(TAB, FILE_TAB + index);
+      tab.setAttribute(EXTRA, '');
+      tab.setAttribute('aria-selected', 'false');
+      tab.textContent = titleOf(where, FILE_TAB + index);
+      bar.insertBefore(tab, after);
+    });
+  }
+
+  /* The link, after the tablist (or before the frame's slot where there is none); its `href` is
+     set by the caller as a window is shown. ⭐ It is never inside the tablist, which stays hidden
+     where one window is no choice, and it is never hidden itself: it shows whenever the
+     workspace shows the editor. */
+  function link(bar, slot) {
+    var pop = document.createElement('a');
+    pop.setAttribute(POP, '');
+    pop.target = '_blank';
+    pop.rel = 'noopener noreferrer';
+    pop.textContent = 'Open in the editor in its own tab';
+    pop.hidden = false;
+    if (bar) { bar.parentNode.insertBefore(pop, bar.nextSibling); }
+    else if (slot && slot.parentNode) { slot.parentNode.insertBefore(pop, slot); }
+    return pop;
+  }
+
+  /* ⭐ Back to what the panel shipped as: a further tab and the link are removed, and `true` is
+     answered for a tab that was one of them so the caller leaves it alone. */
+  function clear(panel) {
+    [].slice.call(panel.querySelectorAll('[' + POP + ']')).forEach(function (one) {
+      one.parentNode.removeChild(one);
+    });
+  }
+
+  function extra(button) {
+    if (!button.hasAttribute(EXTRA)) { return false; }
+    button.parentNode.removeChild(button);
+    return true;
+  }
+
+  window.studyforge = window.studyforge || {};
+  window.studyforge.editorFiles = {
+    windowOf: windowOf, titleOf: titleOf, tabs: tabs, link: link, clear: clear, extra: extra
+  };
 }());
 
 /* The practice panel's two editor windows: where each one is, and the tablist over them.
@@ -1554,10 +2327,9 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var CLOSED = 'studyforge:practice-closed';
   var OPEN = 'data-workspace-open';
 
-  /* The two windows, and what the frame is called to a screen reader. ⚠️ These
-     are the framework's own words for its own controls, not the material's
-     (R1) — the same status the panel's 'Running…' and 'Passed.' already have. */
-  var TITLES = { main: 'Your code', test: 'Tests' };
+  /* ⭐ The further files of a practice, and the link that opens its editor on its own, come from
+     `practice-files.js`, which is before this part. */
+  var files = window.studyforge.editorFiles;
 
   /* The directive a blocked editor frame is refused by, in the browser's own
      spelling. ⚠️ Compared as a PREFIX rather than for equality, because the
@@ -1750,8 +2522,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      two frames.** The file a reader may type in and the file that judges it are
      two different acts of reading; a tab picks which one the frame shows.
 
-     ⛔ **One frame, because a page holds one editor at most** (register
-     ruling): a second workbench is a second language server, so the Tests tab
+     ⛔ **One frame, because a page holds one editor at most**: a second workbench is a second language server, so the Tests tab
      points the same frame at the other window's URL rather than building one.
 
      ⛔ **Each window's URL is the SERVER's answer and is never built here**: the
@@ -1761,15 +2532,19 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   function windows(panel, where) {
     var slot = panel.querySelector('[' + FRAME + '="main"]');
     if (!slot) { return; }
-    var tested = !!(where.test && where.test.url);
+    var bar = part(panel, 'tabs');
+    files.tabs(where, bar, bar ? bar.querySelector('[' + TAB + '="test"]') : null);
+    /* ⭐ A tab whose window the server did not answer (no test, a file the editor lacks) hides. */
     var buttons = [].slice.call(panel.querySelectorAll('[' + TAB + ']')).filter(
       function (button) {
-        var keep = tested || button.getAttribute(TAB) !== 'test';
+        var found = files.windowOf(where, button.getAttribute(TAB));
+        var keep = !!(found && found.url);
         if (!keep) { button.hidden = true; }
         return keep;
       }
     );
     var built = null;
+    var pop = files.link(bar, slot);
 
     function select(name) {
       buttons.forEach(function (button) {
@@ -1777,12 +2552,13 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
         button.setAttribute('aria-selected', mine ? 'true' : 'false');
         button.tabIndex = mine ? 0 : -1;
       });
-      var url = where[name].url;
+      var url = files.windowOf(where, name).url;
+      pop.href = url;
       if (!built) {
-        frame(slot, url, TITLES[name]);
+        frame(slot, url, files.titleOf(where, name));
         built = slot.lastElementChild;
       } else if (built.src !== url) {
-        built.title = TITLES[name];
+        built.title = files.titleOf(where, name);
         built.src = url;
       }
       show(slot, true);
@@ -1797,7 +2573,9 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
          as promising. Without them the roles say one thing and the keyboard
          does another. */
       button.addEventListener('keydown', function (event) {
-        var step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        var key = event.key;
+        var step = key === 'ArrowRight' || key === 'ArrowDown' ? 1 :
+          key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 0;
         var next = buttons.indexOf(button) + step;
         if (!step || next < 0 || next >= buttons.length) { return; }
         event.preventDefault();
@@ -1808,12 +2586,11 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     select('main');
     /* ⭐ One tab is no choice, so the tablist stays hidden where the material
        names no test — the same honesty as offering no Submit. */
-    show(part(panel, 'tabs'), tested);
+    show(part(panel, 'tabs'), buttons.length > 1);
     show(part(panel, 'no-editor'), false);
   }
 
-  /* ⭐ **Nothing is asked until the reader opens this practice** (register
-     ruling: no editor loads until a practice is opened), and the frame goes
+  /* ⭐ **Nothing is asked until the reader opens this practice** (no editor loads until a practice is opened), and the frame goes
      when it is closed or another is opened — so the page holds one at most.
      ⛔ Frames are added only for an editor that is already up over this
      corpus's own files and that actually holds this practice's file — the
@@ -1845,10 +2622,12 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     var slot = panel.querySelector('[' + FRAME + '="main"]');
     if (slot) { while (slot.firstChild) { slot.removeChild(slot.firstChild); } show(slot, false); }
     [].slice.call(panel.querySelectorAll('[' + TAB + ']')).forEach(function (button) {
+      if (files.extra(button)) { return; }
       var fresh = button.cloneNode(true);
       fresh.hidden = false;
       button.parentNode.replaceChild(fresh, button);
     });
+    files.clear(panel);
     show(part(panel, 'tabs'), false);
     show(part(panel, 'no-editor'), true);
   }
@@ -1871,7 +2650,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
 /* The quiz: what a reader chose, whether it was right, and why — graded in the page.
 
-   ⭐ **The register ruling (2026-09-25): a quiz's answers live in the page, in a
+   ⭐ **A quiz's answers live in the page, in a
    script local to that page, and nothing about a quiz is a server function.**
    This reverses the ruling that kept the key on the local study server. ⭐ So
    each quiz section carries its OWN key, as a JSON data block
@@ -1891,6 +2670,12 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
    *passed* after a reload. ⛔ Never on the server, and never as a run's pass.
    ⚠️ The answers themselves are not kept: a reload clears the choices, and the
    pass stays.
+
+   ⭐ **The 2026-11 redesign adds three things and removes none**: the "N of M
+   answered" line, kept up to date as options are chosen; the chosen option's
+   own mark after Check (an icon the stylesheet draws, and the verdict's word);
+   and Reset, offered once the quiz is checked, which clears the page and never
+   the reader's recorded pass.
 
    ⛔ **A quiz has no file, no command and no grader to submit to, so it renders
    no Run and no Submit — and not disabled ones.** With no script at all, the
@@ -1951,11 +2736,32 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     return answers;
   }
 
+  /* The chosen option's own mark: an icon (drawn by `practice-quiz.css`) and the verdict's
+     word, inside the option's label so it is read with it. ⭐ The 2026-11 redesign: a status
+     colour is never the only signal, so the card that turns green or red also says so in words.
+     ⛔ Only the CHOSEN option is marked, never the key (see the rule above). */
+  function unmark(question) {
+    [].slice.call(question.querySelectorAll('[' + PART + '="mark"]')).forEach(function (mark) {
+      mark.parentNode.removeChild(mark);
+    });
+  }
+
+  function markChosen(question, said) {
+    var picked = question.querySelector('input[type="radio"]:checked');
+    var label = picked && picked.closest('label');
+    if (!label) { return; }
+    var mark = document.createElement('span');
+    mark.setAttribute(PART, 'mark');
+    mark.textContent = said.replace(/\.$/, '');
+    label.appendChild(mark);
+  }
+
   /* One question graded and drawn; answers whether it is right. ⭐ The sentence
      is the one for whatever the reader CHOSE, right or wrong. */
   function draw(question, entry, answer) {
     var says = part(question, 'says');
     var hasSaid = entry && entry.says && Object.prototype.hasOwnProperty.call(entry.says, answer);
+    unmark(question);
     if (answer === undefined || !hasSaid) {
       question.removeAttribute(VERDICT);
       if (says) { says.textContent = ''; says.hidden = true; }
@@ -1963,10 +2769,15 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     }
     var right = answer === entry.key;
     question.setAttribute(VERDICT, right ? 'correct' : 'wrong');
+    markChosen(question, words(says, right ? RIGHT : WRONG));
     if (says) {
       /* ⚠️ The sentence is markup the BUILD rendered (`markup.inline`: escaped,
          its inline code as code); the verdict's own word stays text. */
-      says.textContent = words(says, right ? RIGHT : WRONG) + ' ';
+      var word = document.createElement('strong');
+      word.textContent = words(says, right ? RIGHT : WRONG);
+      says.textContent = '';
+      says.appendChild(word);
+      says.appendChild(document.createTextNode(' '));
       says.insertAdjacentHTML('beforeend', entry.says[answer]);
       says.hidden = false;
     }
@@ -1994,28 +2805,188 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     quiz.dispatchEvent(new CustomEvent(SETTLED, { bubbles: true }));
   }
 
+  /* "N of M answered", counted off the radios as the reader chooses. ⭐ The 2026-11 redesign:
+     the reader sees how far through the check they are before they ask for a verdict. */
+  function count(quiz) {
+    var line = part(quiz, 'count');
+    if (!line) { return; }
+    var asked = quiz.querySelectorAll('[' + QUESTION + ']').length;
+    line.textContent = words(line, 'data-practice-count')
+      .replace('{answered}', Object.keys(chosen(quiz)).length).replace('{asked}', asked);
+    line.hidden = false;
+  }
+
+  /* Back to the quiz as it was opened: no choice, no verdict, no sentence. ⛔ A pass already
+     recorded stays recorded: Reset clears the page, never the reader's record. */
+  function reset(quiz) {
+    [].slice.call(quiz.querySelectorAll('input[type="radio"]:checked')).forEach(function (input) {
+      input.checked = false;
+    });
+    [].slice.call(quiz.querySelectorAll('[' + QUESTION + ']')).forEach(function (question) {
+      draw(question, null, undefined);
+    });
+    var status = part(quiz, 'status');
+    if (status) { status.textContent = ''; }
+    count(quiz);
+  }
+
   function wire(quiz) {
     var key = keyOf(quiz);
     var check = part(quiz, 'check');
+    var again = part(quiz, 'reset');
     var controls = part(quiz, 'controls');
     var offline = part(quiz, 'offline');
     if (!key || !check || !controls) { return; }
     if (offline) { offline.hidden = true; }
     controls.hidden = false;
+    count(quiz);
     var graded = false;
     /* ⭐ Re-graded as soon as a reader changes an answer, once they have asked
        once, so the sentence under a question can never describe an option that
        is no longer chosen. */
-    check.addEventListener('click', function () { graded = true; grade(quiz, key); });
-    quiz.addEventListener('change', function () { if (graded) { grade(quiz, key); } });
+    check.addEventListener('click', function () {
+      graded = true;
+      grade(quiz, key);
+      if (again) { again.hidden = false; }
+    });
+    quiz.addEventListener('change', function () {
+      count(quiz);
+      if (graded) { grade(quiz, key); }
+    });
+    if (again) {
+      again.addEventListener('click', function () {
+        graded = false;
+        again.hidden = true;
+        reset(quiz);
+        quiz.focus();
+      });
+    }
   }
 
   [].slice.call(document.querySelectorAll(QUIZ)).forEach(wire);
 }());
 
+/* A practice written in several languages: what a card knows of its editions.
+
+   ⭐ **One practice, an edition per language.** A card whose practice is written in several
+   languages lists them (`[data-edition]`, each naming its statement section and its panel's key),
+   and every edition's statement and panel are on the page like any practice's. This file answers
+   the questions `practice-workspace.js` asks of such a card: which editions it has, which one
+   opens (the first of the current reading mode's languages that the practice has, else its first),
+   which pair is shown, the switch row at the top of each panel, and what the card says of the
+   editions that have passed. ⛔ It moves, copies and fetches nothing, and it names no language and
+   no mode: the page says them (`data-edition-modes` on the workspace names the attribute that
+   holds the mode and each mode's languages).
+
+   ⭐ **A practice of its own is the same card with no editions**: `of` answers `[]`, and `pairs`
+   answers its one section and panel, so the workspace has one way to show either. */
+
+(function () {
+  'use strict';
+
+  var EDITION = '[data-edition][data-edition-section]';
+  var SWITCH = 'button[data-edition-switch]';
+  var SWITCH_ROW = '[data-practice-part="editions"]';
+  var MODES = 'data-edition-modes';
+  var STATE = '[data-practices-part="state"]';
+  var STATE_WORD = 'data-practice-state';
+
+  /* A card's language editions, each with its section and panel; `[]` below two. */
+  function of(card, panelOf) {
+    var found = [].slice.call(card.querySelectorAll(EDITION)).map(function (span) {
+      var key = span.getAttribute('data-edition-key') || '';
+      return {
+        lang: span.getAttribute('data-edition'),
+        span: span,
+        key: key,
+        section: document.getElementById(span.getAttribute('data-edition-section')),
+        panel: panelOf(key)
+      };
+    }).filter(function (one) { return one.section; });
+    return found.length > 1 ? found : [];
+  }
+
+  /* Every (section, panel) pair a card has. Only the pair `one` is showing is ever visible. */
+  function pairs(one) {
+    return one.editions.length ? one.editions : [{ section: one.section, panel: one.panel }];
+  }
+
+  function byLang(one, lang) {
+    return one.editions.filter(function (edition) { return edition.lang === lang; })[0] || null;
+  }
+
+  /* The edition a practice opens in: the first of the current mode's languages it has. */
+  function preferred(one, shell) {
+    var said = {};
+    try { said = JSON.parse(shell.getAttribute(MODES) || '{}'); } catch (ignored) { said = {}; }
+    var chosen = said.attribute ? document.documentElement.getAttribute(said.attribute) : null;
+    var order = (said.modes && said.modes[chosen]) || [];
+    for (var at = 0; at < order.length; at += 1) {
+      var found = byLang(one, order[at]);
+      if (found) { return found; }
+    }
+    return one.editions[0];
+  }
+
+  /* The pair `one` shows from now on. */
+  function use(one, edition) {
+    one.lang = edition.lang;
+    one.section = edition.section;
+    one.panel = edition.panel;
+  }
+
+  /* The switch row of every edition's panel: shown for the open practice, pressed on the open
+     language. ⛔ Shipped `hidden`: with no script there is nothing for it to do. */
+  function rows(one, shown) {
+    one.editions.forEach(function (edition) {
+      var row = edition.panel && edition.panel.querySelector(SWITCH_ROW);
+      if (!row) { return; }
+      row.hidden = !shown;
+      [].slice.call(row.querySelectorAll(SWITCH)).forEach(function (button) {
+        var mine = button.getAttribute('data-edition-switch') === one.lang;
+        button.setAttribute('aria-pressed', mine ? 'true' : 'false');
+      });
+    });
+  }
+
+  /* The card's status from the reader's record (`held`: practice key's last part -> passed):
+     each edition says whether it passed, and the card says none, some of them, or every one.
+     ⛔ Each edition's pass is its own record, kept under its own key; nothing is merged. */
+  function paint(one, held) {
+    var slot = one.card.querySelector(STATE);
+    var passed = 0;
+    one.editions.forEach(function (edition) {
+      var done = held[edition.key.slice(edition.key.lastIndexOf('/') + 1)] === true;
+      var mark = edition.span.querySelector('[data-edition-mark]');
+      if (mark) { mark.hidden = !done; }
+      edition.span.setAttribute('data-edition-state', done ? 'passed' : 'not-started');
+      if (done) { passed += 1; }
+    });
+    var state = passed === 0 ? 'not-started' : passed === one.editions.length ? 'passed' : 'partial';
+    [].slice.call(slot.querySelectorAll('[' + STATE_WORD + ']')).forEach(function (word) {
+      word.hidden = word.getAttribute(STATE_WORD) !== state;
+    });
+    var count = slot.querySelector('[data-edition-count]');
+    if (count) { count.textContent = String(passed); }
+    one.card.setAttribute(STATE_WORD, state);
+    slot.hidden = false;
+  }
+
+  window.studyforge = window.studyforge || {};
+  window.studyforge.editions = {
+    of: of,
+    pairs: pairs,
+    byLang: byLang,
+    preferred: preferred,
+    use: use,
+    rows: rows,
+    paint: paint
+  };
+}());
+
 /* A lesson's practices: the list of cards, and the one workspace a card opens in.
 
-   ⭐ **The register ruling, whole.** A lesson's practices are one *Practice (n)*
+   ⭐ A lesson's practices are one *Practice (n)*
    list of titled cards; opening a card gives a full-screen workspace — the
    problem statement on the left, always visible and scrollable, the editor, Run
    and Submit on the right, Previous and Next between the lesson's practices, and
@@ -2054,7 +3025,18 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
    fragment, put there with `replaceState` so Back leaves the page as it always
    did. ⚠️ That is what survives the ONE reload a cold editor needs
    (`practice-editor.js`): the page comes back with the practice open, rather
-   than closed on a reader who had just opened it. */
+   than closed on a reader who had just opened it.
+
+   ⭐ **A practice written in several languages is one card** (`practice-editions.js`). Opening it
+   shows ONE edition's statement and panel — the language of the current reading mode, else the
+   first — and the switch at the top of the panel swaps the pair: the panel left is told it is
+   closed and the one shown is told it is opened, with the same two events, so the editor, Run and
+   Submit follow the edition shown and nothing is moved.
+
+   ⭐ **A practice the lesson places has a list of its own, at its place** (`render/page/placed.py`):
+   every such list and the *Practice (n)* list are read in page order, as one run of cards for
+   Previous and Next. Its section and panel then stand inside the lesson's section, so the page is
+   stilled from each of the three open parts upward, not from the workspace alone. */
 
 (function () {
   'use strict';
@@ -2077,13 +3059,14 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      while the workspace is up. ⛔ Also read by `practice-editor.js`. */
   var OPEN = 'data-workspace-open';
 
-  /* ⭐ A quiz opens in ONE column: its intro above its questions, its check
-     and explanations below — there is no editor to set beside it. The mark on
-     the document chooses the column geometry, and `INTRO` carries the intro's
-     height so the questions start under it (`practice-workspace.css`). */
+  /* ⭐ A quiz opens as ONE PAGE that scrolls as one: its intro above its
+     questions, in the page's own flow, with no editor to set beside it and no
+     scroll box of its own. The mark on the document chooses that geometry, and
+     everything else on the page is marked `AWAY` while the quiz is up
+     (`practice-workspace.css`). */
   var KIND = 'data-practice-kind';
   var QUIZ_OPEN = 'data-workspace-quiz';
-  var INTRO = '--workspace-intro';
+  var AWAY = 'data-workspace-away';
 
   function isQuiz(one) { return one.card.getAttribute(KIND) === 'quiz'; }
 
@@ -2091,11 +3074,9 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     var root = document.documentElement;
     if (!one || !isQuiz(one)) {
       root.removeAttribute(QUIZ_OPEN);
-      root.style.removeProperty(INTRO);
       return;
     }
     root.setAttribute(QUIZ_OPEN, '');
-    root.style.setProperty(INTRO, Math.ceil(one.section.getBoundingClientRect().height) + 'px');
   }
   var LIVE = 'data-practices-live';
 
@@ -2106,9 +3087,9 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var ESCAPE = 'Escape';
   var EXAMPLE = 'details[data-code-example][open]';
 
-  var region = document.querySelector(REGION);
+  var regions = [].slice.call(document.querySelectorAll(REGION));
   var shell = document.querySelector(WORKSPACE);
-  if (!region || !shell) { return; }
+  if (!regions.length || !shell) { return; }
 
   function part(name) {
     return shell.querySelector('[' + PART + '="' + name + '"]');
@@ -2130,10 +3111,18 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     return found;
   }
 
-  var practices = [].slice.call(region.querySelectorAll(CARD)).map(function (card) {
+  /* ⭐ A card's language editions (`[]` for a practice of its own). `section` and `panel` of a card
+     are the pair it shows: its first, until an edition is chosen. */
+  var editions = window.studyforge.editions;
+  var SWITCH = 'button[data-edition-switch]';
+
+  var practices = [].slice.call(document.querySelectorAll(REGION + ' ' + CARD)).map(function (card) {
+    var found = editions.of(card, panelOf);
     return {
       card: card,
       link: card.querySelector(OPEN_LINK),
+      editions: found,
+      lang: found.length ? found[0].lang : null,
       section: document.getElementById(card.getAttribute(CARD_SECTION)),
       panel: panelOf(card.getAttribute(CARD_KEY))
     };
@@ -2156,11 +3145,15 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     } catch (ignored) { return; }
   }
 
+  /* Only the pair a card is showing is ever visible: its editions' others stay hidden. */
   function each(one, visible) {
-    [one.section, one.panel].forEach(function (element) {
-      if (!element) { return; }
-      element.hidden = !visible;
-      if (visible) { element.setAttribute(OPEN, ''); } else { element.removeAttribute(OPEN); }
+    editions.pairs(one).forEach(function (pair) {
+      var shown = visible && pair.section === one.section;
+      [pair.section, pair.panel].forEach(function (element) {
+        if (!element) { return; }
+        element.hidden = !shown;
+        if (shown) { element.setAttribute(OPEN, ''); } else { element.removeAttribute(OPEN); }
+      });
     });
   }
 
@@ -2173,17 +3166,21 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
   function still(one) {
     var kept = [shell, one.section, one.panel].filter(Boolean);
-    for (var at = shell.parentElement; at && at !== document.documentElement; at = at.parentElement) {
-      [].slice.call(at.children).forEach(function (child) {
-        if (child.inert || kept.some(function (part) { return child.contains(part); })) { return; }
-        child.inert = true;
-        stilled.push(child);
-      });
-    }
+    kept.forEach(function (from) {
+      for (var at = from.parentElement; at && at !== document.documentElement; at = at.parentElement) {
+        [].slice.call(at.children).forEach(function (child) {
+          if (child.inert || kept.some(function (part) { return child.contains(part); })) { return; }
+          child.inert = true;
+          /* A quiz is read as a page, so what is not part of it is taken out of the flow. */
+          if (document.documentElement.hasAttribute(QUIZ_OPEN)) { child.setAttribute(AWAY, ''); }
+          stilled.push(child);
+        });
+      }
+    });
   }
 
   function wake() {
-    stilled.forEach(function (child) { child.inert = false; });
+    stilled.forEach(function (child) { child.inert = false; child.removeAttribute(AWAY); });
     stilled = [];
   }
 
@@ -2196,17 +3193,22 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     var one = practices[current];
     say(CLOSED, one);
     each(one, false);
+    editions.rows(one, false);
     column(null);
     wake();
   }
 
-  function open(index) {
+  function open(index, lang) {
     if (index < 0 || index >= practices.length) { return; }
     if (current < 0) { was = window.pageYOffset || 0; }
     leave();
     current = index;
     var one = practices[index];
+    if (one.editions.length) {
+      editions.use(one, editions.byLang(one, lang) || editions.preferred(one, shell));
+    }
     each(one, true);
+    editions.rows(one, true);
     part('title').textContent = one.link.textContent;
     act('previous').hidden = index === 0;
     act('next').hidden = index === practices.length - 1;
@@ -2215,6 +3217,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     column(one);
     still(one);
     one.section.scrollTop = 0;
+    if (isQuiz(one)) { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); }
     part('title').focus({ preventScroll: true });
     address('#' + one.section.id);
     /* ⛔ One editor on the page at most: an expanded code example is closed —
@@ -2222,6 +3225,31 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     [].slice.call(document.querySelectorAll(EXAMPLE)).forEach(function (entry) { entry.open = false; });
     say(OPENED, one);
   }
+
+  /* ⭐ The switch: another edition of the open practice takes the place of the one shown. */
+  function switchTo(lang) {
+    if (current < 0) { return; }
+    var one = practices[current];
+    var to = editions.byLang(one, lang);
+    if (!to || to.section === one.section) { return; }
+    say(CLOSED, one);
+    each(one, false);
+    wake();
+    editions.use(one, to);
+    each(one, true);
+    editions.rows(one, true);
+    still(one);
+    one.section.scrollTop = 0;
+    address('#' + one.section.id);
+    say(OPENED, one);
+    var pressed = one.panel && one.panel.querySelector(SWITCH + '[aria-pressed="true"]');
+    if (pressed) { pressed.focus({ preventScroll: true }); }
+  }
+
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest ? event.target.closest(SWITCH) : null;
+    if (button) { switchTo(button.getAttribute('data-edition-switch')); }
+  });
 
   function close() {
     if (current < 0) { return; }
@@ -2244,7 +3272,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       open(index);
     });
   });
-  region.setAttribute(LIVE, '');
+  regions.forEach(function (region) { region.setAttribute(LIVE, ''); });
   part('title').tabIndex = -1;
 
   act('previous').addEventListener('click', function () { open(current - 1); });
@@ -2259,9 +3287,12 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      the reader to where the entry's state says they were — or, with none, to
      the practice's card, which is where they would have chosen it. */
   practices.forEach(function (one, index) {
-    if (location.hash !== '#' + one.section.id) { return; }
+    var named = editions.pairs(one).filter(function (pair) {
+      return location.hash === '#' + pair.section.id;
+    })[0];
+    if (!named) { return; }
     var kept = history.state && history.state[WAS];
-    open(index);
+    open(index, named.lang);
     var box = one.card.getBoundingClientRect();
     was = typeof kept === 'number'
       ? kept : Math.max(0, box.top + (window.pageYOffset || 0) - window.innerHeight / 3);
@@ -2269,8 +3300,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
   /* --- the status: the reader's own record ------------------------------ */
   /* ⭐ A code practice's pass is the served origin's (a run established it);
-     a quiz's is the reader's browser store, where the quiz page kept it (register
-     ruling: nothing about a quiz is a server's). */
+     a quiz's is the reader's browser store, where the quiz page kept it (nothing about a quiz is a server's). */
   var run = window.studyforge && window.studyforge.run;
   var asks = run && run.available() && run.practices;
   var store = window.studyforge && window.studyforge.progress;
@@ -2305,7 +3335,9 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       if (!held) { return; }
       practices.forEach(function (one) {
         var own = one.card.getAttribute(CARD_KEY) || '';
-        if (!isQuiz(one) && one.card.querySelector(STATE)) {
+        if (one.editions.length) {
+          if (one.card.querySelector(STATE)) { editions.paint(one, held); }
+        } else if (!isQuiz(one) && one.card.querySelector(STATE)) {
           paint(one.card, held[own.slice(own.lastIndexOf('/') + 1)] === true);
         }
       });
@@ -2319,7 +3351,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 /* The practice workspace's panes: the description resized and closed, and the
    report resized and collapsed.
 
-   ⭐ **Register ruling (2026-09-26).** In a code practice's workspace:
+   ⭐ In a code practice's workspace:
    - the divider between the description and the editor is dragged — mouse,
      touch or pen — to widen or narrow the description, and moved from the
      keyboard with Left and Right (Home and End to the limits);
@@ -2332,7 +3364,13 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      last verdict, and a new Run or Submit opens it again.
    Every one of the four is kept per reader, in the display record of
    `study-progress.js` — the one file that touches the store — so a page with
-   no storage still resizes and closes, for as long as it is open.
+   no storage still resizes and closes, for as long as it is open. ⭐ The report's
+   height is kept PER PRACTICE (the name carries the practice's key), so the split a
+   reader chose for one practice is not another's.
+
+   ⭐ **Until a Run or Submit reports, the report is only its strip**: the panel is marked
+   `data-practice-reported` by the first act, and `practice-panes.css` shows the report's body
+   and its divider only then, so the editor fills the pane on open.
 
    ⛔ **Nothing is moved, copied or created.** Every control is markup, shipped
    `hidden` (`practice-workspace.html`, `practice-panel.html`); this file shows
@@ -2369,6 +3407,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var QUIZ = 'data-workspace-quiz';
   var SHOWN = 'data-practice-report';
   var NARROW = '(max-width: 40rem)';
+  var REPORTED = 'data-practice-reported';
   var OPENED = 'studyforge:practice-opened';
   var SETTLED = 'studyforge:practice-settled';
 
@@ -2526,10 +3565,14 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   }
 
   /* --- the report under the editor -------------------------------------- */
-  var report = number(recall(KEPT_REPORT));
+  var report = null;
+  var reportFor = null;
   var reportShown = recall(KEPT_REPORT_SHOWN) !== CLOSED;
 
   function panel() { return document.querySelector('section[data-practice][data-workspace-open]'); }
+
+  /* The height is kept under a name that carries the practice's key. */
+  function reportName() { return KEPT_REPORT + ':' + reportFor; }
 
   function parts(one) {
     function part(name) { return one.querySelector('[data-practice-part="' + name + '"]'); }
@@ -2560,6 +3603,11 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     if (!one) { return; }
     var had = parts(one);
     if (!had.divider || !had.report || !had.bar || !had.body) { return; }
+    var named = one.getAttribute('data-practice') || '';
+    if (named !== reportFor) {
+      reportFor = named;
+      report = number(recall(reportName()));
+    }
     had.bar.hidden = !served;
     had.divider.hidden = !served || !reportShown;
     had.body.hidden = served && !reportShown;
@@ -2622,7 +3670,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       var bounds = reportBounds(one, had);
       var gutter = had.divider.getBoundingClientRect().height;
       setReport((bounds.bottom - event.clientY - gutter / 2) / bounds.inner * 100);
-    }, function () { if (report !== null) { keep(KEPT_REPORT, report); } });
+    }, function () { if (report !== null) { keep(reportName(), report); } });
 
     had.divider.addEventListener('keydown', function (event) {
       var bounds = reportBounds(one, had);
@@ -2639,7 +3687,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       if (to === undefined) { return; }
       event.preventDefault();
       setReport(to);
-      keep(KEPT_REPORT, report);
+      keep(reportName(), report);
     });
 
     had.bar.addEventListener('click', function () { flipReport(!reportShown, false); });
@@ -2648,6 +3696,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     one.addEventListener('click', function (event) {
       var act = event.target.closest && event.target.closest('button[data-practice-act]');
       if (!act || act.getAttribute('data-practice-act') === 'stop') { return; }
+      one.setAttribute(REPORTED, '');
       if (!reportShown) { flipReport(true, false); }
       window.setTimeout(function () { glance(one); }, 0);
     });
@@ -2698,7 +3747,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
    frame policy blocked the frame. ⛔ Neither is copied here.
 
    ⛔ **This file draws; it never talks to the API.** Everything it asks goes
-   through `window.studyforge.run` — `editor`, `code`, `codeTest`, `stop` —
+   through `window.studyforge.run` — `editor`, `code`, `codeTest`, `codeRun`, `stop` —
    which the SERVING PROCESS adds to the page it answers, so a built text names
    no API, no origin and no client file (R8).
 
@@ -2779,7 +3828,11 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     entry.built = {};
     frames.reloadWhenBlocked(where.main.url);
     show(part(entry, 'editor'), true);
-    show(part(entry, 'controls'), !!where.runs && runs);
+    show(part(entry, 'controls'), (!!where.runs || !!where.program) && runs);
+    /* ⭐ Run starts the source's own program, where a lesson's example names how it runs; Run
+       tests stays the test's. Each button shows only when the server named its file. */
+    show(entry.details.querySelector('[' + ACT + '="program"]'), !!where.program && !!run.codeRun);
+    show(entry.details.querySelector('[' + ACT + '="test"]'), !!where.runs);
     select(entry, 'main');
     setTimeout(function () { remember(null); }, 5000);
   }
@@ -2837,29 +3890,49 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       });
     });
     var act = entry.details.querySelector('[' + ACT + '="test"]');
+    var program = entry.details.querySelector('[' + ACT + '="program"]');
     var stop = entry.details.querySelector('[' + ACT + '="stop"]');
-    act.addEventListener('click', function () {
-      var where = entry.where;
-      if (!where || !where.runs || !runs) { return; }
+    /* One run at a time, streamed into the entry's one output: `start` names the server's call. */
+    function launch(running, start, told) {
       var status = part(entry, 'status');
       var output = part(entry, 'output');
       act.disabled = true;
+      if (program) { program.disabled = true; }
       show(stop, true);
       output.textContent = '';
       show(output, true);
-      status.textContent = 'Running the test…';
-      run.codeTest(entry.corpus, where.runs, function (line) {
+      status.textContent = running;
+      start(function (line) {
         output.textContent += line + '\n';
       }).then(function (verdict) {
-        status.textContent = verdict === 0 ? 'Passed.' : verdict === 'stopped' ? 'Stopped.'
-          : verdict === 'timeout' ? 'Timed out.' : 'Failed.';
+        status.textContent = verdict === 'stopped' ? 'Stopped.'
+          : verdict === 'timeout' ? 'Timed out.' : told(verdict);
       }, function () {
-        status.textContent = 'The test could not be run.';
+        status.textContent = 'It could not be run.';
       }).then(function () {
         act.disabled = false;
+        if (program) { program.disabled = false; }
         show(stop, false);
       });
+    }
+    act.addEventListener('click', function () {
+      var where = entry.where;
+      if (!where || !where.runs || !runs) { return; }
+      launch('Running the test…', function (onLine) {
+        return run.codeTest(entry.corpus, where.runs, onLine);
+      }, function (verdict) { return verdict === 0 ? 'Passed.' : 'Failed.'; });
     });
+    if (program) {
+      program.addEventListener('click', function () {
+        var where = entry.where;
+        if (!where || !where.program || !runs || !run.codeRun) { return; }
+        launch('Running the program…', function (onLine) {
+          return run.codeRun(entry.corpus, where.program, onLine);
+        }, function (verdict) {
+          return verdict === 0 ? 'Finished.' : 'The program exited with an error.';
+        });
+      });
+    }
     stop.addEventListener('click', function () { run.stop(); });
     entry.details.addEventListener('toggle', function () {
       if (entry.details.open) { load(entry); } else if (live === entry) { unload(entry); }
@@ -3239,12 +4312,39 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
   /* ⛔ Shown from the STORE's answer, never from what was just pressed: a
      write the browser refused must not leave the page claiming it happened. */
-  function show(marked) {
+  function shown(marked) {
     control.setAttribute(MARKED, marked ? 'true' : 'false');
     button.setAttribute('aria-pressed', marked ? 'true' : 'false');
     labels.forEach(function (label) {
       label.hidden = label.getAttribute(STATE) !== (marked ? READ : UNREAD);
     });
+  }
+
+  /* ⭐ THE NEXT UNIT MARKS THIS ONE READ AND CONTINUES (the 2026-11 redesign).
+     Each next link carries two labels (`link-next.html`): *Up next*, shown, and
+     *Mark read & continue*, hidden. While this unit is unmarked the second is
+     the one shown, and following the link marks the unit before the browser
+     leaves. ⛔ The link is still a plain link: with no script it navigates and
+     marks nothing. Every next link of a chain is relabelled, because a reading
+     mode may show another one; and, as everywhere here, no word is typed. */
+  var NEXT = 'nav[aria-label="Between units"] a[rel="next"], nav[aria-label="Between units"] a[data-pager="next"]';
+  var CONTINUE = 'data-continue';
+  var nexts = [].slice.call(document.querySelectorAll(NEXT));
+
+  function relabel(marked) {
+    nexts.forEach(function (link) {
+      var going = link.querySelector('span[' + CONTINUE + ']');
+      var plain = link.querySelector('span:not([' + CONTINUE + '])');
+      if (going && plain) {
+        going.hidden = marked;
+        plain.hidden = !marked;
+      }
+    });
+  }
+
+  function show(marked) {
+    shown(marked);
+    relabel(marked);
   }
 
   show(store.marked(key));
@@ -3253,5 +4353,11 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   button.addEventListener('click', function () {
     if (store.marked(key)) { store.unmark(key); } else { store.mark(key); }
     show(store.marked(key));
+  });
+
+  nexts.forEach(function (link) {
+    link.addEventListener('click', function () {
+      if (!store.marked(key)) { store.mark(key); }
+    });
   });
 }());
