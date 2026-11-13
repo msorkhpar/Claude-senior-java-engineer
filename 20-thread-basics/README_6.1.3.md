@@ -149,6 +149,17 @@ The thread spends most of each cycle in `sleep`, so that is where the interrupt 
 exception clears the flag, the catch logs it, and the `while` reads `false` forever. In production,
 `awaitTermination` times out after 30 seconds and the orchestrator kills whatever is half-done.
 
+```mermaid
+flowchart TD
+    W{"isInterrupted()?"} -->|false| S["send one batch"]
+    W -->|true| E["loop ends"]
+    S --> Z["Thread.sleep(50)"]
+    Z -->|sleep ends| W
+    Z -->|interrupt lands| T["InterruptedException clears the flag"]
+    T --> C["catch logs, will retry"]
+    C --> W
+```
+
 The JDK clears the flag because the exception now carries the request; left set, the flag would
 make every later blocking call in the thread throw again. Only two things clear it:
 `Thread.interrupted()`, and a waiting method that throws. Code that never looks at the flag leaves

@@ -76,6 +76,23 @@ second, nothing throws, and the metrics listener silently misses `o-1`: the list
 iterator, which then took itself to be at the end. Unit 6.5.3 explains both outcomes from the
 iterator's counter and the copy-on-write snapshot.
 
+```mermaid
+sequenceDiagram
+    participant S as caller of publish
+    participant E as OrderEvents
+    participant L as ArrayList listeners
+    participant C as coupon listener
+    S->>E: publish("o-1")
+    E->>C: accept("o-1")
+    C->>E: unsubscribe(this)
+    E->>L: remove(coupon)
+    C-->>E: returns
+    E->>L: loop's next step
+    L-->>E: ConcurrentModificationException
+    E-->>S: throws, receipt and metrics never hear o-1
+    Note over S: the order was saved, the client retries
+```
+
 A listener can't know where it sits in the list, so the subject must make leaving safe. A
 `CopyOnWriteArrayList` does: a dispatch walks the array it started with, so a listener
 removed during a dispatch still gets that event and none after it, and one added during it starts

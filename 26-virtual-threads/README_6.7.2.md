@@ -101,6 +101,15 @@ The scheduler adds no carrier for this kind of pinning, so the unrelated task wa
 refresh returned. It does add one while a virtual thread is in `Object.wait()`, which pins too, so
 waiting on a monitor costs an extra OS thread rather than a stall.
 
+```mermaid
+flowchart TD
+    B["a virtual thread blocks"] --> W{"where?"}
+    W -->|"java.util.concurrent lock, sleep"| U["unmounts, carrier runs another"]
+    W -->|"holds or enters a monitor"| P["pinned, carrier blocks with it"]
+    P --> S["no carrier added, other tasks wait"]
+    W -->|"in Object.wait()"| O["pinned, scheduler adds a carrier"]
+```
+
 On Java 21, use a `java.util.concurrent` lock where code blocks while holding the lock (a network
 call, a query, a `sleep`). A `synchronized` block that only updates memory pins its carrier for
 microseconds and can stay. To find the blocking ones, run with `-Djdk.tracePinnedThreads=short`.

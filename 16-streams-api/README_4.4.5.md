@@ -146,6 +146,22 @@ has no caller to run it, so it waited in the pool's queue until the price servic
 production it waits until a worker is free, which can be most of the report, and so does every
 parallel stream and default `...Async` call in the service.
 
+```mermaid
+sequenceDiagram
+    participant R as report thread
+    participant P as common pool workers
+    participant O as other request
+    participant A as supplyAsync audit
+    participant S as price service
+    R->>P: parallel fetchPrice pieces
+    P->>S: all 19 workers wait in fetchPrice
+    R->>S: the report thread waits too
+    O->>O: parallel sum runs on its caller alone
+    A->>P: audit task queued, no free worker
+    S-->>P: price service answers
+    P->>A: audit runs, 1002 ms after submit
+```
+
 > **Java 21 on a small machine.** `CompletableFuture`'s async methods without an executor use the
 > common pool only when its parallelism is at least two. On Java 21 with one or two CPUs they start
 > a thread per task instead; run with `-XX:ActiveProcessorCount=1`, Java 25 used the common pool.

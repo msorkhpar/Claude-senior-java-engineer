@@ -40,6 +40,17 @@ task 6: threads=4 queued=2
 task 7: RejectedExecutionException
 ```
 
+```mermaid
+flowchart TD
+    E["pool.execute(task)"] --> C{"threads below core size?"}
+    C -->|yes| N["start a new thread"]
+    C -->|no| Q{"queue accepts the task?"}
+    Q -->|yes| W["task waits in the queue"]
+    Q -->|no| M{"threads below maximum?"}
+    M -->|yes| X["start a thread past the core"]
+    M -->|no| R["RejectedExecutionHandler"]
+```
+
 Not at task 3. Below the core size, every task gets a new thread. At the core size, a task goes
 into the queue. Only when the queue refuses it does the pool start a thread past the core, up to
 the maximum, and when that is reached too, the task is rejected.

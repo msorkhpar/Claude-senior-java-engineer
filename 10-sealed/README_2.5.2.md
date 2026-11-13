@@ -135,6 +135,29 @@ excludes. Unit 1.5.4 showed that adding a type to a
 wasn't rebuilt. Neither happens here: the switch is still exhaustive, because every possible
 subtype of `Wallet`, known or not, is a `Wallet`.
 
+```mermaid
+classDiagram
+    class PaymentMethod {
+        <<sealed interface>>
+    }
+    class Card {
+        <<record>>
+    }
+    class BankTransfer {
+        <<record>>
+    }
+    class Wallet {
+        <<non-sealed>>
+    }
+    class GiftWallet {
+        <<partner package>>
+    }
+    PaymentMethod <|.. Card
+    PaymentMethod <|.. BankTransfer
+    PaymentMethod <|.. Wallet
+    Wallet <|-- GiftWallet
+```
+
 The root stays sealed: a class still can't implement `PaymentMethod` directly. Below `Wallet`, the
 hierarchy is as open as any class: a switch over `Wallet` that names its subtypes also needs a
 `case Wallet w` or a `default`.

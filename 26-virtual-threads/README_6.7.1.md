@@ -47,6 +47,18 @@ up the next virtual thread that is ready. When the wait ends, the virtual thread
 and resumes on whichever carrier is free. `Thread.currentThread()` always returns the virtual
 thread, never its carrier.
 
+```mermaid
+stateDiagram-v2
+    state "mounted on a carrier" as Mounted
+    state "unmounted, frames on the heap" as Unmounted
+    state "queued again" as Queued
+    [*] --> Mounted
+    Mounted --> Unmounted: blocking JDK call
+    Unmounted --> Queued: the wait ends
+    Queued --> Mounted: whichever carrier is free
+    note right of Unmounted: the carrier runs the next ready virtual thread
+```
+
 A pool of platform threads limits throughput to threads ÷ wait time: 200 threads waiting 100 ms
 each serve 2,000 requests a second, however idle the CPU is, and keeping such a pool keeps that
 ceiling. With virtual threads the limit moves to what the downstream services and the heap can

@@ -48,6 +48,20 @@ writes no trailer. Make the outermost stream the resource of the `try`, or decla
 a resource: they close in reverse order, closing these streams a second time does nothing, and
 the file is still closed if a constructor above it throws (`GZIPOutputStream`'s writes the header).
 
+```mermaid
+sequenceDiagram
+    participant C as caller
+    participant B as BufferedOutputStream
+    participant G as GZIPOutputStream
+    participant F as FileOutputStream
+    C->>B: close()
+    B->>G: flush the buffered lines
+    B->>G: close()
+    G->>G: finish()
+    G->>F: Deflater's data, then the CRC-32 and length trailer
+    G->>F: close()
+```
+
 Closing also closes streams you didn't open: closing a `PrintStream` built over `System.out`
 closes `System.out`, and every later `System.out.println` prints nothing.
 

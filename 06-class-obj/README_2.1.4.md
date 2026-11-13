@@ -138,6 +138,22 @@ None of this is in `TreeSet`'s javadoc, so a later JDK may change which method c
 compile error. This is the fragile base class problem: a subclass that overrides a method its
 superclass calls on itself depends on the superclass's implementation, not its contract.
 
+```mermaid
+sequenceDiagram
+    participant C as caller
+    participant CS as CountingSet
+    participant TS as TreeSet code
+    C->>CS: addAll(a List of 3)
+    Note over CS: added += 3
+    CS->>TS: super.addAll(c)
+    loop each element of the List
+        TS->>CS: add(s), a virtual call
+        Note over CS: added++
+        CS->>TS: super.add(s)
+    end
+    Note over CS: added is 6
+```
+
 Wrap the set and forward to it instead, so its internal calls never reach your code (unit 8.4.1
 develops this). Or, for a class you write to be extended, document which methods call which
 and make the rest `final`.

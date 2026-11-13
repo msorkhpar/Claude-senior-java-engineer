@@ -223,6 +223,20 @@ rethrown as it is); every later use gets `NoClassDefFoundError`, which reads lik
 problem, with the first failure named in its cause. A bad German rate took down the French one,
 and correcting the property changed nothing until a restart.
 
+```mermaid
+stateDiagram-v2
+    state "TaxTable not initialized" as N
+    state "running the static initializer" as I
+    state "initialized" as OK
+    state "marked as failed" as X
+    [*] --> N
+    N --> I: first use
+    I --> OK: initializer completes
+    I --> X: throws, first use gets ExceptionInInitializerError
+    X --> X: every later use gets NoClassDefFoundError
+    OK --> [*]
+```
+
 Check configuration at startup, where the error can name the setting. Load anything that can
 fail, such as a file or a remote call, in a method rather than an initializer: a method that throws
 can be called again. Moving the load into a nested holder class, whose static field is built on

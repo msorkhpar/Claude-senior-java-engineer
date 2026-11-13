@@ -449,6 +449,14 @@ transfer       still running after 1 s: [transfer-0, transfer-1]
   deadlocked: transfer-1 waits for Examples$Account held by transfer-0
 ```
 
+```mermaid
+flowchart LR
+    T0["transfer-0"] -->|waits for| B["Account b"]
+    B -->|held by| T1["transfer-1"]
+    T1 -->|waits for| A["Account a"]
+    A -->|held by| T0
+```
+
 Within the first second, `transfer-0` held `a` and asked for `b` while `transfer-1` held `b` and
 asked for `a`. A deadlock needs four things at once: locks that one thread at a time can hold, a
 thread that holds one while it waits for another, no way to take a lock from its holder, and a

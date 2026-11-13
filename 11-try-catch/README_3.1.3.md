@@ -157,6 +157,17 @@ export lock still held: true
 The `IOException` from `close()` replaced the `IllegalStateException`, which survives as neither
 cause nor suppressed. It also ended the `finally`, so `unlock()` never ran, and the next export, on another thread, waits for the lock forever.
 
+```mermaid
+flowchart TD
+    L["exportLock.lock()"] --> W["out.write in try"]
+    W --> Q["queryFailed() throws IllegalStateException"]
+    Q --> F["finally starts"]
+    F --> C["out.close() throws IOException"]
+    C --> D["IllegalStateException dropped"]
+    C --> S["exportLock.unlock() never runs"]
+    C --> X["caller sees IOException"]
+```
+
 Each cleanup step that can fail needs its own `try`, and its failure is attached to the original
 with `addSuppressed`:
 

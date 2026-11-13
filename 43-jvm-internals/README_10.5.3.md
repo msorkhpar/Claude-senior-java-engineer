@@ -71,6 +71,15 @@ falls behind. It never showed up for this class in ten runs; with a single C2 th
 (`-XX:CICompilerCount=2`), it did for some of the JDK's own methods, such as
 `StringUTF16::getChar`.
 
+```mermaid
+flowchart TD
+    I["Interpreter, counts calls and loop iterations"] -->|"counters cross threshold"| T3["Tier 3, C1 with profiling"]
+    T3 -->|"profile"| T4["Tier 4, C2"]
+    T4 -->|"installed"| NE["old tier-3 code made not entrant"]
+    I -->|"trivial method"| T1["Tier 1, plain C1"]
+    I -->|"instead of tier 3 when C2 falls behind"| T2["Tier 2, C1 with counters only"]
+```
+
 **"made not entrant" does not mean something failed.** Compile 7, the tier-3 `score`, was made not
 entrant a millisecond after compile 8 installed tier 4: new calls stop entering the old code and
 go to the new one. The log prints the same words when compiled code is thrown away because an

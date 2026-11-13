@@ -106,6 +106,19 @@ other seven workers. Unit 6.6.1.1 covers the pool itself.
 workers run at once: while this thread works on the right half,
 the left half waits on its queue for another worker to steal.
 
+```mermaid
+sequenceDiagram
+    participant W as this worker
+    participant Q as its queue
+    participant O as another worker
+    W->>Q: left.fork()
+    W->>W: right.compute()
+    O->>Q: steals left from the other end
+    O->>O: left.compute()
+    O-->>W: left.join() returns its sum
+    W->>W: return left.join() + r
+```
+
 Swap two lines, so the task joins the left half before it starts the right one:
 
 ```java

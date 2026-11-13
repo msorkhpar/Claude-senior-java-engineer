@@ -117,6 +117,19 @@ only when the parent fails calls its own `findClass`. A request from the applica
 `java.lang.String` therefore travels to the bootstrap loader, and a `String.class` on the class path
 is never read.
 
+```mermaid
+sequenceDiagram
+    participant A as application loader
+    participant P as platform loader
+    participant B as bootstrap loader
+    Note over A: loadClass("java.lang.String")
+    A->>P: not loaded here, ask parent
+    P->>B: not loaded here, ask parent
+    B-->>P: String from java.base
+    P-->>A: String
+    Note over A: own findClass never runs, String.class on the class path is never read
+```
+
 A custom loader can't get around that by defining the class itself. This one, a `ClassLoader`
 subclass whose `define` method calls `defineClass`, defines `Invoice` from its class file, then
 tries the same name again, then a `java.lang` name:
@@ -244,6 +257,22 @@ Initialising `Rates` runs its field initialisers top to bottom. The first one ne
 lets the read through (JLS §12.4.2), and the read returns the field's default, 0. Started from the
 other end, `Tariff.STANDARD` is still `null` when `Rates` copies it. Each order leaves one wrong
 value in a `final` field for the life of the process, and nothing throws during initialisation.
+
+```mermaid
+sequenceDiagram
+    participant M as Billing
+    participant R as Rates
+    participant T as Tariff
+    Note over R,T: every static field starts at 0, false or null
+    M->>R: read DEFAULT_TARIFF, initialise Rates
+    R->>T: Tariff.STANDARD, initialise Tariff
+    T->>R: read VAT_PERCENT
+    R-->>T: 0, same thread is initialising Rates
+    T->>T: STANDARD = new Tariff(0)
+    T-->>R: STANDARD
+    R->>R: DEFAULT_TARIFF set, then VAT_PERCENT = 20
+    R-->>M: DEFAULT_TARIFF.vatPercent is 0
+```
 
 Swapping the two lines in `Rates` fixes the first order and not the second (the `rates` run then
 prints 20; the `tariff` run still leaves `DEFAULT_TARIFF` null).

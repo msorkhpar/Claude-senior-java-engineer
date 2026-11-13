@@ -202,6 +202,23 @@ charge as if it were new, and the customer pays 80.00 for a 40.00 order. Cancell
 timed-out `Future` doesn't undo anything: `cancel(true)` interrupts a local thread (unit 6.1.3),
 and the remote side may already have applied the charge.
 
+```mermaid
+sequenceDiagram
+    participant C as client loop
+    participant N as net executor
+    participant P as payments
+    C->>N: submit attempt 1
+    N->>P: charge(charge)
+    P->>P: apply, the money moves
+    Note over P: first reply held up
+    C->>C: get(200 ms) times out
+    C->>N: submit attempt 2
+    N->>P: charge(charge)
+    P->>P: apply again
+    P-->>C: r-2
+    Note over P: charges applied 2, balance -80.00
+```
+
 ## An Idempotency Key Created With the Command Makes the Retry Safe
 
 A command is idempotent when running it twice has the effect of running it once. "Set the price

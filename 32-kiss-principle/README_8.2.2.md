@@ -273,6 +273,21 @@ until the process restarts. In `SyncRates` there is only the map: `null` means "
 failed load leaves it `null`, and the next call tries again. The volatile version also has a
 single variable.
 
+```mermaid
+sequenceDiagram
+    participant A as thread A
+    participant F as FlagRates
+    participant B as thread B
+    A->>F: rates()
+    F->>F: loaded is false, take the lock
+    F->>F: loaded = true
+    F->>F: rates = loader.get() starts, held open
+    B->>F: rates()
+    F->>F: loaded is true, skip the lock
+    F-->>B: rates, still null
+    Note over F: if the load throws, loaded stays true and rates null
+```
+
 The lock costs time. Eight threads that do nothing but call `rates()` 10 million times each:
 
 ```text

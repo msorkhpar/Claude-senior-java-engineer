@@ -294,6 +294,19 @@ calls under the lock: still running after 2 s; findDeadlockedThreads(): 2 thread
 and asks for the gauge. Each second lock is taken one call away, so neither class shows a nested
 lock, and the order is set by whoever subscribed at run time.
 
+```mermaid
+sequenceDiagram
+    participant S as sensor
+    participant G as Gauge lock
+    participant D as Dashboard lock
+    participant SC as screen
+    S->>G: set(v) takes the gauge
+    SC->>D: render() takes the dashboard
+    S-xD: listener markStale() waits for Dashboard
+    SC-xG: g.value() waits for Gauge
+    Note over S,SC: each holds the lock the other waits for
+```
+
 The fix belongs in the class that calls out: hold the lock for the state, copy what the call needs,
 and make the call with no lock held. *Java Concurrency in Practice* calls this an **open call**:
 

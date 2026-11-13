@@ -138,6 +138,21 @@ action, and that action happens-before the return of (5) by the join rule. By tr
 happens-before every read after (5). The `put` calls come before (1), so the map's contents arrive
 too.
 
+```mermaid
+flowchart TD
+    subgraph LD [loader]
+        W1["(1) rates = m"] -->|program order| W2["(2) ratesReady = true"]
+    end
+    subgraph CV [converter]
+        R3["(3) reads ratesReady"] -->|program order| R4["(4) converted = 2_500 * rates.get"]
+    end
+    subgraph MN [main]
+        J5["(5) converter.join() returns"] -->|program order| P["reads rates"]
+    end
+    W2 -->|volatile rule| R3
+    R4 -->|join rule| J5
+```
+
 Remove `volatile` from `ratesReady` and the link from (2) to (3) is gone, which breaks the chain.
 The main thread's read of `rates` becomes a data race, and so does the converter's; the converter
 may also spin forever, and the `join` with it.

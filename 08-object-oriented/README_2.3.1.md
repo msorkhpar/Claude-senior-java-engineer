@@ -192,6 +192,15 @@ combine:
 Interfaces have no instance fields, so no state can be inherited twice, which is the diamond
 problem in languages with several superclasses. Only behaviour can collide.
 
+```mermaid
+flowchart TD
+    Q["Two supertypes offer maxAttempts()"] --> A{"Does a class have it, declared or from a superclass?"}
+    A -- yes --> CW["The class method wins over every default"]
+    A -- no --> B{"Does one interface extend the other?"}
+    B -- yes --> MS["The more specific default wins"]
+    B -- "no, unrelated" --> E["Compile error until the class overrides and chooses"]
+```
+
 <!-- practice 2 -->
 
 ## Adding a Default Method Can Break Implementers: Their Source Stops Compiling and Their Old Class Files Fail at the Call

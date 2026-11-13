@@ -287,6 +287,16 @@ straight from `WAITING` to `BLOCKED` behind its notifier, until `order-intake` l
 waiting for, which is why `wait()` belongs in a loop that checks its condition again (unit 6.2.1
 builds it).
 
+```mermaid
+stateDiagram-v2
+    [*] --> RUNNABLE
+    RUNNABLE --> WAITING: orders.wait() releases the monitor
+    WAITING --> BLOCKED: order-intake calls notify()
+    BLOCKED --> RUNNABLE: order-intake leaves synchronized
+    RUNNABLE --> TERMINATED: packs the order
+    TERMINATED --> [*]
+```
+
 <!-- practice 2 -->
 
 ## getState() Is a Snapshot: Coordinate with join() or a Latch, Never by Polling a State

@@ -305,6 +305,24 @@ policy. The javadoc of `Condition` also allows a thread to wake with no signal a
 wakeup*. With `while`, the woken thread checks again and goes back to waiting. With `if`, it
 carries on with `null`, and a printer sends that to the device.
 
+```mermaid
+sequenceDiagram
+    participant P2 as printer-2
+    participant L as lock
+    participant C as clerk
+    participant P1 as printer-1
+    P2->>L: notEmpty.await() releases the lock
+    C->>L: put(invoice-118.pdf) and notEmpty.signal()
+    P1->>L: takes the lock first
+    P1->>P1: takes invoice-118.pdf
+    L->>P2: lock back, await() returns
+    alt if
+        P2->>P2: pollFirst() returns null
+    else while
+        P2->>L: queue empty, await() again
+    end
+```
+
 ### Signal the Condition Its Waiters Wait On
 
 `put` signals `notEmpty` and `takeIf` signals `notFull`, so each change wakes the side that can use

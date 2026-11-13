@@ -211,6 +211,17 @@ moveTo: java.lang.IllegalStateException: CANCELLED -> SHIPPED, status stays CANC
 {PLACED=[PAID, CANCELLED], PAID=[SHIPPED, CANCELLED], SHIPPED=[DELIVERED], DELIVERED=[], CANCELLED=[]}
 ```
 
+```mermaid
+stateDiagram-v2
+    PLACED --> PAID
+    PLACED --> CANCELLED
+    PAID --> SHIPPED
+    PAID --> CANCELLED
+    SHIPPED --> DELIVERED
+    DELIVERED --> [*]
+    CANCELLED --> [*]
+```
+
 A terminal state needs a
 row too, an empty set: a constant added later with no row makes `NEXT.get` return `null`, and
 `canMoveTo` throws a `NullPointerException` on the first order that reaches it. The `EnumSet.allOf`

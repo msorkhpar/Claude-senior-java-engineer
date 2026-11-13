@@ -171,6 +171,24 @@ naive, blank sku: java.lang.reflect.UndeclaredThrowableException
     calls reaching the warehouse: 1
 ```
 
+```mermaid
+sequenceDiagram
+    participant O as order code
+    participant X as proxy
+    participant H as handler
+    participant M as Method.invoke
+    participant W as WarehouseInventory
+    O->>X: stock(sku)
+    X->>H: invoke(proxy, method, args)
+    H->>M: method.invoke(target, args)
+    M->>W: stock(sku)
+    W-->>M: throws IOException
+    M-->>H: InvocationTargetException
+    Note over H: e is not an IOException, so throw e
+    H-->>X: InvocationTargetException
+    X-->>O: UndeclaredThrowableException
+```
+
 `Method.invoke` wraps anything the target throws, checked or not, in
 `InvocationTargetException`. So `e` is never an `IOException`, and the first failure ends the
 loop. `catch (IOException e)` doesn't compile ("exception IOException is never thrown in body of
