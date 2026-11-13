@@ -202,6 +202,24 @@ Three SEVERE records and 24 lines for one failure, with `connection reset` three
 on SEVERE fires three times, and whoever reads the log looks for three incidents. The last record
 holds it all: the wrapper keeps the original as its cause, and `Caused by` prints it.
 
+```mermaid
+sequenceDiagram
+    participant C as controller
+    participant S as service
+    participant R as repository
+    participant L as log
+    C->>S: look up order 8812
+    S->>R: query
+    Note over R: SQLException, connection reset
+    R->>L: SEVERE query failed for order 8812
+    R-->>S: rethrows SQLException
+    Note over S: wraps it in OrderLookupException
+    S->>L: SEVERE lookup failed
+    S-->>C: rethrows OrderLookupException
+    C->>L: SEVERE GET /orders/8812 failed
+    Note over C: answers 503
+```
+
 When only the controller logs, the log is that last record alone, 9 lines. A layer with something to add puts it in the exception it throws, as the service's "could
 not load order 8812" does. The layer that decides what happens next (answers 503, retries, skips
 the record) logs, once, and passes the exception to `log(level, message, e)` so the stack trace is

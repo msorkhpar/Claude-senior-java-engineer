@@ -89,6 +89,23 @@ System.out.printf("%-8s loads: %d, callers saw %s and %s%n", name, loads.get(), 
 naive    loads: 2, callers saw rates#1 and rates#2
 ```
 
+```mermaid
+sequenceDiagram
+    participant A as thread a
+    participant M as NaiveMemo
+    participant B as thread b
+    participant S as source
+    A->>M: get()
+    B->>M: get()
+    Note over M: both pass (1), done is still false
+    M->>S: (2) load for thread a
+    M->>S: (2) load for thread b
+    Note over M: (3) done = true, set twice
+    M-->>A: value
+    M-->>B: value
+    Note over S: loads is 2
+```
+
 The pair of tables varies from run to run (`rates#1 and rates#1` also came up), because which
 write to `value` each thread reads last is a race too. On a cold start every thread that arrives
 during the first load runs its own, which a rate-limited upstream rejects, and two requests in the

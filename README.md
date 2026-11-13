@@ -113,27 +113,50 @@ deletes them too. Every setting is explained in [`course.env`](course.env).
 
 ## Narration (optional)
 
-The site is complete without narration: a lesson with no recording shows no
-player. The recordings are not stored in this repository, because of their
-size: they are assets of this repository's release, and the pulled voiced
-site already has them. To hear the lessons read aloud, set
-`COURSE_NARRATION=with-narration` in `.env` (copy it from `course.env`), then:
+Every lesson can be read aloud to you. The site is complete without narration,
+so it is off by default. The voiced site is a second image of the study site
+that already holds every recording: turning it on downloads that image once,
+and after that the voices play from your machine, with no internet and no
+extra step. Only the lessons' prose is read; code, practices and quizzes are
+never read aloud.
 
-- **Pulled images**: `docker compose -f compose.pull.yaml up -d` pulls the voiced site. Leave the setting as it is for the site without narration.
-- **Building it yourself**: download the recordings from the course's release
-  first, then build:
+To turn it on with the published images:
+
+1. Copy `course.env` to `.env` if you have not already, and set
+   `COURSE_NARRATION=with-narration` in `.env`.
+2. Start the course again. Compose pulls the voiced site the first time and
+   replaces the running one; your progress and your practice files stay:
+
+   ```
+   docker compose -f compose.pull.yaml up -d
+   ```
+
+3. Reload a lesson in your browser. A player appears at the foot of the page:
+   press **Play narration**, and it reads the page passage by passage and
+   highlights the one it is reading. **Space** plays and pauses, the left and
+   right arrows move to the previous or next passage, clicking a paragraph
+   starts reading from there, and the speed goes from 0.75x to 2x.
+
+To turn it off, set `COURSE_NARRATION=without-narration` and run the same
+command.
+
+### Building it yourself
+
+The recordings are not stored in this repository, because of their size: they
+are assets of this repository's release. If you build the images from this
+checkout instead of pulling them, download the recordings once, then build:
 
 ```
 sh .studyforge/narration-release/restore.sh
 docker compose up -d --build
 ```
 
-  On Windows, run `pwsh .studyforge/narration-release/restore.ps1` instead of the first line.
-  The scripts are [`.studyforge/narration-release/restore.sh`](.studyforge/narration-release/restore.sh) and [`.studyforge/narration-release/restore.ps1`](.studyforge/narration-release/restore.ps1).
-  The script checks every download and every recording against the checksums
-  in this repository before it places anything, and deletes the downloads
-  afterwards. Set `NARRATION_LOCAL_DIR` to a directory holding the release's
-  volumes to read them from disk instead of downloading them.
+On Windows, run `pwsh .studyforge/narration-release/restore.ps1` instead of the first line.
+The scripts are [`.studyforge/narration-release/restore.sh`](.studyforge/narration-release/restore.sh) and [`.studyforge/narration-release/restore.ps1`](.studyforge/narration-release/restore.ps1).
+The script checks every download and every recording against the checksums
+in this repository before it places anything, and deletes the downloads
+afterwards. Set `NARRATION_LOCAL_DIR` to a directory holding the release's
+volumes to read them from disk instead of downloading them.
 
 ## The exercises
 

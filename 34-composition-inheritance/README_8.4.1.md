@@ -64,6 +64,23 @@ public boolean addAll(Collection<? extends E> c) {
 (unit 2.1.4 shows the mechanism with `TreeSet`): three counted in `addAll`, three again in `add`.
 Every batch inflates the metric by its own size.
 
+```mermaid
+sequenceDiagram
+    participant M as caller
+    participant I as InstrumentedHashSet
+    participant A as AbstractCollection.addAll
+    participant H as HashSet.add
+    M->>I: addAll(jvm, gc, jit)
+    I->>I: addCount += 3
+    I->>A: super.addAll(c)
+    loop each element
+        A->>I: add(e)
+        I->>I: addCount++
+        I->>H: super.add(e)
+    end
+    Note over I: 3 tags added, addCount up by 6
+```
+
 The subclass is correct only if it knows which of `HashSet`'s methods call which, and `HashSet`
 doesn't say: the loop is documented only as `AbstractCollection`'s implementation note, two
 levels up. This is the fragile base class problem: the subclass depends on its superclass's

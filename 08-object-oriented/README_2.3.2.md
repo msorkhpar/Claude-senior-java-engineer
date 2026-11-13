@@ -117,6 +117,19 @@ FragileParcel  visit(s): skipped   s.accept(customs): CN22 + handling note
 has the class's own type, so the compiler picks the matching overload, and that call is dispatched
 on the handler. This is double dispatch, and the Visitor pattern is built on it.
 
+```mermaid
+sequenceDiagram
+    participant M as caller
+    participant S as s, a Parcel
+    participant H as customs
+    M->>S: s.accept(customs)
+    Note over S: dispatched on the shipment, Parcel.accept runs
+    S->>H: h.visit(this), compiled as visit(Parcel)
+    Note over H: dispatched on the handler
+    H-->>S: CN22
+    S-->>M: CN22
+```
+
 ### Spot the Problem: the accept Methods Look Duplicated
 
 The cleanup from the opening deleted the three `accept` methods and wrote one in the base class:

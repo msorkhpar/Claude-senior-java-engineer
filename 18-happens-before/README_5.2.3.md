@@ -313,6 +313,23 @@ and read a `final` field at its default. The exception ended the constructor, ye
 the gauge, an object whose construction never finished. All of that happened on one thread. A registry that samples on its own thread is worse off: it saw the reference before the
 constructor finished, and JLS 17.5 promises such a thread nothing about any field.
 
+```mermaid
+sequenceDiagram
+    participant M as Escape.main
+    participant Q as QueueDepth
+    participant G as Gauge
+    participant R as Registry
+    M->>Q: new QueueDepth(orders, registry)
+    Q->>G: super(name, registry)
+    G->>G: this.name = name
+    G->>R: register(this)
+    R->>R: gauges.add(g)
+    R->>Q: g.value()
+    Q--xM: NullPointerException, queue is null
+    Note over Q: this.queue = queue never runs
+    Note over R: keeps the half-built gauge
+```
+
 Java 21's compiler checks for this. `javac -Xlint:this-escape` warns "when a constructor invokes a
 method that could be overriden in an external subclass" (its help text). With `Gauge` public:
 

@@ -83,6 +83,25 @@ The terminal operation pulls one element from the source and pushes it through e
 before it pulls the next. `B-7` stops at the filter and never reaches `map`. No list is built
 between the stages.
 
+```mermaid
+sequenceDiagram
+    participant T as toList()
+    participant Src as skus
+    participant F as filter
+    participant M as map
+    T->>Src: pull next
+    Src->>F: A-1
+    F->>M: A-1
+    M->>T: a-1
+    T->>Src: pull next
+    Src->>F: B-7
+    Note over F: B-7 stops here
+    T->>Src: pull next
+    Src->>F: C-3
+    F->>M: C-3
+    M->>T: c-3
+```
+
 Because elements arrive one at a time, an operation that has its answer can stop pulling. A
 fraud check runs over 1,000 order ids and flags every 300th; a counter records how often the check
 is called. Each row below is a fresh `orderIds.stream()`, with the counter reset:

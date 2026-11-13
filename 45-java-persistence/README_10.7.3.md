@@ -115,6 +115,22 @@ It lets B write. READ COMMITTED only promises that B reads committed data, and 1
 when B read it. The `UPDATE` sets a constant computed in Java, and the database can't tell that it
 came from a stale read. A's 10 is gone with no error.
 
+```mermaid
+sequenceDiagram
+    participant A as transaction A
+    participant D as database
+    participant B as transaction B
+    A->>D: SELECT balance
+    D-->>A: 100
+    B->>D: SELECT balance
+    D-->>B: 100
+    A->>D: UPDATE balance = 110
+    A->>D: commit
+    B->>D: UPDATE balance = 120
+    B->>D: commit
+    Note over D: balance 120, A's 10 is gone with no error
+```
+
 A `synchronized` block around the read and the write (unit 6.2.1) excludes threads of one JVM,
 and the two top-ups ran on two instances. The compound action belongs with the owner of the state
 (unit 8.3.2), and here the owner is the database. When the new value is a function of the old

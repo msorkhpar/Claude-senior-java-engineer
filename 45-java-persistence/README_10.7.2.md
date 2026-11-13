@@ -254,6 +254,21 @@ and returned the copy; `e` stays detached. So the salary from before the merge r
 and `"lost"`, set on `e` after it, did not. Code that calls `em.merge(e)` and keeps using `e` loses
 every later change.
 
+```mermaid
+sequenceDiagram
+    participant C as code
+    participant E as em2
+    participant D as database
+    C->>E: merge(e), e is detached
+    E->>D: select the row
+    E->>E: copy e's state onto the managed copy
+    E-->>C: managed, not e
+    C->>E: managed.name = "e104-renamed"
+    C->>C: e.name = "lost", e stays detached
+    C->>E: commit
+    E->>D: update from managed's state
+```
+
 ## A Lazy Association Loads Only While Its Persistence Context Is Open
 
 A service finds department 2 and returns it, and its `EntityManager` closes. The view then asks for

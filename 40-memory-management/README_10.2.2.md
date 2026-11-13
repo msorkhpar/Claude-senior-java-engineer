@@ -70,6 +70,20 @@ part often is cheap. With the 200,000 window almost every young object is still 
 collection, so each one is copied, then promoted (moved to old regions), and later found dead there by a
 concurrent marking cycle, after which mixed collections clean the old regions.
 
+```mermaid
+stateDiagram-v2
+    state "Young region" as Young
+    state "Copied out" as Copied
+    state "Old region" as Old
+    state "Found dead by marking" as Marked
+    [*] --> Young: allocated
+    Young --> [*]: dead at a young collection, region reused whole
+    Young --> Copied: alive at a young collection
+    Copied --> Old: promoted
+    Old --> Marked: concurrent marking cycle
+    Marked --> [*]: mixed collection cleans the old region
+```
+
 "Alive" means reachable from a root: a local variable of a running method, a static field, a
 thread. Nothing counts references, so two objects that refer only to each other are garbage:
 

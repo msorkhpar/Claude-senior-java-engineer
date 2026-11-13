@@ -202,6 +202,15 @@ round is an input of the next round, so `DeleteCustomer` arrives in round 2, whe
 is seen. Rounds go on until one creates nothing, and then a last round runs with no inputs and
 `processingOver()` true.
 
+```mermaid
+flowchart TD
+    S["Round 1: the sources"] --> P["Processors run on the round's inputs"]
+    P --> Q{"Did the round create files?"}
+    Q -->|yes| N["Next round: the created files"]
+    N --> P
+    Q -->|no| L["Last round: no inputs, processingOver() true"]
+```
+
 The `Processor` javadoc adds that a processor called in one round is called in every later
 round, including the last, even with no annotations for it, and that javac creates the processor
 object once per compile, not once per round. That is why `found` carries the commands from round

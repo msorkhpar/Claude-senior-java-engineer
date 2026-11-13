@@ -160,6 +160,23 @@ while the store is still in the buffer, so to every other core the read happened
 own loads check its buffer before the cache, which is why the thread itself always reads what it
 just wrote.
 
+```mermaid
+sequenceDiagram
+    participant T1 as thread 1
+    participant B1 as store buffer 1
+    participant C as cache
+    participant B2 as store buffer 2
+    participant T2 as thread 2
+    T1->>B1: c.x = 1, buffered
+    T2->>B2: c.y = 1, buffered
+    T1->>C: r1 = c.y
+    C-->>T1: 0
+    T2->>C: r2 = c.x
+    C-->>T2: 0
+    B1->>C: drains x = 1
+    B2->>C: drains y = 1
+```
+
 The caches stay coherent throughout. What hides the write is a queue in front of the cache, not a
 stale copy in a thread's "working memory" (unit 5.1.2).
 

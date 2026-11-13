@@ -45,6 +45,18 @@ is true. The B2B case matched first, so the review case never saw the refund. No
 by how specific they are, the way overload resolution ranks methods: order is the only priority.
 The fix is to put the case that must win, here the review, first.
 
+```mermaid
+flowchart TD
+    E["route(event)"] --> C{"case Charge c"}
+    C -- matches --> CH["charges"]
+    C -- no --> B{"case Refund r when account starts with B2B-"}
+    B -- true --> BB["b2b-refunds"]
+    B -- no --> M{"case Refund r when cents > 1_000_000"}
+    M -- true --> MR["manual-review"]
+    M -- no --> R["case Refund r"]
+    R --> RF["refunds"]
+```
+
 A binding is in scope only in its own guard and arm. A colon-style case can't fall into a case
 that declares a binding (`illegal fall-through to a pattern`), since the binding would be unset
 there.

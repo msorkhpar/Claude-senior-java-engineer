@@ -166,6 +166,24 @@ Optional<Integer> first = Stream.of(30, 10, 20)
 findFirst -> 10
 ```
 
+```mermaid
+sequenceDiagram
+    participant FF as findFirst()
+    participant Src as source
+    participant Fi as filter
+    participant So as sorted
+    FF->>Src: pull
+    Src->>Fi: 30
+    Fi->>So: 30, buffered
+    Src->>Fi: 10
+    Fi->>So: 10, buffered
+    Src->>Fi: 20
+    Fi->>So: 20, buffered
+    Note over Src: source exhausted
+    So->>FF: 10
+    Note over FF: has its answer
+```
+
 `filter` and `map` are stateless: each looks at one element and passes it on at once. `sorted` is
 stateful: it can't know which element comes first until it has seen the last, so it buffers
 everything and emits only when the source is exhausted. A `findFirst()` or `limit(3)` after it
