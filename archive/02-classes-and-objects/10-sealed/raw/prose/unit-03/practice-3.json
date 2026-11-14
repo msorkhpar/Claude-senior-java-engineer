@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.Map;\n\n/** Alert rules as a tree: a rule fires when its readings say so. */\npublic class AlertRules {\n\n    public sealed interface Rule permits Above, Const, Not, And, Or {}\n    /** Fires when the metric's reading is above the threshold. */\n    public record Above(String metric, double threshold) implements Rule {}\n    /** Always fires, or never. */\n    public record Const(boolean value) implements Rule {}\n    public record Not(Rule rule) implements Rule {}\n    public record And(Rule left, Rule right) implements Rule {}\n    public record Or(Rule left, Rule right) implements Rule {}\n\n    /** Whether the rule fires for these readings; a metric with no reading is not above anything. */\n    public static boolean fires(Rule rule, Map<String, Double> readings) {\n        return switch (rule) {\n            case Above(String metric, double threshold) ->\n                    readings.containsKey(metric) && readings.get(metric) > threshold;\n            case Const(boolean value) -> value;\n            case Not(Rule r) -> !fires(r, readings);\n            case And(Rule l, Rule r) -> fires(l, readings) && fires(r, readings);\n            case Or(Rule l, Rule r) -> fires(l, readings) || fires(r, readings);\n        };\n    }\n\n    /**\n     * The same rule with every constant folded away and every double negation removed, at any depth.\n     * The result fires for exactly the readings the input fires for.\n     */\n    public static Rule simplify(Rule rule) {\n        Rule walked = switch (rule) {\n            case Above a -> a;\n            case Const c -> c;\n            case Not(Rule r) -> new Not(simplify(r));\n            case And(Rule l, Rule r) -> new And(simplify(l), simplify(r));\n            case Or(Rule l, Rule r) -> new Or(simplify(l), simplify(r));\n        };\n        return switch (walked) {\n            case Not(Not(Rule r)) -> r;\n            case Not(Const(boolean v)) -> new Const(!v);\n            case And(Const(boolean v), Rule r) -> v ? r : new Const(false);\n            case And(Rule l, Const(boolean v)) -> v ? l : new Const(false);\n            case Or(Const(boolean v), Rule r) -> v ? new Const(true) : r;\n            case Or(Rule l, Const(boolean v)) -> v ? new Const(true) : l;\n            default -> walked;\n        };\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AlertRules.Rule cpu = new AlertRules.Above(\"cpu.load\", 0.9);\n            AlertRules.Rule errors = new AlertRules.Above(\"http.errors\", 25);\n            AlertRules.Rule plain = new AlertRules.Or(cpu, new AlertRules.Not(errors));\n            AlertRules.Rule cluttered = new AlertRules.And(new AlertRules.Const(true),\n                    new AlertRules.Not(new AlertRules.Not(new AlertRules.Or(cpu, new AlertRules.Const(false)))));\n            AlertRules.Rule switchedOff = new AlertRules.And(errors, new AlertRules.Not(new AlertRules.Const(true)));\n            System.out.println(\"nothing to fold: \" + AlertRules.simplify(plain));\n            System.out.println(\"cluttered: \" + AlertRules.simplify(cluttered));\n            System.out.println(\"switched off: \" + AlertRules.simplify(switchedOff));\n            Map<String, Double> readings = Map.of(\"cpu.load\", 0.95, \"http.errors\", 3.0);\n            System.out.println(\"cluttered fires: \" + AlertRules.fires(cluttered, readings)\n                    + \", simplified fires: \" + AlertRules.fires(AlertRules.simplify(cluttered), readings));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Map;\n\n/** Alert rules as a tree: a rule fires when its readings say so. */\npublic class AlertRules {\n\n    public sealed interface Rule permits Above, Const, Not, And, Or {}\n    /** Fires when the metric's reading is above the threshold. */\n    public record Above(String metric, double threshold) implements Rule {}\n    /** Always fires, or never. */\n    public record Const(boolean value) implements Rule {}\n    public record Not(Rule rule) implements Rule {}\n    public record And(Rule left, Rule right) implements Rule {}\n    public record Or(Rule left, Rule right) implements Rule {}\n\n    /** Whether the rule fires for these readings; a metric with no reading is not above anything. */\n    public static boolean fires(Rule rule, Map<String, Double> readings) {\n        return switch (rule) {\n            case Above(String metric, double threshold) ->\n                    readings.containsKey(metric) && readings.get(metric) > threshold;\n            case Const(boolean value) -> value;\n            case Not(Rule r) -> !fires(r, readings);\n            case And(Rule l, Rule r) -> fires(l, readings) && fires(r, readings);\n            case Or(Rule l, Rule r) -> fires(l, readings) || fires(r, readings);\n        };\n    }\n\n    /**\n     * The same rule with every constant folded away and every double negation removed, at any depth.\n     * The result fires for exactly the readings the input fires for.\n     */\n    public static Rule simplify(Rule rule) {\n        // TODO: return the simplified rule.\n        throw new IllegalStateException(\"TODO: simplify\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AlertRules.Rule cpu = new AlertRules.Above(\"cpu.load\", 0.9);\n            AlertRules.Rule errors = new AlertRules.Above(\"http.errors\", 25);\n            AlertRules.Rule plain = new AlertRules.Or(cpu, new AlertRules.Not(errors));\n            AlertRules.Rule cluttered = new AlertRules.And(new AlertRules.Const(true),\n                    new AlertRules.Not(new AlertRules.Not(new AlertRules.Or(cpu, new AlertRules.Const(false)))));\n            AlertRules.Rule switchedOff = new AlertRules.And(errors, new AlertRules.Not(new AlertRules.Const(true)));\n            System.out.println(\"nothing to fold: \" + AlertRules.simplify(plain));\n            System.out.println(\"cluttered: \" + AlertRules.simplify(cluttered));\n            System.out.println(\"switched off: \" + AlertRules.simplify(switchedOff));\n            Map<String, Double> readings = Map.of(\"cpu.load\", 0.95, \"http.errors\", 3.0);\n            System.out.println(\"cluttered fires: \" + AlertRules.fires(cluttered, readings)\n                    + \", simplified fires: \" + AlertRules.fires(AlertRules.simplify(cluttered), readings));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "27f1f9eba4f2677200d4ca501addf861462947d76b72155c199887a2184728ec",
+  "content_sha256": "3ccc18231eca31c63db6ecad9d173a69d0bd49c79506bb55a21101d773fd8a70",
   "starting_code": "package practice;\n\nimport java.util.Map;\n\n/** Alert rules as a tree: a rule fires when its readings say so. */\npublic class AlertRules {\n\n    public sealed interface Rule permits Above, Const, Not, And, Or {}\n    /** Fires when the metric's reading is above the threshold. */\n    public record Above(String metric, double threshold) implements Rule {}\n    /** Always fires, or never. */\n    public record Const(boolean value) implements Rule {}\n    public record Not(Rule rule) implements Rule {}\n    public record And(Rule left, Rule right) implements Rule {}\n    public record Or(Rule left, Rule right) implements Rule {}\n\n    /** Whether the rule fires for these readings; a metric with no reading is not above anything. */\n    public static boolean fires(Rule rule, Map<String, Double> readings) {\n        return switch (rule) {\n            case Above(String metric, double threshold) ->\n                    readings.containsKey(metric) && readings.get(metric) > threshold;\n            case Const(boolean value) -> value;\n            case Not(Rule r) -> !fires(r, readings);\n            case And(Rule l, Rule r) -> fires(l, readings) && fires(r, readings);\n            case Or(Rule l, Rule r) -> fires(l, readings) || fires(r, readings);\n        };\n    }\n\n    /**\n     * The same rule with every constant folded away and every double negation removed, at any depth.\n     * The result fires for exactly the readings the input fires for.\n     */\n    public static Rule simplify(Rule rule) {\n        // TODO: return the simplified rule.\n        throw new IllegalStateException(\"TODO: simplify\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-3/src/main/java/practice/AlertRules.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -133,6 +152,10 @@
     },
     "concepts": [
       "A tree rewrite keeps its recursion in a switch over every node with no default and its partial rules in a second switch, so every node is walked and a new node breaks the build."
-    ]
+    ],
+    "files": [
+      "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-3/src/main/java/practice/TryIt.java"
   }
 }

@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\n/**\n * Lets batches that were processed in parallel commit in batch order. A worker that has finished\n * batch n calls awaitTurn(n), commits, then calls done(n), which gives the turn to batch n + 1.\n */\npublic class CommitSequencer {\n\n    private final Object lock = new Object();\n    private long next;\n\n    /** The first batch to commit is firstBatch. */\n    public CommitSequencer(long firstBatch) {\n        this.next = firstBatch;\n    }\n\n    /** The batch whose turn it is. */\n    public long next() {\n        synchronized (lock) {\n            return next;\n        }\n    }\n\n    /** Returns when it is batch's turn to commit. */\n    public void awaitTurn(long batch) throws InterruptedException {\n        synchronized (lock) {\n            while (next != batch) {\n                lock.wait();\n            }\n        }\n    }\n\n    /** Called by the batch whose turn it is, after it committed: gives the turn to the next batch. */\n    public void done(long batch) {\n        synchronized (lock) {\n            next = batch + 1;\n            lock.notifyAll();\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            CommitSequencer sequencer = new CommitSequencer(101);\n            List<String> commits = Collections.synchronizedList(new ArrayList<>());\n            List<Thread> workers = new ArrayList<>();\n            AtomicReference<RuntimeException> failure = new AtomicReference<>();\n            for (long batch : new long[] {104, 102, 103, 101}) {\n                Thread worker = new Thread(() -> {\n                    try {\n                        sequencer.awaitTurn(batch);\n                        commits.add(\"batch \" + batch);\n                        sequencer.done(batch);\n                    } catch (InterruptedException e) {\n                        Thread.currentThread().interrupt();\n                    } catch (RuntimeException e) {\n                        failure.set(e);\n                    }\n                }, \"batch-\" + batch);\n                worker.setDaemon(true);\n                workers.add(worker);\n                worker.start();\n                Thread.sleep(50);\n            }\n            for (Thread worker : workers) worker.join(3_000);\n            if (failure.get() != null) throw failure.get();\n            System.out.println(\"workers started waiting in order: 104, 102, 103, 101\");\n            System.out.println(\"commit order: \" + commits);\n            System.out.println(\"next batch: \" + sequencer.next());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\n/**\n * Lets batches that were processed in parallel commit in batch order. A worker that has finished\n * batch n calls awaitTurn(n), commits, then calls done(n), which gives the turn to batch n + 1.\n */\npublic class CommitSequencer {\n\n    private final Object lock = new Object();\n    private long next;\n\n    /** The first batch to commit is firstBatch. */\n    public CommitSequencer(long firstBatch) {\n        this.next = firstBatch;\n    }\n\n    /** The batch whose turn it is. */\n    public long next() {\n        synchronized (lock) {\n            return next;\n        }\n    }\n\n    /** Returns when it is batch's turn to commit. */\n    public void awaitTurn(long batch) throws InterruptedException {\n        // TODO: Return once next is batch, waiting until then without using the processor.\n        //       Many workers wait here at once, each for its own batch.\n        throw new IllegalStateException(\"TODO: awaitTurn\");\n    }\n\n    /** Called by the batch whose turn it is, after it committed: gives the turn to the next batch. */\n    public void done(long batch) {\n        // TODO: Make batch + 1 the next batch, and let the worker waiting for it go ahead.\n        throw new IllegalStateException(\"TODO: done\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            CommitSequencer sequencer = new CommitSequencer(101);\n            List<String> commits = Collections.synchronizedList(new ArrayList<>());\n            List<Thread> workers = new ArrayList<>();\n            AtomicReference<RuntimeException> failure = new AtomicReference<>();\n            for (long batch : new long[] {104, 102, 103, 101}) {\n                Thread worker = new Thread(() -> {\n                    try {\n                        sequencer.awaitTurn(batch);\n                        commits.add(\"batch \" + batch);\n                        sequencer.done(batch);\n                    } catch (InterruptedException e) {\n                        Thread.currentThread().interrupt();\n                    } catch (RuntimeException e) {\n                        failure.set(e);\n                    }\n                }, \"batch-\" + batch);\n                worker.setDaemon(true);\n                workers.add(worker);\n                worker.start();\n                Thread.sleep(50);\n            }\n            for (Thread worker : workers) worker.join(3_000);\n            if (failure.get() != null) throw failure.get();\n            System.out.println(\"workers started waiting in order: 104, 102, 103, 101\");\n            System.out.println(\"commit order: \" + commits);\n            System.out.println(\"next batch: \" + sequencer.next());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a2801dfcf050c7b92199f489bcd9f23663cd7e1b9be5c8915e047bf7c1491ece",
+  "content_sha256": "b9c6db74f50d9d7b0c3d1307d3a5fb683111982454a2b4b37717a3eae75a0321",
   "starting_code": "package practice;\n\n/**\n * Lets batches that were processed in parallel commit in batch order. A worker that has finished\n * batch n calls awaitTurn(n), commits, then calls done(n), which gives the turn to batch n + 1.\n */\npublic class CommitSequencer {\n\n    private final Object lock = new Object();\n    private long next;\n\n    /** The first batch to commit is firstBatch. */\n    public CommitSequencer(long firstBatch) {\n        this.next = firstBatch;\n    }\n\n    /** The batch whose turn it is. */\n    public long next() {\n        synchronized (lock) {\n            return next;\n        }\n    }\n\n    /** Returns when it is batch's turn to commit. */\n    public void awaitTurn(long batch) throws InterruptedException {\n        // TODO: Return once next is batch, waiting until then without using the processor.\n        //       Many workers wait here at once, each for its own batch.\n        throw new IllegalStateException(\"TODO: awaitTurn\");\n    }\n\n    /** Called by the batch whose turn it is, after it committed: gives the turn to the next batch. */\n    public void done(long batch) {\n        // TODO: Make batch + 1 the next batch, and let the worker waiting for it go ahead.\n        throw new IllegalStateException(\"TODO: done\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-4/src/main/java/practice/CommitSequencer.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-4/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -129,6 +148,10 @@
     "concepts": [
       "notify() wakes one arbitrary waiter, which may not be able to use the change; notifyAll() wakes every waiter to re-check.",
       "A return from wait() doesn't mean the condition holds; wait() is called in a loop that re-checks it."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-4/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-4/src/main/java/practice/TryIt.java"
   }
 }

@@ -5,7 +5,7 @@
 # the course committed.
 ARG STUDYFORGE_NAMESPACE
 
-FROM ${STUDYFORGE_NAMESPACE:?STUDYFORGE_NAMESPACE-is-not-set}/studyforge-serve:0.1.0-6465516690241015370d7493ec8b0f32b0c46128cb44b6802eed4e9e70d75686@sha256:d3426d9551fcf42b91cf9ca8bb28d006d2b883530fc4579e633b8c174e8ac0d3 AS without-narration
+FROM ${STUDYFORGE_NAMESPACE:?STUDYFORGE_NAMESPACE-is-not-set}/studyforge-serve:0.1.0-20972d654bf8bdcb4bbd131649948431eb7ba497c1540755741f06dcd2584290@sha256:9f9723abcfa11eb28f4c99b2df2257229803e8346700372109bc0f6ba38f5d05 AS without-narration
 USER root
 RUN --mount=type=bind,source=.,target=/context \
     set -eu; mkdir -p /corpus; \
@@ -18,7 +18,7 @@ USER 1000:1000
 WORKDIR /corpus
 LABEL org.studyforge.course="claude-senior-java-engineer-interview-preparation" org.studyforge.narration="without"
 
-FROM ${STUDYFORGE_NAMESPACE:?STUDYFORGE_NAMESPACE-is-not-set}/studyforge-serve:0.1.0-6465516690241015370d7493ec8b0f32b0c46128cb44b6802eed4e9e70d75686@sha256:d3426d9551fcf42b91cf9ca8bb28d006d2b883530fc4579e633b8c174e8ac0d3 AS with-narration
+FROM ${STUDYFORGE_NAMESPACE:?STUDYFORGE_NAMESPACE-is-not-set}/studyforge-serve:0.1.0-20972d654bf8bdcb4bbd131649948431eb7ba497c1540755741f06dcd2584290@sha256:9f9723abcfa11eb28f4c99b2df2257229803e8346700372109bc0f6ba38f5d05 AS with-narration
 USER root
 RUN --mount=type=bind,source=.,target=/context \
     set -eu; mkdir -p /corpus; \

@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The seat map of one concert. Customers' hold requests and the box-office re-sync, which can keep\n * the map locked for several seconds, share one lock.\n */\npublic class SeatMap {\n\n    public enum Answer { HELD, TAKEN, BUSY }\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, String> holders = new HashMap<>();\n    private final Duration budget;\n\n    /** @param budget how long a hold request may wait for the map before it answers */\n    public SeatMap(Duration budget) {\n        this.budget = budget;\n    }\n\n    /**\n     * Holds the seat for the customer. Answers HELD or TAKEN, or BUSY when the map stayed locked\n     * for longer than the budget; a BUSY answer changes nothing.\n     */\n    public Answer hold(String seat, String customer) throws InterruptedException {\n        if (!lock.tryLock(budget.toNanos(), TimeUnit.NANOSECONDS)) return Answer.BUSY;\n        try {\n            return holdLocked(seat, customer);\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Does the hold. Call it only while holding the lock. */\n    Answer holdLocked(String seat, String customer) {\n        String holder = holders.putIfAbsent(seat, customer);\n        return holder == null || holder.equals(customer) ? Answer.HELD : Answer.TAKEN;\n    }\n\n    /** Who holds the seat, or null. */\n    public String holder(String seat) {\n        lock.lock();\n        try {\n            return holders.get(seat);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SeatMap quick = new SeatMap(Duration.ofMillis(100));\n            System.out.println(\"G-3 for cust-71: \" + quick.hold(\"G-3\", \"cust-71\"));\n            System.out.println(\"G-3 for cust-88: \" + quick.hold(\"G-3\", \"cust-88\"));\n            quick.lock.lock();\n            try {\n                System.out.println(\"G-4 during a long re-sync (100 ms budget): \" + holdOnOwnThread(quick, \"G-4\", \"cust-88\").get(5, TimeUnit.SECONDS));\n            } finally {\n                quick.lock.unlock();\n            }\n            System.out.println(\"G-4 holder after BUSY: \" + quick.holder(\"G-4\"));\n            SeatMap patient = new SeatMap(Duration.ofSeconds(2));\n            CompletableFuture<SeatMap.Answer> answer;\n            patient.lock.lock();\n            try {\n                answer = holdOnOwnThread(patient, \"H-9\", \"cust-90\");\n                Thread.sleep(200);\n            } finally {\n                patient.lock.unlock();\n            }\n            System.out.println(\"H-9 during a 200 ms re-sync (2 s budget): \" + answer.get(5, TimeUnit.SECONDS));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    private static CompletableFuture<SeatMap.Answer> holdOnOwnThread(SeatMap map, String seat, String customer) {\n        CompletableFuture<SeatMap.Answer> answer = new CompletableFuture<>();\n        Thread t = new Thread(() -> {\n            try {\n                answer.complete(map.hold(seat, customer));\n            } catch (Throwable e) {\n                answer.completeExceptionally(e);\n            }\n        }, \"request-\" + customer);\n        t.setDaemon(true);\n        t.start();\n        return answer;\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The seat map of one concert. Customers' hold requests and the box-office re-sync, which can keep\n * the map locked for several seconds, share one lock.\n */\npublic class SeatMap {\n\n    public enum Answer { HELD, TAKEN, BUSY }\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, String> holders = new HashMap<>();\n    private final Duration budget;\n\n    /** @param budget how long a hold request may wait for the map before it answers */\n    public SeatMap(Duration budget) {\n        this.budget = budget;\n    }\n\n    /**\n     * Holds the seat for the customer. Answers HELD or TAKEN, or BUSY when the map stayed locked\n     * for longer than the budget; a BUSY answer changes nothing.\n     */\n    public Answer hold(String seat, String customer) throws InterruptedException {\n        // TODO: Do the hold with holdLocked(seat, customer) while holding the lock. A customer must\n        //       get an answer within the budget even while a re-sync keeps the map locked, and a\n        //       re-sync that ends within the budget must not turn the request away.\n        throw new IllegalStateException(\"TODO: hold\");\n    }\n\n    /** Does the hold. Call it only while holding the lock. */\n    Answer holdLocked(String seat, String customer) {\n        String holder = holders.putIfAbsent(seat, customer);\n        return holder == null || holder.equals(customer) ? Answer.HELD : Answer.TAKEN;\n    }\n\n    /** Who holds the seat, or null. */\n    public String holder(String seat) {\n        lock.lock();\n        try {\n            return holders.get(seat);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SeatMap quick = new SeatMap(Duration.ofMillis(100));\n            System.out.println(\"G-3 for cust-71: \" + quick.hold(\"G-3\", \"cust-71\"));\n            System.out.println(\"G-3 for cust-88: \" + quick.hold(\"G-3\", \"cust-88\"));\n            quick.lock.lock();\n            try {\n                System.out.println(\"G-4 during a long re-sync (100 ms budget): \" + holdOnOwnThread(quick, \"G-4\", \"cust-88\").get(5, TimeUnit.SECONDS));\n            } finally {\n                quick.lock.unlock();\n            }\n            System.out.println(\"G-4 holder after BUSY: \" + quick.holder(\"G-4\"));\n            SeatMap patient = new SeatMap(Duration.ofSeconds(2));\n            CompletableFuture<SeatMap.Answer> answer;\n            patient.lock.lock();\n            try {\n                answer = holdOnOwnThread(patient, \"H-9\", \"cust-90\");\n                Thread.sleep(200);\n            } finally {\n                patient.lock.unlock();\n            }\n            System.out.println(\"H-9 during a 200 ms re-sync (2 s budget): \" + answer.get(5, TimeUnit.SECONDS));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    private static CompletableFuture<SeatMap.Answer> holdOnOwnThread(SeatMap map, String seat, String customer) {\n        CompletableFuture<SeatMap.Answer> answer = new CompletableFuture<>();\n        Thread t = new Thread(() -> {\n            try {\n                answer.complete(map.hold(seat, customer));\n            } catch (Throwable e) {\n                answer.completeExceptionally(e);\n            }\n        }, \"request-\" + customer);\n        t.setDaemon(true);\n        t.start();\n        return answer;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5635a1b037418ace9c3fe3e0e38855080e9f570d54f9ccb2ffa4b8c4bdad7457",
+  "content_sha256": "70b972d547b33038c4256efcbc49474d1f0fec4a9d82ac3a587cfdb1a27d9b86",
   "starting_code": "package practice;\n\nimport java.time.Duration;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The seat map of one concert. Customers' hold requests and the box-office re-sync, which can keep\n * the map locked for several seconds, share one lock.\n */\npublic class SeatMap {\n\n    public enum Answer { HELD, TAKEN, BUSY }\n\n    final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, String> holders = new HashMap<>();\n    private final Duration budget;\n\n    /** @param budget how long a hold request may wait for the map before it answers */\n    public SeatMap(Duration budget) {\n        this.budget = budget;\n    }\n\n    /**\n     * Holds the seat for the customer. Answers HELD or TAKEN, or BUSY when the map stayed locked\n     * for longer than the budget; a BUSY answer changes nothing.\n     */\n    public Answer hold(String seat, String customer) throws InterruptedException {\n        // TODO: Do the hold with holdLocked(seat, customer) while holding the lock. A customer must\n        //       get an answer within the budget even while a re-sync keeps the map locked, and a\n        //       re-sync that ends within the budget must not turn the request away.\n        throw new IllegalStateException(\"TODO: hold\");\n    }\n\n    /** Does the hold. Call it only while holding the lock. */\n    Answer holdLocked(String seat, String customer) {\n        String holder = holders.putIfAbsent(seat, customer);\n        return holder == null || holder.equals(customer) ? Answer.HELD : Answer.TAKEN;\n    }\n\n    /** Who holds the seat, or null. */\n    public String holder(String seat) {\n        lock.lock();\n        try {\n            return holders.get(seat);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-2/src/main/java/practice/SeatMap.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -128,6 +147,10 @@
     },
     "concepts": [
       "A timed tryLock gives a caller a budget and returns whether it got the lock; code that ignores the result runs unguarded and then fails in unlock()."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
   }
 }

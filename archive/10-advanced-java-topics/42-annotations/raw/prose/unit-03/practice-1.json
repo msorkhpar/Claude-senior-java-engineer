@@ -52,6 +52,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The invoicing module: its annotations, the code that carries them, and the cache settings\n * the cache layer reads from them while the service runs.\n */\npublic class Invoicing {\n\n    /** A note for the people reviewing the code: why something unusual is the way it is. */\n    @Retention(RetentionPolicy.SOURCE)\n    @Target({ElementType.TYPE, ElementType.METHOD})\n    @interface ReviewNote {\n        String value();\n    }\n\n    /**\n     * Marks classes written by the mapper generator. The build's coverage tool reads the\n     * compiled .class files (never the sources) and leaves out every class marked this way.\n     */\n    @Retention(RetentionPolicy.CLASS)\n    @Target(ElementType.TYPE)\n    @interface Generated {\n        String by();\n    }\n\n    /** How long the cache layer keeps a method's result, in seconds. */\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    @interface Cached {\n        int seconds();\n    }\n\n    static class InvoiceService {\n\n        @Cached(seconds = 300)\n        @ReviewNote(\"totals skip rounding for partner 12 until the ledger fix ships\")\n        String totals(String account) {\n            return \"totals for \" + account;\n        }\n\n        @Cached(seconds = 45)\n        String history(String account) {\n            return \"history of \" + account;\n        }\n\n        String send(String account) {\n            return \"sent to \" + account;\n        }\n    }\n\n    @Generated(by = \"mapper-gen 2.3\")\n    static class InvoiceMapper {\n        String toCsv(String account, long cents) {\n            return account + \",\" + cents;\n        }\n    }\n\n    /**\n     * The cache settings of a class: for every method the class declares with @Cached, its\n     * name mapped to the number of seconds, sorted by name.\n     */\n    static Map<String, Integer> cacheSeconds(Class<?> type) {\n        Map<String, Integer> seconds = new TreeMap<>();\n        for (Method m : type.getDeclaredMethods()) {\n            Cached cached = m.getAnnotation(Cached.class);\n            if (cached != null) seconds.put(m.getName(), cached.seconds());\n        }\n        return seconds;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            System.out.println(\"InvoiceService cache: \" + Invoicing.cacheSeconds(Invoicing.InvoiceService.class));\n            System.out.println(\"Quotes cache: \" + Invoicing.cacheSeconds(Quotes.class));\n            System.out.println(\"mapper cache: \" + Invoicing.cacheSeconds(Invoicing.InvoiceMapper.class));\n            System.out.println(\"@Generated visible at run time: \" + Invoicing.InvoiceMapper.class.isAnnotationPresent(Invoicing.Generated.class));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static class Quotes {\n        @Invoicing.Cached(seconds = 600)\n        String rates(String currency) { return currency; }\n        @Invoicing.Cached(seconds = 5)\n        String spot(String currency) { return currency; }\n        String book(String currency) { return currency; }\n    }\n}\n"
         }
       ]
     },
@@ -64,6 +73,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The invoicing module: its annotations, the code that carries them, and the cache settings\n * the cache layer reads from them while the service runs.\n */\npublic class Invoicing {\n\n    /** A note for the people reviewing the code: why something unusual is the way it is. */\n    // TODO: Release 4.2 shipped with this retention. Make it right for what the note is for.\n    @Retention(RetentionPolicy.CLASS)\n    @Target({ElementType.TYPE, ElementType.METHOD})\n    @interface ReviewNote {\n        String value();\n    }\n\n    /**\n     * Marks classes written by the mapper generator. The build's coverage tool reads the\n     * compiled .class files (never the sources) and leaves out every class marked this way.\n     */\n    // TODO: Release 4.2 shipped with this retention. Make it right for the coverage tool.\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    @interface Generated {\n        String by();\n    }\n\n    /** How long the cache layer keeps a method's result, in seconds. */\n    // TODO: Release 4.2 shipped this annotation with no retention. Make it right for the cache layer.\n    @Target(ElementType.METHOD)\n    @interface Cached {\n        int seconds();\n    }\n\n    static class InvoiceService {\n\n        @Cached(seconds = 300)\n        @ReviewNote(\"totals skip rounding for partner 12 until the ledger fix ships\")\n        String totals(String account) {\n            return \"totals for \" + account;\n        }\n\n        @Cached(seconds = 45)\n        String history(String account) {\n            return \"history of \" + account;\n        }\n\n        String send(String account) {\n            return \"sent to \" + account;\n        }\n    }\n\n    @Generated(by = \"mapper-gen 2.3\")\n    static class InvoiceMapper {\n        String toCsv(String account, long cents) {\n            return account + \",\" + cents;\n        }\n    }\n\n    /**\n     * The cache settings of a class: for every method the class declares with @Cached, its\n     * name mapped to the number of seconds, sorted by name.\n     */\n    static Map<String, Integer> cacheSeconds(Class<?> type) {\n        // TODO: Collect the cache settings of the class, as described above.\n        throw new IllegalStateException(\"TODO: cacheSeconds\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            System.out.println(\"InvoiceService cache: \" + Invoicing.cacheSeconds(Invoicing.InvoiceService.class));\n            System.out.println(\"Quotes cache: \" + Invoicing.cacheSeconds(Quotes.class));\n            System.out.println(\"mapper cache: \" + Invoicing.cacheSeconds(Invoicing.InvoiceMapper.class));\n            System.out.println(\"@Generated visible at run time: \" + Invoicing.InvoiceMapper.class.isAnnotationPresent(Invoicing.Generated.class));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static class Quotes {\n        @Invoicing.Cached(seconds = 600)\n        String rates(String currency) { return currency; }\n        @Invoicing.Cached(seconds = 5)\n        String spot(String currency) { return currency; }\n        String book(String currency) { return currency; }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -71,8 +89,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -82,7 +100,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7a8e5597fbc6c70f0f8a76a03ac5e415a3d7d5df66522903d420c3df2dba9fb1",
+  "content_sha256": "5f21a0524cbf3e945cdced96eeaa3a173ee58dafd8c816fb1390dd3dcf1ea703",
   "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * The invoicing module: its annotations, the code that carries them, and the cache settings\n * the cache layer reads from them while the service runs.\n */\npublic class Invoicing {\n\n    /** A note for the people reviewing the code: why something unusual is the way it is. */\n    // TODO: Release 4.2 shipped with this retention. Make it right for what the note is for.\n    @Retention(RetentionPolicy.CLASS)\n    @Target({ElementType.TYPE, ElementType.METHOD})\n    @interface ReviewNote {\n        String value();\n    }\n\n    /**\n     * Marks classes written by the mapper generator. The build's coverage tool reads the\n     * compiled .class files (never the sources) and leaves out every class marked this way.\n     */\n    // TODO: Release 4.2 shipped with this retention. Make it right for the coverage tool.\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    @interface Generated {\n        String by();\n    }\n\n    /** How long the cache layer keeps a method's result, in seconds. */\n    // TODO: Release 4.2 shipped this annotation with no retention. Make it right for the cache layer.\n    @Target(ElementType.METHOD)\n    @interface Cached {\n        int seconds();\n    }\n\n    static class InvoiceService {\n\n        @Cached(seconds = 300)\n        @ReviewNote(\"totals skip rounding for partner 12 until the ledger fix ships\")\n        String totals(String account) {\n            return \"totals for \" + account;\n        }\n\n        @Cached(seconds = 45)\n        String history(String account) {\n            return \"history of \" + account;\n        }\n\n        String send(String account) {\n            return \"sent to \" + account;\n        }\n    }\n\n    @Generated(by = \"mapper-gen 2.3\")\n    static class InvoiceMapper {\n        String toCsv(String account, long cents) {\n            return account + \",\" + cents;\n        }\n    }\n\n    /**\n     * The cache settings of a class: for every method the class declares with @Cached, its\n     * name mapped to the number of seconds, sorted by name.\n     */\n    static Map<String, Integer> cacheSeconds(Class<?> type) {\n        // TODO: Collect the cache settings of the class, as described above.\n        throw new IllegalStateException(\"TODO: cacheSeconds\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-03/practice-1/src/main/java/practice/Invoicing.java",
@@ -93,7 +111,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/42-annotations/prose/unit-03/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -138,6 +157,10 @@
     "concepts": [
       "A CLASS annotation ships in the class file with its values, so only SOURCE keeps it out of the jar, and a tool that reads class files needs CLASS or RUNTIME.",
       "javac drops a SOURCE annotation, writes a CLASS annotation to RuntimeInvisibleAnnotations and a RUNTIME one to RuntimeVisibleAnnotations; only the last is returned by reflection."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/42-annotations/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
   }
 }

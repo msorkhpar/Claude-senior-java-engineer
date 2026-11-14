@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.lang.ref.Cleaner;\n\n/**\n * A buffer in memory the garbage collector doesn't manage: the allocator hands out an address,\n * and the memory stays taken until someone gives the address back with free().\n */\npublic class NativeBuffer implements AutoCloseable {\n\n    /** Hands out and takes back native memory. Freeing an address twice corrupts the allocator. */\n    public interface Allocator {\n        long allocate(int bytes);\n\n        void free(long address);\n    }\n\n    private final Allocator allocator;\n    private final long address;\n    private final int size;\n    private final Cleaner.Cleanable cleanable;\n\n    public NativeBuffer(Cleaner cleaner, Allocator allocator, int size) {\n        this.allocator = allocator;\n        this.size = size;\n        this.address = allocator.allocate(size);\n        this.cleanable = register(cleaner);\n    }\n\n    public long address() {\n        return address;\n    }\n\n    public int size() {\n        return size;\n    }\n\n    /** Registers what frees this buffer's memory if nobody closes it. */\n    Cleaner.Cleanable register(Cleaner cleaner) {\n        Allocator owner = allocator;\n        long taken = address;\n        return cleaner.register(this, () -> owner.free(taken));\n    }\n\n    /** Gives the memory back. Closing twice is harmless. */\n    @Override\n    public void close() {\n        cleanable.clean();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.lang.ref.Cleaner;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Cleaner cleaner = Cleaner.create(r -> {\n                Thread t = new Thread(r, \"tryit-cleaner\");\n                t.setDaemon(true);\n                return t;\n            });\n            Counting allocator = new Counting();\n            try (NativeBuffer thumbnail = new NativeBuffer(cleaner, allocator, 4096)) {\n                System.out.println(\"allocated at: \" + Long.toHexString(thumbnail.address()));\n            }\n            System.out.println(\"frees after try-with-resources: \" + allocator.freed);\n            NativeBuffer twice = new NativeBuffer(cleaner, allocator, 1024);\n            twice.close();\n            twice.close();\n            System.out.println(\"frees after closing another buffer twice: \" + allocator.freed);\n            long forgotten = forget(cleaner, allocator);\n            for (int i = 0; i < 40 && !allocator.freed.contains(forgotten); i++) {\n                System.gc();\n                Thread.sleep(50);\n            }\n            System.out.println(\"forgotten buffer \" + Long.toHexString(forgotten) + \" freed: \" + allocator.freed.contains(forgotten));\n            System.out.println(\"total frees: \" + allocator.freed.size());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static class Counting implements NativeBuffer.Allocator {\n        private long next = 0x7000_0000L;\n        final List<Long> freed = Collections.synchronizedList(new ArrayList<>());\n        @Override public synchronized long allocate(int bytes) { long a = next; next += bytes + 4096L; return a; }\n        @Override public void free(long address) { freed.add(address); }\n    }\n\n    private static long forget(Cleaner cleaner, Counting allocator) {\n        return new NativeBuffer(cleaner, allocator, 65_536).address();\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.lang.ref.Cleaner;\n\n/**\n * A buffer in memory the garbage collector doesn't manage: the allocator hands out an address,\n * and the memory stays taken until someone gives the address back with free().\n */\npublic class NativeBuffer implements AutoCloseable {\n\n    /** Hands out and takes back native memory. Freeing an address twice corrupts the allocator. */\n    public interface Allocator {\n        long allocate(int bytes);\n\n        void free(long address);\n    }\n\n    private final Allocator allocator;\n    private final long address;\n    private final int size;\n    private final Cleaner.Cleanable cleanable;\n\n    public NativeBuffer(Cleaner cleaner, Allocator allocator, int size) {\n        this.allocator = allocator;\n        this.size = size;\n        this.address = allocator.allocate(size);\n        this.cleanable = register(cleaner);\n    }\n\n    public long address() {\n        return address;\n    }\n\n    public int size() {\n        return size;\n    }\n\n    /** Registers what frees this buffer's memory if nobody closes it. */\n    Cleaner.Cleanable register(Cleaner cleaner) {\n        // TODO: Some callers forget to close their buffers. Register, with the given cleaner,\n        //       what gives this buffer's memory back once the buffer is no longer reachable.\n        throw new IllegalStateException(\"TODO: register\");\n    }\n\n    /** Gives the memory back. Closing twice is harmless. */\n    @Override\n    public void close() {\n        // TODO: Give the memory back now. The allocator must see each address freed once.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.lang.ref.Cleaner;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Cleaner cleaner = Cleaner.create(r -> {\n                Thread t = new Thread(r, \"tryit-cleaner\");\n                t.setDaemon(true);\n                return t;\n            });\n            Counting allocator = new Counting();\n            try (NativeBuffer thumbnail = new NativeBuffer(cleaner, allocator, 4096)) {\n                System.out.println(\"allocated at: \" + Long.toHexString(thumbnail.address()));\n            }\n            System.out.println(\"frees after try-with-resources: \" + allocator.freed);\n            NativeBuffer twice = new NativeBuffer(cleaner, allocator, 1024);\n            twice.close();\n            twice.close();\n            System.out.println(\"frees after closing another buffer twice: \" + allocator.freed);\n            long forgotten = forget(cleaner, allocator);\n            for (int i = 0; i < 40 && !allocator.freed.contains(forgotten); i++) {\n                System.gc();\n                Thread.sleep(50);\n            }\n            System.out.println(\"forgotten buffer \" + Long.toHexString(forgotten) + \" freed: \" + allocator.freed.contains(forgotten));\n            System.out.println(\"total frees: \" + allocator.freed.size());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static class Counting implements NativeBuffer.Allocator {\n        private long next = 0x7000_0000L;\n        final List<Long> freed = Collections.synchronizedList(new ArrayList<>());\n        @Override public synchronized long allocate(int bytes) { long a = next; next += bytes + 4096L; return a; }\n        @Override public void free(long address) { freed.add(address); }\n    }\n\n    private static long forget(Cleaner cleaner, Counting allocator) {\n        return new NativeBuffer(cleaner, allocator, 65_536).address();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5ebacedb86c4bb4903d70ff9ba01cdad219d2d05fedc8424aef61a1744892c59",
+  "content_sha256": "d037569e0173f7751be5d92f4bceed98913dfe9baf3d02c749534f925e7a6818",
   "starting_code": "package practice;\n\nimport java.lang.ref.Cleaner;\n\n/**\n * A buffer in memory the garbage collector doesn't manage: the allocator hands out an address,\n * and the memory stays taken until someone gives the address back with free().\n */\npublic class NativeBuffer implements AutoCloseable {\n\n    /** Hands out and takes back native memory. Freeing an address twice corrupts the allocator. */\n    public interface Allocator {\n        long allocate(int bytes);\n\n        void free(long address);\n    }\n\n    private final Allocator allocator;\n    private final long address;\n    private final int size;\n    private final Cleaner.Cleanable cleanable;\n\n    public NativeBuffer(Cleaner cleaner, Allocator allocator, int size) {\n        this.allocator = allocator;\n        this.size = size;\n        this.address = allocator.allocate(size);\n        this.cleanable = register(cleaner);\n    }\n\n    public long address() {\n        return address;\n    }\n\n    public int size() {\n        return size;\n    }\n\n    /** Registers what frees this buffer's memory if nobody closes it. */\n    Cleaner.Cleanable register(Cleaner cleaner) {\n        // TODO: Some callers forget to close their buffers. Register, with the given cleaner,\n        //       what gives this buffer's memory back once the buffer is no longer reachable.\n        throw new IllegalStateException(\"TODO: register\");\n    }\n\n    /** Gives the memory back. Closing twice is harmless. */\n    @Override\n    public void close() {\n        // TODO: Give the memory back now. The allocator must see each address freed once.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-02/practice-2/src/main/java/practice/NativeBuffer.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/40-memory-management/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -141,6 +160,10 @@
     "concepts": [
       "A cleaning action that refers to its object, such as a lambda reading a field, keeps the object reachable from the Cleaner, so it is never cleaned.",
       "A Cleaner's action runs only after a collection finds its object unreachable, never if no collection happens; close() through the Cleanable releases at once and only once."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/40-memory-management/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/40-memory-management/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

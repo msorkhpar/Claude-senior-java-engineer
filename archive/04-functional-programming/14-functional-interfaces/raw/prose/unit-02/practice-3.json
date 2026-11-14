@@ -39,6 +39,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.stream.Collectors;\n\n/** The nightly report of which products sold in which region. Several report threads share one instance. */\npublic class RegionReport {\n\n    public record Sale(String region, String sku) {}\n\n    /** Each rendering thread reuses its own buffer instead of allocating one per report. */\n    final ThreadLocal<StringBuilder> scratch = newScratch();\n\n    /** For each region, the SKUs sold there, sorted and without repeats. */\n    public Map<String, SortedSet<String>> skusByRegion(List<Sale> sales) {\n        return sales.stream().collect(Collectors.groupingBy(Sale::region,\n                Collectors.mapping(Sale::sku, Collectors.toCollection(TreeSet::new))));\n    }\n\n    /** The buffers behind {@link #scratch}. */\n    ThreadLocal<StringBuilder> newScratch() {\n        return ThreadLocal.withInitial(StringBuilder::new);\n    }\n\n    /** One line per region: \"region: sku, sku\". */\n    public String render(Map<String, SortedSet<String>> byRegion) {\n        StringBuilder out = scratch.get();\n        out.setLength(0);\n        byRegion.forEach((region, skus) ->\n                out.append(region).append(\": \").append(String.join(\", \", skus)).append('\\n'));\n        return out.toString();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeMap;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RegionReport report = new RegionReport();\n            Map<String, SortedSet<String>> byRegion = new TreeMap<>(report.skusByRegion(List.of(\n                    new RegionReport.Sale(\"north\", \"stove\"), new RegionReport.Sale(\"south\", \"hammock\"),\n                    new RegionReport.Sale(\"north\", \"boots\"), new RegionReport.Sale(\"north\", \"stove\"),\n                    new RegionReport.Sale(\"south\", \"flask\"))));\n            System.out.print(report.render(byRegion));\n            StringBuilder mine = report.scratch.get();\n            StringBuilder[] other = new StringBuilder[1];\n            Thread worker = new Thread(() -> other[0] = report.scratch.get());\n            worker.start();\n            worker.join();\n            System.out.println(\"same buffer on the next report: \" + (report.scratch.get() == mine));\n            System.out.println(\"another thread shares this buffer: \" + (other[0] == mine));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -51,6 +60,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.stream.Collectors;\n\n/** The nightly report of which products sold in which region. Several report threads share one instance. */\npublic class RegionReport {\n\n    public record Sale(String region, String sku) {}\n\n    /** Each rendering thread reuses its own buffer instead of allocating one per report. */\n    final ThreadLocal<StringBuilder> scratch = newScratch();\n\n    /** For each region, the SKUs sold there, sorted and without repeats. */\n    public Map<String, SortedSet<String>> skusByRegion(List<Sale> sales) {\n        // TODO: Group the SKUs by region, each region's sorted and without repeats.\n        throw new IllegalStateException(\"TODO: skusByRegion\");\n    }\n\n    /** The buffers behind {@link #scratch}. */\n    ThreadLocal<StringBuilder> newScratch() {\n        // TODO: Give each thread that renders a buffer of its own, made the first time it renders,\n        //       and the same buffer on every later render on that thread.\n        throw new IllegalStateException(\"TODO: newScratch\");\n    }\n\n    /** One line per region: \"region: sku, sku\". */\n    public String render(Map<String, SortedSet<String>> byRegion) {\n        StringBuilder out = scratch.get();\n        out.setLength(0);\n        byRegion.forEach((region, skus) ->\n                out.append(region).append(\": \").append(String.join(\", \", skus)).append('\\n'));\n        return out.toString();\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeMap;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RegionReport report = new RegionReport();\n            Map<String, SortedSet<String>> byRegion = new TreeMap<>(report.skusByRegion(List.of(\n                    new RegionReport.Sale(\"north\", \"stove\"), new RegionReport.Sale(\"south\", \"hammock\"),\n                    new RegionReport.Sale(\"north\", \"boots\"), new RegionReport.Sale(\"north\", \"stove\"),\n                    new RegionReport.Sale(\"south\", \"flask\"))));\n            System.out.print(report.render(byRegion));\n            StringBuilder mine = report.scratch.get();\n            StringBuilder[] other = new StringBuilder[1];\n            Thread worker = new Thread(() -> other[0] = report.scratch.get());\n            worker.start();\n            worker.join();\n            System.out.println(\"same buffer on the next report: \" + (report.scratch.get() == mine));\n            System.out.println(\"another thread shares this buffer: \" + (other[0] == mine));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -58,8 +76,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 1,
+    "paras": 3,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -69,7 +87,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5d57f46fd0468a67843e3bd2bc3c8e990a047b7ae688988b147e19267a29bf46",
+  "content_sha256": "838667623ff5dceb202dcda53edb7575ed758070de92f30d3474c5d253d620b5",
   "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.SortedSet;\nimport java.util.TreeSet;\nimport java.util.stream.Collectors;\n\n/** The nightly report of which products sold in which region. Several report threads share one instance. */\npublic class RegionReport {\n\n    public record Sale(String region, String sku) {}\n\n    /** Each rendering thread reuses its own buffer instead of allocating one per report. */\n    final ThreadLocal<StringBuilder> scratch = newScratch();\n\n    /** For each region, the SKUs sold there, sorted and without repeats. */\n    public Map<String, SortedSet<String>> skusByRegion(List<Sale> sales) {\n        // TODO: Group the SKUs by region, each region's sorted and without repeats.\n        throw new IllegalStateException(\"TODO: skusByRegion\");\n    }\n\n    /** The buffers behind {@link #scratch}. */\n    ThreadLocal<StringBuilder> newScratch() {\n        // TODO: Give each thread that renders a buffer of its own, made the first time it renders,\n        //       and the same buffer on every later render on that thread.\n        throw new IllegalStateException(\"TODO: newScratch\");\n    }\n\n    /** One line per region: \"region: sku, sku\". */\n    public String render(Map<String, SortedSet<String>> byRegion) {\n        StringBuilder out = scratch.get();\n        out.setLength(0);\n        byRegion.forEach((region, skus) ->\n                out.append(region).append(\": \").append(String.join(\", \", skus)).append('\\n'));\n        return out.toString();\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-3/src/main/java/practice/RegionReport.java",
@@ -80,7 +98,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -124,6 +143,10 @@
     },
     "concepts": [
       "A supplier passed as a factory, as to Collectors.toCollection or ThreadLocal.withInitial, must return a new object per call; one that returns a shared object makes every group or thread share it."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
   }
 }

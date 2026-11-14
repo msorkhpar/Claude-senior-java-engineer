@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.Arrays;\n\n/**\n * Collects latency samples between two metric flushes. It keeps them in a double[] (no boxing),\n * and replaces the array with a larger copy when it is full.\n */\npublic class SampleBuffer {\n\n    private double[] samples;\n    private int size;\n    private long copied;                                  // elements copied by every growth so far\n\n    /** A buffer with room for {@code initialCapacity} samples; 0 is allowed. */\n    public SampleBuffer(int initialCapacity) {\n        if (initialCapacity < 0) throw new IllegalArgumentException(\"capacity \" + initialCapacity);\n        samples = new double[initialCapacity];\n    }\n\n    public void add(double sample) {\n        ensureRoom(1);\n        samples[size++] = sample;\n    }\n\n    /** Appends a whole batch, for example the samples another node sent in one message. */\n    public void addAll(double[] batch) {\n        ensureRoom(batch.length);\n        System.arraycopy(batch, 0, samples, size, batch.length);\n        size += batch.length;\n    }\n\n    public double get(int index) {\n        if (index < 0 || index >= size) throw new IndexOutOfBoundsException(index);\n        return samples[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public int capacity() {\n        return samples.length;\n    }\n\n    /** How many elements all growths so far have copied. */\n    public long copied() {\n        return copied;\n    }\n\n    private void ensureRoom(int more) {\n        int needed = size + more;\n        if (needed <= samples.length) return;\n        samples = Arrays.copyOf(samples, newCapacity(samples.length, needed));\n        copied += size;\n    }\n\n    /**\n     * The capacity of the new array when the buffer, now {@code current} long, must hold\n     * {@code needed} samples ({@code needed > current}).\n     */\n    static int newCapacity(int current, int needed) {\n        return Math.max(needed, current + current / 2);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SampleBuffer buffer = new SampleBuffer(0);\n            buffer.add(12.5);\n            buffer.add(8.0);\n            System.out.println(\"after 2 samples, capacity: \" + buffer.capacity());\n            buffer.addAll(new double[] {3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0});\n            System.out.println(\"after a batch of 10, size: \" + buffer.size() + \", capacity: \" + buffer.capacity());\n            System.out.println(\"sample 11: \" + buffer.get(11));\n            SampleBuffer busy = new SampleBuffer(8);\n            int n = 300_000;\n            for (int i = 0; i < n; i++) busy.add(i * 0.5);\n            System.out.println(\"busy node, \" + n + \" samples, capacity: \" + busy.capacity());\n            System.out.println(\"elements copied: \" + busy.copied() + \" (\" + busy.copied() / n + \" per sample)\");\n            System.out.println(\"growth from 100 needing 101: \" + SampleBuffer.newCapacity(100, 101));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Arrays;\n\n/**\n * Collects latency samples between two metric flushes. It keeps them in a double[] (no boxing),\n * and replaces the array with a larger copy when it is full.\n */\npublic class SampleBuffer {\n\n    private double[] samples;\n    private int size;\n    private long copied;                                  // elements copied by every growth so far\n\n    /** A buffer with room for {@code initialCapacity} samples; 0 is allowed. */\n    public SampleBuffer(int initialCapacity) {\n        if (initialCapacity < 0) throw new IllegalArgumentException(\"capacity \" + initialCapacity);\n        samples = new double[initialCapacity];\n    }\n\n    public void add(double sample) {\n        ensureRoom(1);\n        samples[size++] = sample;\n    }\n\n    /** Appends a whole batch, for example the samples another node sent in one message. */\n    public void addAll(double[] batch) {\n        ensureRoom(batch.length);\n        System.arraycopy(batch, 0, samples, size, batch.length);\n        size += batch.length;\n    }\n\n    public double get(int index) {\n        if (index < 0 || index >= size) throw new IndexOutOfBoundsException(index);\n        return samples[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public int capacity() {\n        return samples.length;\n    }\n\n    /** How many elements all growths so far have copied. */\n    public long copied() {\n        return copied;\n    }\n\n    private void ensureRoom(int more) {\n        int needed = size + more;\n        if (needed <= samples.length) return;\n        samples = Arrays.copyOf(samples, newCapacity(samples.length, needed));\n        copied += size;\n    }\n\n    /**\n     * The capacity of the new array when the buffer, now {@code current} long, must hold\n     * {@code needed} samples ({@code needed > current}).\n     */\n    static int newCapacity(int current, int needed) {\n        // TODO: Under load a node records hundreds of thousands of samples between flushes, and\n        //       a flush must not be delayed by the copying this buffer does while it fills.\n        throw new IllegalStateException(\"TODO: newCapacity\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SampleBuffer buffer = new SampleBuffer(0);\n            buffer.add(12.5);\n            buffer.add(8.0);\n            System.out.println(\"after 2 samples, capacity: \" + buffer.capacity());\n            buffer.addAll(new double[] {3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0});\n            System.out.println(\"after a batch of 10, size: \" + buffer.size() + \", capacity: \" + buffer.capacity());\n            System.out.println(\"sample 11: \" + buffer.get(11));\n            SampleBuffer busy = new SampleBuffer(8);\n            int n = 300_000;\n            for (int i = 0; i < n; i++) busy.add(i * 0.5);\n            System.out.println(\"busy node, \" + n + \" samples, capacity: \" + busy.capacity());\n            System.out.println(\"elements copied: \" + busy.copied() + \" (\" + busy.copied() / n + \" per sample)\");\n            System.out.println(\"growth from 100 needing 101: \" + SampleBuffer.newCapacity(100, 101));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "26e086513512bd527b7ade9b1a938346ceea5b9be2539782f465a4be0ce59c1e",
+  "content_sha256": "ee122fdb309a46797a611d4c7e39b91abbd603d55adfab03aefd385e32e5804d",
   "starting_code": "package practice;\n\nimport java.util.Arrays;\n\n/**\n * Collects latency samples between two metric flushes. It keeps them in a double[] (no boxing),\n * and replaces the array with a larger copy when it is full.\n */\npublic class SampleBuffer {\n\n    private double[] samples;\n    private int size;\n    private long copied;                                  // elements copied by every growth so far\n\n    /** A buffer with room for {@code initialCapacity} samples; 0 is allowed. */\n    public SampleBuffer(int initialCapacity) {\n        if (initialCapacity < 0) throw new IllegalArgumentException(\"capacity \" + initialCapacity);\n        samples = new double[initialCapacity];\n    }\n\n    public void add(double sample) {\n        ensureRoom(1);\n        samples[size++] = sample;\n    }\n\n    /** Appends a whole batch, for example the samples another node sent in one message. */\n    public void addAll(double[] batch) {\n        ensureRoom(batch.length);\n        System.arraycopy(batch, 0, samples, size, batch.length);\n        size += batch.length;\n    }\n\n    public double get(int index) {\n        if (index < 0 || index >= size) throw new IndexOutOfBoundsException(index);\n        return samples[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public int capacity() {\n        return samples.length;\n    }\n\n    /** How many elements all growths so far have copied. */\n    public long copied() {\n        return copied;\n    }\n\n    private void ensureRoom(int more) {\n        int needed = size + more;\n        if (needed <= samples.length) return;\n        samples = Arrays.copyOf(samples, newCapacity(samples.length, needed));\n        copied += size;\n    }\n\n    /**\n     * The capacity of the new array when the buffer, now {@code current} long, must hold\n     * {@code needed} samples ({@code needed > current}).\n     */\n    static int newCapacity(int current, int needed) {\n        // TODO: Under load a node records hundreds of thousands of samples between flushes, and\n        //       a flush must not be delayed by the copying this buffer does while it fills.\n        throw new IllegalStateException(\"TODO: newCapacity\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/39-data-structures/prose/unit-02/practice-2/src/main/java/practice/SampleBuffer.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/39-data-structures/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -133,6 +152,10 @@
     },
     "concepts": [
       "A growable array that grows its capacity in proportion to its size copies a small multiple of n elements over n adds, so add is amortised O(1); a fixed growth step makes the total O(n^2)."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/39-data-structures/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/39-data-structures/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

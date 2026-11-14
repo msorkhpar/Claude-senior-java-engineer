@@ -50,6 +50,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/** Lets a test replace fields of the object under test: every field it names, or none of them. */\npublic final class Overrides {\n\n    private Overrides() {\n    }\n\n    /**\n     * Sets each named field of {@code target} to its new value. A field is looked up on the\n     * target's own class, at any access level; a static field is set on the class. When any named\n     * field can't be written, nothing is written and the call fails with an\n     * {@link IllegalArgumentException} naming that field.\n     */\n    public static void apply(Object target, Map<String, ?> values) {\n        List<Field> fields = new ArrayList<>();\n        for (String name : values.keySet()) {\n            Field field;\n            try {\n                field = target.getClass().getDeclaredField(name);\n            } catch (NoSuchFieldException e) {\n                throw new IllegalArgumentException(\"no field \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            if (!writable(field)) {\n                throw new IllegalArgumentException(\"can't override \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            fields.add(field);\n        }\n        for (Field field : fields) {\n            field.setAccessible(true);\n            Object owner = Modifier.isStatic(field.getModifiers()) ? null : target;\n            try {\n                field.set(owner, values.get(field.getName()));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(\"override failed half-way, at \" + field.getName(), e);\n            }\n        }\n    }\n\n    /** Whether {@code Field.set} will write {@code field} once it has been made accessible. */\n    static boolean writable(Field field) {\n        int modifiers = field.getModifiers();\n        if (!Modifier.isFinal(modifiers)) return true;\n        return !Modifier.isStatic(modifiers) && !field.getDeclaringClass().isRecord();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            PayrollRun run = new PayrollRun(Duration.ofSeconds(45));\n            Overrides.apply(run, ordered(\"currency\", \"SEK\", \"threads\", 2, \"timeout\", Duration.ofMillis(800)));\n            System.out.println(\"after override: \" + run.currency + \", \" + run.threads + \" threads, \" + run.timeout);\n            try {\n                Overrides.apply(run, ordered(\"currency\", \"NOK\", \"VERSION\", \"v9\"));\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"refused: \" + refused.getMessage());\n            }\n            System.out.println(\"currency untouched: \" + run.currency);\n            System.out.println(\"record component writable: \" + Overrides.writable(Rate.class.getDeclaredFields()[0]));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static final class PayrollRun {\n        static final String VERSION = \"v1\";\n        private String currency = \"DKK\";\n        private final Duration timeout;\n        private int threads = 8;\n        PayrollRun(Duration timeout) { this.timeout = timeout; }\n    }\n    record Rate(String band, int percent) {}\n    private static Map<String, Object> ordered(Object... pairs) {\n        Map<String, Object> map = new LinkedHashMap<>();\n        for (int i = 0; i < pairs.length; i += 2) map.put((String) pairs[i], pairs[i + 1]);\n        return map;\n    }\n}\n"
         }
       ]
     },
@@ -62,6 +71,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/** Lets a test replace fields of the object under test: every field it names, or none of them. */\npublic final class Overrides {\n\n    private Overrides() {\n    }\n\n    /**\n     * Sets each named field of {@code target} to its new value. A field is looked up on the\n     * target's own class, at any access level; a static field is set on the class. When any named\n     * field can't be written, nothing is written and the call fails with an\n     * {@link IllegalArgumentException} naming that field.\n     */\n    public static void apply(Object target, Map<String, ?> values) {\n        List<Field> fields = new ArrayList<>();\n        for (String name : values.keySet()) {\n            Field field;\n            try {\n                field = target.getClass().getDeclaredField(name);\n            } catch (NoSuchFieldException e) {\n                throw new IllegalArgumentException(\"no field \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            if (!writable(field)) {\n                throw new IllegalArgumentException(\"can't override \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            fields.add(field);\n        }\n        for (Field field : fields) {\n            field.setAccessible(true);\n            Object owner = Modifier.isStatic(field.getModifiers()) ? null : target;\n            try {\n                field.set(owner, values.get(field.getName()));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(\"override failed half-way, at \" + field.getName(), e);\n            }\n        }\n    }\n\n    /** Whether {@code Field.set} will write {@code field} once it has been made accessible. */\n    static boolean writable(Field field) {\n        // TODO: decide from the field alone, before anything is written.\n        throw new IllegalStateException(\"TODO: can \" + field.getName() + \" be written?\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            PayrollRun run = new PayrollRun(Duration.ofSeconds(45));\n            Overrides.apply(run, ordered(\"currency\", \"SEK\", \"threads\", 2, \"timeout\", Duration.ofMillis(800)));\n            System.out.println(\"after override: \" + run.currency + \", \" + run.threads + \" threads, \" + run.timeout);\n            try {\n                Overrides.apply(run, ordered(\"currency\", \"NOK\", \"VERSION\", \"v9\"));\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"refused: \" + refused.getMessage());\n            }\n            System.out.println(\"currency untouched: \" + run.currency);\n            System.out.println(\"record component writable: \" + Overrides.writable(Rate.class.getDeclaredFields()[0]));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static final class PayrollRun {\n        static final String VERSION = \"v1\";\n        private String currency = \"DKK\";\n        private final Duration timeout;\n        private int threads = 8;\n        PayrollRun(Duration timeout) { this.timeout = timeout; }\n    }\n    record Rate(String band, int percent) {}\n    private static Map<String, Object> ordered(Object... pairs) {\n        Map<String, Object> map = new LinkedHashMap<>();\n        for (int i = 0; i < pairs.length; i += 2) map.put((String) pairs[i], pairs[i + 1]);\n        return map;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -69,8 +87,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -80,7 +98,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e12b0eb53419c81f112aa4f1e12e35a8aba2dd798ffcb92b9235dac6dc0e0b04",
+  "content_sha256": "ec1fa40861081db390fb0e3497423be9dcdba31beb03e83d7001fd45e42d9af4",
   "starting_code": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/** Lets a test replace fields of the object under test: every field it names, or none of them. */\npublic final class Overrides {\n\n    private Overrides() {\n    }\n\n    /**\n     * Sets each named field of {@code target} to its new value. A field is looked up on the\n     * target's own class, at any access level; a static field is set on the class. When any named\n     * field can't be written, nothing is written and the call fails with an\n     * {@link IllegalArgumentException} naming that field.\n     */\n    public static void apply(Object target, Map<String, ?> values) {\n        List<Field> fields = new ArrayList<>();\n        for (String name : values.keySet()) {\n            Field field;\n            try {\n                field = target.getClass().getDeclaredField(name);\n            } catch (NoSuchFieldException e) {\n                throw new IllegalArgumentException(\"no field \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            if (!writable(field)) {\n                throw new IllegalArgumentException(\"can't override \" + name + \" on \" + target.getClass().getSimpleName());\n            }\n            fields.add(field);\n        }\n        for (Field field : fields) {\n            field.setAccessible(true);\n            Object owner = Modifier.isStatic(field.getModifiers()) ? null : target;\n            try {\n                field.set(owner, values.get(field.getName()));\n            } catch (IllegalAccessException e) {\n                throw new IllegalStateException(\"override failed half-way, at \" + field.getName(), e);\n            }\n        }\n    }\n\n    /** Whether {@code Field.set} will write {@code field} once it has been made accessible. */\n    static boolean writable(Field field) {\n        // TODO: decide from the field alone, before anything is written.\n        throw new IllegalStateException(\"TODO: can \" + field.getName() + \" be written?\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-2/src/main/java/practice/Overrides.java",
@@ -91,7 +109,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -135,6 +154,10 @@
     },
     "concepts": [
       "Field.set refuses a static final field and a record's field with IllegalAccessException even after setAccessible(true), while an ordinary final instance field is written."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/41-reflection/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

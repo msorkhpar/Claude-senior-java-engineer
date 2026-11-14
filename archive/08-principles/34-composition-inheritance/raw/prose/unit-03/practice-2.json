@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** The shop's stock: the interface, the warehouse store, and what wraps it. */\npublic final class Stocks {\n    private Stocks() {\n    }\n\n    /** Units on hand per product. */\n    public interface Stock {\n        /** Units on hand; 0 for a product never set. */\n        int level(String sku);\n\n        /** Sets the units on hand; throws IllegalArgumentException for a negative count. */\n        void set(String sku, int units);\n    }\n\n    /** The warehouse's store: one thread at a time. */\n    public static final class MapStock implements Stock {\n        private final Map<String, Integer> units = new HashMap<>();\n\n        @Override\n        public int level(String sku) {\n            return units.getOrDefault(sku, 0);\n        }\n\n        @Override\n        public void set(String sku, int count) {\n            if (count < 0) throw new IllegalArgumentException(\"negative stock for \" + sku + \": \" + count);\n            units.put(sku, count);\n        }\n    }\n\n    /**\n     * Adds success and failure counts to any Stock. The operations dashboard reads the counts\n     * while the checkout threads are calling.\n     */\n    public static final class MeteredStock implements Stock {\n        private final Stock inner;\n        private final LongAdder succeeded = new LongAdder();\n        private final LongAdder failed = new LongAdder();\n\n        public MeteredStock(Stock inner) {\n            this.inner = inner;\n        }\n\n        /** Calls that returned normally. */\n        public long succeeded() {\n            return succeeded.sum();\n        }\n\n        /** Calls that ended with an exception. */\n        public long failed() {\n            return failed.sum();\n        }\n\n        @Override\n        public int level(String sku) {\n            try {\n                int units = inner.level(sku);\n                succeeded.increment();\n                return units;\n            } catch (RuntimeException e) {\n                failed.increment();\n                throw e;\n            }\n        }\n\n        @Override\n        public void set(String sku, int units) {\n            try {\n                inner.set(sku, units);\n                succeeded.increment();\n            } catch (RuntimeException e) {\n                failed.increment();\n                throw e;\n            }\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Stocks.MeteredStock warehouse = new Stocks.MeteredStock(new Stocks.MapStock());\n            warehouse.set(\"cedar-box\", 9);\n            warehouse.set(\"wax-candle\", 40);\n            System.out.println(\"cedar-box: \" + warehouse.level(\"cedar-box\"));\n            System.out.println(\"unknown sku: \" + warehouse.level(\"glass-jar\"));\n            try {\n                warehouse.set(\"wax-candle\", -3);\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"negative set: \" + refused.getMessage());\n            }\n            System.out.println(\"succeeded: \" + warehouse.succeeded());\n            System.out.println(\"failed: \" + warehouse.failed());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** The shop's stock: the interface, the warehouse store, and what wraps it. */\npublic final class Stocks {\n    private Stocks() {\n    }\n\n    /** Units on hand per product. */\n    public interface Stock {\n        /** Units on hand; 0 for a product never set. */\n        int level(String sku);\n\n        /** Sets the units on hand; throws IllegalArgumentException for a negative count. */\n        void set(String sku, int units);\n    }\n\n    /** The warehouse's store: one thread at a time. */\n    public static final class MapStock implements Stock {\n        private final Map<String, Integer> units = new HashMap<>();\n\n        @Override\n        public int level(String sku) {\n            return units.getOrDefault(sku, 0);\n        }\n\n        @Override\n        public void set(String sku, int count) {\n            if (count < 0) throw new IllegalArgumentException(\"negative stock for \" + sku + \": \" + count);\n            units.put(sku, count);\n        }\n    }\n\n    /**\n     * Adds success and failure counts to any Stock. The operations dashboard reads the counts\n     * while the checkout threads are calling.\n     */\n    public static final class MeteredStock implements Stock {\n        private final Stock inner;\n        private final LongAdder succeeded = new LongAdder();\n        private final LongAdder failed = new LongAdder();\n\n        public MeteredStock(Stock inner) {\n            this.inner = inner;\n        }\n\n        /** Calls that returned normally. */\n        public long succeeded() {\n            return succeeded.sum();\n        }\n\n        /** Calls that ended with an exception. */\n        public long failed() {\n            return failed.sum();\n        }\n\n        /** TODO: answer as the wrapped stock answers, and count the call. */\n        @Override\n        public int level(String sku) {\n            throw new IllegalStateException(\"TODO: level\");\n        }\n\n        /** TODO: do what the wrapped stock does, and count the call. */\n        @Override\n        public void set(String sku, int units) {\n            throw new IllegalStateException(\"TODO: set\");\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Stocks.MeteredStock warehouse = new Stocks.MeteredStock(new Stocks.MapStock());\n            warehouse.set(\"cedar-box\", 9);\n            warehouse.set(\"wax-candle\", 40);\n            System.out.println(\"cedar-box: \" + warehouse.level(\"cedar-box\"));\n            System.out.println(\"unknown sku: \" + warehouse.level(\"glass-jar\"));\n            try {\n                warehouse.set(\"wax-candle\", -3);\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"negative set: \" + refused.getMessage());\n            }\n            System.out.println(\"succeeded: \" + warehouse.succeeded());\n            System.out.println(\"failed: \" + warehouse.failed());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e6e7fd87ab4262a31d26d5afe884f93d082be06b01f588f891d129f8a54a6f7a",
+  "content_sha256": "35676a7d911751c8f6d1d81b967d47733d27d7a88c8b9e5957dee9c0b80698e0",
   "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** The shop's stock: the interface, the warehouse store, and what wraps it. */\npublic final class Stocks {\n    private Stocks() {\n    }\n\n    /** Units on hand per product. */\n    public interface Stock {\n        /** Units on hand; 0 for a product never set. */\n        int level(String sku);\n\n        /** Sets the units on hand; throws IllegalArgumentException for a negative count. */\n        void set(String sku, int units);\n    }\n\n    /** The warehouse's store: one thread at a time. */\n    public static final class MapStock implements Stock {\n        private final Map<String, Integer> units = new HashMap<>();\n\n        @Override\n        public int level(String sku) {\n            return units.getOrDefault(sku, 0);\n        }\n\n        @Override\n        public void set(String sku, int count) {\n            if (count < 0) throw new IllegalArgumentException(\"negative stock for \" + sku + \": \" + count);\n            units.put(sku, count);\n        }\n    }\n\n    /**\n     * Adds success and failure counts to any Stock. The operations dashboard reads the counts\n     * while the checkout threads are calling.\n     */\n    public static final class MeteredStock implements Stock {\n        private final Stock inner;\n        private final LongAdder succeeded = new LongAdder();\n        private final LongAdder failed = new LongAdder();\n\n        public MeteredStock(Stock inner) {\n            this.inner = inner;\n        }\n\n        /** Calls that returned normally. */\n        public long succeeded() {\n            return succeeded.sum();\n        }\n\n        /** Calls that ended with an exception. */\n        public long failed() {\n            return failed.sum();\n        }\n\n        /** TODO: answer as the wrapped stock answers, and count the call. */\n        @Override\n        public int level(String sku) {\n            throw new IllegalStateException(\"TODO: level\");\n        }\n\n        /** TODO: do what the wrapped stock does, and count the call. */\n        @Override\n        public void set(String sku, int units) {\n            throw new IllegalStateException(\"TODO: set\");\n        }\n    }\n}\n",
   "exercise": {
     "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/main/java/practice/Stocks.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -128,6 +147,10 @@
     },
     "concepts": [
       "A decorator implements the interface it wraps and passes each call on, so one class adds metrics to every implementation while callers see the same answers and exceptions."
-    ]
+    ],
+    "files": [
+      "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
   }
 }

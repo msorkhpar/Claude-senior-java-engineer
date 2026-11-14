@@ -52,6 +52,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.SecretKey;\nimport javax.crypto.spec.GCMParameterSpec;\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.SecureRandom;\n\n/**\n * Encrypts the tax-id column of the customers table. Each value is stored as one byte array in\n * one column; the key comes from the key store and is the same on every instance of the service.\n */\npublic class ColumnCipher {\n\n    static final String TRANSFORMATION = \"AES/GCM/NoPadding\";\n    static final int IV_BYTES = 12;\n    static final int TAG_BITS = 128;\n\n    private final SecretKey key;\n    private final SecureRandom random;\n\n    public ColumnCipher(SecretKey key, SecureRandom random) {\n        this.key = key;\n        this.random = random;\n    }\n\n    /** The bytes to store in the column for this tax id. */\n    public byte[] seal(String taxId) throws GeneralSecurityException {\n        byte[] iv = new byte[IV_BYTES];\n        random.nextBytes(iv);\n        Cipher cipher = Cipher.getInstance(TRANSFORMATION);\n        cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));\n        byte[] sealed = cipher.doFinal(taxId.getBytes(StandardCharsets.UTF_8));\n        byte[] stored = new byte[IV_BYTES + sealed.length];\n        System.arraycopy(iv, 0, stored, 0, IV_BYTES);\n        System.arraycopy(sealed, 0, stored, IV_BYTES, sealed.length);\n        return stored;\n    }\n\n    /** The tax id that seal() turned into these bytes. */\n    public String open(byte[] stored) throws GeneralSecurityException {\n        Cipher cipher = Cipher.getInstance(TRANSFORMATION);\n        cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, stored, 0, IV_BYTES));\n        byte[] plain = cipher.doFinal(stored, IV_BYTES, stored.length - IV_BYTES);\n        return new String(plain, StandardCharsets.UTF_8);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.security.GeneralSecurityException;\nimport java.security.SecureRandom;\nimport java.util.HexFormat;\nimport javax.crypto.KeyGenerator;\nimport javax.crypto.SecretKey;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            KeyGenerator generator = KeyGenerator.getInstance(\"AES\");\n            generator.init(256);\n            SecretKey key = generator.generateKey();\n            ColumnCipher service = new ColumnCipher(key, new SecureRandom());\n            ColumnCipher export = new ColumnCipher(key, new SecureRandom());\n            byte[] first = service.seal(\"DE-811 907 980\");\n            byte[] second = service.seal(\"DE-811 907 980\");\n            System.out.println(\"stored length: \" + first.length + \" bytes\");\n            System.out.println(\"same IV twice: \" + HexFormat.of().formatHex(first, 0, 12).equals(HexFormat.of().formatHex(second, 0, 12)));\n            System.out.println(\"export job opens: \" + export.open(first));\n            byte[] edited = first.clone();\n            edited[edited.length - 3] ^= 0x01;\n            try {\n                System.out.println(\"edited row opens as: \" + export.open(edited));\n            } catch (GeneralSecurityException refused) {\n                System.out.println(\"edited row refused: \" + refused.getClass().getSimpleName());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -64,6 +73,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.SecretKey;\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.SecureRandom;\n\n/**\n * Encrypts the tax-id column of the customers table. Each value is stored as one byte array in\n * one column; the key comes from the key store and is the same on every instance of the service.\n */\npublic class ColumnCipher {\n\n    private final SecretKey key;\n    private final SecureRandom random;\n\n    public ColumnCipher(SecretKey key, SecureRandom random) {\n        this.key = key;\n        this.random = random;\n    }\n\n    /** The bytes to store in the column for this tax id. */\n    public byte[] seal(String taxId) throws GeneralSecurityException {\n        // TODO: Encrypt the tax id's UTF-8 bytes with AES under the key. The result is\n        //       all the column holds: any instance of the service that has the key must be able\n        //       to open it later, and nobody who can write to the table may change it unnoticed.\n        throw new IllegalStateException(\"TODO: seal\");\n    }\n\n    /** The tax id that seal() turned into these bytes. */\n    public String open(byte[] stored) throws GeneralSecurityException {\n        // TODO: Turn the stored bytes back into the tax id. A value that is not exactly what\n        //       seal() produced must never come back as a tax id.\n        throw new IllegalStateException(\"TODO: open\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.security.GeneralSecurityException;\nimport java.security.SecureRandom;\nimport java.util.HexFormat;\nimport javax.crypto.KeyGenerator;\nimport javax.crypto.SecretKey;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            KeyGenerator generator = KeyGenerator.getInstance(\"AES\");\n            generator.init(256);\n            SecretKey key = generator.generateKey();\n            ColumnCipher service = new ColumnCipher(key, new SecureRandom());\n            ColumnCipher export = new ColumnCipher(key, new SecureRandom());\n            byte[] first = service.seal(\"DE-811 907 980\");\n            byte[] second = service.seal(\"DE-811 907 980\");\n            System.out.println(\"stored length: \" + first.length + \" bytes\");\n            System.out.println(\"same IV twice: \" + HexFormat.of().formatHex(first, 0, 12).equals(HexFormat.of().formatHex(second, 0, 12)));\n            System.out.println(\"export job opens: \" + export.open(first));\n            byte[] edited = first.clone();\n            edited[edited.length - 3] ^= 0x01;\n            try {\n                System.out.println(\"edited row opens as: \" + export.open(edited));\n            } catch (GeneralSecurityException refused) {\n                System.out.println(\"edited row refused: \" + refused.getClass().getSimpleName());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -71,8 +89,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -82,7 +100,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "fb93af7859b45c05bba55d31bb406a709687d51bdf3db6900bd25cd677e642ad",
+  "content_sha256": "0ca4721a973c7dfc5ab2f62ad11add0e057b1ba8338568b69e6a19d7b13c65d9",
   "starting_code": "package practice;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.SecretKey;\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.SecureRandom;\n\n/**\n * Encrypts the tax-id column of the customers table. Each value is stored as one byte array in\n * one column; the key comes from the key store and is the same on every instance of the service.\n */\npublic class ColumnCipher {\n\n    private final SecretKey key;\n    private final SecureRandom random;\n\n    public ColumnCipher(SecretKey key, SecureRandom random) {\n        this.key = key;\n        this.random = random;\n    }\n\n    /** The bytes to store in the column for this tax id. */\n    public byte[] seal(String taxId) throws GeneralSecurityException {\n        // TODO: Encrypt the tax id's UTF-8 bytes with AES under the key. The result is\n        //       all the column holds: any instance of the service that has the key must be able\n        //       to open it later, and nobody who can write to the table may change it unnoticed.\n        throw new IllegalStateException(\"TODO: seal\");\n    }\n\n    /** The tax id that seal() turned into these bytes. */\n    public String open(byte[] stored) throws GeneralSecurityException {\n        // TODO: Turn the stored bytes back into the tax id. A value that is not exactly what\n        //       seal() produced must never come back as a tax id.\n        throw new IllegalStateException(\"TODO: open\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-1/src/main/java/practice/ColumnCipher.java",
@@ -93,7 +111,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -138,6 +157,10 @@
     "concepts": [
       "AES-GCM stores a 12-byte IV in front of the ciphertext and a 16-byte tag after it, and decryption throws AEADBadTagException for any changed byte; a mode without a tag, such as CTR, decrypts a changed ciphertext into changed plaintext.",
       "Two GCM encryptions under the same key and IV share a keystream, so their ciphertexts XOR to the XOR of the plaintexts; each encryption needs its own IV, stored with the ciphertext."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
   }
 }

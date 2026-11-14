@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/**\n * Exchange rates for the checkout service. A loader thread reads them from storage once, at\n * startup, and calls onLoaded; request threads call rate() from the first second on.\n */\npublic class RatesCache {\n\n    private final long timeoutMillis;\n    private final CountDownLatch loaded = new CountDownLatch(1);\n    private Map<String, BigDecimal> rates = Map.of();\n\n    /** timeoutMillis: how long a request may wait for the rates before it gives up. */\n    public RatesCache(long timeoutMillis) {\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Called once, on the loader's thread, with the rates it read. */\n    public void onLoaded(Map<String, BigDecimal> fresh) {\n        rates = Map.copyOf(fresh);\n        loaded.countDown();\n    }\n\n    /** The rate of one currency against the euro; called on request threads. */\n    public BigDecimal rate(String currency) throws InterruptedException, TimeoutException {\n        awaitLoaded();\n        BigDecimal rate = rates.get(currency);\n        if (rate == null) throw new NoSuchElementException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Returns once the rates are loaded, or throws TimeoutException after timeoutMillis. */\n    void awaitLoaded() throws InterruptedException, TimeoutException {\n        if (!loaded.await(timeoutMillis, TimeUnit.MILLISECONDS)) {\n            throw new TimeoutException(\"rates not loaded within \" + timeoutMillis + \" ms\");\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.TimeoutException;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RatesCache cache = new RatesCache(3_000);\n            Map<String, BigDecimal> scratch = new HashMap<>(Map.of(\"DKK\", new BigDecimal(\"7.4601\"), \"PLN\", new BigDecimal(\"4.2950\")));\n            AtomicReference<RuntimeException> failure = new AtomicReference<>();\n            Thread loader = new Thread(() -> {\n                try {\n                    Thread.sleep(200);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n                try {\n                    cache.onLoaded(scratch);\n                    scratch.clear();\n                } catch (RuntimeException e) {\n                    failure.set(e);\n                }\n            }, \"loader\");\n            loader.start();\n            try {\n                System.out.println(\"DKK (asked before the rates arrived): \" + cache.rate(\"DKK\"));\n            } finally {\n                loader.join(5_000);\n            }\n            if (failure.get() != null) throw failure.get();\n            System.out.println(\"PLN (after the loader cleared its map): \" + cache.rate(\"PLN\"));\n            RatesCache neverLoaded = new RatesCache(100);\n            try {\n                neverLoaded.rate(\"DKK\");\n                System.out.println(\"never loaded: answered\");\n            } catch (TimeoutException timedOut) {\n                System.out.println(\"never loaded: \" + timedOut.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/**\n * Exchange rates for the checkout service. A loader thread reads them from storage once, at\n * startup, and calls onLoaded; request threads call rate() from the first second on.\n */\npublic class RatesCache {\n\n    private final long timeoutMillis;\n    private final CountDownLatch loaded = new CountDownLatch(1);\n    private Map<String, BigDecimal> rates = Map.of();\n\n    /** timeoutMillis: how long a request may wait for the rates before it gives up. */\n    public RatesCache(long timeoutMillis) {\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Called once, on the loader's thread, with the rates it read. */\n    public void onLoaded(Map<String, BigDecimal> fresh) {\n        // TODO: Keep the rates for the request threads (the caller may reuse its map), and let\n        //       requests that are waiting for them go on.\n        throw new IllegalStateException(\"TODO: onLoaded\");\n    }\n\n    /** The rate of one currency against the euro; called on request threads. */\n    public BigDecimal rate(String currency) throws InterruptedException, TimeoutException {\n        awaitLoaded();\n        BigDecimal rate = rates.get(currency);\n        if (rate == null) throw new NoSuchElementException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Returns once the rates are loaded, or throws TimeoutException after timeoutMillis. */\n    void awaitLoaded() throws InterruptedException, TimeoutException {\n        // TODO: A request that arrives before the rates must wait for them, but for no longer\n        //       than timeoutMillis; then it fails with a TimeoutException.\n        throw new IllegalStateException(\"TODO: awaitLoaded\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.TimeoutException;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RatesCache cache = new RatesCache(3_000);\n            Map<String, BigDecimal> scratch = new HashMap<>(Map.of(\"DKK\", new BigDecimal(\"7.4601\"), \"PLN\", new BigDecimal(\"4.2950\")));\n            AtomicReference<RuntimeException> failure = new AtomicReference<>();\n            Thread loader = new Thread(() -> {\n                try {\n                    Thread.sleep(200);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n                try {\n                    cache.onLoaded(scratch);\n                    scratch.clear();\n                } catch (RuntimeException e) {\n                    failure.set(e);\n                }\n            }, \"loader\");\n            loader.start();\n            try {\n                System.out.println(\"DKK (asked before the rates arrived): \" + cache.rate(\"DKK\"));\n            } finally {\n                loader.join(5_000);\n            }\n            if (failure.get() != null) throw failure.get();\n            System.out.println(\"PLN (after the loader cleared its map): \" + cache.rate(\"PLN\"));\n            RatesCache neverLoaded = new RatesCache(100);\n            try {\n                neverLoaded.rate(\"DKK\");\n                System.out.println(\"never loaded: answered\");\n            } catch (TimeoutException timedOut) {\n                System.out.println(\"never loaded: \" + timedOut.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c630ccf54b4416f96c27d9a66259f22633fde346988212f6ca69d207e59a07a7",
+  "content_sha256": "922e4c35394c2991d4502a18f264859bc45d4a5e21f420952a3b67707358b884",
   "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/**\n * Exchange rates for the checkout service. A loader thread reads them from storage once, at\n * startup, and calls onLoaded; request threads call rate() from the first second on.\n */\npublic class RatesCache {\n\n    private final long timeoutMillis;\n    private final CountDownLatch loaded = new CountDownLatch(1);\n    private Map<String, BigDecimal> rates = Map.of();\n\n    /** timeoutMillis: how long a request may wait for the rates before it gives up. */\n    public RatesCache(long timeoutMillis) {\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Called once, on the loader's thread, with the rates it read. */\n    public void onLoaded(Map<String, BigDecimal> fresh) {\n        // TODO: Keep the rates for the request threads (the caller may reuse its map), and let\n        //       requests that are waiting for them go on.\n        throw new IllegalStateException(\"TODO: onLoaded\");\n    }\n\n    /** The rate of one currency against the euro; called on request threads. */\n    public BigDecimal rate(String currency) throws InterruptedException, TimeoutException {\n        awaitLoaded();\n        BigDecimal rate = rates.get(currency);\n        if (rate == null) throw new NoSuchElementException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Returns once the rates are loaded, or throws TimeoutException after timeoutMillis. */\n    void awaitLoaded() throws InterruptedException, TimeoutException {\n        // TODO: A request that arrives before the rates must wait for them, but for no longer\n        //       than timeoutMillis; then it fails with a TimeoutException.\n        throw new IllegalStateException(\"TODO: awaitLoaded\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-2/src/main/java/practice/RatesCache.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -146,6 +165,10 @@
     "concepts": [
       "Only an acquire that succeeds gets the edge: an await that returned false, a get that timed out or returned null, or a poll that returned null orders nothing.",
       "A java.util.concurrent hand-off (submit to task, task to Future.get, countDown to await, put to take, map put to get) is a happens-before edge, so data passed through it needs no volatile fields or locks of its own."
-    ]
+    ],
+    "files": [
+      "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

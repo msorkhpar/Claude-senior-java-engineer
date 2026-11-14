@@ -39,6 +39,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** Quotes for the pricing page, and the decorator that feeds the dashboard's \"symbols quoted\" panel. */\npublic class QuoteMetrics {\n\n    public record Quote(String symbol, long priceCents) {}\n\n    /** Where the pricing page gets its quotes. */\n    public interface QuoteSource {\n\n        Quote quote(String symbol);\n\n        /**\n         * Quotes several symbols, in the order given. This default asks for them one at a time;\n         * a remote source overrides it to fetch them all in one request.\n         */\n        default Map<String, Quote> quoteAll(List<String> symbols) {\n            Map<String, Quote> quotes = new LinkedHashMap<>();\n            for (String symbol : symbols) quotes.put(symbol, quote(symbol));\n            return quotes;\n        }\n    }\n\n    /** Counts every symbol quoted through it, for the dashboard, and passes each request on. */\n    public static class Metered implements QuoteSource {\n        private final QuoteSource inner;\n        private final LongAdder symbolsQuoted = new LongAdder();\n\n        public Metered(QuoteSource inner) {\n            this.inner = inner;\n        }\n\n        @Override\n        public Quote quote(String symbol) {\n            symbolsQuoted.increment();\n            return inner.quote(symbol);\n        }\n\n        @Override\n        public Map<String, Quote> quoteAll(List<String> symbols) {\n            symbolsQuoted.add(symbols.size());\n            return inner.quoteAll(symbols);\n        }\n\n        /** The number the dashboard shows: symbols quoted through this source so far. */\n        public long symbolsQuoted() {\n            return symbolsQuoted.sum();\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            int[] requests = {0};\n            QuoteMetrics.QuoteSource remote = new QuoteMetrics.QuoteSource() {\n                @Override public QuoteMetrics.Quote quote(String symbol) {\n                    requests[0]++;\n                    return new QuoteMetrics.Quote(symbol, 1_000L + symbol.length());\n                }\n                @Override public Map<String, QuoteMetrics.Quote> quoteAll(List<String> symbols) {\n                    requests[0]++;\n                    Map<String, QuoteMetrics.Quote> page = new LinkedHashMap<>();\n                    for (String s : symbols) page.put(s, new QuoteMetrics.Quote(s, 1_000L + s.length()));\n                    return page;\n                }\n            };\n            QuoteMetrics.Metered metered = new QuoteMetrics.Metered(remote);\n            System.out.println(\"page: \" + metered.quoteAll(List.of(\"ABB\", \"ERIC-B\", \"NESN\", \"VOLV-B\")).keySet());\n            metered.quote(\"ROG\");\n            metered.quoteAll(List.of(\"UBSG\", \"ZURN\"));\n            System.out.println(\"symbols quoted: \" + metered.symbolsQuoted());\n            System.out.println(\"remote requests: \" + requests[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -51,6 +60,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** Quotes for the pricing page, and the decorator that feeds the dashboard's \"symbols quoted\" panel. */\npublic class QuoteMetrics {\n\n    public record Quote(String symbol, long priceCents) {}\n\n    /** Where the pricing page gets its quotes. */\n    public interface QuoteSource {\n\n        Quote quote(String symbol);\n\n        /**\n         * Quotes several symbols, in the order given. This default asks for them one at a time;\n         * a remote source overrides it to fetch them all in one request.\n         */\n        default Map<String, Quote> quoteAll(List<String> symbols) {\n            Map<String, Quote> quotes = new LinkedHashMap<>();\n            for (String symbol : symbols) quotes.put(symbol, quote(symbol));\n            return quotes;\n        }\n    }\n\n    /** Counts every symbol quoted through it, for the dashboard, and passes each request on. */\n    public static class Metered implements QuoteSource {\n        private final QuoteSource inner;\n        private final LongAdder symbolsQuoted = new LongAdder();\n\n        public Metered(QuoteSource inner) {\n            this.inner = inner;\n        }\n\n        @Override\n        public Quote quote(String symbol) {\n            symbolsQuoted.increment();\n            return inner.quote(symbol);\n        }\n\n        @Override\n        public Map<String, Quote> quoteAll(List<String> symbols) {\n            // TODO: The pricing page asks for all its symbols in one call. Pass that call on so the\n            //       source behind this one handles it, and keep the dashboard's count right.\n            throw new IllegalStateException(\"TODO: quoteAll\");\n        }\n\n        /** The number the dashboard shows: symbols quoted through this source so far. */\n        public long symbolsQuoted() {\n            return symbolsQuoted.sum();\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            int[] requests = {0};\n            QuoteMetrics.QuoteSource remote = new QuoteMetrics.QuoteSource() {\n                @Override public QuoteMetrics.Quote quote(String symbol) {\n                    requests[0]++;\n                    return new QuoteMetrics.Quote(symbol, 1_000L + symbol.length());\n                }\n                @Override public Map<String, QuoteMetrics.Quote> quoteAll(List<String> symbols) {\n                    requests[0]++;\n                    Map<String, QuoteMetrics.Quote> page = new LinkedHashMap<>();\n                    for (String s : symbols) page.put(s, new QuoteMetrics.Quote(s, 1_000L + s.length()));\n                    return page;\n                }\n            };\n            QuoteMetrics.Metered metered = new QuoteMetrics.Metered(remote);\n            System.out.println(\"page: \" + metered.quoteAll(List.of(\"ABB\", \"ERIC-B\", \"NESN\", \"VOLV-B\")).keySet());\n            metered.quote(\"ROG\");\n            metered.quoteAll(List.of(\"UBSG\", \"ZURN\"));\n            System.out.println(\"symbols quoted: \" + metered.symbolsQuoted());\n            System.out.println(\"remote requests: \" + requests[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -58,8 +76,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 1,
+    "paras": 3,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -69,7 +87,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "14374a912619d3ac9e209fa1e19a173c41647cb553af7329eebf149eae9fac3b",
+  "content_sha256": "c0d160e94650785009e8895502ead43b104d82be96b8b903e11b7bbdac16c522",
   "starting_code": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** Quotes for the pricing page, and the decorator that feeds the dashboard's \"symbols quoted\" panel. */\npublic class QuoteMetrics {\n\n    public record Quote(String symbol, long priceCents) {}\n\n    /** Where the pricing page gets its quotes. */\n    public interface QuoteSource {\n\n        Quote quote(String symbol);\n\n        /**\n         * Quotes several symbols, in the order given. This default asks for them one at a time;\n         * a remote source overrides it to fetch them all in one request.\n         */\n        default Map<String, Quote> quoteAll(List<String> symbols) {\n            Map<String, Quote> quotes = new LinkedHashMap<>();\n            for (String symbol : symbols) quotes.put(symbol, quote(symbol));\n            return quotes;\n        }\n    }\n\n    /** Counts every symbol quoted through it, for the dashboard, and passes each request on. */\n    public static class Metered implements QuoteSource {\n        private final QuoteSource inner;\n        private final LongAdder symbolsQuoted = new LongAdder();\n\n        public Metered(QuoteSource inner) {\n            this.inner = inner;\n        }\n\n        @Override\n        public Quote quote(String symbol) {\n            symbolsQuoted.increment();\n            return inner.quote(symbol);\n        }\n\n        @Override\n        public Map<String, Quote> quoteAll(List<String> symbols) {\n            // TODO: The pricing page asks for all its symbols in one call. Pass that call on so the\n            //       source behind this one handles it, and keep the dashboard's count right.\n            throw new IllegalStateException(\"TODO: quoteAll\");\n        }\n\n        /** The number the dashboard shows: symbols quoted through this source so far. */\n        public long symbolsQuoted() {\n            return symbolsQuoted.sum();\n        }\n    }\n}\n",
   "exercise": {
     "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-2/src/main/java/practice/QuoteMetrics.java",
@@ -80,7 +98,8 @@
       "-q",
       "-f",
       "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -125,6 +144,10 @@
     "concepts": [
       "A default method the decorator doesn't override runs the interface's code on the decorator, so the wrapped object's override, such as an atomic computeIfAbsent or a batch call, is never reached.",
       "Overriding the default to forward straight to the wrapped object keeps its behaviour but skips the decorator's own work, so the override must forward and decorate."
-    ]
+    ],
+    "files": [
+      "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

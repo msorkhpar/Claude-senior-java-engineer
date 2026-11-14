@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\n/**\n * Keeps one consumer thread working on the payments queue. A scheduler calls check() every few\n * seconds; the consumer's code is a Runnable that may die on a payment it can't handle.\n */\npublic class Supervisor {\n\n    private final String name;\n    private final Runnable consumer;\n    private Thread worker;\n\n    public Supervisor(String name, Runnable consumer) {\n        this.name = name;\n        this.consumer = consumer;\n    }\n\n    /** Called by the scheduler: makes sure the consumer is working, on exactly one thread. */\n    public void check() {\n        if (worker == null || !worker.isAlive()) {\n            worker = newWorker();\n            worker.start();\n        }\n    }\n\n    /** The thread currently assigned to the consumer, or null before the first check. */\n    public Thread worker() {\n        return worker;\n    }\n\n    /** A daemon thread for the consumer, not started yet, named like every one before it. */\n    Thread newWorker() {\n        Thread t = new Thread(consumer, name);\n        t.setDaemon(true);\n        return t;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AtomicInteger runs = new AtomicInteger();\n            CountDownLatch handlerSet = new CountDownLatch(1);\n            CountDownLatch shutdown = new CountDownLatch(1);\n            Supervisor supervisor = new Supervisor(\"shipments-consumer\", () -> {\n                if (runs.incrementAndGet() == 1) {\n                    try {\n                        handlerSet.await(5, TimeUnit.SECONDS);\n                    } catch (InterruptedException e) {\n                        Thread.currentThread().interrupt();\n                    }\n                    throw new IllegalArgumentException(\"shipment 52: unknown carrier\");\n                }\n                try {\n                    shutdown.await(5, TimeUnit.SECONDS);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            });\n            try {\n                supervisor.check();\n                Thread first = supervisor.worker();\n                first.setUncaughtExceptionHandler((t, e) -> System.out.println(t.getName() + \" died: \" + e.getMessage()));\n                handlerSet.countDown();\n                first.join(5_000);\n                System.out.println(\"first consumer alive: \" + first.isAlive());\n                supervisor.check();\n                supervisor.check();\n                supervisor.check();\n                System.out.println(\"consumer after three more checks: \" + supervisor.worker().getName()\n                        + \", alive \" + supervisor.worker().isAlive());\n                System.out.println(\"times the consumer was started: \" + runs.get());\n            } finally {\n                shutdown.countDown();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\n/**\n * Keeps one consumer thread working on the payments queue. A scheduler calls check() every few\n * seconds; the consumer's code is a Runnable that may die on a payment it can't handle.\n */\npublic class Supervisor {\n\n    private final String name;\n    private final Runnable consumer;\n    private Thread worker;\n\n    public Supervisor(String name, Runnable consumer) {\n        this.name = name;\n        this.consumer = consumer;\n    }\n\n    /** Called by the scheduler: makes sure the consumer is working, on exactly one thread. */\n    public void check() {\n        // TODO: The first check gets the consumer going. A later check finds the consumer either\n        //       still at work (busy with a payment or waiting for the next one) or gone because\n        //       it died; only in that last case does the consumer need to be put back to work.\n        throw new IllegalStateException(\"TODO: check\");\n    }\n\n    /** The thread currently assigned to the consumer, or null before the first check. */\n    public Thread worker() {\n        return worker;\n    }\n\n    /** A daemon thread for the consumer, not started yet, named like every one before it. */\n    Thread newWorker() {\n        Thread t = new Thread(consumer, name);\n        t.setDaemon(true);\n        return t;\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AtomicInteger runs = new AtomicInteger();\n            CountDownLatch handlerSet = new CountDownLatch(1);\n            CountDownLatch shutdown = new CountDownLatch(1);\n            Supervisor supervisor = new Supervisor(\"shipments-consumer\", () -> {\n                if (runs.incrementAndGet() == 1) {\n                    try {\n                        handlerSet.await(5, TimeUnit.SECONDS);\n                    } catch (InterruptedException e) {\n                        Thread.currentThread().interrupt();\n                    }\n                    throw new IllegalArgumentException(\"shipment 52: unknown carrier\");\n                }\n                try {\n                    shutdown.await(5, TimeUnit.SECONDS);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            });\n            try {\n                supervisor.check();\n                Thread first = supervisor.worker();\n                first.setUncaughtExceptionHandler((t, e) -> System.out.println(t.getName() + \" died: \" + e.getMessage()));\n                handlerSet.countDown();\n                first.join(5_000);\n                System.out.println(\"first consumer alive: \" + first.isAlive());\n                supervisor.check();\n                supervisor.check();\n                supervisor.check();\n                System.out.println(\"consumer after three more checks: \" + supervisor.worker().getName()\n                        + \", alive \" + supervisor.worker().isAlive());\n                System.out.println(\"times the consumer was started: \" + runs.get());\n            } finally {\n                shutdown.countDown();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ba5c576b038a6d2ce9f4f90c87bd05374b24aba34f5d2e4c6831480d11dbd4e7",
+  "content_sha256": "0ca82a34c474937036d1c0b77ee79a6c3e9e9c70f1d8b5beebc7b7c89f97ae6d",
   "starting_code": "package practice;\n\n/**\n * Keeps one consumer thread working on the payments queue. A scheduler calls check() every few\n * seconds; the consumer's code is a Runnable that may die on a payment it can't handle.\n */\npublic class Supervisor {\n\n    private final String name;\n    private final Runnable consumer;\n    private Thread worker;\n\n    public Supervisor(String name, Runnable consumer) {\n        this.name = name;\n        this.consumer = consumer;\n    }\n\n    /** Called by the scheduler: makes sure the consumer is working, on exactly one thread. */\n    public void check() {\n        // TODO: The first check gets the consumer going. A later check finds the consumer either\n        //       still at work (busy with a payment or waiting for the next one) or gone because\n        //       it died; only in that last case does the consumer need to be put back to work.\n        throw new IllegalStateException(\"TODO: check\");\n    }\n\n    /** The thread currently assigned to the consumer, or null before the first check. */\n    public Thread worker() {\n        return worker;\n    }\n\n    /** A daemon thread for the consumer, not started yet, named like every one before it. */\n    Thread newWorker() {\n        Thread t = new Thread(consumer, name);\n        t.setDaemon(true);\n        return t;\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-4/src/main/java/practice/Supervisor.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-4/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -124,6 +143,10 @@
     "concepts": [
       "Whether a worker has ended is a question for isAlive(); a worker waiting for work is WAITING or TIMED_WAITING and alive.",
       "start() is legal only on a NEW thread; to run the work again, a new Thread is created for the same Runnable."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-4/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-4/src/main/java/practice/TryIt.java"
   }
 }

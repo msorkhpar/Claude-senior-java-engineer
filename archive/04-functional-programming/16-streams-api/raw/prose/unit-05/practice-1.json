@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Writes the nightly price list: one line per SKU, \"sku;price\", in catalogue order. Pricing one\n * SKU takes a lot of CPU, so the export has to price several SKUs at once to finish in time.\n */\npublic class PriceExport {\n\n    /** Works out one SKU's price. CPU-bound, and safe to call from several threads at once. */\n    public interface Pricer {\n        String price(String sku);\n    }\n\n    /** Appends one line to the export file. Not thread-safe, and the file must follow the catalogue. */\n    public interface LineWriter {\n        void write(String line);\n    }\n\n    private final Pricer pricer;\n    private final LineWriter out;\n\n    public PriceExport(Pricer pricer, LineWriter out) {\n        this.pricer = pricer;\n        this.out = out;\n    }\n\n    /** Prices every SKU of the catalogue and writes its line. */\n    public void export(List<String> catalogue) {\n        List<String> lines = catalogue.parallelStream().map(this::line).toList();\n        lines.forEach(out::write);\n    }\n\n    /** The line for one SKU. */\n    String line(String sku) {\n        return sku + \";\" + pricer.price(sku);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> written = new ArrayList<>();\n            List<String> catalogue = List.of(\"SKU-A100\", \"SKU-B20\", \"SKU-C3\", \"SKU-D4000\", \"SKU-E5\");\n            PriceExport export = new PriceExport(sku -> String.valueOf(sku.length() * 10), written::add);\n            ForkJoinPool pool = new ForkJoinPool(3);\n            try {\n                pool.submit(() -> export.export(catalogue)).get(10, TimeUnit.SECONDS);\n            } catch (Exception e) {\n                throw new IllegalStateException(e);\n            } finally {\n                pool.shutdownNow();\n            }\n            System.out.println(\"lines written: \" + written.size());\n            for (String line : written) {\n                System.out.println(\"line: \" + line);\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Writes the nightly price list: one line per SKU, \"sku;price\", in catalogue order. Pricing one\n * SKU takes a lot of CPU, so the export has to price several SKUs at once to finish in time.\n */\npublic class PriceExport {\n\n    /** Works out one SKU's price. CPU-bound, and safe to call from several threads at once. */\n    public interface Pricer {\n        String price(String sku);\n    }\n\n    /** Appends one line to the export file. Not thread-safe, and the file must follow the catalogue. */\n    public interface LineWriter {\n        void write(String line);\n    }\n\n    private final Pricer pricer;\n    private final LineWriter out;\n\n    public PriceExport(Pricer pricer, LineWriter out) {\n        this.pricer = pricer;\n        this.out = out;\n    }\n\n    /** Prices every SKU of the catalogue and writes its line. */\n    public void export(List<String> catalogue) {\n        // TODO: With one thread doing the pricing, tonight's export won't finish before the shops\n        //       open. Price several SKUs at once, and hand the writer every line, one at a time,\n        //       in catalogue order.\n        throw new IllegalStateException(\"TODO: export\");\n    }\n\n    /** The line for one SKU. */\n    String line(String sku) {\n        return sku + \";\" + pricer.price(sku);\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> written = new ArrayList<>();\n            List<String> catalogue = List.of(\"SKU-A100\", \"SKU-B20\", \"SKU-C3\", \"SKU-D4000\", \"SKU-E5\");\n            PriceExport export = new PriceExport(sku -> String.valueOf(sku.length() * 10), written::add);\n            ForkJoinPool pool = new ForkJoinPool(3);\n            try {\n                pool.submit(() -> export.export(catalogue)).get(10, TimeUnit.SECONDS);\n            } catch (Exception e) {\n                throw new IllegalStateException(e);\n            } finally {\n                pool.shutdownNow();\n            }\n            System.out.println(\"lines written: \" + written.size());\n            for (String line : written) {\n                System.out.println(\"line: \" + line);\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "eed4bd1cf3b785e9dd7645835bd1d4eed4e552a0b48f64f22767dc3ce4046cc8",
+  "content_sha256": "f4515bd69dde7d0adbbcc110ad561ff8a8350bae64f0fd2404e730b711a0c0ee",
   "starting_code": "package practice;\n\nimport java.util.List;\n\n/**\n * Writes the nightly price list: one line per SKU, \"sku;price\", in catalogue order. Pricing one\n * SKU takes a lot of CPU, so the export has to price several SKUs at once to finish in time.\n */\npublic class PriceExport {\n\n    /** Works out one SKU's price. CPU-bound, and safe to call from several threads at once. */\n    public interface Pricer {\n        String price(String sku);\n    }\n\n    /** Appends one line to the export file. Not thread-safe, and the file must follow the catalogue. */\n    public interface LineWriter {\n        void write(String line);\n    }\n\n    private final Pricer pricer;\n    private final LineWriter out;\n\n    public PriceExport(Pricer pricer, LineWriter out) {\n        this.pricer = pricer;\n        this.out = out;\n    }\n\n    /** Prices every SKU of the catalogue and writes its line. */\n    public void export(List<String> catalogue) {\n        // TODO: With one thread doing the pricing, tonight's export won't finish before the shops\n        //       open. Price several SKUs at once, and hand the writer every line, one at a time,\n        //       in catalogue order.\n        throw new IllegalStateException(\"TODO: export\");\n    }\n\n    /** The line for one SKU. */\n    String line(String sku) {\n        return sku + \";\" + pricer.price(sku);\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-1/src/main/java/practice/PriceExport.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -123,6 +142,10 @@
     },
     "concepts": [
       "The last parallel() or sequential() call sets the mode of the whole pipeline, so a parallel step followed by an ordered one-at-a-time step needs forEachOrdered or two pipelines."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-1/src/main/java/practice/TryIt.java"
   }
 }

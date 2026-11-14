@@ -47,6 +47,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.ArrayBlockingQueue;\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The pool that reads text out of uploaded scans. Each upload thread hands it one task per scan\n * with execute(). A scan takes a few seconds of OCR.\n */\npublic class OcrPool {\n\n    /** Workers the pool keeps on a normal day. */\n    static final int WORKERS = 3;\n    /** Workers it may run during a burst. */\n    static final int MAX_WORKERS = 5;\n    /** Scans that may wait for a worker. */\n    static final int WAITING = 6;\n\n    /** Names the pool's threads ocr-1, ocr-2, ... and makes them daemons. */\n    static ThreadFactory namedThreads() {\n        AtomicInteger next = new AtomicInteger(1);\n        return task -> {\n            Thread t = new Thread(task, \"ocr-\" + next.getAndIncrement());\n            t.setDaemon(true);\n            return t;\n        };\n    }\n\n    /** Builds the OCR pool. */\n    public static ThreadPoolExecutor create() {\n        return new ThreadPoolExecutor(WORKERS, MAX_WORKERS, 30, TimeUnit.SECONDS,\n                new ArrayBlockingQueue<>(WAITING), namedThreads(), new ThreadPoolExecutor.CallerRunsPolicy());\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            CountDownLatch burstEnds = new CountDownLatch(1);\n            AtomicInteger readByOcr = new AtomicInteger();\n            StringBuilder lastReader = new StringBuilder();\n            ThreadPoolExecutor pool = OcrPool.create();\n            try {\n                for (int scan = 1; scan <= 11; scan++) {\n                    pool.execute(() -> {\n                        if (Thread.currentThread().getName().startsWith(\"ocr-\")) readByOcr.incrementAndGet();\n                        try {\n                            burstEnds.await();\n                        } catch (InterruptedException e) {\n                            Thread.currentThread().interrupt();\n                        }\n                    });\n                }\n                System.out.println(\"workers during the burst: \" + pool.getPoolSize());\n                System.out.println(\"scans waiting: \" + pool.getQueue().size());\n                pool.execute(() -> lastReader.append(Thread.currentThread().getName()));\n                System.out.println(\"scan 12 read by the uploader itself: \"\n                        + lastReader.toString().equals(Thread.currentThread().getName()));\n                burstEnds.countDown();\n                pool.shutdown();\n                System.out.println(\"pool finished: \" + pool.awaitTermination(3, TimeUnit.SECONDS));\n                System.out.println(\"scans read on ocr threads: \" + readByOcr.get());\n            } finally {\n                burstEnds.countDown();\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -59,6 +68,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The pool that reads text out of uploaded scans. Each upload thread hands it one task per scan\n * with execute(). A scan takes a few seconds of OCR.\n */\npublic class OcrPool {\n\n    /** Workers the pool keeps on a normal day. */\n    static final int WORKERS = 3;\n    /** Workers it may run during a burst. */\n    static final int MAX_WORKERS = 5;\n    /** Scans that may wait for a worker. */\n    static final int WAITING = 6;\n\n    /** Names the pool's threads ocr-1, ocr-2, ... and makes them daemons. */\n    static ThreadFactory namedThreads() {\n        AtomicInteger next = new AtomicInteger(1);\n        return task -> {\n            Thread t = new Thread(task, \"ocr-\" + next.getAndIncrement());\n            t.setDaemon(true);\n            return t;\n        };\n    }\n\n    /** Builds the OCR pool. */\n    public static ThreadPoolExecutor create() {\n        // TODO: Build the pool the uploads need: WORKERS threads on a normal day, at most\n        //       WAITING scans waiting, extra workers up to MAX_WORKERS only for a burst, and a\n        //       scan that finds everything full must still be read, by the upload thread that\n        //       brought it. Use namedThreads() for the pool's threads.\n        throw new IllegalStateException(\"TODO: create\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            CountDownLatch burstEnds = new CountDownLatch(1);\n            AtomicInteger readByOcr = new AtomicInteger();\n            StringBuilder lastReader = new StringBuilder();\n            ThreadPoolExecutor pool = OcrPool.create();\n            try {\n                for (int scan = 1; scan <= 11; scan++) {\n                    pool.execute(() -> {\n                        if (Thread.currentThread().getName().startsWith(\"ocr-\")) readByOcr.incrementAndGet();\n                        try {\n                            burstEnds.await();\n                        } catch (InterruptedException e) {\n                            Thread.currentThread().interrupt();\n                        }\n                    });\n                }\n                System.out.println(\"workers during the burst: \" + pool.getPoolSize());\n                System.out.println(\"scans waiting: \" + pool.getQueue().size());\n                pool.execute(() -> lastReader.append(Thread.currentThread().getName()));\n                System.out.println(\"scan 12 read by the uploader itself: \"\n                        + lastReader.toString().equals(Thread.currentThread().getName()));\n                burstEnds.countDown();\n                pool.shutdown();\n                System.out.println(\"pool finished: \" + pool.awaitTermination(3, TimeUnit.SECONDS));\n                System.out.println(\"scans read on ocr threads: \" + readByOcr.get());\n            } finally {\n                burstEnds.countDown();\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -66,8 +84,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -77,7 +95,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "30f778a98b31aa7fe0d1b4cf48ede31e1836d86a637b4c75abac755e47beb2d7",
+  "content_sha256": "36c8f5c1660a8f2bae76b21614c979b0477a25fc892365b9fc494ae057f53748",
   "starting_code": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The pool that reads text out of uploaded scans. Each upload thread hands it one task per scan\n * with execute(). A scan takes a few seconds of OCR.\n */\npublic class OcrPool {\n\n    /** Workers the pool keeps on a normal day. */\n    static final int WORKERS = 3;\n    /** Workers it may run during a burst. */\n    static final int MAX_WORKERS = 5;\n    /** Scans that may wait for a worker. */\n    static final int WAITING = 6;\n\n    /** Names the pool's threads ocr-1, ocr-2, ... and makes them daemons. */\n    static ThreadFactory namedThreads() {\n        AtomicInteger next = new AtomicInteger(1);\n        return task -> {\n            Thread t = new Thread(task, \"ocr-\" + next.getAndIncrement());\n            t.setDaemon(true);\n            return t;\n        };\n    }\n\n    /** Builds the OCR pool. */\n    public static ThreadPoolExecutor create() {\n        // TODO: Build the pool the uploads need: WORKERS threads on a normal day, at most\n        //       WAITING scans waiting, extra workers up to MAX_WORKERS only for a burst, and a\n        //       scan that finds everything full must still be read, by the upload thread that\n        //       brought it. Use namedThreads() for the pool's threads.\n        throw new IllegalStateException(\"TODO: create\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-1/src/main/java/practice/OcrPool.java",
@@ -88,7 +106,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -133,6 +152,10 @@
     "concepts": [
       "A ThreadPoolExecutor starts core threads first, then queues, and starts threads past the core only when the queue refuses a task; with an unbounded queue the maximum is never used.",
       "A bounded pool hands a task it cannot take to its policy: AbortPolicy throws to the submitter, CallerRunsPolicy runs it on the submitting thread, and the discard policies drop a task silently."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

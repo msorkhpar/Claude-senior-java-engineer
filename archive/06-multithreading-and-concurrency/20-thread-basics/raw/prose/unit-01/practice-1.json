@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Polls the shared support inbox and hands each message on. It was written as a thread of its\n * own, and some deployments still run it that way with {@code new InboxPoller(...).start()}. The\n * service now also hands it to its background pool with {@code pool.execute(poller)}, and shuts\n * that pool down with {@code shutdownNow()} on every deploy.\n */\npublic class InboxPoller extends Thread {\n\n    /** The inbox: {@code next()} returns the next message, or null when there is none yet. Never blocks. */\n    public interface Inbox {\n        String next();\n    }\n\n    private final Inbox inbox;\n    private final Consumer<String> log;\n\n    public InboxPoller(Inbox inbox, Consumer<String> log) {\n        super(\"inbox-poller\");\n        this.inbox = inbox;\n        this.log = log;\n    }\n\n    @Override\n    public void run() {\n        while (!stopRequested()) {\n            String message = inbox.next();\n            if (message == null) {\n                Thread.onSpinWait();\n                continue;\n            }\n            log.accept(workerName() + \" handled \" + message);\n        }\n        log.accept(workerName() + \" stopped\");\n    }\n\n    /** Whether whoever is running this poller has asked it to stop. */\n    boolean stopRequested() {\n        return Thread.currentThread().isInterrupted();\n    }\n\n    /** The name of the thread doing the work, for the log lines. */\n    String workerName() {\n        return Thread.currentThread().getName();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ConcurrentLinkedQueue;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ConcurrentLinkedQueue<String> inbox = new ConcurrentLinkedQueue<>(List.of(\"case-310: refund\", \"case-311: login\"));\n            List<String> log = new CopyOnWriteArrayList<>();\n            CountDownLatch handled = new CountDownLatch(2);\n            AtomicReference<Throwable> failure = new AtomicReference<>();\n            ExecutorService pool = Executors.newSingleThreadExecutor(r -> {\n                Thread t = new Thread(r, \"helpdesk-worker-1\");\n                t.setDaemon(true);\n                t.setUncaughtExceptionHandler((thread, e) -> {\n                    failure.set(e);\n                    handled.countDown();\n                    handled.countDown();\n                });\n                return t;\n            });\n            try {\n                pool.execute(new InboxPoller(inbox::poll, line -> {\n                    log.add(line);\n                    if (line.contains(\" handled \")) handled.countDown();\n                }));\n                handled.await(5, TimeUnit.SECONDS);\n            } finally {\n                pool.shutdownNow();\n            }\n            System.out.println(\"pool stopped: \" + pool.awaitTermination(5, TimeUnit.SECONDS));\n            if (failure.get() instanceof RuntimeException e) throw e;\n            log.forEach(line -> System.out.println(\"log: \" + line));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Polls the shared support inbox and hands each message on. It was written as a thread of its\n * own, and some deployments still run it that way with {@code new InboxPoller(...).start()}. The\n * service now also hands it to its background pool with {@code pool.execute(poller)}, and shuts\n * that pool down with {@code shutdownNow()} on every deploy.\n */\npublic class InboxPoller extends Thread {\n\n    /** The inbox: {@code next()} returns the next message, or null when there is none yet. Never blocks. */\n    public interface Inbox {\n        String next();\n    }\n\n    private final Inbox inbox;\n    private final Consumer<String> log;\n\n    public InboxPoller(Inbox inbox, Consumer<String> log) {\n        super(\"inbox-poller\");\n        this.inbox = inbox;\n        this.log = log;\n    }\n\n    @Override\n    public void run() {\n        while (!stopRequested()) {\n            String message = inbox.next();\n            if (message == null) {\n                Thread.onSpinWait();\n                continue;\n            }\n            log.accept(workerName() + \" handled \" + message);\n        }\n        log.accept(workerName() + \" stopped\");\n    }\n\n    /** Whether whoever is running this poller has asked it to stop. */\n    boolean stopRequested() {\n        // TODO: Answer whether this poller has been asked to stop, both when it runs as a thread\n        //       of its own and when the background pool runs it.\n        throw new IllegalStateException(\"TODO: stopRequested\");\n    }\n\n    /** The name of the thread doing the work, for the log lines. */\n    String workerName() {\n        // TODO: On-call reads these lines to find the thread in a thread dump. Name the thread\n        //       that is actually doing the work.\n        throw new IllegalStateException(\"TODO: workerName\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ConcurrentLinkedQueue;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ConcurrentLinkedQueue<String> inbox = new ConcurrentLinkedQueue<>(List.of(\"case-310: refund\", \"case-311: login\"));\n            List<String> log = new CopyOnWriteArrayList<>();\n            CountDownLatch handled = new CountDownLatch(2);\n            AtomicReference<Throwable> failure = new AtomicReference<>();\n            ExecutorService pool = Executors.newSingleThreadExecutor(r -> {\n                Thread t = new Thread(r, \"helpdesk-worker-1\");\n                t.setDaemon(true);\n                t.setUncaughtExceptionHandler((thread, e) -> {\n                    failure.set(e);\n                    handled.countDown();\n                    handled.countDown();\n                });\n                return t;\n            });\n            try {\n                pool.execute(new InboxPoller(inbox::poll, line -> {\n                    log.add(line);\n                    if (line.contains(\" handled \")) handled.countDown();\n                }));\n                handled.await(5, TimeUnit.SECONDS);\n            } finally {\n                pool.shutdownNow();\n            }\n            System.out.println(\"pool stopped: \" + pool.awaitTermination(5, TimeUnit.SECONDS));\n            if (failure.get() instanceof RuntimeException e) throw e;\n            log.forEach(line -> System.out.println(\"log: \" + line));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3a6733e52a3f42bac8ca98de3ae32c12384fb84d44395015ea68f30aa18138d8",
+  "content_sha256": "bfc781d2d1046348df67cabcd7a465767e87139429e52a1ee0c63c2f3b46d67c",
   "starting_code": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Polls the shared support inbox and hands each message on. It was written as a thread of its\n * own, and some deployments still run it that way with {@code new InboxPoller(...).start()}. The\n * service now also hands it to its background pool with {@code pool.execute(poller)}, and shuts\n * that pool down with {@code shutdownNow()} on every deploy.\n */\npublic class InboxPoller extends Thread {\n\n    /** The inbox: {@code next()} returns the next message, or null when there is none yet. Never blocks. */\n    public interface Inbox {\n        String next();\n    }\n\n    private final Inbox inbox;\n    private final Consumer<String> log;\n\n    public InboxPoller(Inbox inbox, Consumer<String> log) {\n        super(\"inbox-poller\");\n        this.inbox = inbox;\n        this.log = log;\n    }\n\n    @Override\n    public void run() {\n        while (!stopRequested()) {\n            String message = inbox.next();\n            if (message == null) {\n                Thread.onSpinWait();\n                continue;\n            }\n            log.accept(workerName() + \" handled \" + message);\n        }\n        log.accept(workerName() + \" stopped\");\n    }\n\n    /** Whether whoever is running this poller has asked it to stop. */\n    boolean stopRequested() {\n        // TODO: Answer whether this poller has been asked to stop, both when it runs as a thread\n        //       of its own and when the background pool runs it.\n        throw new IllegalStateException(\"TODO: stopRequested\");\n    }\n\n    /** The name of the thread doing the work, for the log lines. */\n    String workerName() {\n        // TODO: On-call reads these lines to find the thread in a thread dump. Name the thread\n        //       that is actually doing the work.\n        throw new IllegalStateException(\"TODO: workerName\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-1/src/main/java/practice/InboxPoller.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -135,6 +154,10 @@
     },
     "concepts": [
       "A Thread subclass run by a pool executes on the pool's thread, while its inherited getName() and isInterrupted() describe the never-started Thread object; a task asks Thread.currentThread()."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

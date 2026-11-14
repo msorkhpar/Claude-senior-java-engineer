@@ -4,6 +4,8 @@
 ARG RUNNER_PRIMED
 FROM ${RUNNER_PRIMED}
 COPY .studyforge/execution/runservice.pl /opt/studyforge/runservice.pl
+# A run prints text as written: under the base's POSIX locale a JVM prints ö as ?.
+ENV LANG=C.UTF-8
 WORKDIR /work
 CMD ["perl", "/opt/studyforge/runservice.pl"]
 LABEL org.studyforge.course="claude-senior-java-engineer-interview-preparation"

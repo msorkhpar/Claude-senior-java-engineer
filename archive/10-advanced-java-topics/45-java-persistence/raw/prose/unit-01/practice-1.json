@@ -72,6 +72,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.List;\n\n/**\n * Loads the night's smart-meter readings into meter_reading(meter VARCHAR(40), wh BIGINT).\n * The connection belongs to the caller, who also decides when to commit.\n */\npublic final class MeterImport {\n\n    /** One reading: the meter's name and the watt-hours it reported. */\n    public record Reading(String meter, long wattHours) {}\n\n    private MeterImport() {}\n\n    /** The import as it runs today: correct, and one SQL text per reading. */\n    public static int importOneByOne(Connection conn, List<Reading> readings) throws SQLException {\n        int rows = 0;\n        try (Statement st = conn.createStatement()) {\n            for (Reading r : readings) {\n                rows += st.executeUpdate(\"INSERT INTO meter_reading (meter, wh) VALUES ('\"\n                        + r.meter().replace(\"'\", \"''\") + \"', \" + r.wattHours() + \")\");\n            }\n        }\n        return rows;\n    }\n\n    /**\n     * Inserts every reading and returns the number of rows the database reports inserted.\n     * The driver is called at most once per chunkSize readings.\n     */\n    public static int importAll(Connection conn, List<Reading> readings, int chunkSize) throws SQLException {\n        if (chunkSize < 1) throw new IllegalArgumentException(\"chunkSize must be at least 1, was \" + chunkSize);\n        int rows = 0;\n        try (PreparedStatement ps = conn.prepareStatement(\"INSERT INTO meter_reading (meter, wh) VALUES (?, ?)\")) {\n            int queued = 0;\n            for (Reading r : readings) {\n                ps.setString(1, r.meter());\n                ps.setLong(2, r.wattHours());\n                ps.addBatch();\n                if (++queued == chunkSize) {\n                    rows += sum(ps.executeBatch());\n                    queued = 0;\n                }\n            }\n            if (queued > 0) rows += sum(ps.executeBatch());\n        }\n        return rows;\n    }\n\n    private static int sum(int[] counts) {\n        int total = 0;\n        for (int c : counts) total += c;\n        return total;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.sql.DriverManager;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            try (Connection db = h2(\"meters\")) {\n                try (Statement st = db.createStatement()) {\n                    st.execute(\"CREATE TABLE meter_reading (meter VARCHAR(40) NOT NULL, wh BIGINT NOT NULL)\");\n                }\n                List<MeterImport.Reading> night = new ArrayList<>();\n                for (int i = 0; i < 9; i++) night.add(new MeterImport.Reading(\"grid-2/m\" + (500 + i), 7_000L + 21L * i));\n                night.add(new MeterImport.Reading(\"D'Arcy Rd 1\", 6_480));\n                System.out.println(\"rows reported, chunks of 4: \" + MeterImport.importAll(db, night, 4));\n                System.out.println(\"empty night: \" + MeterImport.importAll(db, List.of(), 50));\n                try (Statement st = db.createStatement();\n                     ResultSet rs = st.executeQuery(\"SELECT COUNT(*), SUM(wh), MIN(meter) FROM meter_reading\")) {\n                    rs.next();\n                    System.out.println(\"rows stored: \" + rs.getInt(1) + \", total wh: \" + rs.getLong(2) + \", first meter: \" + rs.getString(3));\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** The practice's database, H2 in memory: Run sees the tests' libraries too. */\n    private static Connection h2(String name) throws SQLException {\n        return DriverManager.getConnection(\"jdbc:h2:mem:\" + name);\n    }\n}\n"
         }
       ]
     },
@@ -84,6 +93,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.List;\n\n/**\n * Loads the night's smart-meter readings into meter_reading(meter VARCHAR(40), wh BIGINT).\n * The connection belongs to the caller, who also decides when to commit.\n */\npublic final class MeterImport {\n\n    /** One reading: the meter's name and the watt-hours it reported. */\n    public record Reading(String meter, long wattHours) {}\n\n    private MeterImport() {}\n\n    /** The import as it runs today: correct, and one SQL text per reading. */\n    public static int importOneByOne(Connection conn, List<Reading> readings) throws SQLException {\n        int rows = 0;\n        try (Statement st = conn.createStatement()) {\n            for (Reading r : readings) {\n                rows += st.executeUpdate(\"INSERT INTO meter_reading (meter, wh) VALUES ('\"\n                        + r.meter().replace(\"'\", \"''\") + \"', \" + r.wattHours() + \")\");\n            }\n        }\n        return rows;\n    }\n\n    /**\n     * Inserts every reading and returns the number of rows the database reports inserted.\n     * The driver is called at most once per chunkSize readings.\n     */\n    public static int importAll(Connection conn, List<Reading> readings, int chunkSize) throws SQLException {\n        if (chunkSize < 1) throw new IllegalArgumentException(\"chunkSize must be at least 1, was \" + chunkSize);\n        // TODO: Store every reading in meter_reading and return the number of rows the database\n        //       reports inserted. Tonight's file has 2.4 million readings, the database is across\n        //       the network, and meter names come from the vendor's file as they are.\n        throw new IllegalStateException(\"TODO: importAll\");\n    }\n\n    private static int sum(int[] counts) {\n        int total = 0;\n        for (int c : counts) total += c;\n        return total;\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.sql.DriverManager;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            try (Connection db = h2(\"meters\")) {\n                try (Statement st = db.createStatement()) {\n                    st.execute(\"CREATE TABLE meter_reading (meter VARCHAR(40) NOT NULL, wh BIGINT NOT NULL)\");\n                }\n                List<MeterImport.Reading> night = new ArrayList<>();\n                for (int i = 0; i < 9; i++) night.add(new MeterImport.Reading(\"grid-2/m\" + (500 + i), 7_000L + 21L * i));\n                night.add(new MeterImport.Reading(\"D'Arcy Rd 1\", 6_480));\n                System.out.println(\"rows reported, chunks of 4: \" + MeterImport.importAll(db, night, 4));\n                System.out.println(\"empty night: \" + MeterImport.importAll(db, List.of(), 50));\n                try (Statement st = db.createStatement();\n                     ResultSet rs = st.executeQuery(\"SELECT COUNT(*), SUM(wh), MIN(meter) FROM meter_reading\")) {\n                    rs.next();\n                    System.out.println(\"rows stored: \" + rs.getInt(1) + \", total wh: \" + rs.getLong(2) + \", first meter: \" + rs.getString(3));\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** The practice's database, H2 in memory: Run sees the tests' libraries too. */\n    private static Connection h2(String name) throws SQLException {\n        return DriverManager.getConnection(\"jdbc:h2:mem:\" + name);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,8 +109,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 1,
     "lists": 0,
     "images": 0,
@@ -102,7 +120,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d5a010f1c2d4c69d92b1a412ee8efc87c6d7cd8298d300688024a6dd05f0f145",
+  "content_sha256": "a662946562110b05888dbb85768466e2f19ffcffb5e7a302d609bc4a8ca83961",
   "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.List;\n\n/**\n * Loads the night's smart-meter readings into meter_reading(meter VARCHAR(40), wh BIGINT).\n * The connection belongs to the caller, who also decides when to commit.\n */\npublic final class MeterImport {\n\n    /** One reading: the meter's name and the watt-hours it reported. */\n    public record Reading(String meter, long wattHours) {}\n\n    private MeterImport() {}\n\n    /** The import as it runs today: correct, and one SQL text per reading. */\n    public static int importOneByOne(Connection conn, List<Reading> readings) throws SQLException {\n        int rows = 0;\n        try (Statement st = conn.createStatement()) {\n            for (Reading r : readings) {\n                rows += st.executeUpdate(\"INSERT INTO meter_reading (meter, wh) VALUES ('\"\n                        + r.meter().replace(\"'\", \"''\") + \"', \" + r.wattHours() + \")\");\n            }\n        }\n        return rows;\n    }\n\n    /**\n     * Inserts every reading and returns the number of rows the database reports inserted.\n     * The driver is called at most once per chunkSize readings.\n     */\n    public static int importAll(Connection conn, List<Reading> readings, int chunkSize) throws SQLException {\n        if (chunkSize < 1) throw new IllegalArgumentException(\"chunkSize must be at least 1, was \" + chunkSize);\n        // TODO: Store every reading in meter_reading and return the number of rows the database\n        //       reports inserted. Tonight's file has 2.4 million readings, the database is across\n        //       the network, and meter names come from the vendor's file as they are.\n        throw new IllegalStateException(\"TODO: importAll\");\n    }\n\n    private static int sum(int[] counts) {\n        int total = 0;\n        for (int c : counts) total += c;\n        return total;\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-1/src/main/java/practice/MeterImport.java",
@@ -113,7 +131,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -163,6 +182,10 @@
     "concepts": [
       "A PreparedStatement is parsed once and executed with new bound values; addBatch/executeBatch sends many rows in one call into the driver instead of one call per row.",
       "Bound values never become part of the SQL text, so the statement text is the same for every row and a value with quotes can't change it."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

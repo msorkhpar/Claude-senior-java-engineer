@@ -126,6 +126,91 @@ public class ShipmentJournal {
         return out.toString();
     }
 }
+</code></pre></figure>
+<p>File: src/main/java/practice/TryIt.java</p>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/** Run executes this file. Change the calls in main and see what prints. Submit grades. */
+public class TryIt {
+    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */
+    private static final Logger JDK_EXIT = Logger.getLogger(&quot;java.lang.Runtime&quot;);
+
+    public static void main(String[] args) throws Exception {
+        // Turn the logger up, so the log lines of your code show under the printed lines.
+        System.setProperty(&quot;java.util.logging.SimpleFormatter.format&quot;, &quot;%4$s %5$s%n&quot;);
+        // Only this handler prints, and it leaves out the JDK's own detail.
+        Logger root = Logger.getLogger(&quot;&quot;);
+        for (java.util.logging.Handler before : root.getHandlers()) {
+            root.removeHandler(before);
+        }
+        ConsoleHandler handler = new ConsoleHandler();
+        handler.setLevel(Level.ALL);
+        handler.setFilter(entry -&gt; !String.valueOf(entry.getLoggerName()).matches(&quot;(java|javax|jdk|sun|com\\.sun)\\..*&quot;));
+        root.setLevel(Level.ALL);
+        root.addHandler(handler);
+        JDK_EXIT.setLevel(Level.OFF);
+
+        // A stand-in for the collaborator, like the one the tests use for the first main case.
+        try {
+            ShipmentJournal journal = new ShipmentJournal();
+            SlowParcel slow = new SlowParcel();
+            AtomicReference&lt;RuntimeException&gt; failed = new AtomicReference&lt;&gt;();
+            Thread slowScanner = scanner(() -&gt; journal.record(slow), failed);
+            slow.inLookup.await(2, TimeUnit.SECONDS);
+            Thread fastScanner = scanner(() -&gt; journal.record(new Parcel(&quot;PL-0450&quot;, &quot;WAW-1&quot;, 380)), failed);
+            fastScanner.join(1_000);
+            boolean fastDone = !fastScanner.isAlive();
+            slow.answer.countDown();
+            slowScanner.join();
+            fastScanner.join();
+            if (failed.get() != null) throw failed.get();
+            System.out.println(&quot;quick event recorded during the slow lookup: &quot; + fastDone);
+            System.out.print(&quot;journal:\n&quot; + journal.contents());
+        } catch (RuntimeException stopped) {
+            // A method you have not finished, or a bug, stops here with its message, not a build error.
+            System.out.println(&quot;Run stopped: &quot; + stopped);
+        }
+    }
+
+    record Parcel(String parcel, String depot, int grams) implements ShipmentJournal.Event { }
+
+    /** A parcel whose depot lookup waits until the answer is released. */
+    static class SlowParcel implements ShipmentJournal.Event {
+        final CountDownLatch inLookup = new CountDownLatch(1);
+        final CountDownLatch answer = new CountDownLatch(1);
+        @Override public String parcel() { return &quot;SE-3001&quot;; }
+        @Override public int grams() { return 1200; }
+        @Override public String depot() {
+            inLookup.countDown();
+            try {
+                answer.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return &quot;GOT-7&quot;;
+        }
+    }
+
+    /** Starts a scanner thread; what it throws is kept for main to report. */
+    private static Thread scanner(Runnable work, AtomicReference&lt;RuntimeException&gt; failed) {
+        Thread t = new Thread(() -&gt; {
+            try {
+                work.run();
+            } catch (RuntimeException e) {
+                failed.compareAndSet(null, e);
+            }
+        });
+        t.start();
+        return t;
+    }
+}
 </code></pre></figure></details>
 <h2 id="practice-prose-b6">Starting code</h2>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
@@ -161,10 +246,96 @@ public class ShipmentJournal {
     }
 }
 </code></pre></figure>
+<p>File: src/main/java/practice/TryIt.java</p>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/** Run executes this file. Change the calls in main and see what prints. Submit grades. */
+public class TryIt {
+    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */
+    private static final Logger JDK_EXIT = Logger.getLogger(&quot;java.lang.Runtime&quot;);
+
+    public static void main(String[] args) throws Exception {
+        // Turn the logger up, so the log lines of your code show under the printed lines.
+        System.setProperty(&quot;java.util.logging.SimpleFormatter.format&quot;, &quot;%4$s %5$s%n&quot;);
+        // Only this handler prints, and it leaves out the JDK's own detail.
+        Logger root = Logger.getLogger(&quot;&quot;);
+        for (java.util.logging.Handler before : root.getHandlers()) {
+            root.removeHandler(before);
+        }
+        ConsoleHandler handler = new ConsoleHandler();
+        handler.setLevel(Level.ALL);
+        handler.setFilter(entry -&gt; !String.valueOf(entry.getLoggerName()).matches(&quot;(java|javax|jdk|sun|com\\.sun)\\..*&quot;));
+        root.setLevel(Level.ALL);
+        root.addHandler(handler);
+        JDK_EXIT.setLevel(Level.OFF);
+
+        // A stand-in for the collaborator, like the one the tests use for the first main case.
+        try {
+            ShipmentJournal journal = new ShipmentJournal();
+            SlowParcel slow = new SlowParcel();
+            AtomicReference&lt;RuntimeException&gt; failed = new AtomicReference&lt;&gt;();
+            Thread slowScanner = scanner(() -&gt; journal.record(slow), failed);
+            slow.inLookup.await(2, TimeUnit.SECONDS);
+            Thread fastScanner = scanner(() -&gt; journal.record(new Parcel(&quot;PL-0450&quot;, &quot;WAW-1&quot;, 380)), failed);
+            fastScanner.join(1_000);
+            boolean fastDone = !fastScanner.isAlive();
+            slow.answer.countDown();
+            slowScanner.join();
+            fastScanner.join();
+            if (failed.get() != null) throw failed.get();
+            System.out.println(&quot;quick event recorded during the slow lookup: &quot; + fastDone);
+            System.out.print(&quot;journal:\n&quot; + journal.contents());
+        } catch (RuntimeException stopped) {
+            // A method you have not finished, or a bug, stops here with its message, not a build error.
+            System.out.println(&quot;Run stopped: &quot; + stopped);
+        }
+    }
+
+    record Parcel(String parcel, String depot, int grams) implements ShipmentJournal.Event { }
+
+    /** A parcel whose depot lookup waits until the answer is released. */
+    static class SlowParcel implements ShipmentJournal.Event {
+        final CountDownLatch inLookup = new CountDownLatch(1);
+        final CountDownLatch answer = new CountDownLatch(1);
+        @Override public String parcel() { return &quot;SE-3001&quot;; }
+        @Override public int grams() { return 1200; }
+        @Override public String depot() {
+            inLookup.countDown();
+            try {
+                answer.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return &quot;GOT-7&quot;;
+        }
+    }
+
+    /** Starts a scanner thread; what it throws is kept for main to report. */
+    private static Thread scanner(Runnable work, AtomicReference&lt;RuntimeException&gt; failed) {
+        Thread t = new Thread(() -&gt; {
+            try {
+                work.run();
+            } catch (RuntimeException e) {
+                failed.compareAndSet(null, e);
+            }
+        });
+        t.start();
+        return t;
+    }
+}
+</code></pre></figure>
 </section>
 <section data-practice="01-java-fundamentals/04-str-literals/unit-05/practice-prose" data-corpus="claude-senior-java-engineer-interview-preparation" aria-label="Practice" tabindex="-1">
 <p data-practice-part="grader">Written for this site. Its tests were proven against a worked solution before it shipped.</p>
-<p data-practice-part="file">Your file for this practice is <code>practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/ShipmentJournal.java</code>.</p>
+<p data-practice-part="file">Your files for this practice are <code>practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/ShipmentJournal.java</code> and <code>practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/TryIt.java</code>.</p>
+<p data-practice-part="tryit">Run executes <code>practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/TryIt.java</code>, your own calls, and shows what it printed and logged. It runs no tests and gives no grade; Submit grades.</p>
 <p data-practice-part="offline">Running and submitting need the local study server. If this page was opened as a file, work on the file above and run it yourself.</p>
 <div data-practice-part="editor" hidden>
 <p data-practice-part="no-editor">The editor is not running here, and this page does not start one for you: it is a full development environment with a shell. Start it, and the runner beside it, with the one command under "Bring it up" in this corpus's EXECUTION.md, run from the corpus's root, and reload this page; until then, open the file above in your own editor.</p>
@@ -274,6 +445,53 @@ public class ScratchBuffer {
         return sb.capacity();
     }
 }
+</code></pre></figure>
+<p>File: src/main/java/practice/TryIt.java</p>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/** Run executes this file. Change the calls in main and see what prints. Submit grades. */
+public class TryIt {
+    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */
+    private static final Logger JDK_EXIT = Logger.getLogger(&quot;java.lang.Runtime&quot;);
+
+    public static void main(String[] args) {
+        // Turn the logger up, so the log lines of your code show under the printed lines.
+        System.setProperty(&quot;java.util.logging.SimpleFormatter.format&quot;, &quot;%4$s %5$s%n&quot;);
+        // Only this handler prints, and it leaves out the JDK's own detail.
+        Logger root = Logger.getLogger(&quot;&quot;);
+        for (java.util.logging.Handler before : root.getHandlers()) {
+            root.removeHandler(before);
+        }
+        ConsoleHandler handler = new ConsoleHandler();
+        handler.setLevel(Level.ALL);
+        handler.setFilter(entry -&gt; !String.valueOf(entry.getLoggerName()).matches(&quot;(java|javax|jdk|sun|com\\.sun)\\..*&quot;));
+        root.setLevel(Level.ALL);
+        root.addHandler(handler);
+        JDK_EXIT.setLevel(Level.OFF);
+
+        // A stand-in for the collaborator, like the one the tests use for the first main case.
+        try {
+            ScratchBuffer buffer = new ScratchBuffer();
+            System.out.print(buffer.format(List.of(&quot;INVOICE HARBOR&quot;, &quot;00001;ROPE;3.20&quot;)));
+            System.out.print(buffer.format(List.of(&quot;INVOICE MERIDIAN&quot;, &quot;00001;SAIL;80.00&quot;)));
+            System.out.println(&quot;capacity after ordinary invoices: &quot; + buffer.capacity());
+            List&lt;String&gt; huge = new ArrayList&lt;&gt;();
+            for (int i = 1; i &lt;= 15_000; i++) huge.add(&quot;%05d;CLEAT-%d;1.%02d&quot;.formatted(i, i % 9, i % 100));
+            System.out.println(&quot;huge invoice length: &quot; + buffer.format(huge).length());
+            buffer.format(List.of(&quot;INVOICE PIER-9&quot;, &quot;00001;BUOY;45.00&quot;));
+            System.out.println(&quot;capacity after the next ordinary invoice: &quot; + buffer.capacity());
+        } catch (RuntimeException stopped) {
+            // A method you have not finished, or a bug, stops here with its message, not a build error.
+            System.out.println(&quot;Run stopped: &quot; + stopped);
+        }
+    }
+}
 </code></pre></figure></details>
 <h2 id="practice-prose-2-b5">Starting code</h2>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
@@ -315,10 +533,58 @@ public class ScratchBuffer {
     }
 }
 </code></pre></figure>
+<p>File: src/main/java/practice/TryIt.java</p>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/** Run executes this file. Change the calls in main and see what prints. Submit grades. */
+public class TryIt {
+    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */
+    private static final Logger JDK_EXIT = Logger.getLogger(&quot;java.lang.Runtime&quot;);
+
+    public static void main(String[] args) {
+        // Turn the logger up, so the log lines of your code show under the printed lines.
+        System.setProperty(&quot;java.util.logging.SimpleFormatter.format&quot;, &quot;%4$s %5$s%n&quot;);
+        // Only this handler prints, and it leaves out the JDK's own detail.
+        Logger root = Logger.getLogger(&quot;&quot;);
+        for (java.util.logging.Handler before : root.getHandlers()) {
+            root.removeHandler(before);
+        }
+        ConsoleHandler handler = new ConsoleHandler();
+        handler.setLevel(Level.ALL);
+        handler.setFilter(entry -&gt; !String.valueOf(entry.getLoggerName()).matches(&quot;(java|javax|jdk|sun|com\\.sun)\\..*&quot;));
+        root.setLevel(Level.ALL);
+        root.addHandler(handler);
+        JDK_EXIT.setLevel(Level.OFF);
+
+        // A stand-in for the collaborator, like the one the tests use for the first main case.
+        try {
+            ScratchBuffer buffer = new ScratchBuffer();
+            System.out.print(buffer.format(List.of(&quot;INVOICE HARBOR&quot;, &quot;00001;ROPE;3.20&quot;)));
+            System.out.print(buffer.format(List.of(&quot;INVOICE MERIDIAN&quot;, &quot;00001;SAIL;80.00&quot;)));
+            System.out.println(&quot;capacity after ordinary invoices: &quot; + buffer.capacity());
+            List&lt;String&gt; huge = new ArrayList&lt;&gt;();
+            for (int i = 1; i &lt;= 15_000; i++) huge.add(&quot;%05d;CLEAT-%d;1.%02d&quot;.formatted(i, i % 9, i % 100));
+            System.out.println(&quot;huge invoice length: &quot; + buffer.format(huge).length());
+            buffer.format(List.of(&quot;INVOICE PIER-9&quot;, &quot;00001;BUOY;45.00&quot;));
+            System.out.println(&quot;capacity after the next ordinary invoice: &quot; + buffer.capacity());
+        } catch (RuntimeException stopped) {
+            // A method you have not finished, or a bug, stops here with its message, not a build error.
+            System.out.println(&quot;Run stopped: &quot; + stopped);
+        }
+    }
+}
+</code></pre></figure>
 </section>
 <section data-practice="01-java-fundamentals/04-str-literals/unit-05/practice-prose-2" data-corpus="claude-senior-java-engineer-interview-preparation" aria-label="Practice" tabindex="-1">
 <p data-practice-part="grader">Written for this site. Its tests were proven against a worked solution before it shipped.</p>
-<p data-practice-part="file">Your file for this practice is <code>practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-2/src/main/java/practice/ScratchBuffer.java</code>.</p>
+<p data-practice-part="file">Your files for this practice are <code>practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-2/src/main/java/practice/ScratchBuffer.java</code> and <code>practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-2/src/main/java/practice/TryIt.java</code>.</p>
+<p data-practice-part="tryit">Run executes <code>practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-2/src/main/java/practice/TryIt.java</code>, your own calls, and shows what it printed and logged. It runs no tests and gives no grade; Submit grades.</p>
 <p data-practice-part="offline">Running and submitting need the local study server. If this page was opened as a file, work on the file above and run it yourself.</p>
 <div data-practice-part="editor" hidden>
 <p data-practice-part="no-editor">The editor is not running here, and this page does not start one for you: it is a full development environment with a shell. Start it, and the runner beside it, with the one command under "Bring it up" in this corpus's EXECUTION.md, run from the corpus's root, and reload this page; until then, open the file above in your own editor.</p>

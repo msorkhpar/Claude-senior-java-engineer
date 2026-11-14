@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\n/**\n * The maintenance window that the status page shows and the deploy gate obeys. Operators\n * reschedule it from the admin console, on-call can cancel it, and every page view reads it,\n * each from its own request thread.\n */\npublic class MaintenanceSchedule {\n\n    /** A window in minutes after midnight UTC: start before end, or NONE when there is no window. */\n    public record Window(int startMinute, int endMinute) {\n        public static final Window NONE = new Window(-1, -1);\n    }\n\n    private final Object lock = new Object();\n    private final Runnable midReschedule;\n    private int startMinute = 120;                  // 02:00\n    private int endMinute = 180;                    // 03:00\n\n    /**\n     * {@code midReschedule} runs inside {@link #reschedule} between its two writes. The tests use\n     * it to pause a reschedule halfway; production passes a no-op.\n     */\n    public MaintenanceSchedule(Runnable midReschedule) {\n        this.midReschedule = midReschedule;\n    }\n\n    public MaintenanceSchedule() {\n        this(() -> { });\n    }\n\n    /** Moves the window. */\n    public void reschedule(int startMinute, int endMinute) {\n        if (startMinute < 0 || startMinute >= endMinute) {\n            throw new IllegalArgumentException(\"start must be before end: \" + startMinute + \"..\" + endMinute);\n        }\n        synchronized (lock) {\n            this.startMinute = startMinute;\n            midReschedule.run();\n            this.endMinute = endMinute;\n        }\n    }\n\n    /** The window as it stands now. */\n    public Window current() {\n        synchronized (lock) {\n            return new Window(startMinute, endMinute);\n        }\n    }\n\n    /** Removes the window: current() is Window.NONE until the next reschedule. */\n    public void cancel() {\n        synchronized (lock) {\n            startMinute = -1;\n            endMinute = -1;\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            MaintenanceSchedule schedule = new MaintenanceSchedule();\n            System.out.println(\"window at start: \" + schedule.current());\n            schedule.reschedule(1_380, 1_420);\n            System.out.println(\"after reschedule to 23:00-23:40: \" + schedule.current());\n            schedule.cancel();\n            System.out.println(\"after cancel: \" + schedule.current());\n            System.out.println(\"cancel shows NONE: \" + schedule.current().equals(MaintenanceSchedule.Window.NONE));\n            schedule.reschedule(30, 90);\n            System.out.println(\"after reschedule to 00:30-01:30: \" + schedule.current());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\n/**\n * The maintenance window that the status page shows and the deploy gate obeys. Operators\n * reschedule it from the admin console, on-call can cancel it, and every page view reads it,\n * each from its own request thread.\n */\npublic class MaintenanceSchedule {\n\n    /** A window in minutes after midnight UTC: start before end, or NONE when there is no window. */\n    public record Window(int startMinute, int endMinute) {\n        public static final Window NONE = new Window(-1, -1);\n    }\n\n    private final Object lock = new Object();\n    private final Runnable midReschedule;\n    private int startMinute = 120;                  // 02:00\n    private int endMinute = 180;                    // 03:00\n\n    /**\n     * {@code midReschedule} runs inside {@link #reschedule} between its two writes. The tests use\n     * it to pause a reschedule halfway; production passes a no-op.\n     */\n    public MaintenanceSchedule(Runnable midReschedule) {\n        this.midReschedule = midReschedule;\n    }\n\n    public MaintenanceSchedule() {\n        this(() -> { });\n    }\n\n    /** Moves the window. */\n    public void reschedule(int startMinute, int endMinute) {\n        if (startMinute < 0 || startMinute >= endMinute) {\n            throw new IllegalArgumentException(\"start must be before end: \" + startMinute + \"..\" + endMinute);\n        }\n        synchronized (lock) {\n            this.startMinute = startMinute;\n            midReschedule.run();\n            this.endMinute = endMinute;\n        }\n    }\n\n    /** The window as it stands now. */\n    public Window current() {\n        // TODO: The status page calls this on every view while operators reschedule. The page\n        //       must show a window that was really scheduled: one start and the end that went\n        //       with it.\n        throw new IllegalStateException(\"TODO: current\");\n    }\n\n    /** Removes the window: current() is Window.NONE until the next reschedule. */\n    public void cancel() {\n        // TODO: On-call cancels the window, possibly while an operator is moving it. Afterwards\n        //       there must be no window, and no half of one.\n        throw new IllegalStateException(\"TODO: cancel\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            MaintenanceSchedule schedule = new MaintenanceSchedule();\n            System.out.println(\"window at start: \" + schedule.current());\n            schedule.reschedule(1_380, 1_420);\n            System.out.println(\"after reschedule to 23:00-23:40: \" + schedule.current());\n            schedule.cancel();\n            System.out.println(\"after cancel: \" + schedule.current());\n            System.out.println(\"cancel shows NONE: \" + schedule.current().equals(MaintenanceSchedule.Window.NONE));\n            schedule.reschedule(30, 90);\n            System.out.println(\"after reschedule to 00:30-01:30: \" + schedule.current());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d467bdfed11f40f02ec74c7d65393a7492797eedb77f98418aab41ff0336ca73",
+  "content_sha256": "ca75b7324a2d4c4442c91e11a538b19357f5e4796fa0ee1f9514ba1ae6ebda13",
   "starting_code": "package practice;\n\n/**\n * The maintenance window that the status page shows and the deploy gate obeys. Operators\n * reschedule it from the admin console, on-call can cancel it, and every page view reads it,\n * each from its own request thread.\n */\npublic class MaintenanceSchedule {\n\n    /** A window in minutes after midnight UTC: start before end, or NONE when there is no window. */\n    public record Window(int startMinute, int endMinute) {\n        public static final Window NONE = new Window(-1, -1);\n    }\n\n    private final Object lock = new Object();\n    private final Runnable midReschedule;\n    private int startMinute = 120;                  // 02:00\n    private int endMinute = 180;                    // 03:00\n\n    /**\n     * {@code midReschedule} runs inside {@link #reschedule} between its two writes. The tests use\n     * it to pause a reschedule halfway; production passes a no-op.\n     */\n    public MaintenanceSchedule(Runnable midReschedule) {\n        this.midReschedule = midReschedule;\n    }\n\n    public MaintenanceSchedule() {\n        this(() -> { });\n    }\n\n    /** Moves the window. */\n    public void reschedule(int startMinute, int endMinute) {\n        if (startMinute < 0 || startMinute >= endMinute) {\n            throw new IllegalArgumentException(\"start must be before end: \" + startMinute + \"..\" + endMinute);\n        }\n        synchronized (lock) {\n            this.startMinute = startMinute;\n            midReschedule.run();\n            this.endMinute = endMinute;\n        }\n    }\n\n    /** The window as it stands now. */\n    public Window current() {\n        // TODO: The status page calls this on every view while operators reschedule. The page\n        //       must show a window that was really scheduled: one start and the end that went\n        //       with it.\n        throw new IllegalStateException(\"TODO: current\");\n    }\n\n    /** Removes the window: current() is Window.NONE until the next reschedule. */\n    public void cancel() {\n        // TODO: On-call cancels the window, possibly while an operator is moving it. Afterwards\n        //       there must be no window, and no half of one.\n        throw new IllegalStateException(\"TODO: cancel\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-1/src/main/java/practice/MaintenanceSchedule.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -141,6 +160,10 @@
     "concepts": [
       "A lock on a different object neither excludes the writer nor gives an edge to its writes, even when both methods are synchronized.",
       "A reader that skips the lock can run between a locked writer's writes and see two fields that were never written together; reading under the same lock prevents it."
-    ]
+    ],
+    "files": [
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/05-java-memory-model/17-java-memory-model/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
   }
 }

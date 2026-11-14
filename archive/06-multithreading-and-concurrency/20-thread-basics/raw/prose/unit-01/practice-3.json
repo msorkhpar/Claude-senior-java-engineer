@@ -54,6 +54,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Creates the threads of one component's pool, for example\n * {@code Executors.newFixedThreadPool(4, new ServiceThreads(\"audit\", false))}.\n * A background component's work may be dropped at exit; a foreground component's must finish.\n */\npublic class ServiceThreads implements ThreadFactory {\n\n    private final String component;\n    private final boolean background;\n    private final AtomicInteger created = new AtomicInteger();\n\n    public ServiceThreads(String component, boolean background) {\n        this.component = component;\n        this.background = background;\n    }\n\n    @Override\n    public Thread newThread(Runnable task) {\n        Thread thread = new Thread(task, component + \"-\" + created.incrementAndGet());\n        thread.setDaemon(background);\n        return thread;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ServiceThreads invoices = new ServiceThreads(\"invoices\", false);\n            ServiceThreads metrics = new ServiceThreads(\"metrics\", true);\n            Thread i1 = invoices.newThread(() -> { });\n            Thread i2 = invoices.newThread(() -> { });\n            Thread m1 = metrics.newThread(() -> { });\n            System.out.println(\"threads: \" + i1.getName() + \", \" + i2.getName() + \", \" + m1.getName());\n            System.out.println(\"invoices daemon: \" + i1.isDaemon() + \", metrics daemon: \" + m1.isDaemon());\n            AtomicReference<Thread> fromDaemon = new AtomicReference<>();\n            Thread housekeeping = new Thread(() -> fromDaemon.set(new ServiceThreads(\"payouts\", false).newThread(() -> { })), \"housekeeping\");\n            housekeeping.setDaemon(true);\n            housekeeping.start();\n            housekeeping.join(5_000);\n            System.out.println(\"payouts thread made on a daemon thread: \" + fromDaemon.get().getName()\n                    + \", daemon \" + fromDaemon.get().isDaemon());\n            ExecutorService pool = Executors.newFixedThreadPool(1, new ServiceThreads(\"refunds\", false));\n            try {\n                System.out.println(\"refunds pool runs on: \" + pool.submit(() -> Thread.currentThread().getName()).get(5, TimeUnit.SECONDS));\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -66,6 +75,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\n/**\n * Creates the threads of one component's pool, for example\n * {@code Executors.newFixedThreadPool(4, new ServiceThreads(\"audit\", false))}.\n * A background component's work may be dropped at exit; a foreground component's must finish.\n */\npublic class ServiceThreads implements ThreadFactory {\n\n    private final String component;\n    private final boolean background;\n\n    public ServiceThreads(String component, boolean background) {\n        this.component = component;\n        this.background = background;\n    }\n\n    @Override\n    public Thread newThread(Runnable task) {\n        // TODO: Create the (unstarted) thread that will run this pool's tasks. In a thread dump,\n        //       on-call must be able to tell which component a thread belongs to and which of\n        //       its threads it is, and whether the JVM waits for it at exit must depend only on\n        //       what the component declared.\n        throw new IllegalStateException(\"TODO: newThread\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ServiceThreads invoices = new ServiceThreads(\"invoices\", false);\n            ServiceThreads metrics = new ServiceThreads(\"metrics\", true);\n            Thread i1 = invoices.newThread(() -> { });\n            Thread i2 = invoices.newThread(() -> { });\n            Thread m1 = metrics.newThread(() -> { });\n            System.out.println(\"threads: \" + i1.getName() + \", \" + i2.getName() + \", \" + m1.getName());\n            System.out.println(\"invoices daemon: \" + i1.isDaemon() + \", metrics daemon: \" + m1.isDaemon());\n            AtomicReference<Thread> fromDaemon = new AtomicReference<>();\n            Thread housekeeping = new Thread(() -> fromDaemon.set(new ServiceThreads(\"payouts\", false).newThread(() -> { })), \"housekeeping\");\n            housekeeping.setDaemon(true);\n            housekeeping.start();\n            housekeeping.join(5_000);\n            System.out.println(\"payouts thread made on a daemon thread: \" + fromDaemon.get().getName()\n                    + \", daemon \" + fromDaemon.get().isDaemon());\n            ExecutorService pool = Executors.newFixedThreadPool(1, new ServiceThreads(\"refunds\", false));\n            try {\n                System.out.println(\"refunds pool runs on: \" + pool.submit(() -> Thread.currentThread().getName()).get(5, TimeUnit.SECONDS));\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -73,8 +91,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -84,7 +102,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5f602f6866c9f1151c878f8cb4a520228cc820795f89ffdc1df4742bb6a4107d",
+  "content_sha256": "942dfd909671cf5e17876b3d454c6a55b4fa331f8410248f55361742e0c221d3",
   "starting_code": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\n/**\n * Creates the threads of one component's pool, for example\n * {@code Executors.newFixedThreadPool(4, new ServiceThreads(\"audit\", false))}.\n * A background component's work may be dropped at exit; a foreground component's must finish.\n */\npublic class ServiceThreads implements ThreadFactory {\n\n    private final String component;\n    private final boolean background;\n\n    public ServiceThreads(String component, boolean background) {\n        this.component = component;\n        this.background = background;\n    }\n\n    @Override\n    public Thread newThread(Runnable task) {\n        // TODO: Create the (unstarted) thread that will run this pool's tasks. In a thread dump,\n        //       on-call must be able to tell which component a thread belongs to and which of\n        //       its threads it is, and whether the JVM waits for it at exit must depend only on\n        //       what the component declared.\n        throw new IllegalStateException(\"TODO: newThread\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-3/src/main/java/practice/ServiceThreads.java",
@@ -95,7 +113,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -135,6 +154,10 @@
     "concepts": [
       "A platform thread not told otherwise inherits the daemon status of the thread that creates it, so code that creates threads for work that must finish sets daemon status explicitly.",
       "Threads are named where they are created, by the constructor, a builder's counter or a ThreadFactory; generated names and unnamed virtual threads make thread dumps unreadable."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-3/src/main/java/practice/TryIt.java"
   }
 }

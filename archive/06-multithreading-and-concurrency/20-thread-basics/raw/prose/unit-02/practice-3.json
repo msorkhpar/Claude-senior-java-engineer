@@ -47,6 +47,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The service's /health endpoint. Runs every probe (database, cache, message broker, ...) on its\n * own thread and reports each one, all within one time budget: the load balancer gives up on the\n * endpoint after that long. A probe reports a problem by throwing.\n */\npublic class HealthCheck {\n\n    public enum Status { PASSED, FAILED, TIMED_OUT }\n\n    /** Runs every probe at once and reports each by name, in the order given. */\n    public Map<String, Status> run(Map<String, Runnable> probes, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        Map<String, Throwable> failures = new ConcurrentHashMap<>();\n        Map<String, Thread> running = new LinkedHashMap<>();\n        for (Map.Entry<String, Runnable> probe : probes.entrySet()) {\n            Thread t = probeThread(probe.getKey(), probe.getValue(), failures);\n            t.start();\n            running.put(probe.getKey(), t);\n        }\n        Map<String, Status> report = new LinkedHashMap<>();\n        for (Map.Entry<String, Thread> probe : running.entrySet()) {\n            if (!await(probe.getValue(), deadline)) {\n                probe.getValue().interrupt();\n                report.put(probe.getKey(), Status.TIMED_OUT);\n            } else if (failures.containsKey(probe.getKey())) {\n                report.put(probe.getKey(), Status.FAILED);\n            } else {\n                report.put(probe.getKey(), Status.PASSED);\n            }\n        }\n        return report;\n    }\n\n    /**\n     * A daemon thread, not started yet, that runs one probe. If the probe fails, its failure is in\n     * {@code failures}, under the probe's name, by the time the thread has finished.\n     */\n    Thread probeThread(String name, Runnable probe, Map<String, Throwable> failures) {\n        Thread t = new Thread(() -> {\n            try {\n                probe.run();\n            } catch (Throwable failure) {\n                failures.put(name, failure);\n            }\n        }, \"probe-\" + name);\n        t.setDaemon(true);\n        return t;\n    }\n\n    /**\n     * Waits for a started probe, but not past the deadline (a System.nanoTime() value). True if\n     * the probe's thread has finished.\n     */\n    boolean await(Thread probe, long deadline) throws InterruptedException {\n        return probe.join(Duration.ofNanos(deadline - System.nanoTime()));\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Map<String, Runnable> probes = new LinkedHashMap<>();\n            probes.put(\"mysql\", () -> { });\n            probes.put(\"memcached\", () -> {\n                throw new IllegalStateException(\"connection refused: localhost:11211\");\n            });\n            probes.put(\"read-replica\", () -> {\n                throw new AssertionError(\"replication lag 55 s, limit 20 s\");\n            });\n            Map<String, HealthCheck.Status> report = new HealthCheck().run(probes, Duration.ofSeconds(2));\n            report.forEach((probe, status) -> System.out.println(probe + \": \" + status));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -59,6 +68,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The service's /health endpoint. Runs every probe (database, cache, message broker, ...) on its\n * own thread and reports each one, all within one time budget: the load balancer gives up on the\n * endpoint after that long. A probe reports a problem by throwing.\n */\npublic class HealthCheck {\n\n    public enum Status { PASSED, FAILED, TIMED_OUT }\n\n    /** Runs every probe at once and reports each by name, in the order given. */\n    public Map<String, Status> run(Map<String, Runnable> probes, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        Map<String, Throwable> failures = new ConcurrentHashMap<>();\n        Map<String, Thread> running = new LinkedHashMap<>();\n        for (Map.Entry<String, Runnable> probe : probes.entrySet()) {\n            Thread t = probeThread(probe.getKey(), probe.getValue(), failures);\n            t.start();\n            running.put(probe.getKey(), t);\n        }\n        Map<String, Status> report = new LinkedHashMap<>();\n        for (Map.Entry<String, Thread> probe : running.entrySet()) {\n            if (!await(probe.getValue(), deadline)) {\n                probe.getValue().interrupt();\n                report.put(probe.getKey(), Status.TIMED_OUT);\n            } else if (failures.containsKey(probe.getKey())) {\n                report.put(probe.getKey(), Status.FAILED);\n            } else {\n                report.put(probe.getKey(), Status.PASSED);\n            }\n        }\n        return report;\n    }\n\n    /**\n     * A daemon thread, not started yet, that runs one probe. If the probe fails, its failure is in\n     * {@code failures}, under the probe's name, by the time the thread has finished.\n     */\n    Thread probeThread(String name, Runnable probe, Map<String, Throwable> failures) {\n        // TODO: Build the probe's thread as before (a daemon named \"probe-\" + name). A probe\n        //       reports a problem by throwing, and run() reads failures once the thread has\n        //       finished; whatever the probe throws must be there by then.\n        throw new IllegalStateException(\"TODO: probeThread\");\n    }\n\n    /**\n     * Waits for a started probe, but not past the deadline (a System.nanoTime() value). True if\n     * the probe's thread has finished.\n     */\n    boolean await(Thread probe, long deadline) throws InterruptedException {\n        return probe.join(Duration.ofNanos(deadline - System.nanoTime()));\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Map<String, Runnable> probes = new LinkedHashMap<>();\n            probes.put(\"mysql\", () -> { });\n            probes.put(\"memcached\", () -> {\n                throw new IllegalStateException(\"connection refused: localhost:11211\");\n            });\n            probes.put(\"read-replica\", () -> {\n                throw new AssertionError(\"replication lag 55 s, limit 20 s\");\n            });\n            Map<String, HealthCheck.Status> report = new HealthCheck().run(probes, Duration.ofSeconds(2));\n            report.forEach((probe, status) -> System.out.println(probe + \": \" + status));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -66,8 +84,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -77,7 +95,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "8e0fa7157cb5f72e12dbb4316396e53c51fdf779f43e6649352806672864575a",
+  "content_sha256": "6816d46dc32da0c6ecca9894180aee76f8cec81581c6f4e816949544b74335a5",
   "starting_code": "package practice;\n\nimport java.time.Duration;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The service's /health endpoint. Runs every probe (database, cache, message broker, ...) on its\n * own thread and reports each one, all within one time budget: the load balancer gives up on the\n * endpoint after that long. A probe reports a problem by throwing.\n */\npublic class HealthCheck {\n\n    public enum Status { PASSED, FAILED, TIMED_OUT }\n\n    /** Runs every probe at once and reports each by name, in the order given. */\n    public Map<String, Status> run(Map<String, Runnable> probes, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        Map<String, Throwable> failures = new ConcurrentHashMap<>();\n        Map<String, Thread> running = new LinkedHashMap<>();\n        for (Map.Entry<String, Runnable> probe : probes.entrySet()) {\n            Thread t = probeThread(probe.getKey(), probe.getValue(), failures);\n            t.start();\n            running.put(probe.getKey(), t);\n        }\n        Map<String, Status> report = new LinkedHashMap<>();\n        for (Map.Entry<String, Thread> probe : running.entrySet()) {\n            if (!await(probe.getValue(), deadline)) {\n                probe.getValue().interrupt();\n                report.put(probe.getKey(), Status.TIMED_OUT);\n            } else if (failures.containsKey(probe.getKey())) {\n                report.put(probe.getKey(), Status.FAILED);\n            } else {\n                report.put(probe.getKey(), Status.PASSED);\n            }\n        }\n        return report;\n    }\n\n    /**\n     * A daemon thread, not started yet, that runs one probe. If the probe fails, its failure is in\n     * {@code failures}, under the probe's name, by the time the thread has finished.\n     */\n    Thread probeThread(String name, Runnable probe, Map<String, Throwable> failures) {\n        // TODO: Build the probe's thread as before (a daemon named \"probe-\" + name). A probe\n        //       reports a problem by throwing, and run() reads failures once the thread has\n        //       finished; whatever the probe throws must be there by then.\n        throw new IllegalStateException(\"TODO: probeThread\");\n    }\n\n    /**\n     * Waits for a started probe, but not past the deadline (a System.nanoTime() value). True if\n     * the probe's thread has finished.\n     */\n    boolean await(Thread probe, long deadline) throws InterruptedException {\n        return probe.join(Duration.ofNanos(deadline - System.nanoTime()));\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-3/src/main/java/practice/HealthCheck.java",
@@ -88,7 +106,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -127,6 +146,10 @@
     },
     "concepts": [
       "An exception thrown in a started thread ends that thread only: join() returns normally and no catch of the caller runs, so the thread must hand the failure over, catching Throwable or through an UncaughtExceptionHandler."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
   }
 }

@@ -54,6 +54,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The nightly settlement report. Each merchant's day is settled with its bank on the pool, all of\n * them at once, and the report has one line per merchant, in the order the merchants were given.\n */\npublic class SettlementReport {\n\n    /** Settles one merchant's day with its bank and returns the amount, in cents. */\n    public interface Bank {\n        long settle(String merchant) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Bank bank;\n\n    public SettlementReport(ExecutorService pool, Bank bank) {\n        this.pool = pool;\n        this.bank = bank;\n    }\n\n    /** Settles every merchant and returns the report's lines, one per merchant, in order. */\n    public List<String> run(List<String> merchants) throws InterruptedException {\n        List<Future<Long>> settlements = new ArrayList<>();\n        for (String merchant : merchants) {\n            settlements.add(pool.submit(() -> bank.settle(merchant)));\n        }\n        List<String> lines = new ArrayList<>();\n        for (int i = 0; i < merchants.size(); i++) {\n            lines.add(line(merchants.get(i), settlements.get(i)));\n        }\n        return lines;\n    }\n\n    /**\n     * The report's line for one merchant, once its settlement is over:\n     * \"m-114: settled 1999\" when the bank settled it, or\n     * \"m-114: failed: SocketTimeoutException: bank-7 timed out\" when the bank call threw, naming\n     * what the bank call threw and its message.\n     */\n    String line(String merchant, Future<Long> settlement) throws InterruptedException {\n        try {\n            return merchant + \": settled \" + settlement.get();\n        } catch (ExecutionException e) {\n            Throwable cause = e.getCause();\n            return merchant + \": failed: \" + cause.getClass().getSimpleName() + \": \" + cause.getMessage();\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ExecutorService pool = Executors.newFixedThreadPool(3);\n            try {\n                SettlementReport.Bank bank = merchant -> switch (merchant) {\n                    case \"m-330\" -> 64_250L;\n                    case \"m-871\" -> throw new IOException(\"bank-5 refused the batch\");\n                    default -> 1_075L;\n                };\n                List<String> lines = new SettlementReport(pool, bank).run(List.of(\"m-330\", \"m-871\", \"m-902\"));\n                System.out.println(\"report lines: \" + lines.size());\n                for (String line : lines) System.out.println(line);\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -66,6 +75,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The nightly settlement report. Each merchant's day is settled with its bank on the pool, all of\n * them at once, and the report has one line per merchant, in the order the merchants were given.\n */\npublic class SettlementReport {\n\n    /** Settles one merchant's day with its bank and returns the amount, in cents. */\n    public interface Bank {\n        long settle(String merchant) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Bank bank;\n\n    public SettlementReport(ExecutorService pool, Bank bank) {\n        this.pool = pool;\n        this.bank = bank;\n    }\n\n    /** Settles every merchant and returns the report's lines, one per merchant, in order. */\n    public List<String> run(List<String> merchants) throws InterruptedException {\n        List<Future<Long>> settlements = new ArrayList<>();\n        for (String merchant : merchants) {\n            settlements.add(pool.submit(() -> bank.settle(merchant)));\n        }\n        List<String> lines = new ArrayList<>();\n        for (int i = 0; i < merchants.size(); i++) {\n            lines.add(line(merchants.get(i), settlements.get(i)));\n        }\n        return lines;\n    }\n\n    /**\n     * The report's line for one merchant, once its settlement is over:\n     * \"m-114: settled 1999\" when the bank settled it, or\n     * \"m-114: failed: SocketTimeoutException: bank-7 timed out\" when the bank call threw, naming\n     * what the bank call threw and its message.\n     */\n    String line(String merchant, Future<Long> settlement) throws InterruptedException {\n        // TODO: Wait for this merchant's settlement and describe how it went, as above. A bank\n        //       that fails for one merchant must not cost the other merchants their lines.\n        throw new IllegalStateException(\"TODO: line\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ExecutorService pool = Executors.newFixedThreadPool(3);\n            try {\n                SettlementReport.Bank bank = merchant -> switch (merchant) {\n                    case \"m-330\" -> 64_250L;\n                    case \"m-871\" -> throw new IOException(\"bank-5 refused the batch\");\n                    default -> 1_075L;\n                };\n                List<String> lines = new SettlementReport(pool, bank).run(List.of(\"m-330\", \"m-871\", \"m-902\"));\n                System.out.println(\"report lines: \" + lines.size());\n                for (String line : lines) System.out.println(line);\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -73,8 +91,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -84,7 +102,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "cfd664aa893555e3ec07898e7b071605eb68bf5b3e9e6d819a6c3d54ee064da4",
+  "content_sha256": "1ab099d261c3181be487baa46974faa216b3776574f01795fa4094813c187361",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The nightly settlement report. Each merchant's day is settled with its bank on the pool, all of\n * them at once, and the report has one line per merchant, in the order the merchants were given.\n */\npublic class SettlementReport {\n\n    /** Settles one merchant's day with its bank and returns the amount, in cents. */\n    public interface Bank {\n        long settle(String merchant) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Bank bank;\n\n    public SettlementReport(ExecutorService pool, Bank bank) {\n        this.pool = pool;\n        this.bank = bank;\n    }\n\n    /** Settles every merchant and returns the report's lines, one per merchant, in order. */\n    public List<String> run(List<String> merchants) throws InterruptedException {\n        List<Future<Long>> settlements = new ArrayList<>();\n        for (String merchant : merchants) {\n            settlements.add(pool.submit(() -> bank.settle(merchant)));\n        }\n        List<String> lines = new ArrayList<>();\n        for (int i = 0; i < merchants.size(); i++) {\n            lines.add(line(merchants.get(i), settlements.get(i)));\n        }\n        return lines;\n    }\n\n    /**\n     * The report's line for one merchant, once its settlement is over:\n     * \"m-114: settled 1999\" when the bank settled it, or\n     * \"m-114: failed: SocketTimeoutException: bank-7 timed out\" when the bank call threw, naming\n     * what the bank call threw and its message.\n     */\n    String line(String merchant, Future<Long> settlement) throws InterruptedException {\n        // TODO: Wait for this merchant's settlement and describe how it went, as above. A bank\n        //       that fails for one merchant must not cost the other merchants their lines.\n        throw new IllegalStateException(\"TODO: line\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-1/src/main/java/practice/SettlementReport.java",
@@ -95,7 +113,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -140,6 +159,10 @@
     "concepts": [
       "Whatever a task throws comes back from get() as an ExecutionException whose cause is the original exception.",
       "InterruptedException from get() means the waiting thread was interrupted, not that the task failed."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
   }
 }

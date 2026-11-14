@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.function.LongSupplier;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * The team's micro-benchmark helper. It times a piece of work over a set of inputs, after some\n * rounds of warm-up, and reports the time per call. JMH isn't on the build's class path.\n */\npublic class MicroBench {\n\n    /** Nanoseconds per timed call, and a checksum of every value the work returned. */\n    public record Report(double nanosPerCall, long checksum) {}\n\n    private final LongSupplier clock;\n\n    /** @param clock nanoseconds from some fixed origin; production passes System::nanoTime */\n    public MicroBench(LongSupplier clock) {\n        this.clock = clock;\n    }\n\n    public static MicroBench withSystemClock() {\n        return new MicroBench(System::nanoTime);\n    }\n\n    /**\n     * Runs {@code work} over every input {@code warmupRounds} times, then once more over every\n     * input, timed, and reports the time per call of that last round.\n     */\n    public Report measure(LongUnaryOperator work, long[] inputs, int warmupRounds) {\n        long checksum = 0;\n        for (int round = 0; round < warmupRounds; round++) {\n            for (long input : inputs) checksum += work.applyAsLong(input);\n        }\n        long start = clock.getAsLong();\n        for (long input : inputs) checksum += work.applyAsLong(input);\n        long elapsed = clock.getAsLong() - start;\n        return new Report(elapsed / (double) inputs.length, checksum);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicLong;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AtomicLong fakeNow = new AtomicLong(0);\n            MicroBench bench = new MicroBench(fakeNow::get);\n            MicroBench.Report report = bench.measure(x -> {\n                fakeNow.addAndGet(40);\n                return x * x;\n            }, new long[] {2, 3, 10}, 2);\n            System.out.println(\"fake clock, ns per call: \" + report.nanosPerCall());\n            System.out.println(\"fake clock, checksum: \" + report.checksum());\n            long[] coupons = new long[10_000];\n            for (int i = 0; i < coupons.length; i++) coupons[i] = 1_000 + i;\n            MicroBench.Report real = MicroBench.withSystemClock().measure(c -> Long.hashCode(c * 31 + 7) % 97, coupons, 5);\n            System.out.println(\"real clock, ns per call above zero: \" + (real.nanosPerCall() > 0));\n            System.out.println(\"real clock, checksum: \" + real.checksum());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.function.LongSupplier;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * The team's micro-benchmark helper. It times a piece of work over a set of inputs, after some\n * rounds of warm-up, and reports the time per call. JMH isn't on the build's class path.\n */\npublic class MicroBench {\n\n    /** Nanoseconds per timed call, and a checksum of every value the work returned. */\n    public record Report(double nanosPerCall, long checksum) {}\n\n    private final LongSupplier clock;\n\n    /** @param clock nanoseconds from some fixed origin; production passes System::nanoTime */\n    public MicroBench(LongSupplier clock) {\n        this.clock = clock;\n    }\n\n    public static MicroBench withSystemClock() {\n        return new MicroBench(System::nanoTime);\n    }\n\n    /**\n     * Runs {@code work} over every input {@code warmupRounds} times, then once more over every\n     * input, timed, and reports the time per call of that last round.\n     */\n    public Report measure(LongUnaryOperator work, long[] inputs, int warmupRounds) {\n        // TODO: Warm the work up, then time one round over the inputs. The numbers this helper\n        //       reports must be numbers for the work itself, as it would run in production.\n        throw new IllegalStateException(\"TODO: measure\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicLong;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AtomicLong fakeNow = new AtomicLong(0);\n            MicroBench bench = new MicroBench(fakeNow::get);\n            MicroBench.Report report = bench.measure(x -> {\n                fakeNow.addAndGet(40);\n                return x * x;\n            }, new long[] {2, 3, 10}, 2);\n            System.out.println(\"fake clock, ns per call: \" + report.nanosPerCall());\n            System.out.println(\"fake clock, checksum: \" + report.checksum());\n            long[] coupons = new long[10_000];\n            for (int i = 0; i < coupons.length; i++) coupons[i] = 1_000 + i;\n            MicroBench.Report real = MicroBench.withSystemClock().measure(c -> Long.hashCode(c * 31 + 7) % 97, coupons, 5);\n            System.out.println(\"real clock, ns per call above zero: \" + (real.nanosPerCall() > 0));\n            System.out.println(\"real clock, checksum: \" + real.checksum());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "db062f225a8ea6b9c9cddf4d80818fe6d581ffea37114b28e6c509c956324826",
+  "content_sha256": "4879f820fa1f613dd783be7cc823b07f75c8bfa3bf2dfb8f244b2e9a0ebd11bc",
   "starting_code": "package practice;\n\nimport java.util.function.LongSupplier;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * The team's micro-benchmark helper. It times a piece of work over a set of inputs, after some\n * rounds of warm-up, and reports the time per call. JMH isn't on the build's class path.\n */\npublic class MicroBench {\n\n    /** Nanoseconds per timed call, and a checksum of every value the work returned. */\n    public record Report(double nanosPerCall, long checksum) {}\n\n    private final LongSupplier clock;\n\n    /** @param clock nanoseconds from some fixed origin; production passes System::nanoTime */\n    public MicroBench(LongSupplier clock) {\n        this.clock = clock;\n    }\n\n    public static MicroBench withSystemClock() {\n        return new MicroBench(System::nanoTime);\n    }\n\n    /**\n     * Runs {@code work} over every input {@code warmupRounds} times, then once more over every\n     * input, timed, and reports the time per call of that last round.\n     */\n    public Report measure(LongUnaryOperator work, long[] inputs, int warmupRounds) {\n        // TODO: Warm the work up, then time one round over the inputs. The numbers this helper\n        //       reports must be numbers for the work itself, as it would run in production.\n        throw new IllegalStateException(\"TODO: measure\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-2/src/main/java/practice/MicroBench.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -147,6 +166,10 @@
       "A call whose input never changes can be computed once, so a benchmark must vary its inputs as production does.",
       "A benchmark that times its first rounds measures the compiler's work, so the timing starts after the warm-up.",
       "A loop whose results nobody uses can be deleted by the JIT, so it measures nothing; every result must reach something the JIT can't see through."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
   }
 }

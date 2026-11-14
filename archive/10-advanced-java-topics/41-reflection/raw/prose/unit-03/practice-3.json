@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.lang.invoke.MethodHandle;\nimport java.lang.invoke.MethodHandles;\nimport java.lang.invoke.MethodType;\nimport java.lang.reflect.UndeclaredThrowableException;\n\n/**\n * Binds the price rules named in the shop's config, such as {@code practice.Seasonal#winterSale},\n * to the checkout. A rule is a public instance method that takes a price in cents and returns\n * the new price in cents. Rules are bound once, when the checkout starts, and applied to every\n * basket.\n */\npublic class PriceRules {\n\n    /** A rule as the checkout calls it. */\n    public interface Rule {\n        long apply(long cents);\n    }\n\n    /** Creates one instance of {@code type} and binds its method {@code methodName} as a rule. */\n    public static Rule bind(Class<?> type, String methodName) {\n        MethodHandle handle = lookup(type, methodName);\n        Object target = newInstance(type);\n        return cents -> call(handle, target, cents);\n    }\n\n    static Object newInstance(Class<?> type) {\n        try {\n            return type.getDeclaredConstructor().newInstance();\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalArgumentException(\"cannot create \" + type.getName(), e);\n        }\n    }\n\n    static MethodHandle lookup(Class<?> type, String methodName) {\n        try {\n            return MethodHandles.lookup()\n                    .findVirtual(type, methodName, MethodType.methodType(long.class, long.class))\n                    .asType(MethodType.methodType(long.class, Object.class, long.class));\n        } catch (NoSuchMethodException | IllegalAccessException e) {\n            throw new IllegalArgumentException(type.getName() + \"#\" + methodName + \" is not a price rule\", e);\n        }\n    }\n\n    static long call(MethodHandle handle, Object target, long cents) {\n        try {\n            return (long) handle.invokeExact(target, cents);\n        } catch (RuntimeException | Error e) {\n            throw e;\n        } catch (Throwable t) {\n            throw new UndeclaredThrowableException(t);\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            PriceRules.Rule summer = PriceRules.bind(Summer.class, \"summerSale\");\n            PriceRules.Rule student = PriceRules.bind(Student.class, \"discount\");\n            System.out.println(\"summer sale on 25000: \" + summer.apply(25_000));\n            System.out.println(\"summer sale on 7000000000: \" + summer.apply(7_000_000_000L));\n            System.out.println(\"student discount on 1200: \" + student.apply(1_200));\n            for (String method : new String[] {\"autumnSale\", \"roundToTens\"}) {\n                try {\n                    PriceRules.bind(Summer.class, method);\n                } catch (IllegalArgumentException refused) {\n                    System.out.println(\"refused: \" + refused.getMessage());\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    public static class Summer {\n        public long summerSale(long cents) { return cents * 70 / 100; }\n        public int roundToTens(long cents) { return (int) (cents / 1000 * 1000); }\n    }\n    public static class Student {\n        private final long off = 500;\n        public long discount(long cents) { return Math.max(0, cents - off); }\n    }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.lang.invoke.MethodHandle;\nimport java.lang.invoke.MethodHandles;\nimport java.lang.invoke.MethodType;\nimport java.lang.reflect.UndeclaredThrowableException;\n\n/**\n * Binds the price rules named in the shop's config, such as {@code practice.Seasonal#winterSale},\n * to the checkout. A rule is a public instance method that takes a price in cents and returns\n * the new price in cents. Rules are bound once, when the checkout starts, and applied to every\n * basket.\n */\npublic class PriceRules {\n\n    /** A rule as the checkout calls it. */\n    public interface Rule {\n        long apply(long cents);\n    }\n\n    /** Creates one instance of {@code type} and binds its method {@code methodName} as a rule. */\n    public static Rule bind(Class<?> type, String methodName) {\n        MethodHandle handle = lookup(type, methodName);\n        Object target = newInstance(type);\n        return cents -> call(handle, target, cents);\n    }\n\n    static Object newInstance(Class<?> type) {\n        try {\n            return type.getDeclaredConstructor().newInstance();\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalArgumentException(\"cannot create \" + type.getName(), e);\n        }\n    }\n\n    /**\n     * A handle for the rule method {@code methodName} of {@code type}, ready for call(...).\n     */\n    static MethodHandle lookup(Class<?> type, String methodName) {\n        // TODO: Find the rule method, and refuse anything that isn't one with an\n        //       IllegalArgumentException that names it, so a wrong config entry stops the\n        //       checkout from starting. The handle you return is what call(...) receives.\n        throw new IllegalStateException(\"TODO: lookup\");\n    }\n\n    static long call(MethodHandle handle, Object target, long cents) {\n        try {\n            // TODO: Apply the rule through the handle from lookup(...), on target.\n            throw new IllegalStateException(\"TODO: call\");\n        } catch (RuntimeException | Error e) {\n            throw e;\n        } catch (Throwable t) {\n            throw new UndeclaredThrowableException(t);\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            PriceRules.Rule summer = PriceRules.bind(Summer.class, \"summerSale\");\n            PriceRules.Rule student = PriceRules.bind(Student.class, \"discount\");\n            System.out.println(\"summer sale on 25000: \" + summer.apply(25_000));\n            System.out.println(\"summer sale on 7000000000: \" + summer.apply(7_000_000_000L));\n            System.out.println(\"student discount on 1200: \" + student.apply(1_200));\n            for (String method : new String[] {\"autumnSale\", \"roundToTens\"}) {\n                try {\n                    PriceRules.bind(Summer.class, method);\n                } catch (IllegalArgumentException refused) {\n                    System.out.println(\"refused: \" + refused.getMessage());\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    public static class Summer {\n        public long summerSale(long cents) { return cents * 70 / 100; }\n        public int roundToTens(long cents) { return (int) (cents / 1000 * 1000); }\n    }\n    public static class Student {\n        private final long off = 500;\n        public long discount(long cents) { return Math.max(0, cents - off); }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "006e4e8adf309c96d2ec3616d5a6cdbaa559cdd27695f2fc81378bf4368ec249",
+  "content_sha256": "85cd1058c39b5cccfde7e4cdd30e62806c10f5bd784535db6f4216b6af75b1c7",
   "starting_code": "package practice;\n\nimport java.lang.invoke.MethodHandle;\nimport java.lang.invoke.MethodHandles;\nimport java.lang.invoke.MethodType;\nimport java.lang.reflect.UndeclaredThrowableException;\n\n/**\n * Binds the price rules named in the shop's config, such as {@code practice.Seasonal#winterSale},\n * to the checkout. A rule is a public instance method that takes a price in cents and returns\n * the new price in cents. Rules are bound once, when the checkout starts, and applied to every\n * basket.\n */\npublic class PriceRules {\n\n    /** A rule as the checkout calls it. */\n    public interface Rule {\n        long apply(long cents);\n    }\n\n    /** Creates one instance of {@code type} and binds its method {@code methodName} as a rule. */\n    public static Rule bind(Class<?> type, String methodName) {\n        MethodHandle handle = lookup(type, methodName);\n        Object target = newInstance(type);\n        return cents -> call(handle, target, cents);\n    }\n\n    static Object newInstance(Class<?> type) {\n        try {\n            return type.getDeclaredConstructor().newInstance();\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalArgumentException(\"cannot create \" + type.getName(), e);\n        }\n    }\n\n    /**\n     * A handle for the rule method {@code methodName} of {@code type}, ready for call(...).\n     */\n    static MethodHandle lookup(Class<?> type, String methodName) {\n        // TODO: Find the rule method, and refuse anything that isn't one with an\n        //       IllegalArgumentException that names it, so a wrong config entry stops the\n        //       checkout from starting. The handle you return is what call(...) receives.\n        throw new IllegalStateException(\"TODO: lookup\");\n    }\n\n    static long call(MethodHandle handle, Object target, long cents) {\n        try {\n            // TODO: Apply the rule through the handle from lookup(...), on target.\n            throw new IllegalStateException(\"TODO: call\");\n        } catch (RuntimeException | Error e) {\n            throw e;\n        } catch (Throwable t) {\n            throw new UndeclaredThrowableException(t);\n        }\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-3/src/main/java/practice/PriceRules.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -136,6 +155,10 @@
     },
     "concepts": [
       "findVirtual looks a method up by its full type, return type included, and a type that doesn't match fails at the lookup."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-3/src/main/java/practice/TryIt.java"
   }
 }

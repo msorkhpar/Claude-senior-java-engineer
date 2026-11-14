@@ -52,6 +52,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\n/** Stops the invoice service's worker pool when the service is redeployed. */\npublic class Drain {\n\n    /**\n     * Stops the pool within the deploy's grace period and returns the tasks that never started,\n     * so the caller can put them back on the message broker. Called by the deploy's shutdown hook.\n     */\n    public static List<Runnable> stop(ExecutorService pool, long grace, TimeUnit unit) {\n        pool.shutdown();\n        try {\n            if (pool.awaitTermination(grace, unit)) return List.of();\n            List<Runnable> neverStarted = pool.shutdownNow();\n            pool.awaitTermination(grace, unit);\n            return neverStarted;\n        } catch (InterruptedException e) {\n            List<Runnable> neverStarted = pool.shutdownNow();\n            Thread.currentThread().interrupt();\n            return neverStarted;\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            CountDownLatch never = new CountDownLatch(1);\n            ExecutorService pool = Executors.newSingleThreadExecutor();\n            try {\n                pool.execute(new InvoiceRun(\"inv-run-A\", 50, never));\n                pool.execute(new InvoiceRun(\"inv-run-B\", -1, never));\n                pool.execute(new InvoiceRun(\"inv-run-C\", 50, never));\n                List<Runnable> handBack = Drain.stop(pool, 300, TimeUnit.MILLISECONDS);\n                System.out.println(\"handed back to the broker: \" + handBack);\n                System.out.println(\"pool terminated: \" + pool.isTerminated());\n                System.out.println(\"hook thread interrupted: \" + Thread.currentThread().isInterrupted());\n            } finally {\n                never.countDown();\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** An invoice run that takes millis to finish, or runs until it is interrupted when millis is -1. */\n    record InvoiceRun(String name, long millis, CountDownLatch never) implements Runnable {\n        @Override public void run() {\n            try {\n                if (millis < 0) never.await(); else Thread.sleep(millis);\n                System.out.println(name + \" finished\");\n            } catch (InterruptedException e) {\n                System.out.println(name + \" was asked to stop\");\n            }\n        }\n        @Override public String toString() { return name; }\n    }\n}\n"
         }
       ]
     },
@@ -64,6 +73,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\n/** Stops the invoice service's worker pool when the service is redeployed. */\npublic class Drain {\n\n    /**\n     * Stops the pool within the deploy's grace period and returns the tasks that never started,\n     * so the caller can put them back on the message broker. Called by the deploy's shutdown hook.\n     */\n    public static List<Runnable> stop(ExecutorService pool, long grace, TimeUnit unit) {\n        // TODO: The orchestrator gives each deploy a grace period before it kills the process.\n        //       Let the work already handed to the pool finish if it can within the grace\n        //       period; past it, stop what is still running, and hand back what never started.\n        throw new IllegalStateException(\"TODO: stop\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            CountDownLatch never = new CountDownLatch(1);\n            ExecutorService pool = Executors.newSingleThreadExecutor();\n            try {\n                pool.execute(new InvoiceRun(\"inv-run-A\", 50, never));\n                pool.execute(new InvoiceRun(\"inv-run-B\", -1, never));\n                pool.execute(new InvoiceRun(\"inv-run-C\", 50, never));\n                List<Runnable> handBack = Drain.stop(pool, 300, TimeUnit.MILLISECONDS);\n                System.out.println(\"handed back to the broker: \" + handBack);\n                System.out.println(\"pool terminated: \" + pool.isTerminated());\n                System.out.println(\"hook thread interrupted: \" + Thread.currentThread().isInterrupted());\n            } finally {\n                never.countDown();\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** An invoice run that takes millis to finish, or runs until it is interrupted when millis is -1. */\n    record InvoiceRun(String name, long millis, CountDownLatch never) implements Runnable {\n        @Override public void run() {\n            try {\n                if (millis < 0) never.await(); else Thread.sleep(millis);\n                System.out.println(name + \" finished\");\n            } catch (InterruptedException e) {\n                System.out.println(name + \" was asked to stop\");\n            }\n        }\n        @Override public String toString() { return name; }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -71,8 +89,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -82,7 +100,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "8781612d6970918d79a1ad8a50d823c61ef59c26ccbb811b0403073e13813c37",
+  "content_sha256": "8467fcaf077036834c7f711a2206cc1136f6f34f40944632e13c3cb23829e79e",
   "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.TimeUnit;\n\n/** Stops the invoice service's worker pool when the service is redeployed. */\npublic class Drain {\n\n    /**\n     * Stops the pool within the deploy's grace period and returns the tasks that never started,\n     * so the caller can put them back on the message broker. Called by the deploy's shutdown hook.\n     */\n    public static List<Runnable> stop(ExecutorService pool, long grace, TimeUnit unit) {\n        // TODO: The orchestrator gives each deploy a grace period before it kills the process.\n        //       Let the work already handed to the pool finish if it can within the grace\n        //       period; past it, stop what is still running, and hand back what never started.\n        throw new IllegalStateException(\"TODO: stop\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-3/src/main/java/practice/Drain.java",
@@ -93,7 +111,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -142,6 +161,10 @@
     },
     "concepts": [
       "shutdown() refuses new tasks and returns at once while running and queued tasks still run; awaitTermination waits, and shutdownNow() is the fallback when it times out."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-3/src/main/java/practice/TryIt.java"
   }
 }

@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\n\n/**\n * One parcel's tracking timeline, merged from three feeds: the line-haul carrier, the courier,\n * and the scanners of the sorting depot.\n */\npublic class ParcelTimeline {\n\n    /** One tracking event and the moment it happened. */\n    public record Event(String what, Instant at) {}\n\n    private final ZoneId depotZone;\n    private final List<Event> events = new ArrayList<>();\n\n    /** depotZone is where the sorting depot is; its scanners' clocks show local time. */\n    public ParcelTimeline(ZoneId depotZone) {\n        this.depotZone = depotZone;\n    }\n\n    /** Line-haul carrier, JSON {\"event\": \"...\", \"sentAt\": 1789000000}: whole seconds since the epoch. */\n    public void addLineHaul(String what, long sentAt) {\n        events.add(new Event(what, fromSentAt(sentAt)));\n    }\n\n    /** Courier, ISO-8601 text with Z or an offset, such as \"2026-11-20T09:15:00+05:30\". */\n    public void addCourier(String what, String time) {\n        events.add(new Event(what, Instant.parse(time)));\n    }\n\n    /** Depot scanner: the scanner's clock reading, such as \"2026-11-20T16:45:00\". */\n    public void addDepotScan(String what, String clockReading) {\n        events.add(new Event(what, fromScanner(clockReading)));\n    }\n\n    /** The events in the order they happened. */\n    public List<Event> events() {\n        return events.stream().sorted(Comparator.comparing(Event::at)).toList();\n    }\n\n    /** The moment the line-haul carrier's sentAt value names. */\n    Instant fromSentAt(long sentAt) {\n        return Instant.ofEpochSecond(sentAt);\n    }\n\n    /** The moment at which a depot scanner showed this clock reading. */\n    Instant fromScanner(String clockReading) {\n        return LocalDateTime.parse(clockReading).atZone(depotZone).toInstant();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.time.ZoneId;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ParcelTimeline parcel = new ParcelTimeline(ZoneId.of(\"America/Denver\"));\n            parcel.addLineHaul(\"left the hub\", 1_800_000_000L);\n            parcel.addDepotScan(\"arrived at depot\", \"2027-01-15T03:30:00\");\n            parcel.addCourier(\"out for delivery\", \"2027-01-15T14:00:00+01:00\");\n            parcel.addDepotScan(\"sorted\", \"2027-01-15T05:10:00\");\n            for (ParcelTimeline.Event event : parcel.events()) {\n                System.out.println(event.at() + \"  \" + event.what());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\n\n/**\n * One parcel's tracking timeline, merged from three feeds: the line-haul carrier, the courier,\n * and the scanners of the sorting depot.\n */\npublic class ParcelTimeline {\n\n    /** One tracking event and the moment it happened. */\n    public record Event(String what, Instant at) {}\n\n    private final ZoneId depotZone;\n    private final List<Event> events = new ArrayList<>();\n\n    /** depotZone is where the sorting depot is; its scanners' clocks show local time. */\n    public ParcelTimeline(ZoneId depotZone) {\n        this.depotZone = depotZone;\n    }\n\n    /** Line-haul carrier, JSON {\"event\": \"...\", \"sentAt\": 1789000000}: whole seconds since the epoch. */\n    public void addLineHaul(String what, long sentAt) {\n        events.add(new Event(what, fromSentAt(sentAt)));\n    }\n\n    /** Courier, ISO-8601 text with Z or an offset, such as \"2026-11-20T09:15:00+05:30\". */\n    public void addCourier(String what, String time) {\n        events.add(new Event(what, Instant.parse(time)));\n    }\n\n    /** Depot scanner: the scanner's clock reading, such as \"2026-11-20T16:45:00\". */\n    public void addDepotScan(String what, String clockReading) {\n        events.add(new Event(what, fromScanner(clockReading)));\n    }\n\n    /** The events in the order they happened. */\n    public List<Event> events() {\n        return events.stream().sorted(Comparator.comparing(Event::at)).toList();\n    }\n\n    /** The moment the line-haul carrier's sentAt value names. */\n    Instant fromSentAt(long sentAt) {\n        // TODO: Turn the line-haul carrier's sentAt value into the moment it names.\n        throw new IllegalStateException(\"TODO: fromSentAt\");\n    }\n\n    /** The moment at which a depot scanner showed this clock reading. */\n    Instant fromScanner(String clockReading) {\n        // TODO: Turn a depot scanner's clock reading into the moment it was scanned.\n        throw new IllegalStateException(\"TODO: fromScanner\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.time.ZoneId;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ParcelTimeline parcel = new ParcelTimeline(ZoneId.of(\"America/Denver\"));\n            parcel.addLineHaul(\"left the hub\", 1_800_000_000L);\n            parcel.addDepotScan(\"arrived at depot\", \"2027-01-15T03:30:00\");\n            parcel.addCourier(\"out for delivery\", \"2027-01-15T14:00:00+01:00\");\n            parcel.addDepotScan(\"sorted\", \"2027-01-15T05:10:00\");\n            for (ParcelTimeline.Event event : parcel.events()) {\n                System.out.println(event.at() + \"  \" + event.what());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5972a26661c9db6248cd56b74ea67df7f504a6a11bdb469629a856b78f998eb4",
+  "content_sha256": "1027d0a8d9f9e5d4fe4c444c916c22c1249de24c086711bc222cec2ac8eb3ce0",
   "starting_code": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\n\n/**\n * One parcel's tracking timeline, merged from three feeds: the line-haul carrier, the courier,\n * and the scanners of the sorting depot.\n */\npublic class ParcelTimeline {\n\n    /** One tracking event and the moment it happened. */\n    public record Event(String what, Instant at) {}\n\n    private final ZoneId depotZone;\n    private final List<Event> events = new ArrayList<>();\n\n    /** depotZone is where the sorting depot is; its scanners' clocks show local time. */\n    public ParcelTimeline(ZoneId depotZone) {\n        this.depotZone = depotZone;\n    }\n\n    /** Line-haul carrier, JSON {\"event\": \"...\", \"sentAt\": 1789000000}: whole seconds since the epoch. */\n    public void addLineHaul(String what, long sentAt) {\n        events.add(new Event(what, fromSentAt(sentAt)));\n    }\n\n    /** Courier, ISO-8601 text with Z or an offset, such as \"2026-11-20T09:15:00+05:30\". */\n    public void addCourier(String what, String time) {\n        events.add(new Event(what, Instant.parse(time)));\n    }\n\n    /** Depot scanner: the scanner's clock reading, such as \"2026-11-20T16:45:00\". */\n    public void addDepotScan(String what, String clockReading) {\n        events.add(new Event(what, fromScanner(clockReading)));\n    }\n\n    /** The events in the order they happened. */\n    public List<Event> events() {\n        return events.stream().sorted(Comparator.comparing(Event::at)).toList();\n    }\n\n    /** The moment the line-haul carrier's sentAt value names. */\n    Instant fromSentAt(long sentAt) {\n        // TODO: Turn the line-haul carrier's sentAt value into the moment it names.\n        throw new IllegalStateException(\"TODO: fromSentAt\");\n    }\n\n    /** The moment at which a depot scanner showed this clock reading. */\n    Instant fromScanner(String clockReading) {\n        // TODO: Turn a depot scanner's clock reading into the moment it was scanned.\n        throw new IllegalStateException(\"TODO: fromScanner\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-1/src/main/java/practice/ParcelTimeline.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -132,6 +151,10 @@
     "concepts": [
       "An epoch number carries no unit: reading seconds with ofEpochMilli (or millis as seconds) gives a valid but wrong instant, and nothing throws.",
       "Wall-clock text without an offset becomes an instant only through the sender's zone; appending Z reads it as UTC and shifts it by the zone's offset."
-    ]
+    ],
+    "files": [
+      "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
   }
 }

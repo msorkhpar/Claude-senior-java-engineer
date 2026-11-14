@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Sends each monitoring alert to a channel: \"pager\" wakes the on-call engineer, \"email\" and\n * \"dashboard\" wait for office hours, \"unrouted\" collects what the router doesn't recognise.\n */\npublic class AlertRouter {\n\n    /** A disk on a primary host is filling up. */\n    public static class DiskAlert {\n        private final String host;\n        private final int percentFull;\n\n        public DiskAlert(String host, int percentFull) {\n            this.host = host;\n            this.percentFull = percentFull;\n        }\n\n        public String host() { return host; }\n\n        public int percentFull() { return percentFull; }\n\n        @Override\n        public String toString() { return getClass().getSimpleName() + \"(\" + host + \", \" + percentFull + \"%)\"; }\n    }\n\n    /** A disk on a read replica is filling up; a replica can be rebuilt, so it never pages. */\n    public static class ReplicaDiskAlert extends DiskAlert {\n        public ReplicaDiskAlert(String host, int percentFull) {\n            super(host, percentFull);\n        }\n    }\n\n    /** A service's 99th-percentile latency over the last five minutes. */\n    public record LatencyAlert(String service, long p99Millis) {\n    }\n\n    /** Groups the alerts by channel, in the order they arrived. */\n    public Map<String, List<Object>> routeAll(List<?> alerts) {\n        Map<String, List<Object>> byChannel = new LinkedHashMap<>();\n        for (Object alert : alerts) {\n            byChannel.computeIfAbsent(channelFor(alert), c -> new ArrayList<>()).add(alert);\n        }\n        return byChannel;\n    }\n\n    /**\n     * The channel for one alert:\n     * a disk alert at 90% or more goes to \"pager\", below that to \"email\";\n     * a replica's disk alert goes to \"email\" however full the disk is;\n     * a latency alert above 2000 ms goes to \"pager\", otherwise to \"dashboard\";\n     * anything else, null included, goes to \"unrouted\".\n     */\n    String channelFor(Object alert) {\n        if (alert instanceof ReplicaDiskAlert) return \"email\";\n        if (alert instanceof DiskAlert disk) return disk.percentFull() >= 90 ? \"pager\" : \"email\";\n        if (alert instanceof LatencyAlert latency) return latency.p99Millis() > 2000 ? \"pager\" : \"dashboard\";\n        return \"unrouted\";\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AlertRouter router = new AlertRouter();\n            System.out.println(\"disk web-primary-1 at 93%: \" + router.channelFor(new AlertRouter.DiskAlert(\"web-primary-1\", 93)));\n            System.out.println(\"disk web-primary-1 at 64%: \" + router.channelFor(new AlertRouter.DiskAlert(\"web-primary-1\", 64)));\n            System.out.println(\"replica disk reports-replica-2 at 99%: \"\n                    + router.channelFor(new AlertRouter.ReplicaDiskAlert(\"reports-replica-2\", 99)));\n            System.out.println(\"latency billing 2500 ms: \" + router.channelFor(new AlertRouter.LatencyAlert(\"billing\", 2_500)));\n            System.out.println(\"latency profile 310 ms: \" + router.channelFor(new AlertRouter.LatencyAlert(\"profile\", 310)));\n            System.out.println(\"batch: \" + router.routeAll(List.of(new AlertRouter.DiskAlert(\"queue-7\", 91),\n                    new AlertRouter.LatencyAlert(\"profile\", 120), \"cron job late\")));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Sends each monitoring alert to a channel: \"pager\" wakes the on-call engineer, \"email\" and\n * \"dashboard\" wait for office hours, \"unrouted\" collects what the router doesn't recognise.\n */\npublic class AlertRouter {\n\n    /** A disk on a primary host is filling up. */\n    public static class DiskAlert {\n        private final String host;\n        private final int percentFull;\n\n        public DiskAlert(String host, int percentFull) {\n            this.host = host;\n            this.percentFull = percentFull;\n        }\n\n        public String host() { return host; }\n\n        public int percentFull() { return percentFull; }\n\n        @Override\n        public String toString() { return getClass().getSimpleName() + \"(\" + host + \", \" + percentFull + \"%)\"; }\n    }\n\n    /** A disk on a read replica is filling up; a replica can be rebuilt, so it never pages. */\n    public static class ReplicaDiskAlert extends DiskAlert {\n        public ReplicaDiskAlert(String host, int percentFull) {\n            super(host, percentFull);\n        }\n    }\n\n    /** A service's 99th-percentile latency over the last five minutes. */\n    public record LatencyAlert(String service, long p99Millis) {\n    }\n\n    /** Groups the alerts by channel, in the order they arrived. */\n    public Map<String, List<Object>> routeAll(List<?> alerts) {\n        Map<String, List<Object>> byChannel = new LinkedHashMap<>();\n        for (Object alert : alerts) {\n            byChannel.computeIfAbsent(channelFor(alert), c -> new ArrayList<>()).add(alert);\n        }\n        return byChannel;\n    }\n\n    /**\n     * The channel for one alert:\n     * a disk alert at 90% or more goes to \"pager\", below that to \"email\";\n     * a replica's disk alert goes to \"email\" however full the disk is;\n     * a latency alert above 2000 ms goes to \"pager\", otherwise to \"dashboard\";\n     * anything else, null included, goes to \"unrouted\".\n     */\n    String channelFor(Object alert) {\n        // TODO: Choose the channel for this alert, as described above. Every kind of alert the\n        //       router knows must reach its own channel, whatever its numbers say.\n        throw new IllegalStateException(\"TODO: channelFor\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AlertRouter router = new AlertRouter();\n            System.out.println(\"disk web-primary-1 at 93%: \" + router.channelFor(new AlertRouter.DiskAlert(\"web-primary-1\", 93)));\n            System.out.println(\"disk web-primary-1 at 64%: \" + router.channelFor(new AlertRouter.DiskAlert(\"web-primary-1\", 64)));\n            System.out.println(\"replica disk reports-replica-2 at 99%: \"\n                    + router.channelFor(new AlertRouter.ReplicaDiskAlert(\"reports-replica-2\", 99)));\n            System.out.println(\"latency billing 2500 ms: \" + router.channelFor(new AlertRouter.LatencyAlert(\"billing\", 2_500)));\n            System.out.println(\"latency profile 310 ms: \" + router.channelFor(new AlertRouter.LatencyAlert(\"profile\", 310)));\n            System.out.println(\"batch: \" + router.routeAll(List.of(new AlertRouter.DiskAlert(\"queue-7\", 91),\n                    new AlertRouter.LatencyAlert(\"profile\", 120), \"cron job late\")));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ae88adbe59a431dfee93a235adb88e88027b311caa2662ff7933e3cc02cbe603",
+  "content_sha256": "c18ede3c50775f210f24340367b9d095a495807694d374265b1b9395de2db567",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Sends each monitoring alert to a channel: \"pager\" wakes the on-call engineer, \"email\" and\n * \"dashboard\" wait for office hours, \"unrouted\" collects what the router doesn't recognise.\n */\npublic class AlertRouter {\n\n    /** A disk on a primary host is filling up. */\n    public static class DiskAlert {\n        private final String host;\n        private final int percentFull;\n\n        public DiskAlert(String host, int percentFull) {\n            this.host = host;\n            this.percentFull = percentFull;\n        }\n\n        public String host() { return host; }\n\n        public int percentFull() { return percentFull; }\n\n        @Override\n        public String toString() { return getClass().getSimpleName() + \"(\" + host + \", \" + percentFull + \"%)\"; }\n    }\n\n    /** A disk on a read replica is filling up; a replica can be rebuilt, so it never pages. */\n    public static class ReplicaDiskAlert extends DiskAlert {\n        public ReplicaDiskAlert(String host, int percentFull) {\n            super(host, percentFull);\n        }\n    }\n\n    /** A service's 99th-percentile latency over the last five minutes. */\n    public record LatencyAlert(String service, long p99Millis) {\n    }\n\n    /** Groups the alerts by channel, in the order they arrived. */\n    public Map<String, List<Object>> routeAll(List<?> alerts) {\n        Map<String, List<Object>> byChannel = new LinkedHashMap<>();\n        for (Object alert : alerts) {\n            byChannel.computeIfAbsent(channelFor(alert), c -> new ArrayList<>()).add(alert);\n        }\n        return byChannel;\n    }\n\n    /**\n     * The channel for one alert:\n     * a disk alert at 90% or more goes to \"pager\", below that to \"email\";\n     * a replica's disk alert goes to \"email\" however full the disk is;\n     * a latency alert above 2000 ms goes to \"pager\", otherwise to \"dashboard\";\n     * anything else, null included, goes to \"unrouted\".\n     */\n    String channelFor(Object alert) {\n        // TODO: Choose the channel for this alert, as described above. Every kind of alert the\n        //       router knows must reach its own channel, whatever its numbers say.\n        throw new IllegalStateException(\"TODO: channelFor\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-2/src/main/java/practice/AlertRouter.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -128,6 +147,10 @@
     },
     "concepts": [
       "When a condition is joined to a pattern with &&, an object of that type that fails the condition goes on to the next branch, and in an if chain the first matching pattern wins, so a supertype tested first takes its subtypes."
-    ]
+    ],
+    "files": [
+      "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

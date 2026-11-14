@@ -47,6 +47,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.lang.invoke.MethodHandle;\nimport java.lang.invoke.MethodHandles;\nimport java.lang.invoke.MethodType;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.IntUnaryOperator;\n\n/**\n * Pricing rules named in configuration. A rule is any object with a public method\n * {@code int apply(int cents)}; the table calls it for every line of every order.\n */\npublic class RuleTable {\n\n    private final Map<String, IntUnaryOperator> rules = new ConcurrentHashMap<>();\n\n    /** Registers a rule under a name. Runs at startup, once per configured rule. */\n    public void add(String name, Object rule) {\n        rules.put(name, prepare(rule));\n    }\n\n    /** Applies the named rule to an amount in cents. Runs millions of times a minute. */\n    public int apply(String name, int cents) {\n        IntUnaryOperator rule = rules.get(name);\n        if (rule == null) throw new IllegalArgumentException(\"no rule named \" + name);\n        return rule.applyAsInt(cents);\n    }\n\n    /** Turns one rule object into the function apply() calls for it. */\n    IntUnaryOperator prepare(Object rule) {\n        MethodHandle handle;\n        try {\n            handle = MethodHandles.lookup()\n                    .findVirtual(rule.getClass(), \"apply\", MethodType.methodType(int.class, int.class))\n                    .bindTo(rule);\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalArgumentException(rule.getClass().getName() + \" has no int apply(int)\", e);\n        }\n        return cents -> {\n            try {\n                return (int) handle.invokeExact(cents);\n            } catch (RuntimeException | Error e) {\n                throw e;\n            } catch (Throwable t) {\n                throw new IllegalStateException(t);\n            }\n        };\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RuleTable table = new RuleTable();\n            table.add(\"black-friday\", new Discount(40));\n            table.add(\"vip\", new Discount(5));\n            table.add(\"express\", new Surcharge(990));\n            System.out.println(\"black-friday on 25000: \" + table.apply(\"black-friday\", 25_000));\n            System.out.println(\"vip on 25000: \" + table.apply(\"vip\", 25_000));\n            System.out.println(\"express on 25000: \" + table.apply(\"express\", 25_000));\n            try {\n                table.add(\"broken\", new LongRule());\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"refused: \" + refused.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static class Discount {\n        private final int percent;\n        Discount(int percent) { this.percent = percent; }\n        public int apply(int cents) { return cents - cents * percent / 100; }\n    }\n    static class Surcharge {\n        private final int fee;\n        Surcharge(int fee) { this.fee = fee; }\n        public int apply(int cents) { return cents + fee; }\n    }\n    static class LongRule {\n        public long apply(long cents) { return cents; }\n    }\n}\n"
         }
       ]
     },
@@ -59,6 +68,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.IntUnaryOperator;\n\n/**\n * Pricing rules named in configuration. A rule is any object with a public method\n * {@code int apply(int cents)}; the table calls it for every line of every order.\n */\npublic class RuleTable {\n\n    private final Map<String, IntUnaryOperator> rules = new ConcurrentHashMap<>();\n\n    /** Registers a rule under a name. Runs at startup, once per configured rule. */\n    public void add(String name, Object rule) {\n        rules.put(name, prepare(rule));\n    }\n\n    /** Applies the named rule to an amount in cents. Runs millions of times a minute. */\n    public int apply(String name, int cents) {\n        IntUnaryOperator rule = rules.get(name);\n        if (rule == null) throw new IllegalArgumentException(\"no rule named \" + name);\n        return rule.applyAsInt(cents);\n    }\n\n    /** Turns one rule object into the function apply() calls for it. */\n    IntUnaryOperator prepare(Object rule) {\n        // TODO: Return a function that calls the rule's int apply(int cents). It runs for every\n        //       order line, and the service's allocation profile must not show it. A rule object\n        //       that has no such method is an IllegalArgumentException, here.\n        throw new IllegalStateException(\"TODO: prepare\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RuleTable table = new RuleTable();\n            table.add(\"black-friday\", new Discount(40));\n            table.add(\"vip\", new Discount(5));\n            table.add(\"express\", new Surcharge(990));\n            System.out.println(\"black-friday on 25000: \" + table.apply(\"black-friday\", 25_000));\n            System.out.println(\"vip on 25000: \" + table.apply(\"vip\", 25_000));\n            System.out.println(\"express on 25000: \" + table.apply(\"express\", 25_000));\n            try {\n                table.add(\"broken\", new LongRule());\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"refused: \" + refused.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static class Discount {\n        private final int percent;\n        Discount(int percent) { this.percent = percent; }\n        public int apply(int cents) { return cents - cents * percent / 100; }\n    }\n    static class Surcharge {\n        private final int fee;\n        Surcharge(int fee) { this.fee = fee; }\n        public int apply(int cents) { return cents + fee; }\n    }\n    static class LongRule {\n        public long apply(long cents) { return cents; }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -66,8 +84,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -77,7 +95,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "772525d37a3431c33328bdf7a8c738af1e0b0712e8cdff1412cb6f0c24a861a3",
+  "content_sha256": "33dd519262d19f8850b62d78e4314a5e30084fd8875b3289c50498ef11a5c908",
   "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.IntUnaryOperator;\n\n/**\n * Pricing rules named in configuration. A rule is any object with a public method\n * {@code int apply(int cents)}; the table calls it for every line of every order.\n */\npublic class RuleTable {\n\n    private final Map<String, IntUnaryOperator> rules = new ConcurrentHashMap<>();\n\n    /** Registers a rule under a name. Runs at startup, once per configured rule. */\n    public void add(String name, Object rule) {\n        rules.put(name, prepare(rule));\n    }\n\n    /** Applies the named rule to an amount in cents. Runs millions of times a minute. */\n    public int apply(String name, int cents) {\n        IntUnaryOperator rule = rules.get(name);\n        if (rule == null) throw new IllegalArgumentException(\"no rule named \" + name);\n        return rule.applyAsInt(cents);\n    }\n\n    /** Turns one rule object into the function apply() calls for it. */\n    IntUnaryOperator prepare(Object rule) {\n        // TODO: Return a function that calls the rule's int apply(int cents). It runs for every\n        //       order line, and the service's allocation profile must not show it. A rule object\n        //       that has no such method is an IllegalArgumentException, here.\n        throw new IllegalStateException(\"TODO: prepare\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-2/src/main/java/practice/RuleTable.java",
@@ -88,7 +106,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -132,6 +151,10 @@
     },
     "concepts": [
       "Method.invoke boxes each int argument and result outside the Integer cache, and escape analysis removes only the argument array; a handle bound to its receiver and called with invokeExact allocates nothing."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-2/src/main/java/practice/TryIt.java"
   }
 }

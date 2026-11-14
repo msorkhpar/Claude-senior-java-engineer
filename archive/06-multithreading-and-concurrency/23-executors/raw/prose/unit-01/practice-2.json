@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Runs the nightly settlement jobs. Some callers hand it jobs with execute(), others with submit(),\n * and most of them never look at the Future they get back.\n */\npublic class SettlementPool extends ThreadPoolExecutor {\n\n    /** Where failures go: one call per failed job. */\n    public interface Alerts {\n        void jobFailed(Throwable cause);\n    }\n\n    private final Alerts alerts;\n\n    public SettlementPool(int threads, Alerts alerts) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), job -> {\n            Thread t = new Thread(job);\n            t.setDaemon(true);\n            return t;\n        });\n        this.alerts = alerts;\n    }\n\n    @Override\n    protected void afterExecute(Runnable job, Throwable thrown) {\n        super.afterExecute(job, thrown);\n        Throwable failure = failureOf(job, thrown);\n        if (failure != null) alerts.jobFailed(failure);\n    }\n\n    /**\n     * What the job that just ran on this thread failed with, or null if it did not fail.\n     * Called by afterExecute with its own arguments.\n     */\n    Throwable failureOf(Runnable job, Throwable thrown) {\n        if (thrown != null) return thrown;\n        if (job instanceof Future<?> result && result.isDone() && !result.isCancelled()) {\n            try {\n                result.get();\n            } catch (ExecutionException e) {\n                return e.getCause();\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n        }\n        return null;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<Throwable> alerts = Collections.synchronizedList(new ArrayList<>());\n            List<Throwable> workerStops = Collections.synchronizedList(new ArrayList<>());\n            SettlementPool pool = new SettlementPool(1, alerts::add);\n            try {\n                startWorkerIn(pool, workerStops);\n                pool.execute(() -> System.out.println(\"merchant 18 paid\"));\n                pool.submit(() -> { throw new IOException(\"bank-3 timed out\"); });\n                pool.submit(() -> \"merchant 19 paid\");\n                pool.submit(() -> { throw new IllegalArgumentException(\"IBAN rejected\"); });\n                pool.shutdown();\n                System.out.println(\"pool finished: \" + pool.awaitTermination(3, TimeUnit.SECONDS));\n                if (!workerStops.isEmpty() && workerStops.get(0) instanceof RuntimeException stop) throw stop;\n                System.out.println(\"jobs run: \" + pool.getCompletedTaskCount());\n                System.out.println(\"alerts raised: \" + alerts.size());\n                for (Throwable alert : alerts) System.out.println(\"alert: \" + alert);\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** Starts the pool's worker in a thread group that collects what escapes it, so Run can show it. */\n    static void startWorkerIn(SettlementPool pool, List<Throwable> stops) throws InterruptedException {\n        ThreadGroup group = new ThreadGroup(\"settlement\") {\n            @Override public void uncaughtException(Thread t, Throwable e) { stops.add(e); }\n        };\n        Thread starter = new Thread(group, pool::prestartAllCoreThreads);\n        starter.start();\n        starter.join();\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Runs the nightly settlement jobs. Some callers hand it jobs with execute(), others with submit(),\n * and most of them never look at the Future they get back.\n */\npublic class SettlementPool extends ThreadPoolExecutor {\n\n    /** Where failures go: one call per failed job. */\n    public interface Alerts {\n        void jobFailed(Throwable cause);\n    }\n\n    private final Alerts alerts;\n\n    public SettlementPool(int threads, Alerts alerts) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), job -> {\n            Thread t = new Thread(job);\n            t.setDaemon(true);\n            return t;\n        });\n        this.alerts = alerts;\n    }\n\n    @Override\n    protected void afterExecute(Runnable job, Throwable thrown) {\n        super.afterExecute(job, thrown);\n        Throwable failure = failureOf(job, thrown);\n        if (failure != null) alerts.jobFailed(failure);\n    }\n\n    /**\n     * What the job that just ran on this thread failed with, or null if it did not fail.\n     * Called by afterExecute with its own arguments.\n     */\n    Throwable failureOf(Runnable job, Throwable thrown) {\n        // TODO: Tonight three settlement jobs failed and nobody was alerted. Work out whether\n        //       the job that just ran failed, however it was handed to the pool, and return\n        //       the exception the job itself threw. A job an operator cancelled is not a failure.\n        throw new IllegalStateException(\"TODO: failureOf\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<Throwable> alerts = Collections.synchronizedList(new ArrayList<>());\n            List<Throwable> workerStops = Collections.synchronizedList(new ArrayList<>());\n            SettlementPool pool = new SettlementPool(1, alerts::add);\n            try {\n                startWorkerIn(pool, workerStops);\n                pool.execute(() -> System.out.println(\"merchant 18 paid\"));\n                pool.submit(() -> { throw new IOException(\"bank-3 timed out\"); });\n                pool.submit(() -> \"merchant 19 paid\");\n                pool.submit(() -> { throw new IllegalArgumentException(\"IBAN rejected\"); });\n                pool.shutdown();\n                System.out.println(\"pool finished: \" + pool.awaitTermination(3, TimeUnit.SECONDS));\n                if (!workerStops.isEmpty() && workerStops.get(0) instanceof RuntimeException stop) throw stop;\n                System.out.println(\"jobs run: \" + pool.getCompletedTaskCount());\n                System.out.println(\"alerts raised: \" + alerts.size());\n                for (Throwable alert : alerts) System.out.println(\"alert: \" + alert);\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** Starts the pool's worker in a thread group that collects what escapes it, so Run can show it. */\n    static void startWorkerIn(SettlementPool pool, List<Throwable> stops) throws InterruptedException {\n        ThreadGroup group = new ThreadGroup(\"settlement\") {\n            @Override public void uncaughtException(Thread t, Throwable e) { stops.add(e); }\n        };\n        Thread starter = new Thread(group, pool::prestartAllCoreThreads);\n        starter.start();\n        starter.join();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9550a8edbb3293edb5a444ef656b4b2f5cb5e88a8436d48205bee711957d3596",
+  "content_sha256": "20f426543bf50adc7066cb757af6ea744fb1daeaccb866c7ddf59acd2aa7cf34",
   "starting_code": "package practice;\n\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Runs the nightly settlement jobs. Some callers hand it jobs with execute(), others with submit(),\n * and most of them never look at the Future they get back.\n */\npublic class SettlementPool extends ThreadPoolExecutor {\n\n    /** Where failures go: one call per failed job. */\n    public interface Alerts {\n        void jobFailed(Throwable cause);\n    }\n\n    private final Alerts alerts;\n\n    public SettlementPool(int threads, Alerts alerts) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), job -> {\n            Thread t = new Thread(job);\n            t.setDaemon(true);\n            return t;\n        });\n        this.alerts = alerts;\n    }\n\n    @Override\n    protected void afterExecute(Runnable job, Throwable thrown) {\n        super.afterExecute(job, thrown);\n        Throwable failure = failureOf(job, thrown);\n        if (failure != null) alerts.jobFailed(failure);\n    }\n\n    /**\n     * What the job that just ran on this thread failed with, or null if it did not fail.\n     * Called by afterExecute with its own arguments.\n     */\n    Throwable failureOf(Runnable job, Throwable thrown) {\n        // TODO: Tonight three settlement jobs failed and nobody was alerted. Work out whether\n        //       the job that just ran failed, however it was handed to the pool, and return\n        //       the exception the job itself threw. A job an operator cancelled is not a failure.\n        throw new IllegalStateException(\"TODO: failureOf\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/main/java/practice/SettlementPool.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -134,6 +153,10 @@
     "concepts": [
       "afterExecute receives thrown == null for a submitted task; the task is the done FutureTask, which must be asked for its outcome.",
       "A task run with execute() that throws ends its worker thread and reaches the uncaught-exception handler; one run with submit() has its exception stored in the Future, where only get() shows it."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
   }
 }

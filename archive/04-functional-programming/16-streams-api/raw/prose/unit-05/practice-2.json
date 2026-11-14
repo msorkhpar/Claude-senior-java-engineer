@@ -56,6 +56,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ForkJoinPool;\n\n/**\n * The end-of-day reconciliation asks the bank for the status of every payment of the day. Each\n * lookup blocks until the bank answers, which can take seconds. The same service answers card\n * authorisations whose parallel streams and async tasks run on the JVM's common pool.\n */\npublic class StatusReport {\n\n    /** Asks the bank for one payment's status. Blocks until the bank answers; may throw. */\n    public interface BankClient {\n        String status(String paymentId);\n    }\n\n    private final BankClient bank;\n    private final int lookupsAtOnce;\n\n    public StatusReport(BankClient bank, int lookupsAtOnce) {\n        this.bank = bank;\n        this.lookupsAtOnce = lookupsAtOnce;\n    }\n\n    /** The status of every payment, in the order of the ids. */\n    public List<String> statuses(List<String> paymentIds) {\n        ForkJoinPool lookups = new ForkJoinPool(lookupsAtOnce);\n        try {\n            return lookups.submit(() -> paymentIds.parallelStream().map(bank::status).toList()).get();\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            throw new IllegalStateException(\"interrupted while waiting for the bank\", e);\n        } catch (ExecutionException e) {\n            if (e.getCause() instanceof RuntimeException failure) throw failure;\n            if (e.getCause() instanceof Error error) throw error;\n            throw new IllegalStateException(e.getCause());\n        } finally {\n            lookups.shutdown();\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> ids = List.of(\"tx-801\", \"tx-802\", \"tx-803\", \"tx-804\", \"tx-805\", \"tx-806\");\n            StatusReport report = new StatusReport(id -> id.endsWith(\"4\") ? \"DECLINED \" + id : \"BOOKED \" + id, 2);\n            List<String> statuses = report.statuses(ids);\n            System.out.println(\"statuses: \" + statuses.size());\n            for (String status : statuses) {\n                System.out.println(\"status: \" + status);\n            }\n            StatusReport failing = new StatusReport(id -> {\n                if (id.equals(\"tx-803\")) throw new IllegalArgumentException(\"bank does not know \" + id);\n                return \"BOOKED \" + id;\n            }, 2);\n            try {\n                failing.statuses(ids);\n                System.out.println(\"failed lookup: nothing thrown\");\n            } catch (IllegalArgumentException failed) {\n                System.out.println(\"failed lookup: \" + failed.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -68,6 +77,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.List;\n\n/**\n * The end-of-day reconciliation asks the bank for the status of every payment of the day. Each\n * lookup blocks until the bank answers, which can take seconds. The same service answers card\n * authorisations whose parallel streams and async tasks run on the JVM's common pool.\n */\npublic class StatusReport {\n\n    /** Asks the bank for one payment's status. Blocks until the bank answers; may throw. */\n    public interface BankClient {\n        String status(String paymentId);\n    }\n\n    private final BankClient bank;\n    private final int lookupsAtOnce;\n\n    public StatusReport(BankClient bank, int lookupsAtOnce) {\n        this.bank = bank;\n        this.lookupsAtOnce = lookupsAtOnce;\n    }\n\n    /** The status of every payment, in the order of the ids. */\n    public List<String> statuses(List<String> paymentIds) {\n        // TODO: The lookups block for seconds at a time, and while they do, the card authorisations\n        //       must not lose any of the threads they rely on. Run lookupsAtOnce lookups at a time\n        //       on threads of the report's own, return the statuses in the order of the ids, and\n        //       leave no threads behind. A lookup that fails reaches the caller as the same kind\n        //       of exception.\n        throw new IllegalStateException(\"TODO: statuses\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> ids = List.of(\"tx-801\", \"tx-802\", \"tx-803\", \"tx-804\", \"tx-805\", \"tx-806\");\n            StatusReport report = new StatusReport(id -> id.endsWith(\"4\") ? \"DECLINED \" + id : \"BOOKED \" + id, 2);\n            List<String> statuses = report.statuses(ids);\n            System.out.println(\"statuses: \" + statuses.size());\n            for (String status : statuses) {\n                System.out.println(\"status: \" + status);\n            }\n            StatusReport failing = new StatusReport(id -> {\n                if (id.equals(\"tx-803\")) throw new IllegalArgumentException(\"bank does not know \" + id);\n                return \"BOOKED \" + id;\n            }, 2);\n            try {\n                failing.statuses(ids);\n                System.out.println(\"failed lookup: nothing thrown\");\n            } catch (IllegalArgumentException failed) {\n                System.out.println(\"failed lookup: \" + failed.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -75,8 +93,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -86,7 +104,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "60e96ff9ee001366a39335342d92045a9b25f06a19fb3470242f37867509cd81",
+  "content_sha256": "d3ecea31908da115efcd3b27ac264303e9d3b1b31e8f8a33b64391eaf07da7c2",
   "starting_code": "package practice;\n\nimport java.util.List;\n\n/**\n * The end-of-day reconciliation asks the bank for the status of every payment of the day. Each\n * lookup blocks until the bank answers, which can take seconds. The same service answers card\n * authorisations whose parallel streams and async tasks run on the JVM's common pool.\n */\npublic class StatusReport {\n\n    /** Asks the bank for one payment's status. Blocks until the bank answers; may throw. */\n    public interface BankClient {\n        String status(String paymentId);\n    }\n\n    private final BankClient bank;\n    private final int lookupsAtOnce;\n\n    public StatusReport(BankClient bank, int lookupsAtOnce) {\n        this.bank = bank;\n        this.lookupsAtOnce = lookupsAtOnce;\n    }\n\n    /** The status of every payment, in the order of the ids. */\n    public List<String> statuses(List<String> paymentIds) {\n        // TODO: The lookups block for seconds at a time, and while they do, the card authorisations\n        //       must not lose any of the threads they rely on. Run lookupsAtOnce lookups at a time\n        //       on threads of the report's own, return the statuses in the order of the ids, and\n        //       leave no threads behind. A lookup that fails reaches the caller as the same kind\n        //       of exception.\n        throw new IllegalStateException(\"TODO: statuses\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-2/src/main/java/practice/StatusReport.java",
@@ -97,7 +115,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -146,6 +165,10 @@
     },
     "concepts": [
       "A parallel stream started inside a task of your own ForkJoinPool runs in that pool, an undocumented JDK behaviour; another kind of executor does not count, and the pool must be shut down and its failures unwrapped from ExecutionException."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-2/src/main/java/practice/TryIt.java"
   }
 }

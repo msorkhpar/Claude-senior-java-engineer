@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * An alert fires when a metric stays above its threshold for a whole window. Every rule lives in\n * a RuleBook, which the evaluator walks once a minute.\n */\npublic class AlertRule {\n\n    /** The rules the evaluator walks. */\n    public static final class RuleBook {\n        private final List<AlertRule> rules = new ArrayList<>();\n\n        void add(AlertRule rule) {\n            rules.add(rule);\n        }\n\n        public List<AlertRule> rules() {\n            return List.copyOf(rules);\n        }\n\n        /** One evaluator pass: how many one-minute samples each rule needs before it can fire. */\n        public List<Long> samplesNeeded() {\n            List<Long> needed = new ArrayList<>();\n            for (AlertRule rule : rules) {\n                needed.add(rule.window.toMinutes());\n            }\n            return needed;\n        }\n    }\n\n    private final String metric;\n    private final double threshold;\n    private final Duration window;\n\n    public AlertRule(RuleBook book, String metric, double threshold, Duration window) {\n        check(metric, threshold, window);\n        this.metric = metric;\n        this.threshold = threshold;\n        this.window = window;\n        book.add(this);\n    }\n\n    /**\n     * Refuses, with IllegalArgumentException, what the evaluator can't run: a missing or blank\n     * metric, a threshold that isn't a finite number, a missing window or one shorter than a minute.\n     */\n    static void check(String metric, double threshold, Duration window) {\n        if (metric == null || metric.isBlank()) throw new IllegalArgumentException(\"metric\");\n        if (!Double.isFinite(threshold)) throw new IllegalArgumentException(\"threshold \" + threshold);\n        if (window == null || window.compareTo(Duration.ofMinutes(1)) < 0)\n            throw new IllegalArgumentException(\"window \" + window);\n    }\n\n    public String metric() { return metric; }\n\n    public double threshold() { return threshold; }\n\n    public Duration window() { return window; }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AlertRule.RuleBook book = new AlertRule.RuleBook();\n            AlertRule memory = new AlertRule(book, \"memory.used.percent\", 88.0, Duration.ofMinutes(5));\n            AlertRule errors = new AlertRule(book, \"api.errors.count\", 40, Duration.ofSeconds(150));\n            System.out.println(\"rule: \" + memory.metric() + \" over \" + memory.threshold() + \" for \" + memory.window());\n            System.out.println(\"rule: \" + errors.metric() + \" over \" + errors.threshold() + \" for \" + errors.window());\n            try {\n                new AlertRule(book, \"api.latency.ms\", 400, Duration.ofSeconds(20));\n                System.out.println(\"20 s window: accepted\");\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"20 s window: refused, \" + refused.getMessage());\n            }\n            try {\n                new AlertRule(book, \"api.latency.ms\", Double.NaN, Duration.ofMinutes(2));\n                System.out.println(\"NaN threshold: accepted\");\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"NaN threshold: refused, \" + refused.getMessage());\n            }\n            System.out.println(\"rules the evaluator walks: \" + book.rules().size());\n            System.out.println(\"minutes of samples needed: \" + book.samplesNeeded());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * An alert fires when a metric stays above its threshold for a whole window. Every rule lives in\n * a RuleBook, which the evaluator walks once a minute.\n */\npublic class AlertRule {\n\n    /** The rules the evaluator walks. */\n    public static final class RuleBook {\n        private final List<AlertRule> rules = new ArrayList<>();\n\n        void add(AlertRule rule) {\n            rules.add(rule);\n        }\n\n        public List<AlertRule> rules() {\n            return List.copyOf(rules);\n        }\n\n        /** One evaluator pass: how many one-minute samples each rule needs before it can fire. */\n        public List<Long> samplesNeeded() {\n            List<Long> needed = new ArrayList<>();\n            for (AlertRule rule : rules) {\n                needed.add(rule.window.toMinutes());\n            }\n            return needed;\n        }\n    }\n\n    private final String metric;\n    private final double threshold;\n    private final Duration window;\n\n    public AlertRule(RuleBook book, String metric, double threshold, Duration window) {\n        book.add(this);\n        check(metric, threshold, window);\n        this.metric = metric;\n        this.threshold = threshold;\n        this.window = window;\n    }\n\n    /**\n     * Refuses, with IllegalArgumentException, what the evaluator can't run: a missing or blank\n     * metric, a threshold that isn't a finite number, a missing window or one shorter than a minute.\n     */\n    static void check(String metric, double threshold, Duration window) {\n        // TODO: refuse each of the inputs above. A rule the API refuses must never be evaluated.\n        throw new IllegalStateException(\"TODO: check\");\n    }\n\n    public String metric() { return metric; }\n\n    public double threshold() { return threshold; }\n\n    public Duration window() { return window; }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AlertRule.RuleBook book = new AlertRule.RuleBook();\n            AlertRule memory = new AlertRule(book, \"memory.used.percent\", 88.0, Duration.ofMinutes(5));\n            AlertRule errors = new AlertRule(book, \"api.errors.count\", 40, Duration.ofSeconds(150));\n            System.out.println(\"rule: \" + memory.metric() + \" over \" + memory.threshold() + \" for \" + memory.window());\n            System.out.println(\"rule: \" + errors.metric() + \" over \" + errors.threshold() + \" for \" + errors.window());\n            try {\n                new AlertRule(book, \"api.latency.ms\", 400, Duration.ofSeconds(20));\n                System.out.println(\"20 s window: accepted\");\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"20 s window: refused, \" + refused.getMessage());\n            }\n            try {\n                new AlertRule(book, \"api.latency.ms\", Double.NaN, Duration.ofMinutes(2));\n                System.out.println(\"NaN threshold: accepted\");\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"NaN threshold: refused, \" + refused.getMessage());\n            }\n            System.out.println(\"rules the evaluator walks: \" + book.rules().size());\n            System.out.println(\"minutes of samples needed: \" + book.samplesNeeded());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "718f040e00cd8dc1d206fcb134bd928d036b8a900fdc754938c961609c707c2d",
+  "content_sha256": "04f09fecb1e230d9b3fb484def3e124dafdadaa3ec64bc1d1b8018142dc60e9b",
   "starting_code": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * An alert fires when a metric stays above its threshold for a whole window. Every rule lives in\n * a RuleBook, which the evaluator walks once a minute.\n */\npublic class AlertRule {\n\n    /** The rules the evaluator walks. */\n    public static final class RuleBook {\n        private final List<AlertRule> rules = new ArrayList<>();\n\n        void add(AlertRule rule) {\n            rules.add(rule);\n        }\n\n        public List<AlertRule> rules() {\n            return List.copyOf(rules);\n        }\n\n        /** One evaluator pass: how many one-minute samples each rule needs before it can fire. */\n        public List<Long> samplesNeeded() {\n            List<Long> needed = new ArrayList<>();\n            for (AlertRule rule : rules) {\n                needed.add(rule.window.toMinutes());\n            }\n            return needed;\n        }\n    }\n\n    private final String metric;\n    private final double threshold;\n    private final Duration window;\n\n    public AlertRule(RuleBook book, String metric, double threshold, Duration window) {\n        book.add(this);\n        check(metric, threshold, window);\n        this.metric = metric;\n        this.threshold = threshold;\n        this.window = window;\n    }\n\n    /**\n     * Refuses, with IllegalArgumentException, what the evaluator can't run: a missing or blank\n     * metric, a threshold that isn't a finite number, a missing window or one shorter than a minute.\n     */\n    static void check(String metric, double threshold, Duration window) {\n        // TODO: refuse each of the inputs above. A rule the API refuses must never be evaluated.\n        throw new IllegalStateException(\"TODO: check\");\n    }\n\n    public String metric() { return metric; }\n\n    public double threshold() { return threshold; }\n\n    public Duration window() { return window; }\n}\n",
   "exercise": {
     "main_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-03/practice-1/src/main/java/practice/AlertRule.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/02-classes-and-objects/07-encapsulation/prose/unit-03/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -123,6 +142,10 @@
     },
     "concepts": [
       "A constructor checks every argument before it stores or hands out `this`, so a refused object is never reachable."
-    ]
+    ],
+    "files": [
+      "practice/02-classes-and-objects/07-encapsulation/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/02-classes-and-objects/07-encapsulation/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
   }
 }

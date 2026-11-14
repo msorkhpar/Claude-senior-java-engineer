@@ -50,6 +50,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Per-route rate limits, loaded from the tree a JSON or YAML parser produces. */\npublic final class RateLimits {\n    private final Map<String, List<Integer>> limits;\n\n    private RateLimits(Map<String, List<Integer>> limits) {\n        this.limits = limits;\n    }\n\n    /**\n     * Loads the limits. {@code raw} maps a route to its node as the parser produced it: a list of\n     * requests allowed per minute, one per customer tier (free, paid, ...).\n     */\n    public static RateLimits load(Map<String, Object> raw) {\n        Map<String, List<Integer>> limits = new LinkedHashMap<>();\n        for (Map.Entry<String, Object> route : raw.entrySet()) {\n            limits.put(route.getKey(), integers(route.getKey(), route.getValue()));\n        }\n        return new RateLimits(limits);\n    }\n\n    /**\n     * Turns one route's parsed node into the list of limits the rest of the service reads.\n     * Bad configuration must stop the load, with an IllegalArgumentException that names the route.\n     */\n    static List<Integer> integers(String route, Object node) {\n        if (!(node instanceof List<?> list)) {\n            throw new IllegalArgumentException(route + \": expected a list of limits, got \" + node);\n        }\n        List<Integer> out = new ArrayList<>(list.size());\n        for (Object element : list) {\n            if (!(element instanceof Integer limit)) {\n                throw new IllegalArgumentException(route + \": not a whole number: \" + element);\n            }\n            out.add(limit);\n        }\n        return List.copyOf(out);\n    }\n\n    /** Requests per minute for this route and tier (0 is the free tier). */\n    public int perMinute(String route, int tier) {\n        return limits.get(route).get(tier);\n    }\n\n    /** The sum of the route's limits over every tier, for the capacity report. */\n    public int capacity(String route) {\n        int sum = 0;\n        for (int limit : limits.get(route)) sum += limit;\n        return sum;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<Object> checkout = new ArrayList<>(List.of(30, 200, 1_500));\n            Map<String, Object> raw = new LinkedHashMap<>();\n            raw.put(\"/checkout\", checkout);\n            raw.put(\"/status\", new ArrayList<>(List.of(600)));\n            RateLimits limits = RateLimits.load(raw);\n            System.out.println(\"/checkout tier 1: \" + limits.perMinute(\"/checkout\", 1));\n            System.out.println(\"/checkout capacity: \" + limits.capacity(\"/checkout\"));\n            checkout.set(0, \"lots\");\n            System.out.println(\"/checkout tier 0 after the tree changed: \" + limits.perMinute(\"/checkout\", 0));\n            Map<String, Object> quoted = new LinkedHashMap<>();\n            quoted.put(\"/refunds\", new ArrayList<>(List.of(10, \"40\")));\n            try {\n                RateLimits.load(quoted);\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"refused: \" + refused.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -62,6 +71,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Per-route rate limits, loaded from the tree a JSON or YAML parser produces. */\npublic final class RateLimits {\n    private final Map<String, List<Integer>> limits;\n\n    private RateLimits(Map<String, List<Integer>> limits) {\n        this.limits = limits;\n    }\n\n    /**\n     * Loads the limits. {@code raw} maps a route to its node as the parser produced it: a list of\n     * requests allowed per minute, one per customer tier (free, paid, ...).\n     */\n    public static RateLimits load(Map<String, Object> raw) {\n        Map<String, List<Integer>> limits = new LinkedHashMap<>();\n        for (Map.Entry<String, Object> route : raw.entrySet()) {\n            limits.put(route.getKey(), integers(route.getKey(), route.getValue()));\n        }\n        return new RateLimits(limits);\n    }\n\n    /**\n     * Turns one route's parsed node into the list of limits the rest of the service reads.\n     * Bad configuration must stop the load, with an IllegalArgumentException that names the route.\n     */\n    static List<Integer> integers(String route, Object node) {\n        throw new IllegalStateException(\"TODO: turn the parsed node into the route's list of limits\");\n    }\n\n    /** Requests per minute for this route and tier (0 is the free tier). */\n    public int perMinute(String route, int tier) {\n        return limits.get(route).get(tier);\n    }\n\n    /** The sum of the route's limits over every tier, for the capacity report. */\n    public int capacity(String route) {\n        int sum = 0;\n        for (int limit : limits.get(route)) sum += limit;\n        return sum;\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<Object> checkout = new ArrayList<>(List.of(30, 200, 1_500));\n            Map<String, Object> raw = new LinkedHashMap<>();\n            raw.put(\"/checkout\", checkout);\n            raw.put(\"/status\", new ArrayList<>(List.of(600)));\n            RateLimits limits = RateLimits.load(raw);\n            System.out.println(\"/checkout tier 1: \" + limits.perMinute(\"/checkout\", 1));\n            System.out.println(\"/checkout capacity: \" + limits.capacity(\"/checkout\"));\n            checkout.set(0, \"lots\");\n            System.out.println(\"/checkout tier 0 after the tree changed: \" + limits.perMinute(\"/checkout\", 0));\n            Map<String, Object> quoted = new LinkedHashMap<>();\n            quoted.put(\"/refunds\", new ArrayList<>(List.of(10, \"40\")));\n            try {\n                RateLimits.load(quoted);\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"refused: \" + refused.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -69,8 +87,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -80,7 +98,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f6f881070abc82d087e06fd4b184accf1fe8f0ab5ea27b79f787e8b48afb0783",
+  "content_sha256": "d40c2bcb0c796d707337ffba711aed04b48c1f2a1ae8ccd8744b4f780300ae2b",
   "starting_code": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Per-route rate limits, loaded from the tree a JSON or YAML parser produces. */\npublic final class RateLimits {\n    private final Map<String, List<Integer>> limits;\n\n    private RateLimits(Map<String, List<Integer>> limits) {\n        this.limits = limits;\n    }\n\n    /**\n     * Loads the limits. {@code raw} maps a route to its node as the parser produced it: a list of\n     * requests allowed per minute, one per customer tier (free, paid, ...).\n     */\n    public static RateLimits load(Map<String, Object> raw) {\n        Map<String, List<Integer>> limits = new LinkedHashMap<>();\n        for (Map.Entry<String, Object> route : raw.entrySet()) {\n            limits.put(route.getKey(), integers(route.getKey(), route.getValue()));\n        }\n        return new RateLimits(limits);\n    }\n\n    /**\n     * Turns one route's parsed node into the list of limits the rest of the service reads.\n     * Bad configuration must stop the load, with an IllegalArgumentException that names the route.\n     */\n    static List<Integer> integers(String route, Object node) {\n        throw new IllegalStateException(\"TODO: turn the parsed node into the route's list of limits\");\n    }\n\n    /** Requests per minute for this route and tier (0 is the free tier). */\n    public int perMinute(String route, int tier) {\n        return limits.get(route).get(tier);\n    }\n\n    /** The sum of the route's limits over every tier, for the capacity report. */\n    public int capacity(String route) {\n        int sum = 0;\n        for (int limit : limits.get(route)) sum += limit;\n        return sum;\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-01/practice-1/src/main/java/practice/RateLimits.java",
@@ -91,7 +109,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/42-annotations/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -140,6 +159,10 @@
     },
     "concepts": [
       "A cast to a parameterized type checks only the class, so code that converts untyped input checks each element and needs no suppression; otherwise the ClassCastException comes later, at a read with no cast."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/42-annotations/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

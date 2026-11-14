@@ -48,6 +48,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Repeatable;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.LinkedHashSet;\nimport java.util.Set;\n\n/**\n * Decides whether a caller may invoke an endpoint method of the billing API.\n *\n * An endpoint lists the permissions that let a caller in; holding any one of them is enough.\n * A method without permissions of its own uses its class's. An endpoint with none at all,\n * on the method or on its class, is public.\n */\npublic class PermissionGuard {\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    @Repeatable(Permissions.class)\n    public @interface Permission {\n        String value();\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Permissions {\n        Permission[] value();\n    }\n\n    /** Whether a caller holding {@code granted} may invoke {@code endpoint}. */\n    public boolean mayCall(Method endpoint, Set<String> granted) {\n        Set<String> required = required(endpoint);\n        if (required.isEmpty()) return true;\n        for (String permission : required) {\n            if (granted.contains(permission)) return true;\n        }\n        return false;\n    }\n\n    /** The permissions that let a caller into {@code endpoint}, in the order they are written. */\n    Set<String> required(Method endpoint) {\n        Set<String> names = namesOn(endpoint.getAnnotationsByType(Permission.class));\n        if (names.isEmpty()) {\n            names = namesOn(endpoint.getDeclaringClass().getAnnotationsByType(Permission.class));\n        }\n        return names;\n    }\n\n    private static Set<String> namesOn(Permission[] permissions) {\n        Set<String> names = new LinkedHashSet<>();\n        for (Permission p : permissions) names.add(p.value());\n        return names;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Set;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            PermissionGuard guard = new PermissionGuard();\n            System.out.println(\"refund needs: \" + guard.required(Payouts.class.getDeclaredMethod(\"refund\")));\n            System.out.println(\"balance needs: \" + guard.required(Payouts.class.getDeclaredMethod(\"balance\")));\n            System.out.println(\"ledger needs: \" + guard.required(Ledger.class.getDeclaredMethod(\"close\")));\n            System.out.println(\"ping needs: \" + guard.required(Payouts.class.getDeclaredMethod(\"ping\")));\n            System.out.println(\"no permissions may refund: \" + guard.mayCall(Payouts.class.getDeclaredMethod(\"refund\"), Set.of()));\n            System.out.println(\"finance:admin may refund: \" + guard.mayCall(Payouts.class.getDeclaredMethod(\"refund\"), Set.of(\"finance:admin\")));\n            System.out.println(\"payouts:read may close ledger: \" + guard.mayCall(Ledger.class.getDeclaredMethod(\"close\"), Set.of(\"payouts:read\")));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static class Payouts {\n        @PermissionGuard.Permission(\"payouts:read\")\n        public void balance() { }\n        @PermissionGuard.Permission(\"payouts:refund\")\n        @PermissionGuard.Permission(\"finance:admin\")\n        public void refund() { }\n        public void ping() { }\n    }\n    @PermissionGuard.Permission(\"ledger:close\")\n    @PermissionGuard.Permission(\"finance:admin\")\n    static class Ledger {\n        public void close() { }\n    }\n}\n"
         }
       ]
     },
@@ -60,6 +69,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Repeatable;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.LinkedHashSet;\nimport java.util.Set;\n\n/**\n * Decides whether a caller may invoke an endpoint method of the billing API.\n *\n * An endpoint lists the permissions that let a caller in; holding any one of them is enough.\n * A method without permissions of its own uses its class's. An endpoint with none at all,\n * on the method or on its class, is public.\n */\npublic class PermissionGuard {\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    @Repeatable(Permissions.class)\n    public @interface Permission {\n        String value();\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Permissions {\n        Permission[] value();\n    }\n\n    /** Whether a caller holding {@code granted} may invoke {@code endpoint}. */\n    public boolean mayCall(Method endpoint, Set<String> granted) {\n        Set<String> required = required(endpoint);\n        if (required.isEmpty()) return true;\n        for (String permission : required) {\n            if (granted.contains(permission)) return true;\n        }\n        return false;\n    }\n\n    /** The permissions that let a caller into {@code endpoint}, in the order they are written. */\n    Set<String> required(Method endpoint) {\n        // TODO: Return the permissions written on this endpoint method, in the order they are\n        //       written, or its class's when the method has none of its own. An endpoint may\n        //       list one permission or several. namesOn(...) turns annotations into names.\n        throw new IllegalStateException(\"TODO: required\");\n    }\n\n    private static Set<String> namesOn(Permission[] permissions) {\n        Set<String> names = new LinkedHashSet<>();\n        for (Permission p : permissions) names.add(p.value());\n        return names;\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Set;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            PermissionGuard guard = new PermissionGuard();\n            System.out.println(\"refund needs: \" + guard.required(Payouts.class.getDeclaredMethod(\"refund\")));\n            System.out.println(\"balance needs: \" + guard.required(Payouts.class.getDeclaredMethod(\"balance\")));\n            System.out.println(\"ledger needs: \" + guard.required(Ledger.class.getDeclaredMethod(\"close\")));\n            System.out.println(\"ping needs: \" + guard.required(Payouts.class.getDeclaredMethod(\"ping\")));\n            System.out.println(\"no permissions may refund: \" + guard.mayCall(Payouts.class.getDeclaredMethod(\"refund\"), Set.of()));\n            System.out.println(\"finance:admin may refund: \" + guard.mayCall(Payouts.class.getDeclaredMethod(\"refund\"), Set.of(\"finance:admin\")));\n            System.out.println(\"payouts:read may close ledger: \" + guard.mayCall(Ledger.class.getDeclaredMethod(\"close\"), Set.of(\"payouts:read\")));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static class Payouts {\n        @PermissionGuard.Permission(\"payouts:read\")\n        public void balance() { }\n        @PermissionGuard.Permission(\"payouts:refund\")\n        @PermissionGuard.Permission(\"finance:admin\")\n        public void refund() { }\n        public void ping() { }\n    }\n    @PermissionGuard.Permission(\"ledger:close\")\n    @PermissionGuard.Permission(\"finance:admin\")\n    static class Ledger {\n        public void close() { }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -67,8 +85,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 4,
+    "code": 3,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -78,7 +96,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "8ce9ccb673d8b6eaf16f43610979aa413d0b1b877f3d12768b8248d95092debc",
+  "content_sha256": "b000a9702b71b715a13c241e1781950af016cc5d4a68b75051f1af7222d34011",
   "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Repeatable;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Method;\nimport java.util.LinkedHashSet;\nimport java.util.Set;\n\n/**\n * Decides whether a caller may invoke an endpoint method of the billing API.\n *\n * An endpoint lists the permissions that let a caller in; holding any one of them is enough.\n * A method without permissions of its own uses its class's. An endpoint with none at all,\n * on the method or on its class, is public.\n */\npublic class PermissionGuard {\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    @Repeatable(Permissions.class)\n    public @interface Permission {\n        String value();\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.METHOD, ElementType.TYPE})\n    public @interface Permissions {\n        Permission[] value();\n    }\n\n    /** Whether a caller holding {@code granted} may invoke {@code endpoint}. */\n    public boolean mayCall(Method endpoint, Set<String> granted) {\n        Set<String> required = required(endpoint);\n        if (required.isEmpty()) return true;\n        for (String permission : required) {\n            if (granted.contains(permission)) return true;\n        }\n        return false;\n    }\n\n    /** The permissions that let a caller into {@code endpoint}, in the order they are written. */\n    Set<String> required(Method endpoint) {\n        // TODO: Return the permissions written on this endpoint method, in the order they are\n        //       written, or its class's when the method has none of its own. An endpoint may\n        //       list one permission or several. namesOn(...) turns annotations into names.\n        throw new IllegalStateException(\"TODO: required\");\n    }\n\n    private static Set<String> namesOn(Permission[] permissions) {\n        Set<String> names = new LinkedHashSet<>();\n        for (Permission p : permissions) names.add(p.value());\n        return names;\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-1/src/main/java/practice/PermissionGuard.java",
@@ -89,7 +107,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -148,6 +167,10 @@
     },
     "concepts": [
       "An annotation written more than once is stored inside its container, so getAnnotation finds either the single annotation or the container, and getAnnotationsByType finds every one."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
   }
 }

@@ -22,7 +22,7 @@ It holds 608 practices: 442 to write in code, graded by a real runner, and 166 s
 
 ![A practice open in its workspace: the statement on the left, the editor on the right](.studyforge/images/readme/practice.webp)
 
-**Quizzes graded in the page.** A short quiz has a few questions with one answer each. Choose, press **Check answers**, and each choice is explained right or wrong. Nothing is sent anywhere: the page grades it.
+**Quizzes graded in the page.** A short quiz shows one question at a time. Choose an answer and it is explained right or wrong at once; move with **Previous** and **Next**, then press **Finish quiz** to see every answer's verdict. Nothing is sent anywhere: the page grades it.
 
 ![A quiz answered in the page, with the explanation of the chosen answer](.studyforge/images/readme/quiz.webp)
 

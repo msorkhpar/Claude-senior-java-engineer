@@ -59,6 +59,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Queries behind the support screen. Each method is lent the request's connection, which the\n * caller goes on using after the method returns.\n */\npublic final class OrderQueries {\n\n    /** One open order line as the support screen shows it. */\n    public record OpenOrder(long id, String item, int quantity) {}\n\n    static final String OPEN_ORDERS = \"\"\"\n            SELECT id, item, quantity\n            FROM orders\n            WHERE customer = ? AND status = 'OPEN'\n            ORDER BY id\n            \"\"\";\n\n    private OrderQueries() {}\n\n    /** The customer's open orders, oldest first. */\n    public static List<OpenOrder> openOrders(Connection conn, String customer) throws SQLException {\n        try (PreparedStatement ps = conn.prepareStatement(OPEN_ORDERS)) {\n            ps.setString(1, customer);\n            try (ResultSet rs = ps.executeQuery()) {\n                List<OpenOrder> orders = new ArrayList<>();\n                while (rs.next()) orders.add(read(rs));\n                return orders;\n            }\n        }\n    }\n\n    /** Reads the current row. The quantity column is text written by an old loader. */\n    static OpenOrder read(ResultSet rs) throws SQLException {\n        return new OpenOrder(rs.getLong(\"id\"), rs.getString(\"item\"), rs.getInt(\"quantity\"));\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.sql.DriverManager;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            try (Connection db = h2(\"support\")) {\n                try (Statement st = db.createStatement()) {\n                    st.execute(\"CREATE TABLE orders (id BIGINT PRIMARY KEY, customer VARCHAR(20), item VARCHAR(40), \"\n                            + \"quantity VARCHAR(10), status VARCHAR(10))\");\n                    st.execute(\"INSERT INTO orders VALUES (12, 'c-77', 'stapler', '3', 'OPEN'), \"\n                            + \"(15, 'c-77', 'monitor arm', '1', 'SHIPPED'), (19, 'c-77', 'labels', '25', 'OPEN'), \"\n                            + \"(30, 'c-90', 'whiteboard', 'two', 'OPEN')\");\n                }\n                System.out.println(\"c-77: \" + OrderQueries.openOrders(db, \"c-77\"));\n                System.out.println(\"c-12: \" + OrderQueries.openOrders(db, \"c-12\"));\n                try {\n                    OrderQueries.openOrders(db, \"c-90\");\n                } catch (SQLException unreadable) {\n                    System.out.println(\"c-90 refused: \" + unreadable.getClass().getSimpleName());\n                }\n                try (Statement st = db.createStatement(); ResultSet rs = st.executeQuery(\"SELECT COUNT(*) FROM orders\")) {\n                    rs.next();\n                    System.out.println(\"connection still usable, orders: \" + rs.getInt(1));\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** The practice's database, H2 in memory: Run sees the tests' libraries too. */\n    private static Connection h2(String name) throws SQLException {\n        return DriverManager.getConnection(\"jdbc:h2:mem:\" + name);\n    }\n}\n"
         }
       ]
     },
@@ -71,6 +80,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Queries behind the support screen. Each method is lent the request's connection, which the\n * caller goes on using after the method returns.\n */\npublic final class OrderQueries {\n\n    /** One open order line as the support screen shows it. */\n    public record OpenOrder(long id, String item, int quantity) {}\n\n    static final String OPEN_ORDERS = \"\"\"\n            SELECT id, item, quantity\n            FROM orders\n            WHERE customer = ? AND status = 'OPEN'\n            ORDER BY id\n            \"\"\";\n\n    private OrderQueries() {}\n\n    /** The customer's open orders, oldest first. */\n    public static List<OpenOrder> openOrders(Connection conn, String customer) throws SQLException {\n        // TODO: Run OPEN_ORDERS for the customer and return its rows, each read with read(rs).\n        //       This runs on every page view of the support screen, and the caller goes on using\n        //       the connection afterwards.\n        throw new IllegalStateException(\"TODO: openOrders\");\n    }\n\n    /** Reads the current row. The quantity column is text written by an old loader. */\n    static OpenOrder read(ResultSet rs) throws SQLException {\n        return new OpenOrder(rs.getLong(\"id\"), rs.getString(\"item\"), rs.getInt(\"quantity\"));\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.sql.DriverManager;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            try (Connection db = h2(\"support\")) {\n                try (Statement st = db.createStatement()) {\n                    st.execute(\"CREATE TABLE orders (id BIGINT PRIMARY KEY, customer VARCHAR(20), item VARCHAR(40), \"\n                            + \"quantity VARCHAR(10), status VARCHAR(10))\");\n                    st.execute(\"INSERT INTO orders VALUES (12, 'c-77', 'stapler', '3', 'OPEN'), \"\n                            + \"(15, 'c-77', 'monitor arm', '1', 'SHIPPED'), (19, 'c-77', 'labels', '25', 'OPEN'), \"\n                            + \"(30, 'c-90', 'whiteboard', 'two', 'OPEN')\");\n                }\n                System.out.println(\"c-77: \" + OrderQueries.openOrders(db, \"c-77\"));\n                System.out.println(\"c-12: \" + OrderQueries.openOrders(db, \"c-12\"));\n                try {\n                    OrderQueries.openOrders(db, \"c-90\");\n                } catch (SQLException unreadable) {\n                    System.out.println(\"c-90 refused: \" + unreadable.getClass().getSimpleName());\n                }\n                try (Statement st = db.createStatement(); ResultSet rs = st.executeQuery(\"SELECT COUNT(*) FROM orders\")) {\n                    rs.next();\n                    System.out.println(\"connection still usable, orders: \" + rs.getInt(1));\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** The practice's database, H2 in memory: Run sees the tests' libraries too. */\n    private static Connection h2(String name) throws SQLException {\n        return DriverManager.getConnection(\"jdbc:h2:mem:\" + name);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -78,8 +96,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 1,
+    "paras": 3,
+    "code": 2,
     "tables": 1,
     "lists": 0,
     "images": 0,
@@ -89,7 +107,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "58e51067a4cfeed52ef4b07c4c664cbe3e8029bd08f09777d1b25b806b0c5b4b",
+  "content_sha256": "5e124841d42a5b5bc7b7a7603237ad2068fe666e66fbbeea0738892ec091e230",
   "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Queries behind the support screen. Each method is lent the request's connection, which the\n * caller goes on using after the method returns.\n */\npublic final class OrderQueries {\n\n    /** One open order line as the support screen shows it. */\n    public record OpenOrder(long id, String item, int quantity) {}\n\n    static final String OPEN_ORDERS = \"\"\"\n            SELECT id, item, quantity\n            FROM orders\n            WHERE customer = ? AND status = 'OPEN'\n            ORDER BY id\n            \"\"\";\n\n    private OrderQueries() {}\n\n    /** The customer's open orders, oldest first. */\n    public static List<OpenOrder> openOrders(Connection conn, String customer) throws SQLException {\n        // TODO: Run OPEN_ORDERS for the customer and return its rows, each read with read(rs).\n        //       This runs on every page view of the support screen, and the caller goes on using\n        //       the connection afterwards.\n        throw new IllegalStateException(\"TODO: openOrders\");\n    }\n\n    /** Reads the current row. The quantity column is text written by an old loader. */\n    static OpenOrder read(ResultSet rs) throws SQLException {\n        return new OpenOrder(rs.getLong(\"id\"), rs.getString(\"item\"), rs.getInt(\"quantity\"));\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-2/src/main/java/practice/OrderQueries.java",
@@ -100,7 +118,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -149,6 +168,10 @@
     },
     "concepts": [
       "try-with-resources closes the result set and statement in reverse order, also when reading fails, and a method lent a connection leaves it open."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
   }
 }

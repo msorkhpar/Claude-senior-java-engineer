@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Iterator;\nimport java.util.List;\n\n/**\n * The buffer of one writer thread: records collect here and are drained to storage in batches.\n * A normal batch is a few thousand records; a replay after an outage can push hundreds of\n * thousands through the same buffer.\n */\npublic class RecordBuffer {\n\n    /** The slots a buffer keeps between batches: enough for a normal batch. */\n    static final int NORMAL_BATCH = 4_096;\n\n    private ArrayList<String> records = new ArrayList<>(NORMAL_BATCH);\n\n    public void add(String record) {\n        records.add(record);\n    }\n\n    /** Adds one decoded frame; the frame header gives {@code count}, then the rows follow one by one. */\n    public void addFrame(int count, Iterator<String> rows) {\n        prepareFor(count);\n        for (int i = 0; i < count; i++) {\n            records.add(rows.next());\n        }\n    }\n\n    /** Makes room for {@code incoming} more records before they are added one by one. */\n    void prepareFor(int incoming) {\n        records.ensureCapacity(records.size() + incoming);\n    }\n\n    /** Returns every record added since the last drain, in order, and leaves the buffer empty. */\n    public List<String> drain() {\n        List<String> batch = new ArrayList<>(records);\n        if (records.size() > NORMAL_BATCH) {\n            records = new ArrayList<>(NORMAL_BATCH);\n        } else {\n            records.clear();\n        }\n        return batch;\n    }\n\n    public int size() {\n        return records.size();\n    }\n\n    /** The list the records are kept in; the tests read its array. */\n    ArrayList<String> backing() {\n        return records;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RecordBuffer buffer = new RecordBuffer();\n            buffer.add(\"login u-17\");\n            buffer.addFrame(2, List.of(\"export r-8\", \"export r-9\").iterator());\n            buffer.add(\"logout u-17\");\n            System.out.println(\"first batch: \" + buffer.drain());\n            System.out.println(\"size after drain: \" + buffer.size());\n            for (int i = 0; i < 60_000; i++) buffer.add(\"replay-\" + i);\n            List<String> replay = buffer.drain();\n            System.out.println(\"replay batch: \" + replay.size() + \" records, last \" + replay.get(replay.size() - 1));\n            buffer.add(\"login u-23\");\n            System.out.println(\"next batch: \" + buffer.drain());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Iterator;\nimport java.util.List;\n\n/**\n * The buffer of one writer thread: records collect here and are drained to storage in batches.\n * A normal batch is a few thousand records; a replay after an outage can push hundreds of\n * thousands through the same buffer.\n */\npublic class RecordBuffer {\n\n    /** The slots a buffer keeps between batches: enough for a normal batch. */\n    static final int NORMAL_BATCH = 4_096;\n\n    private ArrayList<String> records = new ArrayList<>(NORMAL_BATCH);\n\n    public void add(String record) {\n        records.add(record);\n    }\n\n    /** Adds one decoded frame; the frame header gives {@code count}, then the rows follow one by one. */\n    public void addFrame(int count, Iterator<String> rows) {\n        prepareFor(count);\n        for (int i = 0; i < count; i++) {\n            records.add(rows.next());\n        }\n    }\n\n    /** Makes room for {@code incoming} more records before they are added one by one. */\n    void prepareFor(int incoming) {\n        // TODO: A frame of `incoming` rows is about to be added one row at a time. Make room for\n        //       them, so that the array doesn't grow again while they are added.\n        throw new IllegalStateException(\"TODO: prepareFor\");\n    }\n\n    /** Returns every record added since the last drain, in order, and leaves the buffer empty. */\n    public List<String> drain() {\n        // TODO: Hand back the records in order and leave the buffer empty. After a replay the buffer\n        //       must not keep a replay-sized array, and after a normal batch it should neither\n        //       allocate nor grow again for the next one.\n        throw new IllegalStateException(\"TODO: drain\");\n    }\n\n    public int size() {\n        return records.size();\n    }\n\n    /** The list the records are kept in; the tests read its array. */\n    ArrayList<String> backing() {\n        return records;\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RecordBuffer buffer = new RecordBuffer();\n            buffer.add(\"login u-17\");\n            buffer.addFrame(2, List.of(\"export r-8\", \"export r-9\").iterator());\n            buffer.add(\"logout u-17\");\n            System.out.println(\"first batch: \" + buffer.drain());\n            System.out.println(\"size after drain: \" + buffer.size());\n            for (int i = 0; i < 60_000; i++) buffer.add(\"replay-\" + i);\n            List<String> replay = buffer.drain();\n            System.out.println(\"replay batch: \" + replay.size() + \" records, last \" + replay.get(replay.size() - 1));\n            buffer.add(\"login u-23\");\n            System.out.println(\"next batch: \" + buffer.drain());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0fc151108f1d0eba26143118678b271a22b57bd39f6bc32062c71c98fc321393",
+  "content_sha256": "55256814c42810eb2c4472dd58bd493d6e9e1083988e264274f924fba5459a88",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Iterator;\nimport java.util.List;\n\n/**\n * The buffer of one writer thread: records collect here and are drained to storage in batches.\n * A normal batch is a few thousand records; a replay after an outage can push hundreds of\n * thousands through the same buffer.\n */\npublic class RecordBuffer {\n\n    /** The slots a buffer keeps between batches: enough for a normal batch. */\n    static final int NORMAL_BATCH = 4_096;\n\n    private ArrayList<String> records = new ArrayList<>(NORMAL_BATCH);\n\n    public void add(String record) {\n        records.add(record);\n    }\n\n    /** Adds one decoded frame; the frame header gives {@code count}, then the rows follow one by one. */\n    public void addFrame(int count, Iterator<String> rows) {\n        prepareFor(count);\n        for (int i = 0; i < count; i++) {\n            records.add(rows.next());\n        }\n    }\n\n    /** Makes room for {@code incoming} more records before they are added one by one. */\n    void prepareFor(int incoming) {\n        // TODO: A frame of `incoming` rows is about to be added one row at a time. Make room for\n        //       them, so that the array doesn't grow again while they are added.\n        throw new IllegalStateException(\"TODO: prepareFor\");\n    }\n\n    /** Returns every record added since the last drain, in order, and leaves the buffer empty. */\n    public List<String> drain() {\n        // TODO: Hand back the records in order and leave the buffer empty. After a replay the buffer\n        //       must not keep a replay-sized array, and after a normal batch it should neither\n        //       allocate nor grow again for the next one.\n        throw new IllegalStateException(\"TODO: drain\");\n    }\n\n    public int size() {\n        return records.size();\n    }\n\n    /** The list the records are kept in; the tests read its array. */\n    ArrayList<String> backing() {\n        return records;\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-2/src/main/java/practice/RecordBuffer.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -145,6 +164,10 @@
     },
     "concepts": [
       "An ArrayList grows by half when full and keeps its array through clear(); trimToSize() leaves zero slots, and ensureCapacity takes the total the list must hold."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-2/src/main/java/practice/TryIt.java"
   }
 }

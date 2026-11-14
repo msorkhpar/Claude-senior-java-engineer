@@ -39,6 +39,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Objects;\nimport java.util.concurrent.CompletableFuture;\n\n/** The new pricing code's view of the legacy FX client: one future per lookup. */\npublic final class Rates {\n\n    /** The legacy client's callback. Exactly one method is called per lookup that was accepted. */\n    public interface RateListener {\n        void onRate(String pair, BigDecimal rate);\n\n        void onFailure(String pair, String reason);\n    }\n\n    /** The legacy FX client. Don't change it. */\n    public interface RateClient {\n        /**\n         * Checks {@code pair} on the calling thread and throws IllegalArgumentException if it is not\n         * of the form \"EUR/USD\"; otherwise returns at once and answers later, on a thread of its own.\n         */\n        void lookup(String pair, RateListener listener);\n    }\n\n    /** What a future fails with when the client reports a failure. */\n    public static final class RateUnavailableException extends RuntimeException {\n        public RateUnavailableException(String message) {\n            super(message);\n        }\n    }\n\n    private final RateClient client;\n\n    public Rates(RateClient client) {\n        this.client = Objects.requireNonNull(client);\n    }\n\n    /** The rate for {@code pair}, as a future that the client's answer completes. */\n    public CompletableFuture<BigDecimal> rate(String pair) {\n        CompletableFuture<BigDecimal> result = new CompletableFuture<>();\n        try {\n            client.lookup(pair, new RateListener() {\n                @Override\n                public void onRate(String p, BigDecimal rate) {\n                    result.complete(rate);\n                }\n\n                @Override\n                public void onFailure(String p, String reason) {\n                    result.completeExceptionally(new RateUnavailableException(p + \": \" + reason));\n                }\n            });\n        } catch (RuntimeException e) {\n            result.completeExceptionally(e);\n        }\n        return result;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Map<String, Rates.RateListener> waiting = new ConcurrentHashMap<>();\n            Rates rates = new Rates((pair, listener) -> {\n                if (!pair.matches(\"[A-Z]{3}/[A-Z]{3}\")) throw new IllegalArgumentException(\"not a currency pair: \" + pair);\n                waiting.put(pair, listener);\n            });\n            CompletableFuture<BigDecimal> eurUsd = rates.rate(\"EUR/USD\");\n            CompletableFuture<BigDecimal> nokDkk = rates.rate(\"NOK/DKK\");\n            CompletableFuture<BigDecimal> bad = rates.rate(\"eur-usd\");\n            System.out.println(\"EUR/USD done before the client answers: \" + eurUsd.isDone());\n            Thread client = new Thread(() -> {\n                waiting.get(\"EUR/USD\").onRate(\"EUR/USD\", new BigDecimal(\"1.0763\"));\n                waiting.get(\"NOK/DKK\").onFailure(\"NOK/DKK\", \"feed stale\");\n            }, \"fx-io\");\n            client.start();\n            client.join();\n            System.out.println(\"EUR/USD: \" + eurUsd.orTimeout(2, TimeUnit.SECONDS).join());\n            System.out.println(\"NOK/DKK: \" + nokDkk.orTimeout(2, TimeUnit.SECONDS).handle((r, e) -> r != null ? r.toString() : \"failed: \" + e.getMessage()).join());\n            System.out.println(\"eur-usd: \" + bad.handle((r, e) -> r != null ? r.toString() : \"failed: \" + e.getMessage()).join());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -51,6 +60,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Objects;\nimport java.util.concurrent.CompletableFuture;\n\n/** The new pricing code's view of the legacy FX client: one future per lookup. */\npublic final class Rates {\n\n    /** The legacy client's callback. Exactly one method is called per lookup that was accepted. */\n    public interface RateListener {\n        void onRate(String pair, BigDecimal rate);\n\n        void onFailure(String pair, String reason);\n    }\n\n    /** The legacy FX client. Don't change it. */\n    public interface RateClient {\n        /**\n         * Checks {@code pair} on the calling thread and throws IllegalArgumentException if it is not\n         * of the form \"EUR/USD\"; otherwise returns at once and answers later, on a thread of its own.\n         */\n        void lookup(String pair, RateListener listener);\n    }\n\n    /** What a future fails with when the client reports a failure. */\n    public static final class RateUnavailableException extends RuntimeException {\n        public RateUnavailableException(String message) {\n            super(message);\n        }\n    }\n\n    private final RateClient client;\n\n    public Rates(RateClient client) {\n        this.client = Objects.requireNonNull(client);\n    }\n\n    /** The rate for {@code pair}, as a future that the client's answer completes. */\n    public CompletableFuture<BigDecimal> rate(String pair) {\n        // TODO: ask the client, and let its answer, whatever it is, settle the future.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Map<String, Rates.RateListener> waiting = new ConcurrentHashMap<>();\n            Rates rates = new Rates((pair, listener) -> {\n                if (!pair.matches(\"[A-Z]{3}/[A-Z]{3}\")) throw new IllegalArgumentException(\"not a currency pair: \" + pair);\n                waiting.put(pair, listener);\n            });\n            CompletableFuture<BigDecimal> eurUsd = rates.rate(\"EUR/USD\");\n            CompletableFuture<BigDecimal> nokDkk = rates.rate(\"NOK/DKK\");\n            CompletableFuture<BigDecimal> bad = rates.rate(\"eur-usd\");\n            System.out.println(\"EUR/USD done before the client answers: \" + eurUsd.isDone());\n            Thread client = new Thread(() -> {\n                waiting.get(\"EUR/USD\").onRate(\"EUR/USD\", new BigDecimal(\"1.0763\"));\n                waiting.get(\"NOK/DKK\").onFailure(\"NOK/DKK\", \"feed stale\");\n            }, \"fx-io\");\n            client.start();\n            client.join();\n            System.out.println(\"EUR/USD: \" + eurUsd.orTimeout(2, TimeUnit.SECONDS).join());\n            System.out.println(\"NOK/DKK: \" + nokDkk.orTimeout(2, TimeUnit.SECONDS).handle((r, e) -> r != null ? r.toString() : \"failed: \" + e.getMessage()).join());\n            System.out.println(\"eur-usd: \" + bad.handle((r, e) -> r != null ? r.toString() : \"failed: \" + e.getMessage()).join());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -58,8 +76,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 1,
+    "paras": 3,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -69,7 +87,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ed99e71e1679fe084ea4d3462afb1d1db149d3b926bec25a8f9274aad4b46542",
+  "content_sha256": "5062dc29da73f6cf1b04bb4f6524b8ebfbcf3716488e87cba24746fb7f12936c",
   "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Objects;\nimport java.util.concurrent.CompletableFuture;\n\n/** The new pricing code's view of the legacy FX client: one future per lookup. */\npublic final class Rates {\n\n    /** The legacy client's callback. Exactly one method is called per lookup that was accepted. */\n    public interface RateListener {\n        void onRate(String pair, BigDecimal rate);\n\n        void onFailure(String pair, String reason);\n    }\n\n    /** The legacy FX client. Don't change it. */\n    public interface RateClient {\n        /**\n         * Checks {@code pair} on the calling thread and throws IllegalArgumentException if it is not\n         * of the form \"EUR/USD\"; otherwise returns at once and answers later, on a thread of its own.\n         */\n        void lookup(String pair, RateListener listener);\n    }\n\n    /** What a future fails with when the client reports a failure. */\n    public static final class RateUnavailableException extends RuntimeException {\n        public RateUnavailableException(String message) {\n            super(message);\n        }\n    }\n\n    private final RateClient client;\n\n    public Rates(RateClient client) {\n        this.client = Objects.requireNonNull(client);\n    }\n\n    /** The rate for {@code pair}, as a future that the client's answer completes. */\n    public CompletableFuture<BigDecimal> rate(String pair) {\n        // TODO: ask the client, and let its answer, whatever it is, settle the future.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-3/src/main/java/practice/Rates.java",
@@ -80,7 +98,8 @@
       "-q",
       "-f",
       "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -125,6 +144,10 @@
     "concepts": [
       "A CompletableFuture made with new completes only when code completes it, so a callback adapter that ignores the legacy API's failure callback leaves its callers waiting forever.",
       "An exception the legacy call throws on the caller's thread must become a failed future; otherwise it leaves the adapter past the caller's exceptionally."
-    ]
+    ],
+    "files": [
+      "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-3/src/main/java/practice/TryIt.java"
   }
 }

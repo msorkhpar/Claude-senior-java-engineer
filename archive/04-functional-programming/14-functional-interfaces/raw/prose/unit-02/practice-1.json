@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\n/**\n * Hands every caller the value its source produced the first time anyone asked. The FX service\n * wraps its rate-card loader in one of these and shares it between all request threads.\n */\npublic final class Once<T> implements Supplier<T> {\n\n    private final Supplier<T> source;\n    private final Object lock = new Object();\n    private volatile boolean loaded;\n    private T value;\n\n    public Once(Supplier<T> source) {\n        this.source = Objects.requireNonNull(source, \"source\");\n    }\n\n    /** The source's value: loaded on the first call, the same value on every call after that. */\n    @Override\n    public T get() {\n        if (!loaded) {\n            synchronized (lock) {\n                if (!loaded) {\n                    value = source.get();\n                    loaded = true;\n                }\n            }\n        }\n        return value;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            int[] loads = {0};\n            Once<String> card = new Once<>(() -> {\n                loads[0]++;\n                if (loads[0] == 1) throw new IllegalStateException(\"upstream down, load \" + loads[0]);\n                return \"rate card v\" + loads[0];\n            });\n            System.out.println(\"loads after creating it: \" + loads[0]);\n            try {\n                card.get();\n            } catch (IllegalStateException outage) {\n                System.out.println(\"first request failed: \" + outage.getMessage());\n            }\n            System.out.println(\"second request: \" + card.get());\n            System.out.println(\"third request: \" + card.get());\n            System.out.println(\"loads in all: \" + loads[0]);\n            Once<String> noCard = new Once<>(() -> {\n                loads[0]++;\n                return null;\n            });\n            noCard.get();\n            System.out.println(\"desk without a card: \" + noCard.get() + \", loads in all: \" + loads[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\n/**\n * Hands every caller the value its source produced the first time anyone asked. The FX service\n * wraps its rate-card loader in one of these and shares it between all request threads.\n */\npublic final class Once<T> implements Supplier<T> {\n\n    private final Supplier<T> source;\n\n    public Once(Supplier<T> source) {\n        this.source = Objects.requireNonNull(source, \"source\");\n    }\n\n    /** The source's value: loaded on the first call, the same value on every call after that. */\n    @Override\n    public T get() {\n        // TODO: Call the source at most once for all the threads that share this object, and only\n        //       when someone first asks. Every caller gets that one value, whatever it is. Add the\n        //       fields you need.\n        throw new IllegalStateException(\"TODO: get\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            int[] loads = {0};\n            Once<String> card = new Once<>(() -> {\n                loads[0]++;\n                if (loads[0] == 1) throw new IllegalStateException(\"upstream down, load \" + loads[0]);\n                return \"rate card v\" + loads[0];\n            });\n            System.out.println(\"loads after creating it: \" + loads[0]);\n            try {\n                card.get();\n            } catch (IllegalStateException outage) {\n                System.out.println(\"first request failed: \" + outage.getMessage());\n            }\n            System.out.println(\"second request: \" + card.get());\n            System.out.println(\"third request: \" + card.get());\n            System.out.println(\"loads in all: \" + loads[0]);\n            Once<String> noCard = new Once<>(() -> {\n                loads[0]++;\n                return null;\n            });\n            noCard.get();\n            System.out.println(\"desk without a card: \" + noCard.get() + \", loads in all: \" + loads[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e83871f3ba2c13119210c92bd02d2fb97769871edf40feab8330796fe705fe4f",
+  "content_sha256": "561076dfe1dbb7918263fc4fa7c832170353482befdded0929bfec0c887c8edc",
   "starting_code": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\n/**\n * Hands every caller the value its source produced the first time anyone asked. The FX service\n * wraps its rate-card loader in one of these and shares it between all request threads.\n */\npublic final class Once<T> implements Supplier<T> {\n\n    private final Supplier<T> source;\n\n    public Once(Supplier<T> source) {\n        this.source = Objects.requireNonNull(source, \"source\");\n    }\n\n    /** The source's value: loaded on the first call, the same value on every call after that. */\n    @Override\n    public T get() {\n        // TODO: Call the source at most once for all the threads that share this object, and only\n        //       when someone first asks. Every caller gets that one value, whatever it is. Add the\n        //       fields you need.\n        throw new IllegalStateException(\"TODO: get\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-1/src/main/java/practice/Once.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -134,6 +153,10 @@
     "concepts": [
       "Double-checked locking with a volatile flag loads once, keeps a null result, and retries after a failed load.",
       "A check-then-compute memo without a lock lets two threads that arrive together both run the load."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
   }
 }

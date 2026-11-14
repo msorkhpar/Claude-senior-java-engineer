@@ -52,6 +52,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.ServiceLoader;\n\n/**\n * The notification service's plug-in point. Each delivery channel ships in a jar of its own,\n * with a class that implements {@link Notifier}, carries {@link Channel}, and is listed in that\n * jar's META-INF/services/practice.Channels$Notifier. Operations choose the channel by name in\n * the service's configuration.\n */\npublic final class Channels {\n\n    private Channels() {\n    }\n\n    /** What the notification service needs from a channel. */\n    public interface Notifier {\n        /** Delivers the text and returns the channel's receipt for it. */\n        String deliver(String recipient, String text);\n    }\n\n    /** The name under which a Notifier is chosen in the configuration, such as \"sms\". */\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.TYPE)\n    public @interface Channel {\n        String value();\n    }\n\n    /**\n     * Returns the notifier for the configured channel, from the providers that {@code plugins}\n     * can see.\n     */\n    public static Notifier forChannel(String channel, ClassLoader plugins) {\n        return ServiceLoader.load(Notifier.class, plugins).stream()\n                .filter(provider -> {\n                    Channel tag = provider.type().getAnnotation(Channel.class);\n                    return tag != null && tag.value().equals(channel);\n                })\n                .findFirst()\n                .orElseThrow(() -> new IllegalArgumentException(\"no notifier for channel \" + channel))\n                .get();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.net.URL;\nimport java.net.URLClassLoader;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Path jarRoot = Files.createTempDirectory(\"channels\");\n            Path listing = jarRoot.resolve(\"META-INF/services/\" + Channels.Notifier.class.getName());\n            Files.createDirectories(listing.getParent());\n            Files.writeString(listing, Pager.class.getName() + \"\\n\" + Slack.class.getName() + \"\\n\");\n            try (URLClassLoader plugins = new URLClassLoader(new URL[] {jarRoot.toUri().toURL()},\n                    TryIt.class.getClassLoader())) {\n                Channels.Notifier chat = Channels.forChannel(\"chat\", plugins);\n                System.out.println(\"chat notifier: \" + chat.getClass().getSimpleName());\n                System.out.println(\"chat delivers: \" + chat.deliver(\"oncall\", \"queue depth 4800\"));\n                Channels.Notifier pager = Channels.forChannel(\"pager\", plugins);\n                System.out.println(\"pager delivers: \" + pager.deliver(\"night-shift\", \"db replica lag\"));\n                try {\n                    Channels.forChannel(\"chta\", plugins);\n                } catch (IllegalArgumentException refused) {\n                    System.out.println(\"chta: \" + refused.getMessage());\n                }\n            } finally {\n                Files.delete(listing);\n                Files.delete(listing.getParent());\n                Files.delete(listing.getParent().getParent());\n                Files.delete(jarRoot);\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** A paging channel, as a plug-in jar would ship it. */\n    @Channels.Channel(\"pager\")\n    public static class Pager implements Channels.Notifier {\n        public String deliver(String recipient, String text) { return \"page \" + recipient + \": \" + text; }\n    }\n\n    /** A chat channel, as a plug-in jar would ship it. */\n    @Channels.Channel(\"chat\")\n    public static class Slack implements Channels.Notifier {\n        public String deliver(String recipient, String text) { return \"chat #\" + recipient + \": \" + text; }\n    }\n}\n"
         }
       ]
     },
@@ -64,6 +73,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.ServiceLoader;\n\n/**\n * The notification service's plug-in point. Each delivery channel ships in a jar of its own,\n * with a class that implements {@link Notifier}, carries {@link Channel}, and is listed in that\n * jar's META-INF/services/practice.Channels$Notifier. Operations choose the channel by name in\n * the service's configuration.\n */\npublic final class Channels {\n\n    private Channels() {\n    }\n\n    /** What the notification service needs from a channel. */\n    public interface Notifier {\n        /** Delivers the text and returns the channel's receipt for it. */\n        String deliver(String recipient, String text);\n    }\n\n    /** The name under which a Notifier is chosen in the configuration, such as \"sms\". */\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.TYPE)\n    public @interface Channel {\n        String value();\n    }\n\n    /**\n     * Returns the notifier for the configured channel, from the providers that {@code plugins}\n     * can see.\n     */\n    public static Notifier forChannel(String channel, ClassLoader plugins) {\n        // TODO: Find the provider whose @Channel names this channel. Each channel's jar is in\n        //       plugins and nowhere else, a channel that can't start (a missing key, say) must not\n        //       take the others down with it, and a channel nobody configured is a mistake to\n        //       report, naming the channel.\n        throw new IllegalStateException(\"TODO: forChannel\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.net.URL;\nimport java.net.URLClassLoader;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Path jarRoot = Files.createTempDirectory(\"channels\");\n            Path listing = jarRoot.resolve(\"META-INF/services/\" + Channels.Notifier.class.getName());\n            Files.createDirectories(listing.getParent());\n            Files.writeString(listing, Pager.class.getName() + \"\\n\" + Slack.class.getName() + \"\\n\");\n            try (URLClassLoader plugins = new URLClassLoader(new URL[] {jarRoot.toUri().toURL()},\n                    TryIt.class.getClassLoader())) {\n                Channels.Notifier chat = Channels.forChannel(\"chat\", plugins);\n                System.out.println(\"chat notifier: \" + chat.getClass().getSimpleName());\n                System.out.println(\"chat delivers: \" + chat.deliver(\"oncall\", \"queue depth 4800\"));\n                Channels.Notifier pager = Channels.forChannel(\"pager\", plugins);\n                System.out.println(\"pager delivers: \" + pager.deliver(\"night-shift\", \"db replica lag\"));\n                try {\n                    Channels.forChannel(\"chta\", plugins);\n                } catch (IllegalArgumentException refused) {\n                    System.out.println(\"chta: \" + refused.getMessage());\n                }\n            } finally {\n                Files.delete(listing);\n                Files.delete(listing.getParent());\n                Files.delete(listing.getParent().getParent());\n                Files.delete(jarRoot);\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** A paging channel, as a plug-in jar would ship it. */\n    @Channels.Channel(\"pager\")\n    public static class Pager implements Channels.Notifier {\n        public String deliver(String recipient, String text) { return \"page \" + recipient + \": \" + text; }\n    }\n\n    /** A chat channel, as a plug-in jar would ship it. */\n    @Channels.Channel(\"chat\")\n    public static class Slack implements Channels.Notifier {\n        public String deliver(String recipient, String text) { return \"chat #\" + recipient + \": \" + text; }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -71,8 +89,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -82,7 +100,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "cfb0812fccd76ce53219f86f24773011374d11766a7a3638368b61d329ce383c",
+  "content_sha256": "d500cf7ac0481aeaf5c866b3b75d39a4ebe4399526582122b23aaa4a1c6c3a3c",
   "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.ServiceLoader;\n\n/**\n * The notification service's plug-in point. Each delivery channel ships in a jar of its own,\n * with a class that implements {@link Notifier}, carries {@link Channel}, and is listed in that\n * jar's META-INF/services/practice.Channels$Notifier. Operations choose the channel by name in\n * the service's configuration.\n */\npublic final class Channels {\n\n    private Channels() {\n    }\n\n    /** What the notification service needs from a channel. */\n    public interface Notifier {\n        /** Delivers the text and returns the channel's receipt for it. */\n        String deliver(String recipient, String text);\n    }\n\n    /** The name under which a Notifier is chosen in the configuration, such as \"sms\". */\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.TYPE)\n    public @interface Channel {\n        String value();\n    }\n\n    /**\n     * Returns the notifier for the configured channel, from the providers that {@code plugins}\n     * can see.\n     */\n    public static Notifier forChannel(String channel, ClassLoader plugins) {\n        // TODO: Find the provider whose @Channel names this channel. Each channel's jar is in\n        //       plugins and nowhere else, a channel that can't start (a missing key, say) must not\n        //       take the others down with it, and a channel nobody configured is a mistake to\n        //       report, naming the channel.\n        throw new IllegalStateException(\"TODO: forChannel\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/src/main/java/practice/Channels.java",
@@ -93,7 +111,8 @@
       "-q",
       "-f",
       "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -142,6 +161,10 @@
     },
     "concepts": [
       "Iterating a ServiceLoader constructs each provider it passes, so one that can't start fails the lookup; stream() with Provider.type() chooses without constructing, and load(type, loader) looks where it is told instead of the context class loader."
-    ]
+    ],
+    "files": [
+      "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/src/main/java/practice/TryIt.java"
   }
 }

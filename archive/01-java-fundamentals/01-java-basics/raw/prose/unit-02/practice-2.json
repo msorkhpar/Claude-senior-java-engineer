@@ -50,6 +50,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Matches the payments on a bank statement to open invoices by the reference the payer typed.\n * Whatever it can't match goes to a person for manual review.\n */\npublic class Reconciler {\n\n    /** An open invoice. Its reference is null when it was issued without one. */\n    public record Invoice(String number, String reference) { }\n\n    /** A payment from the bank statement. Its reference is null when the payer left it empty. */\n    public record Payment(String id, String reference) { }\n\n    /**\n     * Reads the bank's statement file: one payment per line, as {@code id;reference}, with\n     * nothing after the semicolon when the payer gave no reference.\n     */\n    public static List<Payment> readStatement(String file) {\n        List<Payment> payments = new ArrayList<>();\n        for (String line : file.split(\"\\n\")) {\n            if (line.isBlank()) continue;\n            String[] fields = line.split(\";\", -1);\n            String reference = fields[1].strip();\n            payments.add(new Payment(fields[0].strip(), reference.isEmpty() ? null : reference));\n        }\n        return payments;\n    }\n\n    /** For every payment it could match, the number of the invoice it pays, keyed by payment id. */\n    public Map<String, String> match(List<Invoice> invoices, List<Payment> payments) {\n        Map<String, String> matched = new LinkedHashMap<>();\n        for (Payment payment : payments) {\n            for (Invoice invoice : invoices) {\n                if (sameReference(invoice.reference(), payment.reference())) {\n                    matched.put(payment.id(), invoice.number());\n                    break;\n                }\n            }\n        }\n        return matched;\n    }\n\n    /** Whether a payment carrying {@code paymentRef} pays the invoice issued with {@code invoiceRef}. */\n    boolean sameReference(String invoiceRef, String paymentRef) {\n        if (invoiceRef == null) return false;\n        return invoiceRef.equals(paymentRef);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<Reconciler.Invoice> open = List.of(\n                    new Reconciler.Invoice(\"INV-3301\", \"RF44 1000 2000 3001\"),\n                    new Reconciler.Invoice(\"INV-3302\", null),\n                    new Reconciler.Invoice(\"INV-3303\", \"RF60 9000 8000 7003\"));\n            String file = \"PAY-1;RF60 9000 8000 7003\\nPAY-2; \\nPAY-3;RF44 1000 2000 3001\\nPAY-4;RF12 0000 0000 0004\\n\";\n            List<Reconciler.Payment> payments = Reconciler.readStatement(file);\n            System.out.println(\"payments read: \" + payments.size());\n            Map<String, String> matched = new Reconciler().match(open, payments);\n            System.out.println(\"matched: \" + matched);\n            System.out.println(\"manual review: \" + (payments.size() - matched.size()));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -62,6 +71,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Matches the payments on a bank statement to open invoices by the reference the payer typed.\n * Whatever it can't match goes to a person for manual review.\n */\npublic class Reconciler {\n\n    /** An open invoice. Its reference is null when it was issued without one. */\n    public record Invoice(String number, String reference) { }\n\n    /** A payment from the bank statement. Its reference is null when the payer left it empty. */\n    public record Payment(String id, String reference) { }\n\n    /**\n     * Reads the bank's statement file: one payment per line, as {@code id;reference}, with\n     * nothing after the semicolon when the payer gave no reference.\n     */\n    public static List<Payment> readStatement(String file) {\n        List<Payment> payments = new ArrayList<>();\n        for (String line : file.split(\"\\n\")) {\n            if (line.isBlank()) continue;\n            String[] fields = line.split(\";\", -1);\n            String reference = fields[1].strip();\n            payments.add(new Payment(fields[0].strip(), reference.isEmpty() ? null : reference));\n        }\n        return payments;\n    }\n\n    /** For every payment it could match, the number of the invoice it pays, keyed by payment id. */\n    public Map<String, String> match(List<Invoice> invoices, List<Payment> payments) {\n        Map<String, String> matched = new LinkedHashMap<>();\n        for (Payment payment : payments) {\n            for (Invoice invoice : invoices) {\n                if (sameReference(invoice.reference(), payment.reference())) {\n                    matched.put(payment.id(), invoice.number());\n                    break;\n                }\n            }\n        }\n        return matched;\n    }\n\n    /** Whether a payment carrying {@code paymentRef} pays the invoice issued with {@code invoiceRef}. */\n    boolean sameReference(String invoiceRef, String paymentRef) {\n        // TODO: Answer whether the payment pays this invoice. Both references are text the\n        //       service was given, and either one can be missing.\n        throw new IllegalStateException(\"TODO: sameReference\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<Reconciler.Invoice> open = List.of(\n                    new Reconciler.Invoice(\"INV-3301\", \"RF44 1000 2000 3001\"),\n                    new Reconciler.Invoice(\"INV-3302\", null),\n                    new Reconciler.Invoice(\"INV-3303\", \"RF60 9000 8000 7003\"));\n            String file = \"PAY-1;RF60 9000 8000 7003\\nPAY-2; \\nPAY-3;RF44 1000 2000 3001\\nPAY-4;RF12 0000 0000 0004\\n\";\n            List<Reconciler.Payment> payments = Reconciler.readStatement(file);\n            System.out.println(\"payments read: \" + payments.size());\n            Map<String, String> matched = new Reconciler().match(open, payments);\n            System.out.println(\"matched: \" + matched);\n            System.out.println(\"manual review: \" + (payments.size() - matched.size()));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -69,8 +87,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -80,7 +98,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "1b1cb0ad80f8f4b8a7279318f3abcba643aa7729500d60d870d472de62f1d598",
+  "content_sha256": "8af3fcfe58f18ed1e5074eed15d3cd246448dc5c49c6e52bcd168ba1aeafd849",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Matches the payments on a bank statement to open invoices by the reference the payer typed.\n * Whatever it can't match goes to a person for manual review.\n */\npublic class Reconciler {\n\n    /** An open invoice. Its reference is null when it was issued without one. */\n    public record Invoice(String number, String reference) { }\n\n    /** A payment from the bank statement. Its reference is null when the payer left it empty. */\n    public record Payment(String id, String reference) { }\n\n    /**\n     * Reads the bank's statement file: one payment per line, as {@code id;reference}, with\n     * nothing after the semicolon when the payer gave no reference.\n     */\n    public static List<Payment> readStatement(String file) {\n        List<Payment> payments = new ArrayList<>();\n        for (String line : file.split(\"\\n\")) {\n            if (line.isBlank()) continue;\n            String[] fields = line.split(\";\", -1);\n            String reference = fields[1].strip();\n            payments.add(new Payment(fields[0].strip(), reference.isEmpty() ? null : reference));\n        }\n        return payments;\n    }\n\n    /** For every payment it could match, the number of the invoice it pays, keyed by payment id. */\n    public Map<String, String> match(List<Invoice> invoices, List<Payment> payments) {\n        Map<String, String> matched = new LinkedHashMap<>();\n        for (Payment payment : payments) {\n            for (Invoice invoice : invoices) {\n                if (sameReference(invoice.reference(), payment.reference())) {\n                    matched.put(payment.id(), invoice.number());\n                    break;\n                }\n            }\n        }\n        return matched;\n    }\n\n    /** Whether a payment carrying {@code paymentRef} pays the invoice issued with {@code invoiceRef}. */\n    boolean sameReference(String invoiceRef, String paymentRef) {\n        // TODO: Answer whether the payment pays this invoice. Both references are text the\n        //       service was given, and either one can be missing.\n        throw new IllegalStateException(\"TODO: sameReference\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-2/src/main/java/practice/Reconciler.java",
@@ -91,7 +109,8 @@
       "-q",
       "-f",
       "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -136,6 +155,10 @@
     "concepts": [
       "== on references is true only for one object: string literals and compile-time constants share one object, while strings built at run time are new objects, so equals compares the text.",
       "A reference that may be missing has to be checked before a method is called on it; equals on a null receiver throws."
-    ]
+    ],
+    "files": [
+      "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/01-java-fundamentals/01-java-basics/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

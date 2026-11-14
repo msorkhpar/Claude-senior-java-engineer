@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Renders thumbnails for uploaded images, one batch of uploads after another. It runs on a\n * thread of the service's render pool, which is shut down with shutdownNow() on every deploy.\n */\npublic class ThumbnailWorker {\n\n    /** Renders one image; pure CPU work that never blocks. */\n    public interface Renderer {\n        void render(String image);\n    }\n\n    private final Renderer renderer;\n\n    public ThumbnailWorker(Renderer renderer) {\n        this.renderer = renderer;\n    }\n\n    /** Renders the batches in order and returns how many images it rendered. */\n    public int renderAll(List<List<String>> batches) {\n        int rendered = 0;\n        for (List<String> batch : batches) {\n            if (stopRequested()) break;\n            rendered += renderBatch(batch);\n        }\n        return rendered;\n    }\n\n    /** Renders one batch and returns how many of its images it rendered. */\n    int renderBatch(List<String> batch) {\n        int rendered = 0;\n        for (String image : batch) {\n            if (stopRequested()) break;\n            renderer.render(image);\n            rendered++;\n        }\n        return rendered;\n    }\n\n    /** Whether this worker has been asked to stop. */\n    boolean stopRequested() {\n        return Thread.currentThread().isInterrupted();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<List<String>> uploads = List.of(\n                    List.of(\"hike-1.jpg\", \"hike-2.jpg\", \"hike-3.jpg\"),\n                    List.of(\"cat-5.png\", \"cat-6.png\"));\n            List<String> rendered = new ArrayList<>();\n            int all = new ThumbnailWorker(rendered::add).renderAll(uploads);\n            System.out.println(\"no stop request: rendered \" + all + \" \" + rendered);\n            rendered.clear();\n            int some = new ThumbnailWorker(image -> {\n                rendered.add(image);\n                if (image.equals(\"hike-2.jpg\")) Thread.currentThread().interrupt();\n            }).renderAll(uploads);\n            boolean callerSeesRequest = Thread.interrupted();\n            System.out.println(\"stop asked during hike-2.jpg: rendered \" + some + \" \" + rendered);\n            System.out.println(\"caller can still see the request: \" + callerSeesRequest);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Renders thumbnails for uploaded images, one batch of uploads after another. It runs on a\n * thread of the service's render pool, which is shut down with shutdownNow() on every deploy.\n */\npublic class ThumbnailWorker {\n\n    /** Renders one image; pure CPU work that never blocks. */\n    public interface Renderer {\n        void render(String image);\n    }\n\n    private final Renderer renderer;\n\n    public ThumbnailWorker(Renderer renderer) {\n        this.renderer = renderer;\n    }\n\n    /** Renders the batches in order and returns how many images it rendered. */\n    public int renderAll(List<List<String>> batches) {\n        int rendered = 0;\n        for (List<String> batch : batches) {\n            if (stopRequested()) break;\n            rendered += renderBatch(batch);\n        }\n        return rendered;\n    }\n\n    /** Renders one batch and returns how many of its images it rendered. */\n    int renderBatch(List<String> batch) {\n        int rendered = 0;\n        for (String image : batch) {\n            // TODO: A batch can hold thousands of images, and a deploy shouldn't wait for the\n            //       rest of it. Give this loop a way out between two images.\n            renderer.render(image);\n            rendered++;\n        }\n        return rendered;\n    }\n\n    /** Whether this worker has been asked to stop. */\n    boolean stopRequested() {\n        // TODO: The pool asks its threads to stop with shutdownNow(). Answer whether this\n        //       worker has been asked, without making the request disappear for anyone else\n        //       who asks the same question afterwards.\n        throw new IllegalStateException(\"TODO: stopRequested\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<List<String>> uploads = List.of(\n                    List.of(\"hike-1.jpg\", \"hike-2.jpg\", \"hike-3.jpg\"),\n                    List.of(\"cat-5.png\", \"cat-6.png\"));\n            List<String> rendered = new ArrayList<>();\n            int all = new ThumbnailWorker(rendered::add).renderAll(uploads);\n            System.out.println(\"no stop request: rendered \" + all + \" \" + rendered);\n            rendered.clear();\n            int some = new ThumbnailWorker(image -> {\n                rendered.add(image);\n                if (image.equals(\"hike-2.jpg\")) Thread.currentThread().interrupt();\n            }).renderAll(uploads);\n            boolean callerSeesRequest = Thread.interrupted();\n            System.out.println(\"stop asked during hike-2.jpg: rendered \" + some + \" \" + rendered);\n            System.out.println(\"caller can still see the request: \" + callerSeesRequest);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "47911e7b40f2df5c53513506c79e62e70314aa094808e01a2fbb4b82291058f4",
+  "content_sha256": "04b9a1bb92fabe777f878f03fb7506ee04cb05af0cf4f7c568f17812f9c81136",
   "starting_code": "package practice;\n\nimport java.util.List;\n\n/**\n * Renders thumbnails for uploaded images, one batch of uploads after another. It runs on a\n * thread of the service's render pool, which is shut down with shutdownNow() on every deploy.\n */\npublic class ThumbnailWorker {\n\n    /** Renders one image; pure CPU work that never blocks. */\n    public interface Renderer {\n        void render(String image);\n    }\n\n    private final Renderer renderer;\n\n    public ThumbnailWorker(Renderer renderer) {\n        this.renderer = renderer;\n    }\n\n    /** Renders the batches in order and returns how many images it rendered. */\n    public int renderAll(List<List<String>> batches) {\n        int rendered = 0;\n        for (List<String> batch : batches) {\n            if (stopRequested()) break;\n            rendered += renderBatch(batch);\n        }\n        return rendered;\n    }\n\n    /** Renders one batch and returns how many of its images it rendered. */\n    int renderBatch(List<String> batch) {\n        int rendered = 0;\n        for (String image : batch) {\n            // TODO: A batch can hold thousands of images, and a deploy shouldn't wait for the\n            //       rest of it. Give this loop a way out between two images.\n            renderer.render(image);\n            rendered++;\n        }\n        return rendered;\n    }\n\n    /** Whether this worker has been asked to stop. */\n    boolean stopRequested() {\n        // TODO: The pool asks its threads to stop with shutdownNow(). Answer whether this\n        //       worker has been asked, without making the request disappear for anyone else\n        //       who asks the same question afterwards.\n        throw new IllegalStateException(\"TODO: stopRequested\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-03/practice-1/src/main/java/practice/ThumbnailWorker.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-03/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -146,6 +165,10 @@
     "concepts": [
       "interrupt() only sets a flag; running code stops only at the points where it checks the flag.",
       "Thread.interrupted() clears the flag it reads, so a check that ends inner work can hide the request from the code around it; isInterrupted() only reads."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
   }
 }

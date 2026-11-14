@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.function.BooleanSupplier;\n\n/** Sending payments to the bank, with retries where they are safe. */\npublic class Retries {\n\n    /** How many times an idempotent operation may be tried. The platform's configuration sets it. */\n    public static int idempotentAttempts = 4;\n\n    /** The platform team's interface for operations that are safe to repeat. */\n    public interface Idempotent {\n        /** The key the bank uses to recognise a repeat of the same operation. */\n        String key();\n\n        default int maxAttempts() { return idempotentAttempts; }\n    }\n\n    /** A money movement. A charge sent twice charges twice, so by default a payment is tried once. */\n    public static class Payment {\n        private final long cents;\n\n        public Payment(long cents) { this.cents = cents; }\n\n        public long cents() { return cents; }\n\n        public int maxAttempts() { return 1; }\n    }\n\n    public static class Charge extends Payment {\n        public Charge(long cents) { super(cents); }\n    }\n\n    /** A refund carries the key of the charge it reverses, so the bank applies it once however often it is sent. */\n    public static class Refund extends Payment implements Idempotent {\n        private final String key;\n\n        public Refund(long cents, String chargeKey) {\n            super(cents);\n            this.key = \"refund-\" + chargeKey;\n        }\n\n        @Override public String key() { return key; }\n\n        @Override public int maxAttempts() {\n            return Idempotent.super.maxAttempts();\n        }\n    }\n\n    /**\n     * Sends a payment: makes one attempt after another until one succeeds or the payment has used\n     * every attempt it is allowed. Returns whether an attempt succeeded.\n     */\n    public static boolean send(Payment payment, BooleanSupplier attempt) {\n        for (int i = 0; i < payment.maxAttempts(); i++) {\n            if (attempt.getAsBoolean()) return true;\n        }\n        return false;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.BooleanSupplier;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AtomicInteger chargeTries = new AtomicInteger();\n            boolean charged = Retries.send(new Retries.Charge(45_00), failingTimes(2, chargeTries));\n            System.out.println(\"charge accepted: \" + charged + \", tries: \" + chargeTries.get());\n            AtomicInteger refundTries = new AtomicInteger();\n            boolean refunded = Retries.send(new Retries.Refund(45_00, \"ch_900\"), failingTimes(2, refundTries));\n            System.out.println(\"refund accepted: \" + refunded + \", tries: \" + refundTries.get());\n            Retries.idempotentAttempts = 2;\n            AtomicInteger downTries = new AtomicInteger();\n            boolean refundedWhileDown = Retries.send(new Retries.Refund(9_90, \"ch_901\"), failingTimes(50, downTries));\n            System.out.println(\"policy now 2, refund accepted: \" + refundedWhileDown + \", tries: \" + downTries.get());\n            System.out.println(\"refund maxAttempts: \" + new Retries.Refund(1_00, \"ch_902\").maxAttempts());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** A bank that refuses the first {@code failures} attempts, counting every attempt. */\n    private static BooleanSupplier failingTimes(int failures, AtomicInteger attempts) {\n        return () -> attempts.incrementAndGet() > failures;\n    }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.function.BooleanSupplier;\n\n/** Sending payments to the bank, with retries where they are safe. */\npublic class Retries {\n\n    /** How many times an idempotent operation may be tried. The platform's configuration sets it. */\n    public static int idempotentAttempts = 4;\n\n    /** The platform team's interface for operations that are safe to repeat. */\n    public interface Idempotent {\n        /** The key the bank uses to recognise a repeat of the same operation. */\n        String key();\n\n        default int maxAttempts() { return idempotentAttempts; }\n    }\n\n    /** A money movement. A charge sent twice charges twice, so by default a payment is tried once. */\n    public static class Payment {\n        private final long cents;\n\n        public Payment(long cents) { this.cents = cents; }\n\n        public long cents() { return cents; }\n\n        public int maxAttempts() { return 1; }\n    }\n\n    public static class Charge extends Payment {\n        public Charge(long cents) { super(cents); }\n    }\n\n    /** A refund carries the key of the charge it reverses, so the bank applies it once however often it is sent. */\n    public static class Refund extends Payment implements Idempotent {\n        private final String key;\n\n        public Refund(long cents, String chargeKey) {\n            super(cents);\n            this.key = \"refund-\" + chargeKey;\n        }\n\n        @Override public String key() { return key; }\n\n        @Override public int maxAttempts() {\n            // TODO: how many times a refund may be tried.\n            throw new IllegalStateException(\"TODO: a refund's attempts\");\n        }\n    }\n\n    /**\n     * Sends a payment: makes one attempt after another until one succeeds or the payment has used\n     * every attempt it is allowed. Returns whether an attempt succeeded.\n     */\n    public static boolean send(Payment payment, BooleanSupplier attempt) {\n        // TODO: try the payment as often as it allows, stopping at the first success.\n        throw new IllegalStateException(\"TODO: send the payment\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.function.BooleanSupplier;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AtomicInteger chargeTries = new AtomicInteger();\n            boolean charged = Retries.send(new Retries.Charge(45_00), failingTimes(2, chargeTries));\n            System.out.println(\"charge accepted: \" + charged + \", tries: \" + chargeTries.get());\n            AtomicInteger refundTries = new AtomicInteger();\n            boolean refunded = Retries.send(new Retries.Refund(45_00, \"ch_900\"), failingTimes(2, refundTries));\n            System.out.println(\"refund accepted: \" + refunded + \", tries: \" + refundTries.get());\n            Retries.idempotentAttempts = 2;\n            AtomicInteger downTries = new AtomicInteger();\n            boolean refundedWhileDown = Retries.send(new Retries.Refund(9_90, \"ch_901\"), failingTimes(50, downTries));\n            System.out.println(\"policy now 2, refund accepted: \" + refundedWhileDown + \", tries: \" + downTries.get());\n            System.out.println(\"refund maxAttempts: \" + new Retries.Refund(1_00, \"ch_902\").maxAttempts());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** A bank that refuses the first {@code failures} attempts, counting every attempt. */\n    private static BooleanSupplier failingTimes(int failures, AtomicInteger attempts) {\n        return () -> attempts.incrementAndGet() > failures;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4b6355ace5be668f05bb5538070cc43d45bb8b30cb806641a0b5750aa45b168b",
+  "content_sha256": "9c11832cdf04c92c45f2f1cbd458a8dd98b25850d3aff4aaf6c07c3426fdeb1f",
   "starting_code": "package practice;\n\nimport java.util.function.BooleanSupplier;\n\n/** Sending payments to the bank, with retries where they are safe. */\npublic class Retries {\n\n    /** How many times an idempotent operation may be tried. The platform's configuration sets it. */\n    public static int idempotentAttempts = 4;\n\n    /** The platform team's interface for operations that are safe to repeat. */\n    public interface Idempotent {\n        /** The key the bank uses to recognise a repeat of the same operation. */\n        String key();\n\n        default int maxAttempts() { return idempotentAttempts; }\n    }\n\n    /** A money movement. A charge sent twice charges twice, so by default a payment is tried once. */\n    public static class Payment {\n        private final long cents;\n\n        public Payment(long cents) { this.cents = cents; }\n\n        public long cents() { return cents; }\n\n        public int maxAttempts() { return 1; }\n    }\n\n    public static class Charge extends Payment {\n        public Charge(long cents) { super(cents); }\n    }\n\n    /** A refund carries the key of the charge it reverses, so the bank applies it once however often it is sent. */\n    public static class Refund extends Payment implements Idempotent {\n        private final String key;\n\n        public Refund(long cents, String chargeKey) {\n            super(cents);\n            this.key = \"refund-\" + chargeKey;\n        }\n\n        @Override public String key() { return key; }\n\n        @Override public int maxAttempts() {\n            // TODO: how many times a refund may be tried.\n            throw new IllegalStateException(\"TODO: a refund's attempts\");\n        }\n    }\n\n    /**\n     * Sends a payment: makes one attempt after another until one succeeds or the payment has used\n     * every attempt it is allowed. Returns whether an attempt succeeded.\n     */\n    public static boolean send(Payment payment, BooleanSupplier attempt) {\n        // TODO: try the payment as often as it allows, stopping at the first success.\n        throw new IllegalStateException(\"TODO: send the payment\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-2/src/main/java/practice/Retries.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -136,6 +155,10 @@
     },
     "concepts": [
       "A method declared in a class or inherited from a superclass wins over an interface default, even when called through the interface; the default is reached with X.super.m()."
-    ]
+    ],
+    "files": [
+      "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
   }
 }

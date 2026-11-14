@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport org.w3c.dom.Document;\nimport org.w3c.dom.Element;\nimport org.w3c.dom.NodeList;\nimport org.xml.sax.SAXException;\n\nimport javax.xml.parsers.DocumentBuilder;\nimport javax.xml.parsers.DocumentBuilderFactory;\nimport javax.xml.parsers.ParserConfigurationException;\nimport java.io.IOException;\nimport java.nio.file.Path;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** Imports the order documents that partners upload into the import directory. */\npublic class OrderImport {\n\n    /** One partner order: where it came from, its item codes, and the buyer's note. */\n    public record Order(String channel, List<String> items, String note) {}\n\n    /** Parses one uploaded document. A document the parser refuses ends in an exception. */\n    public Order read(Path file) throws IOException, SAXException, ParserConfigurationException {\n        DocumentBuilder builder = newFactory().newDocumentBuilder();\n        Document doc = builder.parse(file.toFile());\n        Element order = doc.getDocumentElement();\n        List<String> items = new ArrayList<>();\n        NodeList nodes = order.getElementsByTagName(\"item\");\n        for (int i = 0; i < nodes.getLength(); i++) items.add(nodes.item(i).getTextContent().strip());\n        NodeList notes = order.getElementsByTagName(\"note\");\n        String note = notes.getLength() == 0 ? \"\" : notes.item(0).getTextContent().strip();\n        return new Order(order.getAttribute(\"channel\"), items, note);\n    }\n\n    /**\n     * The factory every upload is parsed with. Partner orders are plain XML: elements, attributes\n     * and text, and never a DOCTYPE.\n     */\n    static DocumentBuilderFactory newFactory() throws ParserConfigurationException {\n        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();\n        factory.setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true);\n        return factory;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport org.xml.sax.SAXException;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Path dir = Files.createTempDirectory(\"tryit-orders\");\n            try {\n                Files.writeString(dir.resolve(\"db.conf\"), \"db-secret-placeholder\");\n                Path plain = Files.writeString(dir.resolve(\"order-880.xml\"),\n                        \"<order channel=\\\"api\\\"><item>BOLT-6</item><item>NUT-6</item><note>rush &amp; insure</note></order>\");\n                Path sneaky = Files.writeString(dir.resolve(\"order-881.xml\"),\n                        \"<?xml version=\\\"1.0\\\"?>\\n<!DOCTYPE order [ <!ENTITY leak SYSTEM \\\"db.conf\\\"> ]>\\n\"\n                                + \"<order channel=\\\"api\\\"><item>BOLT-6</item><note>&leak;</note></order>\");\n                OrderImport.Order order = new OrderImport().read(plain);\n                System.out.println(\"plain order: \" + order.channel() + \" \" + order.items() + \" note: \" + order.note());\n                try {\n                    System.out.println(\"sneaky order read as: \" + new OrderImport().read(sneaky));\n                } catch (SAXException refused) {\n                    System.out.println(\"sneaky order refused: \" + refused.getMessage());\n                }\n            } finally {\n                try (var files = Files.walk(dir)) {\n                    files.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport org.w3c.dom.Document;\nimport org.w3c.dom.Element;\nimport org.w3c.dom.NodeList;\nimport org.xml.sax.SAXException;\n\nimport javax.xml.parsers.DocumentBuilder;\nimport javax.xml.parsers.DocumentBuilderFactory;\nimport javax.xml.parsers.ParserConfigurationException;\nimport java.io.IOException;\nimport java.nio.file.Path;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** Imports the order documents that partners upload into the import directory. */\npublic class OrderImport {\n\n    /** One partner order: where it came from, its item codes, and the buyer's note. */\n    public record Order(String channel, List<String> items, String note) {}\n\n    /** Parses one uploaded document. A document the parser refuses ends in an exception. */\n    public Order read(Path file) throws IOException, SAXException, ParserConfigurationException {\n        DocumentBuilder builder = newFactory().newDocumentBuilder();\n        Document doc = builder.parse(file.toFile());\n        Element order = doc.getDocumentElement();\n        List<String> items = new ArrayList<>();\n        NodeList nodes = order.getElementsByTagName(\"item\");\n        for (int i = 0; i < nodes.getLength(); i++) items.add(nodes.item(i).getTextContent().strip());\n        NodeList notes = order.getElementsByTagName(\"note\");\n        String note = notes.getLength() == 0 ? \"\" : notes.item(0).getTextContent().strip();\n        return new Order(order.getAttribute(\"channel\"), items, note);\n    }\n\n    /**\n     * The factory every upload is parsed with. Partner orders are plain XML: elements, attributes\n     * and text, and never a DOCTYPE.\n     */\n    static DocumentBuilderFactory newFactory() throws ParserConfigurationException {\n        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();\n        // TODO: Uploads come from partners' systems, and from anyone who gets hold of a partner's\n        //       upload account. Configure the factory so that parsing an upload can't make this\n        //       host read any file or address the upload names.\n        throw new IllegalStateException(\"TODO: newFactory\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport org.xml.sax.SAXException;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Path dir = Files.createTempDirectory(\"tryit-orders\");\n            try {\n                Files.writeString(dir.resolve(\"db.conf\"), \"db-secret-placeholder\");\n                Path plain = Files.writeString(dir.resolve(\"order-880.xml\"),\n                        \"<order channel=\\\"api\\\"><item>BOLT-6</item><item>NUT-6</item><note>rush &amp; insure</note></order>\");\n                Path sneaky = Files.writeString(dir.resolve(\"order-881.xml\"),\n                        \"<?xml version=\\\"1.0\\\"?>\\n<!DOCTYPE order [ <!ENTITY leak SYSTEM \\\"db.conf\\\"> ]>\\n\"\n                                + \"<order channel=\\\"api\\\"><item>BOLT-6</item><note>&leak;</note></order>\");\n                OrderImport.Order order = new OrderImport().read(plain);\n                System.out.println(\"plain order: \" + order.channel() + \" \" + order.items() + \" note: \" + order.note());\n                try {\n                    System.out.println(\"sneaky order read as: \" + new OrderImport().read(sneaky));\n                } catch (SAXException refused) {\n                    System.out.println(\"sneaky order refused: \" + refused.getMessage());\n                }\n            } finally {\n                try (var files = Files.walk(dir)) {\n                    files.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6591f12e705fb0b9abecabfc94975302b8b09dbd6845e56fd90ad86906c39e7f",
+  "content_sha256": "9e6e4e40b32dbc7178dbc902541e27799c48a7e5e9347cbb2be9d880a99f3602",
   "starting_code": "package practice;\n\nimport org.w3c.dom.Document;\nimport org.w3c.dom.Element;\nimport org.w3c.dom.NodeList;\nimport org.xml.sax.SAXException;\n\nimport javax.xml.parsers.DocumentBuilder;\nimport javax.xml.parsers.DocumentBuilderFactory;\nimport javax.xml.parsers.ParserConfigurationException;\nimport java.io.IOException;\nimport java.nio.file.Path;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** Imports the order documents that partners upload into the import directory. */\npublic class OrderImport {\n\n    /** One partner order: where it came from, its item codes, and the buyer's note. */\n    public record Order(String channel, List<String> items, String note) {}\n\n    /** Parses one uploaded document. A document the parser refuses ends in an exception. */\n    public Order read(Path file) throws IOException, SAXException, ParserConfigurationException {\n        DocumentBuilder builder = newFactory().newDocumentBuilder();\n        Document doc = builder.parse(file.toFile());\n        Element order = doc.getDocumentElement();\n        List<String> items = new ArrayList<>();\n        NodeList nodes = order.getElementsByTagName(\"item\");\n        for (int i = 0; i < nodes.getLength(); i++) items.add(nodes.item(i).getTextContent().strip());\n        NodeList notes = order.getElementsByTagName(\"note\");\n        String note = notes.getLength() == 0 ? \"\" : notes.item(0).getTextContent().strip();\n        return new Order(order.getAttribute(\"channel\"), items, note);\n    }\n\n    /**\n     * The factory every upload is parsed with. Partner orders are plain XML: elements, attributes\n     * and text, and never a DOCTYPE.\n     */\n    static DocumentBuilderFactory newFactory() throws ParserConfigurationException {\n        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();\n        // TODO: Uploads come from partners' systems, and from anyone who gets hold of a partner's\n        //       upload account. Configure the factory so that parsing an upload can't make this\n        //       host read any file or address the upload names.\n        throw new IllegalStateException(\"TODO: newFactory\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-3/src/main/java/practice/OrderImport.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -128,6 +147,10 @@
     },
     "concepts": [
       "The JDK's default DocumentBuilderFactory reads a file named by an external entity into the result; disallow-doctype-decl, or ACCESS_EXTERNAL_DTD set to \"\", refuses it."
-    ]
+    ],
+    "files": [
+      "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
   }
 }

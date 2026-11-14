@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports the supplier's nightly price file into the price store. A line is {@code SKU;cents},\n * for example {@code TEA-0042;1299}. Blank lines and lines starting with '#' are comments.\n */\npublic class PriceImport {\n\n    /** A line that is neither a comment nor a valid price. */\n    public static class BadLineException extends Exception {\n        private final int lineNumber;\n\n        public BadLineException(int lineNumber, String line) {\n            super(\"line \" + lineNumber + \": \" + line);\n            this.lineNumber = lineNumber;\n        }\n\n        /** The line's position in the file, counting from 1, comments included. */\n        public int lineNumber() {\n            return lineNumber;\n        }\n    }\n\n    public record Price(String sku, long cents) {}\n\n    private final Map<String, Long> store = new LinkedHashMap<>();\n\n    /** The prices stored so far, in the order they were stored. */\n    public Map<String, Long> prices() {\n        return Collections.unmodifiableMap(store);\n    }\n\n    static boolean isComment(String line) {\n        return line.isBlank() || line.startsWith(\"#\");\n    }\n\n    /** Parses one price line; {@code lineNumber} is only used to report a bad line. */\n    static Price parse(String line, int lineNumber) throws BadLineException {\n        String[] parts = line.split(\";\", -1);\n        if (parts.length != 2 || parts[0].isBlank() || !parts[1].matches(\"\\\\d{1,9}\")) {\n            throw new BadLineException(lineNumber, line);\n        }\n        return new Price(parts[0].strip(), Long.parseLong(parts[1]));\n    }\n\n    void store(Price price) {\n        store.put(price.sku(), price.cents());\n    }\n\n    /**\n     * Imports the file's lines in order and returns how many prices it stored. The first bad line\n     * ends the import: prices before it stay stored, nothing after it is stored, and the caller\n     * gets a BadLineException that names it.\n     */\n    public int importAll(List<String> lines) throws BadLineException {\n        int stored = 0;\n        for (int i = 0; i < lines.size(); i++) {\n            String line = lines.get(i);\n            if (isComment(line)) continue;\n            store(parse(line, i + 1));\n            stored++;\n        }\n        return stored;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            PriceImport good = new PriceImport();\n            int stored = good.importAll(List.of(\"# winter list\", \"SOCK-1;499\", \"\", \"HAT-2;1599\"));\n            System.out.println(\"good file stored: \" + stored + \" \" + good.prices());\n            PriceImport broken = new PriceImport();\n            try {\n                broken.importAll(List.of(\"SOCK-1;499\", \"# scarves\", \"SCARF-3;12.50\", \"GLOVE-4;899\"));\n            } catch (PriceImport.BadLineException bad) {\n                System.out.println(\"import stopped at line \" + bad.lineNumber() + \": \" + bad.getMessage());\n            }\n            System.out.println(\"prices kept from the broken file: \" + broken.prices());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports the supplier's nightly price file into the price store. A line is {@code SKU;cents},\n * for example {@code TEA-0042;1299}. Blank lines and lines starting with '#' are comments.\n */\npublic class PriceImport {\n\n    /** A line that is neither a comment nor a valid price. */\n    public static class BadLineException extends Exception {\n        private final int lineNumber;\n\n        public BadLineException(int lineNumber, String line) {\n            super(\"line \" + lineNumber + \": \" + line);\n            this.lineNumber = lineNumber;\n        }\n\n        /** The line's position in the file, counting from 1, comments included. */\n        public int lineNumber() {\n            return lineNumber;\n        }\n    }\n\n    public record Price(String sku, long cents) {}\n\n    private final Map<String, Long> store = new LinkedHashMap<>();\n\n    /** The prices stored so far, in the order they were stored. */\n    public Map<String, Long> prices() {\n        return Collections.unmodifiableMap(store);\n    }\n\n    static boolean isComment(String line) {\n        return line.isBlank() || line.startsWith(\"#\");\n    }\n\n    /** Parses one price line; {@code lineNumber} is only used to report a bad line. */\n    static Price parse(String line, int lineNumber) throws BadLineException {\n        String[] parts = line.split(\";\", -1);\n        if (parts.length != 2 || parts[0].isBlank() || !parts[1].matches(\"\\\\d{1,9}\")) {\n            throw new BadLineException(lineNumber, line);\n        }\n        return new Price(parts[0].strip(), Long.parseLong(parts[1]));\n    }\n\n    void store(Price price) {\n        store.put(price.sku(), price.cents());\n    }\n\n    /**\n     * Imports the file's lines in order and returns how many prices it stored. The first bad line\n     * ends the import: prices before it stay stored, nothing after it is stored, and the caller\n     * gets a BadLineException that names it.\n     */\n    public int importAll(List<String> lines) throws BadLineException {\n        // TODO: Skip comments, parse and store each price line, and count what you stored.\n        //       isComment, parse and store are ready to use.\n        throw new IllegalStateException(\"TODO: importAll\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            PriceImport good = new PriceImport();\n            int stored = good.importAll(List.of(\"# winter list\", \"SOCK-1;499\", \"\", \"HAT-2;1599\"));\n            System.out.println(\"good file stored: \" + stored + \" \" + good.prices());\n            PriceImport broken = new PriceImport();\n            try {\n                broken.importAll(List.of(\"SOCK-1;499\", \"# scarves\", \"SCARF-3;12.50\", \"GLOVE-4;899\"));\n            } catch (PriceImport.BadLineException bad) {\n                System.out.println(\"import stopped at line \" + bad.lineNumber() + \": \" + bad.getMessage());\n            }\n            System.out.println(\"prices kept from the broken file: \" + broken.prices());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "1c2d60c87d7fa6ad11ea7913bc3663759a0048a84e421ebbb31e31303f6a039a",
+  "content_sha256": "ce7578c9669c8428b95fe834c4bc500836e9a887a5ae99d7e80d3ca8124ff3f1",
   "starting_code": "package practice;\n\nimport java.util.Collections;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports the supplier's nightly price file into the price store. A line is {@code SKU;cents},\n * for example {@code TEA-0042;1299}. Blank lines and lines starting with '#' are comments.\n */\npublic class PriceImport {\n\n    /** A line that is neither a comment nor a valid price. */\n    public static class BadLineException extends Exception {\n        private final int lineNumber;\n\n        public BadLineException(int lineNumber, String line) {\n            super(\"line \" + lineNumber + \": \" + line);\n            this.lineNumber = lineNumber;\n        }\n\n        /** The line's position in the file, counting from 1, comments included. */\n        public int lineNumber() {\n            return lineNumber;\n        }\n    }\n\n    public record Price(String sku, long cents) {}\n\n    private final Map<String, Long> store = new LinkedHashMap<>();\n\n    /** The prices stored so far, in the order they were stored. */\n    public Map<String, Long> prices() {\n        return Collections.unmodifiableMap(store);\n    }\n\n    static boolean isComment(String line) {\n        return line.isBlank() || line.startsWith(\"#\");\n    }\n\n    /** Parses one price line; {@code lineNumber} is only used to report a bad line. */\n    static Price parse(String line, int lineNumber) throws BadLineException {\n        String[] parts = line.split(\";\", -1);\n        if (parts.length != 2 || parts[0].isBlank() || !parts[1].matches(\"\\\\d{1,9}\")) {\n            throw new BadLineException(lineNumber, line);\n        }\n        return new Price(parts[0].strip(), Long.parseLong(parts[1]));\n    }\n\n    void store(Price price) {\n        store.put(price.sku(), price.cents());\n    }\n\n    /**\n     * Imports the file's lines in order and returns how many prices it stored. The first bad line\n     * ends the import: prices before it stay stored, nothing after it is stored, and the caller\n     * gets a BadLineException that names it.\n     */\n    public int importAll(List<String> lines) throws BadLineException {\n        // TODO: Skip comments, parse and store each price line, and count what you stored.\n        //       isComment, parse and store are ready to use.\n        throw new IllegalStateException(\"TODO: importAll\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-01/practice-3/src/main/java/practice/PriceImport.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/16-streams-api/prose/unit-01/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -133,6 +152,10 @@
     },
     "concepts": [
       "A loop is clearer than a stream when the work must stop early, throw a checked exception or track positions and several totals; return in a forEach lambda only skips one element."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/16-streams-api/prose/unit-01/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/16-streams-api/prose/unit-01/practice-3/src/main/java/practice/TryIt.java"
   }
 }

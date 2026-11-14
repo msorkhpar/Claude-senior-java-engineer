@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    private volatile Pair current;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.current = new Pair(certificate, privateKey);\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        current = new Pair(source.certificate(), source.privateKey());\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        return current;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            TlsCredentials credentials = new TlsCredentials(\"cert:api-2026-01\", \"key:api-2026-01\");\n            System.out.println(\"before renewal: \" + credentials.current());\n            Thread reload = new Thread(() -> credentials.reload(new TlsCredentials.Source() {\n                public String certificate() { return \"cert:api-2026-07\"; }\n                public String privateKey() {\n                    try {\n                        Thread.sleep(400);\n                    } catch (InterruptedException e) {\n                        Thread.currentThread().interrupt();\n                    }\n                    return \"key:api-2026-07\";\n                }\n            }), \"reload\");\n            reload.setDaemon(true);\n            reload.start();\n            Thread.sleep(100);\n            AtomicReference<Object> during = new AtomicReference<>(\"no answer within 1 s\");\n            Thread handshake = new Thread(() -> during.set(credentials.current()), \"handshake\");\n            handshake.setDaemon(true);\n            handshake.start();\n            handshake.join(1_000);\n            System.out.println(\"handshake while the vault reads the key: \" + during.get());\n            reload.join(2_000);\n            System.out.println(\"after renewal: \" + credentials.current());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    private volatile String certificate;\n    private volatile String privateKey;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.certificate = certificate;\n        this.privateKey = privateKey;\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        // TODO: Runs on the reload thread while request threads keep calling current(). Reading\n        //       the source can be slow. Start using the renewed certificate and key. You may\n        //       change how the credentials are stored.\n        throw new IllegalStateException(\"TODO: reload\");\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        // TODO: Runs on request threads, at any moment, including during a reload. Return the\n        //       certificate and the key this handshake should use.\n        throw new IllegalStateException(\"TODO: current\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            TlsCredentials credentials = new TlsCredentials(\"cert:api-2026-01\", \"key:api-2026-01\");\n            System.out.println(\"before renewal: \" + credentials.current());\n            Thread reload = new Thread(() -> credentials.reload(new TlsCredentials.Source() {\n                public String certificate() { return \"cert:api-2026-07\"; }\n                public String privateKey() {\n                    try {\n                        Thread.sleep(400);\n                    } catch (InterruptedException e) {\n                        Thread.currentThread().interrupt();\n                    }\n                    return \"key:api-2026-07\";\n                }\n            }), \"reload\");\n            reload.setDaemon(true);\n            reload.start();\n            Thread.sleep(100);\n            AtomicReference<Object> during = new AtomicReference<>(\"no answer within 1 s\");\n            Thread handshake = new Thread(() -> during.set(credentials.current()), \"handshake\");\n            handshake.setDaemon(true);\n            handshake.start();\n            handshake.join(1_000);\n            System.out.println(\"handshake while the vault reads the key: \" + during.get());\n            reload.join(2_000);\n            System.out.println(\"after renewal: \" + credentials.current());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2cfa57c87a79841f72eb9c06a52fb09f5d2958f1e9592c6b88798eb54d34eb7e",
+  "content_sha256": "4d66c3ac58527d3d2465d04ac2bade5ce412d722f6a46a8c0591b5c74c79884e",
   "starting_code": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    private volatile String certificate;\n    private volatile String privateKey;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.certificate = certificate;\n        this.privateKey = privateKey;\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        // TODO: Runs on the reload thread while request threads keep calling current(). Reading\n        //       the source can be slow. Start using the renewed certificate and key. You may\n        //       change how the credentials are stored.\n        throw new IllegalStateException(\"TODO: reload\");\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        // TODO: Runs on request threads, at any moment, including during a reload. Return the\n        //       certificate and the key this handshake should use.\n        throw new IllegalStateException(\"TODO: current\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-2/src/main/java/practice/TlsCredentials.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -140,6 +159,10 @@
     },
     "concepts": [
       "Values that must agree go into one immutable object, built completely and published by one volatile write; two volatile fields let a reader see a new value with an old one."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

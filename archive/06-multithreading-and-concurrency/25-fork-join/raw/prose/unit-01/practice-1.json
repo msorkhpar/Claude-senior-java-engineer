@@ -52,6 +52,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.concurrent.atomic.LongAdder;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Totals the fraud-risk points of a day's card transactions. Scoring one amount is pure CPU work,\n * and a busy day has tens of millions of amounts, so the total is computed on a ForkJoinPool.\n */\npublic class RiskPoints {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator points;\n    private final LongAdder tasks = new LongAdder();\n\n    /**\n     * @param pool      the pool the scoring runs in\n     * @param threshold the most amounts one task scores by itself on its own thread\n     * @param points    the risk points of one amount, in cents\n     */\n    public RiskPoints(ForkJoinPool pool, int threshold, LongUnaryOperator points) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.points = points;\n    }\n\n    /** The sum of the points of every amount. */\n    public long total(long[] amounts) {\n        return pool.invoke(new Total(amounts, 0, amounts.length));\n    }\n\n    /** How many tasks this scorer has created so far; the operations dashboard shows it. */\n    public long tasksCreated() {\n        return tasks.sum();\n    }\n\n    /** The points of amounts[from] to amounts[to - 1]. */\n    final class Total extends RecursiveTask<Long> {\n        private final long[] amounts;\n        private final int from, to;\n\n        Total(long[] amounts, int from, int to) {\n            this.amounts = amounts;\n            this.from = from;\n            this.to = to;\n            tasks.increment();\n        }\n\n        @Override\n        protected Long compute() {\n            if (to - from <= threshold) {\n                long sum = 0;\n                for (int i = from; i < to; i++) sum += points.applyAsLong(amounts[i]);\n                return sum;\n            }\n            int mid = (from + to) >>> 1;\n            Total left = new Total(amounts, from, mid);\n            left.fork();\n            long right = new Total(amounts, mid, to).compute();\n            return left.join() + right;\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.function.LongUnaryOperator;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            LongUnaryOperator points = cents -> cents >= 100_000 ? 25 : cents % 10;\n            long[] day = new long[10_000];\n            for (int i = 0; i < day.length; i++) day[i] = 500 + (i * 3_331L) % 150_000;\n            long expected = 0;\n            for (long cents : day) expected += points.applyAsLong(cents);\n            ForkJoinPool pool = new ForkJoinPool(3);\n            try {\n                RiskPoints scorer = new RiskPoints(pool, 500, points);\n                System.out.println(\"total points: \" + scorer.total(day));\n                System.out.println(\"one thread counted: \" + expected);\n                System.out.println(\"tasks created: \" + scorer.tasksCreated());\n                System.out.println(\"an empty day: \" + new RiskPoints(pool, 500, points).total(new long[0]));\n                RiskPoints exact = new RiskPoints(pool, 500, points);\n                exact.total(new long[500]);\n                System.out.println(\"tasks for exactly 500 amounts: \" + exact.tasksCreated());\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -64,6 +73,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.concurrent.atomic.LongAdder;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Totals the fraud-risk points of a day's card transactions. Scoring one amount is pure CPU work,\n * and a busy day has tens of millions of amounts, so the total is computed on a ForkJoinPool.\n */\npublic class RiskPoints {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator points;\n    private final LongAdder tasks = new LongAdder();\n\n    /**\n     * @param pool      the pool the scoring runs in\n     * @param threshold the most amounts one task scores by itself on its own thread\n     * @param points    the risk points of one amount, in cents\n     */\n    public RiskPoints(ForkJoinPool pool, int threshold, LongUnaryOperator points) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.points = points;\n    }\n\n    /** The sum of the points of every amount. */\n    public long total(long[] amounts) {\n        return pool.invoke(new Total(amounts, 0, amounts.length));\n    }\n\n    /** How many tasks this scorer has created so far; the operations dashboard shows it. */\n    public long tasksCreated() {\n        return tasks.sum();\n    }\n\n    /** The points of amounts[from] to amounts[to - 1]. */\n    final class Total extends RecursiveTask<Long> {\n        private final long[] amounts;\n        private final int from, to;\n\n        Total(long[] amounts, int from, int to) {\n            this.amounts = amounts;\n            this.from = from;\n            this.to = to;\n            tasks.increment();\n        }\n\n        @Override\n        protected Long compute() {\n            // TODO: Return the points of this task's amounts. A range of up to `threshold`\n            //       amounts is scored right here, on this thread. A longer one is too much for\n            //       one thread: share it with the pool's other workers, so that the whole day is\n            //       scored by several threads at once.\n            throw new IllegalStateException(\"TODO: compute\");\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.function.LongUnaryOperator;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            LongUnaryOperator points = cents -> cents >= 100_000 ? 25 : cents % 10;\n            long[] day = new long[10_000];\n            for (int i = 0; i < day.length; i++) day[i] = 500 + (i * 3_331L) % 150_000;\n            long expected = 0;\n            for (long cents : day) expected += points.applyAsLong(cents);\n            ForkJoinPool pool = new ForkJoinPool(3);\n            try {\n                RiskPoints scorer = new RiskPoints(pool, 500, points);\n                System.out.println(\"total points: \" + scorer.total(day));\n                System.out.println(\"one thread counted: \" + expected);\n                System.out.println(\"tasks created: \" + scorer.tasksCreated());\n                System.out.println(\"an empty day: \" + new RiskPoints(pool, 500, points).total(new long[0]));\n                RiskPoints exact = new RiskPoints(pool, 500, points);\n                exact.total(new long[500]);\n                System.out.println(\"tasks for exactly 500 amounts: \" + exact.tasksCreated());\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -71,8 +89,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -82,7 +100,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "987284922366f0bb7ca543209a83924be6d564b6975076447ff31d0b5c36c3fe",
+  "content_sha256": "f257cdf5601c4309ffb7d8d7d82bd6a6e086f248eeb4c20cb846cf777bd624dd",
   "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\nimport java.util.concurrent.atomic.LongAdder;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Totals the fraud-risk points of a day's card transactions. Scoring one amount is pure CPU work,\n * and a busy day has tens of millions of amounts, so the total is computed on a ForkJoinPool.\n */\npublic class RiskPoints {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator points;\n    private final LongAdder tasks = new LongAdder();\n\n    /**\n     * @param pool      the pool the scoring runs in\n     * @param threshold the most amounts one task scores by itself on its own thread\n     * @param points    the risk points of one amount, in cents\n     */\n    public RiskPoints(ForkJoinPool pool, int threshold, LongUnaryOperator points) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.points = points;\n    }\n\n    /** The sum of the points of every amount. */\n    public long total(long[] amounts) {\n        return pool.invoke(new Total(amounts, 0, amounts.length));\n    }\n\n    /** How many tasks this scorer has created so far; the operations dashboard shows it. */\n    public long tasksCreated() {\n        return tasks.sum();\n    }\n\n    /** The points of amounts[from] to amounts[to - 1]. */\n    final class Total extends RecursiveTask<Long> {\n        private final long[] amounts;\n        private final int from, to;\n\n        Total(long[] amounts, int from, int to) {\n            this.amounts = amounts;\n            this.from = from;\n            this.to = to;\n            tasks.increment();\n        }\n\n        @Override\n        protected Long compute() {\n            // TODO: Return the points of this task's amounts. A range of up to `threshold`\n            //       amounts is scored right here, on this thread. A longer one is too much for\n            //       one thread: share it with the pool's other workers, so that the whole day is\n            //       scored by several threads at once.\n            throw new IllegalStateException(\"TODO: compute\");\n        }\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/src/main/java/practice/RiskPoints.java",
@@ -93,7 +111,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -133,6 +152,10 @@
     "concepts": [
       "A fork/join task forks one half, computes the other on its own thread, then joins; joining before computing gives the right result at the speed of one thread.",
       "The threshold decides how many tasks there are: a task per element costs more than the work it wraps, one task gives no parallelism, and a wide range in between performs alike when work is even."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

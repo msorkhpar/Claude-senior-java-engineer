@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * One branch of a retail chain. Each branch has one Branch object, shared by the threads of its\n * tills. Invoice numbers come from one sequence for the whole company, and every number goes into\n * the company's journal, in order, together with the branch that issued it.\n */\npublic class Branch {\n\n    /** The company's invoice journal. Not thread-safe: it takes one line at a time. */\n    public interface Journal {\n        void append(long number, String branch, String customer);\n    }\n\n    /** Fetches a branch's settings from head office. Can take seconds. */\n    public interface Settings {\n        String load(String branch);\n    }\n\n    private static final Map<String, Branch> OPEN = new HashMap<>();\n    private static long lastNumber = 10_000;\n\n    private final String name;\n    private final String settings;\n    private final Journal journal;\n\n    private Branch(String name, String settings, Journal journal) {\n        this.name = name;\n        this.settings = settings;\n        this.journal = journal;\n    }\n\n    /** Opens a branch, loading its settings, or returns the branch already open under that name. */\n    public static synchronized Branch open(String name, Settings settings, Journal journal) {\n        Branch open = OPEN.get(name);\n        if (open == null) {\n            open = new Branch(name, settings.load(name), journal);\n            OPEN.put(name, open);\n        }\n        return open;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public String settings() {\n        return settings;\n    }\n\n    private static final Object SEQUENCE = new Object();\n\n    /** Issues the company's next invoice number to a customer of this branch, and journals it. */\n    public long issue(String customer) {\n        synchronized (SEQUENCE) {\n            long number = ++lastNumber;\n            journal.append(number, name, customer);\n            return number;\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> journal = Collections.synchronizedList(new ArrayList<>());\n            Branch.Journal toJournal = (number, branch, customer) -> journal.add(number + \" \" + branch + \" \" + customer);\n            Branch bristol = Branch.open(\"bristol-c4\", name -> \"settings of \" + name, toJournal);\n            Branch bath = Branch.open(\"bath-c4\", name -> \"settings of \" + name, toJournal);\n            System.out.println(\"bristol issues: \" + bristol.issue(\"Sam Sample\"));\n            System.out.println(\"bath issues: \" + bath.issue(\"Pat Placeholder\"));\n            System.out.println(\"bristol issues: \" + bristol.issue(\"Alex Example\"));\n            System.out.println(\"reopening bath keeps it: \" + (Branch.open(\"bath-c4\", name -> \"other\", toJournal) == bath)\n                    + \", settings: \" + bath.settings());\n            journal.forEach(line -> System.out.println(\"journal: \" + line));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * One branch of a retail chain. Each branch has one Branch object, shared by the threads of its\n * tills. Invoice numbers come from one sequence for the whole company, and every number goes into\n * the company's journal, in order, together with the branch that issued it.\n */\npublic class Branch {\n\n    /** The company's invoice journal. Not thread-safe: it takes one line at a time. */\n    public interface Journal {\n        void append(long number, String branch, String customer);\n    }\n\n    /** Fetches a branch's settings from head office. Can take seconds. */\n    public interface Settings {\n        String load(String branch);\n    }\n\n    private static final Map<String, Branch> OPEN = new HashMap<>();\n    private static long lastNumber = 10_000;\n\n    private final String name;\n    private final String settings;\n    private final Journal journal;\n\n    private Branch(String name, String settings, Journal journal) {\n        this.name = name;\n        this.settings = settings;\n        this.journal = journal;\n    }\n\n    /** Opens a branch, loading its settings, or returns the branch already open under that name. */\n    public static synchronized Branch open(String name, Settings settings, Journal journal) {\n        Branch open = OPEN.get(name);\n        if (open == null) {\n            open = new Branch(name, settings.load(name), journal);\n            OPEN.put(name, open);\n        }\n        return open;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public String settings() {\n        return settings;\n    }\n\n    /** Issues the company's next invoice number to a customer of this branch, and journals it. */\n    public long issue(String customer) {\n        // TODO: Take the next number of the company-wide sequence (lastNumber + 1), write it to the\n        //       journal with this branch's name, and return it. Every till of every branch calls\n        //       this at the same time: no number may be issued twice, the journal must get one line\n        //       at a time, in number order, and issuing must never wait for a branch being opened.\n        throw new IllegalStateException(\"TODO: issue\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> journal = Collections.synchronizedList(new ArrayList<>());\n            Branch.Journal toJournal = (number, branch, customer) -> journal.add(number + \" \" + branch + \" \" + customer);\n            Branch bristol = Branch.open(\"bristol-c4\", name -> \"settings of \" + name, toJournal);\n            Branch bath = Branch.open(\"bath-c4\", name -> \"settings of \" + name, toJournal);\n            System.out.println(\"bristol issues: \" + bristol.issue(\"Sam Sample\"));\n            System.out.println(\"bath issues: \" + bath.issue(\"Pat Placeholder\"));\n            System.out.println(\"bristol issues: \" + bristol.issue(\"Alex Example\"));\n            System.out.println(\"reopening bath keeps it: \" + (Branch.open(\"bath-c4\", name -> \"other\", toJournal) == bath)\n                    + \", settings: \" + bath.settings());\n            journal.forEach(line -> System.out.println(\"journal: \" + line));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "62999e8238e5be467c6bf4ec364cd63113c3e91504a71200953b5d9d9ddc575b",
+  "content_sha256": "7d15aa38188d404165249d8998acf473ae85329431daf5246fea96dc1ba1a65c",
   "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * One branch of a retail chain. Each branch has one Branch object, shared by the threads of its\n * tills. Invoice numbers come from one sequence for the whole company, and every number goes into\n * the company's journal, in order, together with the branch that issued it.\n */\npublic class Branch {\n\n    /** The company's invoice journal. Not thread-safe: it takes one line at a time. */\n    public interface Journal {\n        void append(long number, String branch, String customer);\n    }\n\n    /** Fetches a branch's settings from head office. Can take seconds. */\n    public interface Settings {\n        String load(String branch);\n    }\n\n    private static final Map<String, Branch> OPEN = new HashMap<>();\n    private static long lastNumber = 10_000;\n\n    private final String name;\n    private final String settings;\n    private final Journal journal;\n\n    private Branch(String name, String settings, Journal journal) {\n        this.name = name;\n        this.settings = settings;\n        this.journal = journal;\n    }\n\n    /** Opens a branch, loading its settings, or returns the branch already open under that name. */\n    public static synchronized Branch open(String name, Settings settings, Journal journal) {\n        Branch open = OPEN.get(name);\n        if (open == null) {\n            open = new Branch(name, settings.load(name), journal);\n            OPEN.put(name, open);\n        }\n        return open;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public String settings() {\n        return settings;\n    }\n\n    /** Issues the company's next invoice number to a customer of this branch, and journals it. */\n    public long issue(String customer) {\n        // TODO: Take the next number of the company-wide sequence (lastNumber + 1), write it to the\n        //       journal with this branch's name, and return it. Every till of every branch calls\n        //       this at the same time: no number may be issued twice, the journal must get one line\n        //       at a time, in number order, and issuing must never wait for a branch being opened.\n        throw new IllegalStateException(\"TODO: issue\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-1/src/main/java/practice/Branch.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -134,6 +153,10 @@
     "concepts": [
       "A monitor other code can reach, such as this, a Class object or a string literal, lets that code stall yours; a private final lock can be taken only by the class.",
       "synchronized excludes only code that locks the same object; synchronized (new Object()) or an instance lock guarding state shared between instances excludes nothing."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

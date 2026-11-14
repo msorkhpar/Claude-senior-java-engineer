@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\n\n/** Exchange rates for the checkout: from the primary provider, or from a mirror when it fails. */\npublic class RateClient {\n\n    /** One provider of rates, such as \"GBP-JPY\". */\n    public interface Source {\n        BigDecimal rate(String pair) throws IOException;\n    }\n\n    /** Neither provider could give a rate. */\n    public static class RatesUnavailableException extends Exception {\n        public RatesUnavailableException(String message) {\n            super(message);\n        }\n\n        public RatesUnavailableException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final Source primary;\n    private final Source mirror;\n\n    public RateClient(Source primary, Source mirror) {\n        this.primary = primary;\n        this.mirror = mirror;\n    }\n\n    /** The rate for the pair, from the primary if it answers. */\n    public BigDecimal rate(String pair) throws RatesUnavailableException {\n        try {\n            return primary.rate(pair);\n        } catch (IOException fromPrimary) {\n            return fromMirror(pair, fromPrimary);\n        }\n    }\n\n    /** Asks the mirror, after the primary failed with {@code fromPrimary}. */\n    BigDecimal fromMirror(String pair, IOException fromPrimary) throws RatesUnavailableException {\n        try {\n            return mirror.rate(pair);\n        } catch (IOException fromMirror) {\n            RatesUnavailableException unavailable = new RatesUnavailableException(\"no rate for \" + pair, fromMirror);\n            unavailable.addSuppressed(fromPrimary);\n            throw unavailable;\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RateClient.Source mirror = pair -> new BigDecimal(\"10.87\");\n            RateClient healthy = new RateClient(pair -> new BigDecimal(\"10.86\"), mirror);\n            System.out.println(\"EUR-SEK from the primary: \" + healthy.rate(\"EUR-SEK\"));\n            RateClient degraded = new RateClient(pair -> { throw new IOException(\"502 Bad Gateway\"); }, mirror);\n            System.out.println(\"EUR-SEK from the mirror: \" + degraded.rate(\"EUR-SEK\"));\n            RateClient down = new RateClient(pair -> { throw new IOException(\"502 Bad Gateway\"); },\n                    pair -> { throw new IOException(\"TLS handshake failed\"); });\n            try {\n                down.rate(\"USD-PLN\");\n            } catch (RateClient.RatesUnavailableException unavailable) {\n                System.out.println(\"checkout gets: \" + unavailable.getMessage());\n                System.out.println(\"cause: \" + unavailable.getCause());\n                for (Throwable suppressed : unavailable.getSuppressed()) {\n                    System.out.println(\"suppressed: \" + suppressed);\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\n\n/** Exchange rates for the checkout: from the primary provider, or from a mirror when it fails. */\npublic class RateClient {\n\n    /** One provider of rates, such as \"GBP-JPY\". */\n    public interface Source {\n        BigDecimal rate(String pair) throws IOException;\n    }\n\n    /** Neither provider could give a rate. */\n    public static class RatesUnavailableException extends Exception {\n        public RatesUnavailableException(String message) {\n            super(message);\n        }\n\n        public RatesUnavailableException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final Source primary;\n    private final Source mirror;\n\n    public RateClient(Source primary, Source mirror) {\n        this.primary = primary;\n        this.mirror = mirror;\n    }\n\n    /** The rate for the pair, from the primary if it answers. */\n    public BigDecimal rate(String pair) throws RatesUnavailableException {\n        try {\n            return primary.rate(pair);\n        } catch (IOException fromPrimary) {\n            return fromMirror(pair, fromPrimary);\n        }\n    }\n\n    /** Asks the mirror, after the primary failed with {@code fromPrimary}. */\n    BigDecimal fromMirror(String pair, IOException fromPrimary) throws RatesUnavailableException {\n        // TODO: Return the mirror's rate. When the mirror fails too, the checkout gets a\n        //       RatesUnavailableException that names the pair, and whoever reads its stack trace\n        //       later must be able to tell what went wrong with each provider.\n        throw new IllegalStateException(\"TODO: fromMirror\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            RateClient.Source mirror = pair -> new BigDecimal(\"10.87\");\n            RateClient healthy = new RateClient(pair -> new BigDecimal(\"10.86\"), mirror);\n            System.out.println(\"EUR-SEK from the primary: \" + healthy.rate(\"EUR-SEK\"));\n            RateClient degraded = new RateClient(pair -> { throw new IOException(\"502 Bad Gateway\"); }, mirror);\n            System.out.println(\"EUR-SEK from the mirror: \" + degraded.rate(\"EUR-SEK\"));\n            RateClient down = new RateClient(pair -> { throw new IOException(\"502 Bad Gateway\"); },\n                    pair -> { throw new IOException(\"TLS handshake failed\"); });\n            try {\n                down.rate(\"USD-PLN\");\n            } catch (RateClient.RatesUnavailableException unavailable) {\n                System.out.println(\"checkout gets: \" + unavailable.getMessage());\n                System.out.println(\"cause: \" + unavailable.getCause());\n                for (Throwable suppressed : unavailable.getSuppressed()) {\n                    System.out.println(\"suppressed: \" + suppressed);\n                }\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4dd4d8811952522474aa3e205ac89dd1b4dc04f9b5ea2a9e3511bfd7c82799a8",
+  "content_sha256": "3af1ae610509b8911d4a383754315c642e7a4bca0a90bd593ed9fb74059861f8",
   "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\n\n/** Exchange rates for the checkout: from the primary provider, or from a mirror when it fails. */\npublic class RateClient {\n\n    /** One provider of rates, such as \"GBP-JPY\". */\n    public interface Source {\n        BigDecimal rate(String pair) throws IOException;\n    }\n\n    /** Neither provider could give a rate. */\n    public static class RatesUnavailableException extends Exception {\n        public RatesUnavailableException(String message) {\n            super(message);\n        }\n\n        public RatesUnavailableException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final Source primary;\n    private final Source mirror;\n\n    public RateClient(Source primary, Source mirror) {\n        this.primary = primary;\n        this.mirror = mirror;\n    }\n\n    /** The rate for the pair, from the primary if it answers. */\n    public BigDecimal rate(String pair) throws RatesUnavailableException {\n        try {\n            return primary.rate(pair);\n        } catch (IOException fromPrimary) {\n            return fromMirror(pair, fromPrimary);\n        }\n    }\n\n    /** Asks the mirror, after the primary failed with {@code fromPrimary}. */\n    BigDecimal fromMirror(String pair, IOException fromPrimary) throws RatesUnavailableException {\n        // TODO: Return the mirror's rate. When the mirror fails too, the checkout gets a\n        //       RatesUnavailableException that names the pair, and whoever reads its stack trace\n        //       later must be able to tell what went wrong with each provider.\n        throw new IllegalStateException(\"TODO: fromMirror\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-2/src/main/java/practice/RateClient.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -124,6 +143,10 @@
     "concepts": [
       "An exception thrown inside a catch block replaces the one being handled, unless the first is attached with addSuppressed or as a cause.",
       "A new exception thrown without the caught one as its cause loses the original's type and trace; copying its message keeps neither."
-    ]
+    ],
+    "files": [
+      "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
   }
 }

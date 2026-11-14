@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    /** One TLS handshake with a client, as far as the credentials are concerned. */\n    public interface Handshake {\n        /** Sends the server's certificate to the client. */\n        void sendCertificate(String certificate);\n\n        /** Proves the server owns the certificate it sent, by signing with its private key. */\n        void signWith(String privateKey);\n    }\n\n    private volatile Pair current;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.current = new Pair(certificate, privateKey);\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        current = new Pair(source.certificate(), source.privateKey());\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        return current;\n    }\n\n    /** Runs the server's side of one handshake: send the certificate, then sign. */\n    public void serve(Handshake handshake) {\n        Pair pair = current;\n        handshake.sendCertificate(pair.certificate());\n        handshake.signWith(pair.privateKey());\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            TlsCredentials credentials = new TlsCredentials(\"cert:shop-2026-02\", \"key:shop-2026-02\");\n            TlsCredentials.Source renewed = new TlsCredentials.Source() {\n                public String certificate() { return \"cert:shop-2026-08\"; }\n                public String privateKey() { return \"key:shop-2026-08\"; }\n            };\n            List<String> client = new ArrayList<>();\n            credentials.serve(new TlsCredentials.Handshake() {\n                public void sendCertificate(String certificate) {\n                    client.add(certificate);\n                    credentials.reload(renewed);\n                }\n                public void signWith(String privateKey) { client.add(privateKey); }\n            });\n            System.out.println(\"handshake with a reload in the middle: \" + client);\n            List<String> next = new ArrayList<>();\n            credentials.serve(new TlsCredentials.Handshake() {\n                public void sendCertificate(String certificate) { next.add(certificate); }\n                public void signWith(String privateKey) { next.add(privateKey); }\n            });\n            System.out.println(\"next handshake: \" + next);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    /** One TLS handshake with a client, as far as the credentials are concerned. */\n    public interface Handshake {\n        /** Sends the server's certificate to the client. */\n        void sendCertificate(String certificate);\n\n        /** Proves the server owns the certificate it sent, by signing with its private key. */\n        void signWith(String privateKey);\n    }\n\n    private volatile Pair current;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.current = new Pair(certificate, privateKey);\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        current = new Pair(source.certificate(), source.privateKey());\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        return current;\n    }\n\n    /** Runs the server's side of one handshake: send the certificate, then sign. */\n    public void serve(Handshake handshake) {\n        // TODO: A reload can happen at any moment, including between the two steps of a\n        //       handshake. The client checks the signature against the certificate it was sent.\n        throw new IllegalStateException(\"TODO: serve\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            TlsCredentials credentials = new TlsCredentials(\"cert:shop-2026-02\", \"key:shop-2026-02\");\n            TlsCredentials.Source renewed = new TlsCredentials.Source() {\n                public String certificate() { return \"cert:shop-2026-08\"; }\n                public String privateKey() { return \"key:shop-2026-08\"; }\n            };\n            List<String> client = new ArrayList<>();\n            credentials.serve(new TlsCredentials.Handshake() {\n                public void sendCertificate(String certificate) {\n                    client.add(certificate);\n                    credentials.reload(renewed);\n                }\n                public void signWith(String privateKey) { client.add(privateKey); }\n            });\n            System.out.println(\"handshake with a reload in the middle: \" + client);\n            List<String> next = new ArrayList<>();\n            credentials.serve(new TlsCredentials.Handshake() {\n                public void sendCertificate(String certificate) { next.add(certificate); }\n                public void signWith(String privateKey) { next.add(privateKey); }\n            });\n            System.out.println(\"next handshake: \" + next);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "85e7537087538a4309062dbdf9036b37cef10b4726ba8e4be51c8eaae7d18580",
+  "content_sha256": "663f9902cec30cf9080f718d997f32a0c31c9e9eb29f8d550be510bfc7eea287",
   "starting_code": "package practice;\n\n/**\n * The certificate and private key the gateway's TLS listener presents. A reload thread replaces\n * them when the certificate is renewed; request threads read them for every new handshake.\n */\npublic class TlsCredentials {\n\n    /** Where a reload reads the renewed certificate and key from: a file, a secrets vault. */\n    public interface Source {\n        String certificate();\n\n        String privateKey();\n    }\n\n    /** A certificate and the private key that belongs to it. */\n    public record Pair(String certificate, String privateKey) {\n    }\n\n    /** One TLS handshake with a client, as far as the credentials are concerned. */\n    public interface Handshake {\n        /** Sends the server's certificate to the client. */\n        void sendCertificate(String certificate);\n\n        /** Proves the server owns the certificate it sent, by signing with its private key. */\n        void signWith(String privateKey);\n    }\n\n    private volatile Pair current;\n\n    public TlsCredentials(String certificate, String privateKey) {\n        this.current = new Pair(certificate, privateKey);\n    }\n\n    /** Reads the renewed certificate and key from the source and starts using them. */\n    public void reload(Source source) {\n        current = new Pair(source.certificate(), source.privateKey());\n    }\n\n    /** The certificate and key a new handshake uses. */\n    public Pair current() {\n        return current;\n    }\n\n    /** Runs the server's side of one handshake: send the certificate, then sign. */\n    public void serve(Handshake handshake) {\n        // TODO: A reload can happen at any moment, including between the two steps of a\n        //       handshake. The client checks the signature against the certificate it was sent.\n        throw new IllegalStateException(\"TODO: serve\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/src/main/java/practice/TlsCredentials.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -118,6 +137,10 @@
     },
     "concepts": [
       "Each read of a volatile field can see a new value, so a decision that uses the value more than once reads the field once into a local."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
   }
 }

@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.Iterator;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Login sessions: the time each session was last seen, in a synchronized map. Request threads\n * call touch(...) on every request; a sweeper thread calls sweep(...) every minute; the debug\n * endpoint calls snapshot() and writes the result out while requests go on.\n */\npublic class SessionSweeper {\n\n    /** Decides whether a session has expired; it may look up the user, so it is not free. */\n    public interface ExpiryPolicy {\n        boolean expired(String sessionId, long lastSeen);\n    }\n\n    private final Map<String, Long> lastSeen = Collections.synchronizedMap(new HashMap<>());\n\n    /** Records that a session was seen at the given time. */\n    public void touch(String sessionId, long time) {\n        lastSeen.put(sessionId, time);\n    }\n\n    /** The time the session was last seen, or null if it is not (or no longer) a session. */\n    public Long lastSeen(String sessionId) {\n        return lastSeen.get(sessionId);\n    }\n\n    /** Removes every session the policy says has expired, and returns their ids. */\n    public List<String> sweep(ExpiryPolicy policy) {\n        List<String> gone = new ArrayList<>();\n        synchronized (lastSeen) {\n            Iterator<Map.Entry<String, Long>> it = lastSeen.entrySet().iterator();\n            while (it.hasNext()) {\n                Map.Entry<String, Long> e = it.next();\n                if (policy.expired(e.getKey(), e.getValue())) {\n                    it.remove();\n                    gone.add(e.getKey());\n                }\n            }\n        }\n        return gone;\n    }\n\n    /** The sessions as they are now, in a map of the caller's own that later touches don't change. */\n    public Map<String, Long> snapshot() {\n        synchronized (lastSeen) {\n            return new HashMap<>(lastSeen);\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SessionSweeper sessions = new SessionSweeper();\n            sessions.touch(\"sess-k1\", 5_400L);\n            sessions.touch(\"sess-k2\", 900L);\n            sessions.touch(\"sess-k3\", 7_100L);\n            sessions.touch(\"sess-k4\", 2_050L);\n            Thread[] request = new Thread[1];\n            List<String> gone = sessions.sweep((id, seen) -> {\n                if (request[0] == null) {\n                    request[0] = new Thread(() -> sessions.touch(\"sess-k9\", 8_000L));\n                    request[0].start();\n                }\n                return seen < 3_000L;\n            });\n            request[0].join(3_000);\n            System.out.println(\"swept: \" + gone.stream().sorted().toList());\n            System.out.println(\"request during the sweep kept: \" + sessions.lastSeen(\"sess-k9\"));\n            Map<String, Long> dump = sessions.snapshot();\n            sessions.touch(\"sess-k1\", 9_000L);\n            sessions.touch(\"sess-k5\", 9_100L);\n            System.out.println(\"dump after later requests: \" + new TreeMap<>(dump));\n            System.out.println(\"sess-k1 now: \" + sessions.lastSeen(\"sess-k1\"));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Login sessions: the time each session was last seen, in a synchronized map. Request threads\n * call touch(...) on every request; a sweeper thread calls sweep(...) every minute; the debug\n * endpoint calls snapshot() and writes the result out while requests go on.\n */\npublic class SessionSweeper {\n\n    /** Decides whether a session has expired; it may look up the user, so it is not free. */\n    public interface ExpiryPolicy {\n        boolean expired(String sessionId, long lastSeen);\n    }\n\n    private final Map<String, Long> lastSeen = Collections.synchronizedMap(new HashMap<>());\n\n    /** Records that a session was seen at the given time. */\n    public void touch(String sessionId, long time) {\n        lastSeen.put(sessionId, time);\n    }\n\n    /** The time the session was last seen, or null if it is not (or no longer) a session. */\n    public Long lastSeen(String sessionId) {\n        return lastSeen.get(sessionId);\n    }\n\n    /** Removes every session the policy says has expired, and returns their ids. */\n    public List<String> sweep(ExpiryPolicy policy) {\n        // TODO: Remove every session the policy says has expired, and return their ids. Request\n        //       threads keep calling touch(...) while the sweep runs, on sessions old and new.\n        throw new IllegalStateException(\"TODO: sweep\");\n    }\n\n    /** The sessions as they are now, in a map of the caller's own that later touches don't change. */\n    public Map<String, Long> snapshot() {\n        // TODO: Return the sessions as they are now. The debug endpoint writes the result out\n        //       slowly while requests go on, and what it writes must not change under it.\n        throw new IllegalStateException(\"TODO: snapshot\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SessionSweeper sessions = new SessionSweeper();\n            sessions.touch(\"sess-k1\", 5_400L);\n            sessions.touch(\"sess-k2\", 900L);\n            sessions.touch(\"sess-k3\", 7_100L);\n            sessions.touch(\"sess-k4\", 2_050L);\n            Thread[] request = new Thread[1];\n            List<String> gone = sessions.sweep((id, seen) -> {\n                if (request[0] == null) {\n                    request[0] = new Thread(() -> sessions.touch(\"sess-k9\", 8_000L));\n                    request[0].start();\n                }\n                return seen < 3_000L;\n            });\n            request[0].join(3_000);\n            System.out.println(\"swept: \" + gone.stream().sorted().toList());\n            System.out.println(\"request during the sweep kept: \" + sessions.lastSeen(\"sess-k9\"));\n            Map<String, Long> dump = sessions.snapshot();\n            sessions.touch(\"sess-k1\", 9_000L);\n            sessions.touch(\"sess-k5\", 9_100L);\n            System.out.println(\"dump after later requests: \" + new TreeMap<>(dump));\n            System.out.println(\"sess-k1 now: \" + sessions.lastSeen(\"sess-k1\"));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b57f6ce89ee5c87113c836573735b706b4ac09aff4d3a968ff442442ab3a822e",
+  "content_sha256": "55a8f1f5f2f45d42e7e186091419d6bf0f7576c22db265a6e0bedd20242896a7",
   "starting_code": "package practice;\n\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Login sessions: the time each session was last seen, in a synchronized map. Request threads\n * call touch(...) on every request; a sweeper thread calls sweep(...) every minute; the debug\n * endpoint calls snapshot() and writes the result out while requests go on.\n */\npublic class SessionSweeper {\n\n    /** Decides whether a session has expired; it may look up the user, so it is not free. */\n    public interface ExpiryPolicy {\n        boolean expired(String sessionId, long lastSeen);\n    }\n\n    private final Map<String, Long> lastSeen = Collections.synchronizedMap(new HashMap<>());\n\n    /** Records that a session was seen at the given time. */\n    public void touch(String sessionId, long time) {\n        lastSeen.put(sessionId, time);\n    }\n\n    /** The time the session was last seen, or null if it is not (or no longer) a session. */\n    public Long lastSeen(String sessionId) {\n        return lastSeen.get(sessionId);\n    }\n\n    /** Removes every session the policy says has expired, and returns their ids. */\n    public List<String> sweep(ExpiryPolicy policy) {\n        // TODO: Remove every session the policy says has expired, and return their ids. Request\n        //       threads keep calling touch(...) while the sweep runs, on sessions old and new.\n        throw new IllegalStateException(\"TODO: sweep\");\n    }\n\n    /** The sessions as they are now, in a map of the caller's own that later touches don't change. */\n    public Map<String, Long> snapshot() {\n        // TODO: Return the sessions as they are now. The debug endpoint writes the result out\n        //       slowly while requests go on, and what it writes must not change under it.\n        throw new IllegalStateException(\"TODO: snapshot\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-2/src/main/java/practice/SessionSweeper.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -135,6 +154,10 @@
     },
     "concepts": [
       "Walking a synchronized wrapper is many calls; the walk holds the wrapper's own lock throughout, and every writer waits for it."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

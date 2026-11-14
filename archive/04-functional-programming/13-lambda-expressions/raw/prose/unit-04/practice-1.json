@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.function.Supplier;\n\n/** Exchange rates, cached in memory in front of a rates API that bills every call. */\npublic class RateService {\n\n    /** The remote rates API: slow, and billed per call. */\n    public interface RateApi {\n        BigDecimal fetch(String pair);\n    }\n\n    /** A debug log that may be switched off. */\n    public interface DebugLog {\n        /** Logs a message the caller has already built. */\n        void debug(String message);\n\n        /** Logs a message, asking the supplier for it only when debug output is on. */\n        void debug(Supplier<String> message);\n    }\n\n    private final Map<String, BigDecimal> cache = new HashMap<>();\n    private final RateApi api;\n    private final DebugLog log;\n    int snapshotsTaken;\n\n    public RateService(RateApi api, DebugLog log) {\n        this.api = api;\n        this.log = log;\n    }\n\n    /** The rate for a currency pair such as \"GBP/JPY\". */\n    public BigDecimal rate(String pair) {\n        BigDecimal rate = cachedOrFetched(pair);\n        trace(pair, rate);\n        return rate;\n    }\n\n    Optional<BigDecimal> cached(String pair) {\n        return Optional.ofNullable(cache.get(pair));\n    }\n\n    BigDecimal fetchAndCache(String pair) {\n        BigDecimal rate = api.fetch(pair);\n        cache.put(pair, rate);\n        return rate;\n    }\n\n    /** A copy of the whole cache, sorted: useful when debugging, and not cheap. */\n    String cacheSnapshot() {\n        snapshotsTaken++;\n        return new TreeMap<>(cache).toString();\n    }\n\n    /** The cached rate for the pair, or one fetched from the API (and cached) when there is none. */\n    BigDecimal cachedOrFetched(String pair) {\n        return cached(pair).orElseGet(() -> fetchAndCache(pair));\n    }\n\n    /** Writes a debug line: the pair, its rate and a snapshot of the cache. */\n    void trace(String pair, BigDecimal rate) {\n        log.debug(() -> pair + \" = \" + rate + \", cache \" + cacheSnapshot());\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.function.Supplier;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            int[] apiCalls = {0};\n            RateService.RateApi api = pair -> {\n                apiCalls[0]++;\n                return pair.equals(\"EUR/USD\") ? new BigDecimal(\"1.0842\") : new BigDecimal(\"0.8571\");\n            };\n            RateService quiet = new RateService(api, new PrintedLog(false));\n            for (int i = 0; i < 3; i++) {\n                quiet.rate(\"EUR/USD\");\n            }\n            System.out.println(\"debug off, API calls for 3 lookups: \" + apiCalls[0]);\n            System.out.println(\"debug off, snapshots taken: \" + quiet.snapshotsTaken);\n            RateService loud = new RateService(api, new PrintedLog(true));\n            System.out.println(\"EUR/GBP: \" + loud.rate(\"EUR/GBP\"));\n            System.out.println(\"EUR/USD: \" + loud.rate(\"EUR/USD\"));\n            System.out.println(\"API calls in all: \" + apiCalls[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** Prints debug lines when on, and ignores them when off. */\n    record PrintedLog(boolean on) implements RateService.DebugLog {\n        @Override\n        public void debug(String message) {\n            if (on) System.out.println(\"debug: \" + message);\n        }\n\n        @Override\n        public void debug(Supplier<String> message) {\n            if (on) System.out.println(\"debug: \" + message.get());\n        }\n    }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.function.Supplier;\n\n/** Exchange rates, cached in memory in front of a rates API that bills every call. */\npublic class RateService {\n\n    /** The remote rates API: slow, and billed per call. */\n    public interface RateApi {\n        BigDecimal fetch(String pair);\n    }\n\n    /** A debug log that may be switched off. */\n    public interface DebugLog {\n        /** Logs a message the caller has already built. */\n        void debug(String message);\n\n        /** Logs a message, asking the supplier for it only when debug output is on. */\n        void debug(Supplier<String> message);\n    }\n\n    private final Map<String, BigDecimal> cache = new HashMap<>();\n    private final RateApi api;\n    private final DebugLog log;\n    int snapshotsTaken;\n\n    public RateService(RateApi api, DebugLog log) {\n        this.api = api;\n        this.log = log;\n    }\n\n    /** The rate for a currency pair such as \"GBP/JPY\". */\n    public BigDecimal rate(String pair) {\n        BigDecimal rate = cachedOrFetched(pair);\n        trace(pair, rate);\n        return rate;\n    }\n\n    Optional<BigDecimal> cached(String pair) {\n        return Optional.ofNullable(cache.get(pair));\n    }\n\n    BigDecimal fetchAndCache(String pair) {\n        BigDecimal rate = api.fetch(pair);\n        cache.put(pair, rate);\n        return rate;\n    }\n\n    /** A copy of the whole cache, sorted: useful when debugging, and not cheap. */\n    String cacheSnapshot() {\n        snapshotsTaken++;\n        return new TreeMap<>(cache).toString();\n    }\n\n    /** The cached rate for the pair, or one fetched from the API (and cached) when there is none. */\n    BigDecimal cachedOrFetched(String pair) {\n        throw new IllegalStateException(\"TODO: the cached rate, or a fetched one\");\n    }\n\n    /** Writes a debug line: the pair, its rate and a snapshot of the cache. */\n    void trace(String pair, BigDecimal rate) {\n        throw new IllegalStateException(\"TODO: the debug line\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.function.Supplier;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            int[] apiCalls = {0};\n            RateService.RateApi api = pair -> {\n                apiCalls[0]++;\n                return pair.equals(\"EUR/USD\") ? new BigDecimal(\"1.0842\") : new BigDecimal(\"0.8571\");\n            };\n            RateService quiet = new RateService(api, new PrintedLog(false));\n            for (int i = 0; i < 3; i++) {\n                quiet.rate(\"EUR/USD\");\n            }\n            System.out.println(\"debug off, API calls for 3 lookups: \" + apiCalls[0]);\n            System.out.println(\"debug off, snapshots taken: \" + quiet.snapshotsTaken);\n            RateService loud = new RateService(api, new PrintedLog(true));\n            System.out.println(\"EUR/GBP: \" + loud.rate(\"EUR/GBP\"));\n            System.out.println(\"EUR/USD: \" + loud.rate(\"EUR/USD\"));\n            System.out.println(\"API calls in all: \" + apiCalls[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** Prints debug lines when on, and ignores them when off. */\n    record PrintedLog(boolean on) implements RateService.DebugLog {\n        @Override\n        public void debug(String message) {\n            if (on) System.out.println(\"debug: \" + message);\n        }\n\n        @Override\n        public void debug(Supplier<String> message) {\n            if (on) System.out.println(\"debug: \" + message.get());\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ac457d6752e7e178da4b12e2427736f677eb123ea43bde853b6f599cbc34e78c",
+  "content_sha256": "32474e4d8caaf9b7d0eb5d91d493ff9558b6d0ba3b583f4c9dce95b7b3fca288",
   "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.function.Supplier;\n\n/** Exchange rates, cached in memory in front of a rates API that bills every call. */\npublic class RateService {\n\n    /** The remote rates API: slow, and billed per call. */\n    public interface RateApi {\n        BigDecimal fetch(String pair);\n    }\n\n    /** A debug log that may be switched off. */\n    public interface DebugLog {\n        /** Logs a message the caller has already built. */\n        void debug(String message);\n\n        /** Logs a message, asking the supplier for it only when debug output is on. */\n        void debug(Supplier<String> message);\n    }\n\n    private final Map<String, BigDecimal> cache = new HashMap<>();\n    private final RateApi api;\n    private final DebugLog log;\n    int snapshotsTaken;\n\n    public RateService(RateApi api, DebugLog log) {\n        this.api = api;\n        this.log = log;\n    }\n\n    /** The rate for a currency pair such as \"GBP/JPY\". */\n    public BigDecimal rate(String pair) {\n        BigDecimal rate = cachedOrFetched(pair);\n        trace(pair, rate);\n        return rate;\n    }\n\n    Optional<BigDecimal> cached(String pair) {\n        return Optional.ofNullable(cache.get(pair));\n    }\n\n    BigDecimal fetchAndCache(String pair) {\n        BigDecimal rate = api.fetch(pair);\n        cache.put(pair, rate);\n        return rate;\n    }\n\n    /** A copy of the whole cache, sorted: useful when debugging, and not cheap. */\n    String cacheSnapshot() {\n        snapshotsTaken++;\n        return new TreeMap<>(cache).toString();\n    }\n\n    /** The cached rate for the pair, or one fetched from the API (and cached) when there is none. */\n    BigDecimal cachedOrFetched(String pair) {\n        throw new IllegalStateException(\"TODO: the cached rate, or a fetched one\");\n    }\n\n    /** Writes a debug line: the pair, its rate and a snapshot of the cache. */\n    void trace(String pair, BigDecimal rate) {\n        throw new IllegalStateException(\"TODO: the debug line\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-1/src/main/java/practice/RateService.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -131,6 +150,10 @@
     },
     "concepts": [
       "An argument such as orElse's is evaluated before the call on every call; a Supplier overload (orElseGet, Logger.fine(Supplier)) runs the lambda only when the value is needed."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/13-lambda-expressions/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
   }
 }

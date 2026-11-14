@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        return owner.submit(() -> {\n            long balance = live.getOrDefault(from, 0L);\n            if (balance < credits) return false;\n            live.put(from, balance - credits);\n            seam.midTransfer();\n            live.merge(to, credits, Long::sum);\n            publish();\n            return true;\n        });\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        return published;\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        published = Map.copyOf(live);\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            try (Wallets wallets = new Wallets(Map.of(\"kai\", 80L, \"lou\", 10L, \"mo\", 0L), () -> { })) {\n                System.out.println(\"opening: \" + new java.util.TreeMap<>(wallets.balances()));\n                Map<String, Long> before = wallets.balances();\n                System.out.println(\"kai -> mo 30: \" + wallets.transfer(\"kai\", \"mo\", 30).get());\n                System.out.println(\"lou -> kai 25: \" + wallets.transfer(\"lou\", \"kai\", 25).get());\n                System.out.println(\"mo -> lou 12: \" + wallets.transfer(\"mo\", \"lou\", 12).get());\n                System.out.println(\"now: \" + new java.util.TreeMap<>(wallets.balances()));\n                System.out.println(\"copy taken before: \" + new java.util.TreeMap<>(before));\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        return owner.submit(() -> {\n            long balance = live.getOrDefault(from, 0L);\n            if (balance < credits) return false;\n            live.put(from, balance - credits);\n            seam.midTransfer();\n            live.merge(to, credits, Long::sum);\n            publish();\n            return true;\n        });\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        // TODO: The leaderboard and the support console call this from their own threads, many\n        //       times a second, while transfers are being applied.\n        throw new IllegalStateException(\"TODO: balances\");\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        // TODO: Make the balances as they stand now available to balances().\n        throw new IllegalStateException(\"TODO: publish\");\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            try (Wallets wallets = new Wallets(Map.of(\"kai\", 80L, \"lou\", 10L, \"mo\", 0L), () -> { })) {\n                System.out.println(\"opening: \" + new java.util.TreeMap<>(wallets.balances()));\n                Map<String, Long> before = wallets.balances();\n                System.out.println(\"kai -> mo 30: \" + wallets.transfer(\"kai\", \"mo\", 30).get());\n                System.out.println(\"lou -> kai 25: \" + wallets.transfer(\"lou\", \"kai\", 25).get());\n                System.out.println(\"mo -> lou 12: \" + wallets.transfer(\"mo\", \"lou\", 12).get());\n                System.out.println(\"now: \" + new java.util.TreeMap<>(wallets.balances()));\n                System.out.println(\"copy taken before: \" + new java.util.TreeMap<>(before));\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ca01b1920527bb3fb4a8bfb6e56ff93c27d3ce2dbba8df40fbf3417ffbdfd61a",
+  "content_sha256": "59f7bdd4304a2d6855d227e14eaafde1d60afed5a1933545f0afcf40ecd281d0",
   "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        return owner.submit(() -> {\n            long balance = live.getOrDefault(from, 0L);\n            if (balance < credits) return false;\n            live.put(from, balance - credits);\n            seam.midTransfer();\n            live.merge(to, credits, Long::sum);\n            publish();\n            return true;\n        });\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        // TODO: The leaderboard and the support console call this from their own threads, many\n        //       times a second, while transfers are being applied.\n        throw new IllegalStateException(\"TODO: balances\");\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        // TODO: Make the balances as they stand now available to balances().\n        throw new IllegalStateException(\"TODO: publish\");\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n",
   "exercise": {
     "main_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-1/src/main/java/practice/Wallets.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/08-principles/32-kiss-principle/prose/unit-02/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -146,6 +165,10 @@
     "concepts": [
       "State changed only by one owner thread needs no lock, and readers that take an immutable snapshot published after each change see a whole state without waiting.",
       "An unmodifiable view reads through to the live state, so it changes under its reader; a snapshot is a copy nothing changes."
-    ]
+    ],
+    "files": [
+      "practice/08-principles/32-kiss-principle/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
   }
 }

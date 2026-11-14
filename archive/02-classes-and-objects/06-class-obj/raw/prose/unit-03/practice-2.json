@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Exchange rates for the shop's prices, loaded from the rate service. Every request thread of the\n * pricing service reads them through this class.\n */\npublic class RateCard {\n\n    /** Where the rates come from: the rate service in production, a stand-in in tests. */\n    public static final class Source {\n        public static volatile Supplier<Map<String, Long>> rates =\n                () -> { throw new IllegalStateException(\"no rate source configured\"); };\n\n        private Source() {\n        }\n    }\n\n    private static Map<String, Long> loaded;\n\n    /** What the health check reports. It needs no rates. */\n    public static String version() {\n        return \"rate-card 3.2\";\n    }\n\n    /** How many cents of the currency one euro buys. */\n    public static long centsPerEuro(String currency) {\n        Long cents = rates().get(currency);\n        if (cents == null) {\n            throw new IllegalArgumentException(\"no rate for \" + currency);\n        }\n        return cents;\n    }\n\n    static synchronized Map<String, Long> rates() {\n        if (loaded == null) {\n            loaded = Map.copyOf(Source.rates.get());\n        }\n        return loaded;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.UncheckedIOException;\nimport java.util.Map;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AtomicInteger loads = new AtomicInteger();\n            RateCard.Source.rates = () -> {\n                if (loads.incrementAndGet() == 1) {\n                    throw new UncheckedIOException(new IOException(\"rate service busy\"));\n                }\n                return Map.of(\"USD\", 108L, \"JPY\", 16_250L);\n            };\n            System.out.println(\"health check: \" + RateCard.version());\n            try {\n                System.out.println(\"USD: \" + RateCard.centsPerEuro(\"USD\"));\n            } catch (UncheckedIOException failed) {\n                System.out.println(\"first request: failed, \" + failed.getCause().getMessage());\n            }\n            System.out.println(\"USD: \" + RateCard.centsPerEuro(\"USD\"));\n            System.out.println(\"JPY: \" + RateCard.centsPerEuro(\"JPY\"));\n            System.out.println(\"loads asked of the rate service: \" + loads.get());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Exchange rates for the shop's prices, loaded from the rate service. Every request thread of the\n * pricing service reads them through this class.\n */\npublic class RateCard {\n\n    /** Where the rates come from: the rate service in production, a stand-in in tests. */\n    public static final class Source {\n        public static volatile Supplier<Map<String, Long>> rates =\n                () -> { throw new IllegalStateException(\"no rate source configured\"); };\n\n        private Source() {\n        }\n    }\n\n    /** What the health check reports. It needs no rates. */\n    public static String version() {\n        return \"rate-card 3.2\";\n    }\n\n    /** How many cents of the currency one euro buys. */\n    public static long centsPerEuro(String currency) {\n        Long cents = rates().get(currency);\n        if (cents == null) {\n            throw new IllegalArgumentException(\"no rate for \" + currency);\n        }\n        return cents;\n    }\n\n    static Map<String, Long> rates() {\n        // TODO: Return the rates, asking Source.rates for them only when they are first needed.\n        //       The health check must answer while the rate service is down; a load that fails\n        //       must be tried again by the next request; and the requests that arrive together\n        //       at startup must not each ask the rate service.\n        throw new IllegalStateException(\"TODO: rates\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.UncheckedIOException;\nimport java.util.Map;\nimport java.util.concurrent.atomic.AtomicInteger;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            AtomicInteger loads = new AtomicInteger();\n            RateCard.Source.rates = () -> {\n                if (loads.incrementAndGet() == 1) {\n                    throw new UncheckedIOException(new IOException(\"rate service busy\"));\n                }\n                return Map.of(\"USD\", 108L, \"JPY\", 16_250L);\n            };\n            System.out.println(\"health check: \" + RateCard.version());\n            try {\n                System.out.println(\"USD: \" + RateCard.centsPerEuro(\"USD\"));\n            } catch (UncheckedIOException failed) {\n                System.out.println(\"first request: failed, \" + failed.getCause().getMessage());\n            }\n            System.out.println(\"USD: \" + RateCard.centsPerEuro(\"USD\"));\n            System.out.println(\"JPY: \" + RateCard.centsPerEuro(\"JPY\"));\n            System.out.println(\"loads asked of the rate service: \" + loads.get());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "1d0beaeafba290013c4f353c5d493449ce53fed9aec77a8ee77ef6230016946b",
+  "content_sha256": "560545b26cf5ecba130cc0193f3ceab937fa89314b04a9bea0b27dcdf0029f34",
   "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Exchange rates for the shop's prices, loaded from the rate service. Every request thread of the\n * pricing service reads them through this class.\n */\npublic class RateCard {\n\n    /** Where the rates come from: the rate service in production, a stand-in in tests. */\n    public static final class Source {\n        public static volatile Supplier<Map<String, Long>> rates =\n                () -> { throw new IllegalStateException(\"no rate source configured\"); };\n\n        private Source() {\n        }\n    }\n\n    /** What the health check reports. It needs no rates. */\n    public static String version() {\n        return \"rate-card 3.2\";\n    }\n\n    /** How many cents of the currency one euro buys. */\n    public static long centsPerEuro(String currency) {\n        Long cents = rates().get(currency);\n        if (cents == null) {\n            throw new IllegalArgumentException(\"no rate for \" + currency);\n        }\n        return cents;\n    }\n\n    static Map<String, Long> rates() {\n        // TODO: Return the rates, asking Source.rates for them only when they are first needed.\n        //       The health check must answer while the rate service is down; a load that fails\n        //       must be tried again by the next request; and the requests that arrive together\n        //       at startup must not each ask the rate service.\n        throw new IllegalStateException(\"TODO: rates\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-2/src/main/java/practice/RateCard.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -141,6 +160,10 @@
     "concepts": [
       "A static initializer that throws is never run again: the first use gets ExceptionInInitializerError and every later use NoClassDefFoundError until the JVM restarts.",
       "Work that can fail belongs in a method that can be called again, not in a static initializer; a holder class makes the load lazy but not retryable."
-    ]
+    ],
+    "files": [
+      "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
   }
 }

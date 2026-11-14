@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.Semaphore;\n\n/**\n * The seats of a rendering library's floating licence. A render task takes a seat before it\n * calls the library and gives it back afterwards. Render tasks run on the render ForkJoinPool,\n * and so do the tasks that finish a render and give its seat back.\n */\npublic class LicenceSeats {\n\n    private final Semaphore seats;\n\n    public LicenceSeats(int count) {\n        this.seats = new Semaphore(count);\n    }\n\n    /** Takes one seat, waiting until one is free. */\n    public void take() throws InterruptedException {\n        ForkJoinPool.managedBlock(new ForkJoinPool.ManagedBlocker() {\n            private boolean taken;\n\n            @Override\n            public boolean block() throws InterruptedException {\n                if (!taken) {\n                    seats.acquire();\n                    taken = true;\n                }\n                return true;\n            }\n\n            @Override\n            public boolean isReleasable() {\n                return taken || (taken = seats.tryAcquire());\n            }\n        });\n    }\n\n    /** Gives one seat back. */\n    public void giveBack() {\n        seats.release();\n    }\n\n    /** How many seats are free right now. */\n    public int free() {\n        return seats.availablePermits();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ForkJoinPool renderPool = new ForkJoinPool(1);\n            try {\n                LicenceSeats busy = new LicenceSeats(0);\n                Future<String> render = renderPool.submit(() -> {\n                    busy.take();\n                    return \"preview-881 rendered\";\n                });\n                renderPool.submit(busy::giveBack);\n                System.out.println(\"render on a full licence: \" + finish(render));\n                System.out.println(\"free seats after it: \" + busy.free());\n                LicenceSeats quiet = new LicenceSeats(4);\n                System.out.println(\"render on a quiet day: \" + finish(renderPool.submit(() -> {\n                    quiet.take();\n                    return \"preview-882 rendered\";\n                })));\n                System.out.println(\"free seats of 4: \" + quiet.free());\n            } finally {\n                renderPool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** Waits up to 3 s for a render; passes on what it threw, so Run shows it. */\n    static String finish(Future<String> render) throws Exception {\n        try {\n            return render.get(3, TimeUnit.SECONDS);\n        } catch (TimeoutException e) {\n            return \"still waiting after 3 s\";\n        } catch (ExecutionException e) {\n            if (e.getCause() instanceof RuntimeException stop) throw stop;\n            throw e;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.Semaphore;\n\n/**\n * The seats of a rendering library's floating licence. A render task takes a seat before it\n * calls the library and gives it back afterwards. Render tasks run on the render ForkJoinPool,\n * and so do the tasks that finish a render and give its seat back.\n */\npublic class LicenceSeats {\n\n    private final Semaphore seats;\n\n    public LicenceSeats(int count) {\n        this.seats = new Semaphore(count);\n    }\n\n    /** Takes one seat, waiting until one is free. */\n    public void take() throws InterruptedException {\n        // TODO: When every seat is taken, the render pool freezes: the tasks waiting for a seat\n        //       hold all of its threads, and the tasks that would give seats back never start.\n        //       Take exactly one seat, and wait in a way that lets the pool keep working.\n        throw new IllegalStateException(\"TODO: take\");\n    }\n\n    /** Gives one seat back. */\n    public void giveBack() {\n        seats.release();\n    }\n\n    /** How many seats are free right now. */\n    public int free() {\n        return seats.availablePermits();\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ForkJoinPool renderPool = new ForkJoinPool(1);\n            try {\n                LicenceSeats busy = new LicenceSeats(0);\n                Future<String> render = renderPool.submit(() -> {\n                    busy.take();\n                    return \"preview-881 rendered\";\n                });\n                renderPool.submit(busy::giveBack);\n                System.out.println(\"render on a full licence: \" + finish(render));\n                System.out.println(\"free seats after it: \" + busy.free());\n                LicenceSeats quiet = new LicenceSeats(4);\n                System.out.println(\"render on a quiet day: \" + finish(renderPool.submit(() -> {\n                    quiet.take();\n                    return \"preview-882 rendered\";\n                })));\n                System.out.println(\"free seats of 4: \" + quiet.free());\n            } finally {\n                renderPool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** Waits up to 3 s for a render; passes on what it threw, so Run shows it. */\n    static String finish(Future<String> render) throws Exception {\n        try {\n            return render.get(3, TimeUnit.SECONDS);\n        } catch (TimeoutException e) {\n            return \"still waiting after 3 s\";\n        } catch (ExecutionException e) {\n            if (e.getCause() instanceof RuntimeException stop) throw stop;\n            throw e;\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "41d17c8aefdfb03b6f2f53d0bfc811a58ba8359f5313b7cb9af806b6249d0cc9",
+  "content_sha256": "f4a9511bd8635de4614716c84efaad7272a4d025055f0b52e71ae670297f65f3",
   "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.Semaphore;\n\n/**\n * The seats of a rendering library's floating licence. A render task takes a seat before it\n * calls the library and gives it back afterwards. Render tasks run on the render ForkJoinPool,\n * and so do the tasks that finish a render and give its seat back.\n */\npublic class LicenceSeats {\n\n    private final Semaphore seats;\n\n    public LicenceSeats(int count) {\n        this.seats = new Semaphore(count);\n    }\n\n    /** Takes one seat, waiting until one is free. */\n    public void take() throws InterruptedException {\n        // TODO: When every seat is taken, the render pool freezes: the tasks waiting for a seat\n        //       hold all of its threads, and the tasks that would give seats back never start.\n        //       Take exactly one seat, and wait in a way that lets the pool keep working.\n        throw new IllegalStateException(\"TODO: take\");\n    }\n\n    /** Gives one seat back. */\n    public void giveBack() {\n        seats.release();\n    }\n\n    /** How many seats are free right now. */\n    public int free() {\n        return seats.availablePermits();\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-3/src/main/java/practice/LicenceSeats.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -128,6 +147,10 @@
     },
     "concepts": [
       "A worker blocked in an ordinary wait is lost to the pool, so waiters can hold every worker while the task that would release them sits in the queue; managedBlock lets the pool add a spare worker."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
   }
 }

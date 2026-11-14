@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Writes records to a set of replicas, one write at a time. A write succeeds once a quorum of\n * replicas has acknowledged it; the others catch up later.\n */\npublic class QuorumWriter {\n\n    /**\n     * One replica. It stores the record and calls {@code ack.run()} once it has, from whatever\n     * thread it likes: before store() returns, later, or never if it is down.\n     */\n    public interface Replica {\n        void store(long version, String record, Runnable ack);\n    }\n\n    private final List<Replica> replicas;\n    private final int quorum;\n    private final long timeoutMillis;\n    private long version;\n\n    public QuorumWriter(List<Replica> replicas, int quorum, long timeoutMillis) {\n        this.replicas = List.copyOf(replicas);\n        this.quorum = quorum;\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Writes one record. True once a quorum acknowledged it, false if none came in time. */\n    public synchronized boolean write(String record) throws InterruptedException {\n        long v = ++version;\n        Semaphore acks = acksForNextWrite();\n        for (Replica replica : replicas) replica.store(v, record, acks::release);\n        return awaitQuorum(acks);\n    }\n\n    /** The semaphore that counts the acknowledgements of the write about to be sent. */\n    Semaphore acksForNextWrite() {\n        return new Semaphore(0);\n    }\n\n    /** Waits for a quorum of acknowledgements, at most timeoutMillis. True if they came. */\n    boolean awaitQuorum(Semaphore acks) throws InterruptedException {\n        return acks.tryAcquire(quorum, timeoutMillis, TimeUnit.MILLISECONDS);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ExecutorService replicaThreads = Executors.newCachedThreadPool();\n            try {\n                QuorumWriter.Replica atOnce = (version, record, ack) -> ack.run();\n                QuorumWriter.Replica ownThread = (version, record, ack) -> replicaThreads.execute(ack);\n                QuorumWriter.Replica down = (version, record, ack) -> { };\n                QuorumWriter healthy = new QuorumWriter(List.of(ownThread, atOnce, down), 2, 2_000);\n                System.out.println(\"write booking-310:held: \" + healthy.write(\"booking-310:held\"));\n                System.out.println(\"write booking-310:confirmed: \" + healthy.write(\"booking-310:confirmed\"));\n                QuorumWriter degraded = new QuorumWriter(List.of(atOnce, ownThread, down, down), 3, 150);\n                System.out.println(\"write with 2 of 4 up, quorum 3: \" + degraded.write(\"booking-311:held\"));\n            } finally {\n                replicaThreads.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Writes records to a set of replicas, one write at a time. A write succeeds once a quorum of\n * replicas has acknowledged it; the others catch up later.\n */\npublic class QuorumWriter {\n\n    /**\n     * One replica. It stores the record and calls {@code ack.run()} once it has, from whatever\n     * thread it likes: before store() returns, later, or never if it is down.\n     */\n    public interface Replica {\n        void store(long version, String record, Runnable ack);\n    }\n\n    private final List<Replica> replicas;\n    private final int quorum;\n    private final long timeoutMillis;\n    private long version;\n\n    public QuorumWriter(List<Replica> replicas, int quorum, long timeoutMillis) {\n        this.replicas = List.copyOf(replicas);\n        this.quorum = quorum;\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Writes one record. True once a quorum acknowledged it, false if none came in time. */\n    public synchronized boolean write(String record) throws InterruptedException {\n        long v = ++version;\n        Semaphore acks = acksForNextWrite();\n        for (Replica replica : replicas) replica.store(v, record, acks::release);\n        return awaitQuorum(acks);\n    }\n\n    /** The semaphore that counts the acknowledgements of the write about to be sent. */\n    Semaphore acksForNextWrite() {\n        // TODO: Every replica's acknowledgement releases one permit on it, possibly before anyone\n        //       waits. Only acknowledgements of this write may count towards its quorum.\n        throw new IllegalStateException(\"TODO: acksForNextWrite\");\n    }\n\n    /** Waits for a quorum of acknowledgements, at most timeoutMillis. True if they came. */\n    boolean awaitQuorum(Semaphore acks) throws InterruptedException {\n        // TODO: Return true as soon as a quorum of replicas has acknowledged; false once\n        //       timeoutMillis has passed without one.\n        throw new IllegalStateException(\"TODO: awaitQuorum\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ExecutorService replicaThreads = Executors.newCachedThreadPool();\n            try {\n                QuorumWriter.Replica atOnce = (version, record, ack) -> ack.run();\n                QuorumWriter.Replica ownThread = (version, record, ack) -> replicaThreads.execute(ack);\n                QuorumWriter.Replica down = (version, record, ack) -> { };\n                QuorumWriter healthy = new QuorumWriter(List.of(ownThread, atOnce, down), 2, 2_000);\n                System.out.println(\"write booking-310:held: \" + healthy.write(\"booking-310:held\"));\n                System.out.println(\"write booking-310:confirmed: \" + healthy.write(\"booking-310:confirmed\"));\n                QuorumWriter degraded = new QuorumWriter(List.of(atOnce, ownThread, down, down), 3, 150);\n                System.out.println(\"write with 2 of 4 up, quorum 3: \" + degraded.write(\"booking-311:held\"));\n            } finally {\n                replicaThreads.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "13fcb64b0d987b9760b0f8e1530e3a0f6fd1218bea6617256768ddfd34931ad1",
+  "content_sha256": "ef0ff7c9e849cd0cbcc09b5249f92f75eeb5bbc87551a8fe8fd5d53fbf91261c",
   "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Writes records to a set of replicas, one write at a time. A write succeeds once a quorum of\n * replicas has acknowledged it; the others catch up later.\n */\npublic class QuorumWriter {\n\n    /**\n     * One replica. It stores the record and calls {@code ack.run()} once it has, from whatever\n     * thread it likes: before store() returns, later, or never if it is down.\n     */\n    public interface Replica {\n        void store(long version, String record, Runnable ack);\n    }\n\n    private final List<Replica> replicas;\n    private final int quorum;\n    private final long timeoutMillis;\n    private long version;\n\n    public QuorumWriter(List<Replica> replicas, int quorum, long timeoutMillis) {\n        this.replicas = List.copyOf(replicas);\n        this.quorum = quorum;\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Writes one record. True once a quorum acknowledged it, false if none came in time. */\n    public synchronized boolean write(String record) throws InterruptedException {\n        long v = ++version;\n        Semaphore acks = acksForNextWrite();\n        for (Replica replica : replicas) replica.store(v, record, acks::release);\n        return awaitQuorum(acks);\n    }\n\n    /** The semaphore that counts the acknowledgements of the write about to be sent. */\n    Semaphore acksForNextWrite() {\n        // TODO: Every replica's acknowledgement releases one permit on it, possibly before anyone\n        //       waits. Only acknowledgements of this write may count towards its quorum.\n        throw new IllegalStateException(\"TODO: acksForNextWrite\");\n    }\n\n    /** Waits for a quorum of acknowledgements, at most timeoutMillis. True if they came. */\n    boolean awaitQuorum(Semaphore acks) throws InterruptedException {\n        // TODO: Return true as soon as a quorum of replicas has acknowledged; false once\n        //       timeoutMillis has passed without one.\n        throw new IllegalStateException(\"TODO: awaitQuorum\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-4/src/main/java/practice/QuorumWriter.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-4/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -129,6 +148,10 @@
     "concepts": [
       "A semaphore that starts at -k needs k+1 releases before a single acquire succeeds.",
       "A release with nobody waiting is kept as a permit, so a semaphore can count signals from other threads, and leftover permits carry over to the next use."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-4/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-4/src/main/java/practice/TryIt.java"
   }
 }

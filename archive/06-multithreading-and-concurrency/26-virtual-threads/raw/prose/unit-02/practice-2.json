@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Makes the threads that handle requests, and reports how many of them are busy for the\n * dashboard's \"busy workers\" gauge. Used as Executors.newThreadPerTaskExecutor(gauge).\n */\npublic final class WorkerGauge implements ThreadFactory {\n\n    private final ThreadFactory threads;\n    private final AtomicInteger busy = new AtomicInteger();\n\n    /** Threads are virtual and named prefix0, prefix1, ... */\n    public WorkerGauge(String prefix) {\n        this.threads = Thread.ofVirtual().name(prefix, 0).factory();\n    }\n\n    /** An unstarted thread that runs the task. */\n    @Override\n    public Thread newThread(Runnable task) {\n        return threads.newThread(() -> {\n            busy.incrementAndGet();\n            try {\n                task.run();\n            } finally {\n                busy.decrementAndGet();\n            }\n        });\n    }\n\n    /** How many of this gauge's threads are running their task right now. */\n    public int busy() {\n        return busy.get();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            WorkerGauge gauge = new WorkerGauge(\"checkout-\");\n            CountDownLatch paymentAnswers = new CountDownLatch(1);\n            CountDownLatch started = new CountDownLatch(3);\n            String[] name = new String[1];\n            try (ExecutorService executor = Executors.newThreadPerTaskExecutor(gauge)) {\n                try {\n                    for (int i = 0; i < 3; i++) {\n                        executor.submit(() -> {\n                            name[0] = Thread.currentThread().getName() + \", virtual \" + Thread.currentThread().isVirtual();\n                            started.countDown();\n                            return paymentAnswers.await(5, TimeUnit.SECONDS);\n                        });\n                    }\n                    started.await(5, TimeUnit.SECONDS);\n                    System.out.println(\"a request ran on: \" + name[0].replaceAll(\"\\\\d+,\", \"N,\"));\n                    System.out.println(\"busy while 3 requests wait for payment: \" + gauge.busy());\n                } finally {\n                    paymentAnswers.countDown();\n                }\n            }\n            System.out.println(\"busy once they are done: \" + settled(gauge));\n            Thread declined = gauge.newThread(() -> { throw new IllegalStateException(\"card declined\"); });\n            System.out.println(\"busy with a thread made but not started: \" + gauge.busy());\n            declined.setUncaughtExceptionHandler((thread, e) -> System.out.println(\"request failed: \" + e.getMessage()));\n            declined.start();\n            declined.join();\n            System.out.println(\"busy after the failed request: \" + settled(gauge));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** The gauge once it reads 0, or after a second: the last request's thread may still be ending. */\n    static int settled(WorkerGauge gauge) throws InterruptedException {\n        long deadline = System.nanoTime() + 1_000_000_000L;\n        while (gauge.busy() != 0 && System.nanoTime() < deadline) Thread.sleep(5);\n        return gauge.busy();\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\n/**\n * Makes the threads that handle requests, and reports how many of them are busy for the\n * dashboard's \"busy workers\" gauge. Used as Executors.newThreadPerTaskExecutor(gauge).\n */\npublic final class WorkerGauge implements ThreadFactory {\n\n    private final ThreadFactory threads;\n\n    /** Threads are virtual and named prefix0, prefix1, ... */\n    public WorkerGauge(String prefix) {\n        this.threads = Thread.ofVirtual().name(prefix, 0).factory();\n    }\n\n    /** An unstarted thread that runs the task. */\n    @Override\n    public Thread newThread(Runnable task) {\n        // TODO: a thread from `threads` that runs the task, so that busy() can report it.\n        throw new IllegalStateException(\"TODO: newThread\");\n    }\n\n    /** How many of this gauge's threads are running their task right now. */\n    public int busy() {\n        // TODO: the number of this gauge's threads running their task now.\n        throw new IllegalStateException(\"TODO: busy\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            WorkerGauge gauge = new WorkerGauge(\"checkout-\");\n            CountDownLatch paymentAnswers = new CountDownLatch(1);\n            CountDownLatch started = new CountDownLatch(3);\n            String[] name = new String[1];\n            try (ExecutorService executor = Executors.newThreadPerTaskExecutor(gauge)) {\n                try {\n                    for (int i = 0; i < 3; i++) {\n                        executor.submit(() -> {\n                            name[0] = Thread.currentThread().getName() + \", virtual \" + Thread.currentThread().isVirtual();\n                            started.countDown();\n                            return paymentAnswers.await(5, TimeUnit.SECONDS);\n                        });\n                    }\n                    started.await(5, TimeUnit.SECONDS);\n                    System.out.println(\"a request ran on: \" + name[0].replaceAll(\"\\\\d+,\", \"N,\"));\n                    System.out.println(\"busy while 3 requests wait for payment: \" + gauge.busy());\n                } finally {\n                    paymentAnswers.countDown();\n                }\n            }\n            System.out.println(\"busy once they are done: \" + settled(gauge));\n            Thread declined = gauge.newThread(() -> { throw new IllegalStateException(\"card declined\"); });\n            System.out.println(\"busy with a thread made but not started: \" + gauge.busy());\n            declined.setUncaughtExceptionHandler((thread, e) -> System.out.println(\"request failed: \" + e.getMessage()));\n            declined.start();\n            declined.join();\n            System.out.println(\"busy after the failed request: \" + settled(gauge));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** The gauge once it reads 0, or after a second: the last request's thread may still be ending. */\n    static int settled(WorkerGauge gauge) throws InterruptedException {\n        long deadline = System.nanoTime() + 1_000_000_000L;\n        while (gauge.busy() != 0 && System.nanoTime() < deadline) Thread.sleep(5);\n        return gauge.busy();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "07d0d7575c3bbca5b0fb7db66a856a16cb3233079c3ec5b942cde3e722cd52ed",
+  "content_sha256": "9ec32734a7f736afae9b343c8f772a66e02b18a36ecc5499afe9bc4a73f858ba",
   "starting_code": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\n/**\n * Makes the threads that handle requests, and reports how many of them are busy for the\n * dashboard's \"busy workers\" gauge. Used as Executors.newThreadPerTaskExecutor(gauge).\n */\npublic final class WorkerGauge implements ThreadFactory {\n\n    private final ThreadFactory threads;\n\n    /** Threads are virtual and named prefix0, prefix1, ... */\n    public WorkerGauge(String prefix) {\n        this.threads = Thread.ofVirtual().name(prefix, 0).factory();\n    }\n\n    /** An unstarted thread that runs the task. */\n    @Override\n    public Thread newThread(Runnable task) {\n        // TODO: a thread from `threads` that runs the task, so that busy() can report it.\n        throw new IllegalStateException(\"TODO: newThread\");\n    }\n\n    /** How many of this gauge's threads are running their task right now. */\n    public int busy() {\n        // TODO: the number of this gauge's threads running their task now.\n        throw new IllegalStateException(\"TODO: busy\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/src/main/java/practice/WorkerGauge.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -128,6 +147,10 @@
     },
     "concepts": [
       "Thread.getAllStackTraces() and ThreadMXBean see only platform threads, so a gauge built on them reads 0 for virtual threads; count the work in the code that starts and ends it."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

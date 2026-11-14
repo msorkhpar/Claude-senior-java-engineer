@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\n/**\n * Builds the morning pick lists: one task per warehouse, all on the fulfilment service's\n * ForkJoinPool. Some warehouses share a cross-dock, and their tasks wait for each other.\n */\npublic class PickLists {\n\n    private final ForkJoinPool pool;\n\n    public PickLists(ForkJoinPool pool) {\n        this.pool = pool;\n    }\n\n    /** Builds every warehouse's pick list and returns them in the order of the tasks. */\n    public <T> List<T> buildAll(List<? extends ForkJoinTask<T>> warehouseTasks) {\n        for (ForkJoinTask<T> task : warehouseTasks) pool.submit(task);\n        List<T> lists = new ArrayList<>();\n        for (ForkJoinTask<T> task : warehouseTasks) lists.add(task.join());\n        return lists;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\nimport java.util.concurrent.TimeUnit;\nimport java.util.function.Supplier;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ForkJoinPool servicePool = new ForkJoinPool(2);\n            try {\n                PickLists pickLists = new PickLists(servicePool);\n                System.out.println(\"lists: \" + pickLists.buildAll(List.of(\n                        warehouse(() -> \"Hamburg: 23 lines\"), warehouse(() -> \"Brno: 4 lines\"), warehouse(() -> \"Bilbao: 16 lines\"))));\n                CountDownLatch rigaStarted = new CountDownLatch(1);\n                CountDownLatch tallinnStarted = new CountDownLatch(1);\n                System.out.println(\"cross-dock: \" + pickLists.buildAll(List.of(\n                        warehouse(() -> crossDock(\"Riga\", rigaStarted, tallinnStarted)),\n                        warehouse(() -> crossDock(\"Tallinn\", tallinnStarted, rigaStarted)))));\n                try {\n                    pickLists.buildAll(List.of(warehouse(() -> \"Bari: 2 lines\"),\n                            warehouse(() -> { throw new IllegalArgumentException(\"Napoli: no stock table\"); })));\n                } catch (IllegalArgumentException failed) {\n                    System.out.println(\"run failed with: \" + failed.getClass().getSimpleName());\n                }\n            } finally {\n                servicePool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static ForkJoinTask<String> warehouse(Supplier<String> build) {\n        return ForkJoinTask.adapt(build::get);\n    }\n\n    /** A warehouse sharing a cross-dock: it starts, then waits up to 3 s for its partner to start. */\n    static String crossDock(String name, CountDownLatch mine, CountDownLatch partners) {\n        mine.countDown();\n        try {\n            return partners.await(3, TimeUnit.SECONDS) ? name + \": cross-dock list\" : name + \": partner never started\";\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            return name + \": interrupted\";\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\n/**\n * Builds the morning pick lists: one task per warehouse, all on the fulfilment service's\n * ForkJoinPool. Some warehouses share a cross-dock, and their tasks wait for each other.\n */\npublic class PickLists {\n\n    private final ForkJoinPool pool;\n\n    public PickLists(ForkJoinPool pool) {\n        this.pool = pool;\n    }\n\n    /** Builds every warehouse's pick list and returns them in the order of the tasks. */\n    public <T> List<T> buildAll(List<? extends ForkJoinTask<T>> warehouseTasks) {\n        // TODO: Six warehouses take six times as long as one, and partner warehouses that share a\n        //       cross-dock never finish. Build every list on this service's pool, all of them at\n        //       the same time, and return them in the order of the tasks. A warehouse that fails\n        //       fails the whole run with its own exception.\n        throw new IllegalStateException(\"TODO: buildAll\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\nimport java.util.concurrent.TimeUnit;\nimport java.util.function.Supplier;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ForkJoinPool servicePool = new ForkJoinPool(2);\n            try {\n                PickLists pickLists = new PickLists(servicePool);\n                System.out.println(\"lists: \" + pickLists.buildAll(List.of(\n                        warehouse(() -> \"Hamburg: 23 lines\"), warehouse(() -> \"Brno: 4 lines\"), warehouse(() -> \"Bilbao: 16 lines\"))));\n                CountDownLatch rigaStarted = new CountDownLatch(1);\n                CountDownLatch tallinnStarted = new CountDownLatch(1);\n                System.out.println(\"cross-dock: \" + pickLists.buildAll(List.of(\n                        warehouse(() -> crossDock(\"Riga\", rigaStarted, tallinnStarted)),\n                        warehouse(() -> crossDock(\"Tallinn\", tallinnStarted, rigaStarted)))));\n                try {\n                    pickLists.buildAll(List.of(warehouse(() -> \"Bari: 2 lines\"),\n                            warehouse(() -> { throw new IllegalArgumentException(\"Napoli: no stock table\"); })));\n                } catch (IllegalArgumentException failed) {\n                    System.out.println(\"run failed with: \" + failed.getClass().getSimpleName());\n                }\n            } finally {\n                servicePool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static ForkJoinTask<String> warehouse(Supplier<String> build) {\n        return ForkJoinTask.adapt(build::get);\n    }\n\n    /** A warehouse sharing a cross-dock: it starts, then waits up to 3 s for its partner to start. */\n    static String crossDock(String name, CountDownLatch mine, CountDownLatch partners) {\n        mine.countDown();\n        try {\n            return partners.await(3, TimeUnit.SECONDS) ? name + \": cross-dock list\" : name + \": partner never started\";\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            return name + \": interrupted\";\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "84f88acdfa1f90d2f509e4accc27c12e644b56432d69c2c51d07d7e82eba1962",
+  "content_sha256": "a7ee55f21f3546a0b9ace85eeb23145d190adb704f9302da90e119a745ad6f56",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\n/**\n * Builds the morning pick lists: one task per warehouse, all on the fulfilment service's\n * ForkJoinPool. Some warehouses share a cross-dock, and their tasks wait for each other.\n */\npublic class PickLists {\n\n    private final ForkJoinPool pool;\n\n    public PickLists(ForkJoinPool pool) {\n        this.pool = pool;\n    }\n\n    /** Builds every warehouse's pick list and returns them in the order of the tasks. */\n    public <T> List<T> buildAll(List<? extends ForkJoinTask<T>> warehouseTasks) {\n        // TODO: Six warehouses take six times as long as one, and partner warehouses that share a\n        //       cross-dock never finish. Build every list on this service's pool, all of them at\n        //       the same time, and return them in the order of the tasks. A warehouse that fails\n        //       fails the whole run with its own exception.\n        throw new IllegalStateException(\"TODO: buildAll\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-2/src/main/java/practice/PickLists.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -135,6 +154,10 @@
       "fork() called from a thread that is no pool's worker schedules the task in the common pool, not in a pool you created.",
       "invoke() waits for one task, so tasks handed over one invoke at a time never run together; submitting all before joining any runs them together.",
       "invoke() and join() rethrow a task's unchecked exception as its own type, get() wraps it in an ExecutionException, and after execute() the exception stays in the task."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

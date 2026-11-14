@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\n\n/**\n * Builds the query behind the support tool's order search. The support agent types a customer's\n * e-mail address and may pick a status; the sort column comes from the page's URL (?sort=...).\n * The caller hands sql() to Connection.prepareStatement and binds params() in order.\n */\npublic class OrderSearch {\n\n    /** A statement and the values to bind to its placeholders, in order. */\n    public record Query(String sql, List<Object> params) {}\n\n    /** The columns the result page offers to sort by. */\n    static final Set<String> SORTABLE = Set.of(\"placed_at\", \"total\", \"status\");\n\n    /** status and sortColumn may be null: no status filter, and sorting by placed_at. */\n    public Query search(String customerEmail, String status, String sortColumn) {\n        List<Object> params = new ArrayList<>();\n        String where = condition(\"customer_email\", customerEmail, params);\n        if (status != null) {\n            where += \"\\n  AND \" + condition(\"status\", status, params);\n        }\n        String sql = \"\"\"\n                SELECT id, customer_email, status, total\n                FROM orders\n                WHERE %s\n                ORDER BY %s\n                \"\"\".formatted(where, orderBy(sortColumn));\n        return new Query(sql, List.copyOf(params));\n    }\n\n    /**\n     * The condition that compares column with value, such as the one on customer_email.\n     * The value is whatever the support agent typed.\n     */\n    String condition(String column, String value, List<Object> params) {\n        params.add(value);\n        return column + \" = ?\";\n    }\n\n    /** The column to sort by: sortColumn as it came from the URL, or placed_at when it is null. */\n    String orderBy(String sortColumn) {\n        if (sortColumn == null) return \"placed_at\";\n        if (!SORTABLE.contains(sortColumn)) {\n            throw new IllegalArgumentException(\"cannot sort by \" + sortColumn);\n        }\n        return sortColumn;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            OrderSearch search = new OrderSearch();\n            OrderSearch.Query query = search.search(\"pat.sample@example.com\", \"PENDING\", \"status\");\n            query.sql().lines().forEach(line -> System.out.println(\"sql: \" + line));\n            System.out.println(\"params: \" + query.params());\n            OrderSearch.Query hostile = search.search(\"x' OR '1'='1\", null, null);\n            System.out.println(\"hostile email, where line: \" + hostile.sql().lines().filter(l -> l.startsWith(\"WHERE\")).findFirst().orElse(\"\"));\n            System.out.println(\"hostile email, params: \" + hostile.params());\n            try {\n                search.search(\"pat.sample@example.com\", null, \"total; DROP TABLE orders\");\n                System.out.println(\"sort by injected text: accepted\");\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"sort by injected text refused: \" + refused.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\n\n/**\n * Builds the query behind the support tool's order search. The support agent types a customer's\n * e-mail address and may pick a status; the sort column comes from the page's URL (?sort=...).\n * The caller hands sql() to Connection.prepareStatement and binds params() in order.\n */\npublic class OrderSearch {\n\n    /** A statement and the values to bind to its placeholders, in order. */\n    public record Query(String sql, List<Object> params) {}\n\n    /** The columns the result page offers to sort by. */\n    static final Set<String> SORTABLE = Set.of(\"placed_at\", \"total\", \"status\");\n\n    /** status and sortColumn may be null: no status filter, and sorting by placed_at. */\n    public Query search(String customerEmail, String status, String sortColumn) {\n        List<Object> params = new ArrayList<>();\n        String where = condition(\"customer_email\", customerEmail, params);\n        if (status != null) {\n            where += \"\\n  AND \" + condition(\"status\", status, params);\n        }\n        String sql = \"\"\"\n                SELECT id, customer_email, status, total\n                FROM orders\n                WHERE %s\n                ORDER BY %s\n                \"\"\".formatted(where, orderBy(sortColumn));\n        return new Query(sql, List.copyOf(params));\n    }\n\n    /**\n     * The condition that compares column with value, such as the one on customer_email.\n     * The value is whatever the support agent typed.\n     */\n    String condition(String column, String value, List<Object> params) {\n        // TODO: Return the condition for this column. Whatever the agent types, including\n        //       quotes, must stay a value to compare with and never become part of the SQL.\n        throw new IllegalStateException(\"TODO: condition\");\n    }\n\n    /** The column to sort by: sortColumn as it came from the URL, or placed_at when it is null. */\n    String orderBy(String sortColumn) {\n        // TODO: Return the column for ORDER BY. Anyone can edit the URL, so a value the page\n        //       doesn't offer must not reach the SQL: throw IllegalArgumentException for it.\n        throw new IllegalStateException(\"TODO: orderBy\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            OrderSearch search = new OrderSearch();\n            OrderSearch.Query query = search.search(\"pat.sample@example.com\", \"PENDING\", \"status\");\n            query.sql().lines().forEach(line -> System.out.println(\"sql: \" + line));\n            System.out.println(\"params: \" + query.params());\n            OrderSearch.Query hostile = search.search(\"x' OR '1'='1\", null, null);\n            System.out.println(\"hostile email, where line: \" + hostile.sql().lines().filter(l -> l.startsWith(\"WHERE\")).findFirst().orElse(\"\"));\n            System.out.println(\"hostile email, params: \" + hostile.params());\n            try {\n                search.search(\"pat.sample@example.com\", null, \"total; DROP TABLE orders\");\n                System.out.println(\"sort by injected text: accepted\");\n            } catch (IllegalArgumentException refused) {\n                System.out.println(\"sort by injected text refused: \" + refused.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "961543f457ae05a53bee88fc156b6e896b6427fec61b543c39244cb07014b8ce",
+  "content_sha256": "7671cc4c4f9208489814b4c0aa5276be929f4538454b806a5a67119887ee6ef2",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\n\n/**\n * Builds the query behind the support tool's order search. The support agent types a customer's\n * e-mail address and may pick a status; the sort column comes from the page's URL (?sort=...).\n * The caller hands sql() to Connection.prepareStatement and binds params() in order.\n */\npublic class OrderSearch {\n\n    /** A statement and the values to bind to its placeholders, in order. */\n    public record Query(String sql, List<Object> params) {}\n\n    /** The columns the result page offers to sort by. */\n    static final Set<String> SORTABLE = Set.of(\"placed_at\", \"total\", \"status\");\n\n    /** status and sortColumn may be null: no status filter, and sorting by placed_at. */\n    public Query search(String customerEmail, String status, String sortColumn) {\n        List<Object> params = new ArrayList<>();\n        String where = condition(\"customer_email\", customerEmail, params);\n        if (status != null) {\n            where += \"\\n  AND \" + condition(\"status\", status, params);\n        }\n        String sql = \"\"\"\n                SELECT id, customer_email, status, total\n                FROM orders\n                WHERE %s\n                ORDER BY %s\n                \"\"\".formatted(where, orderBy(sortColumn));\n        return new Query(sql, List.copyOf(params));\n    }\n\n    /**\n     * The condition that compares column with value, such as the one on customer_email.\n     * The value is whatever the support agent typed.\n     */\n    String condition(String column, String value, List<Object> params) {\n        // TODO: Return the condition for this column. Whatever the agent types, including\n        //       quotes, must stay a value to compare with and never become part of the SQL.\n        throw new IllegalStateException(\"TODO: condition\");\n    }\n\n    /** The column to sort by: sortColumn as it came from the URL, or placed_at when it is null. */\n    String orderBy(String sortColumn) {\n        // TODO: Return the column for ORDER BY. Anyone can edit the URL, so a value the page\n        //       doesn't offer must not reach the SQL: throw IllegalArgumentException for it.\n        throw new IllegalStateException(\"TODO: orderBy\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-05/practice-1/src/main/java/practice/OrderSearch.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/07-modern-java-features/30-text-blocks/prose/unit-05/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -137,6 +156,10 @@
     "concepts": [
       "A value formatted into a SQL text block becomes part of the statement, quotes around %s included; with a ? placeholder the statement text stays constant and the value is bound separately.",
       "A table or column name can't be a bind parameter, so a user-chosen identifier is taken from a fixed set of names and anything else is refused."
-    ]
+    ],
+    "files": [
+      "practice/07-modern-java-features/30-text-blocks/prose/unit-05/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/07-modern-java-features/30-text-blocks/prose/unit-05/practice-1/src/main/java/practice/TryIt.java"
   }
 }

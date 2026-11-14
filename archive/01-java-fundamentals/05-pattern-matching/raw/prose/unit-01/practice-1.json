@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.Consumer;\n\n/**\n * Delivers events inside one service. A handler subscribes to a type, a class or an interface,\n * and receives every published event that belongs to that type.\n */\npublic class EventBus {\n\n    private record Subscription(Class<?> type, Consumer<Object> handler) {\n    }\n\n    private final List<Subscription> subscriptions = new ArrayList<>();\n\n    public <T> void subscribe(Class<T> type, Consumer<? super T> handler) {\n        subscriptions.add(new Subscription(type, event -> handler.accept(type.cast(event))));\n    }\n\n    /** Delivers the event to every handler whose type it belongs to, in subscription order; returns how many. */\n    public int publish(Object event) {\n        int delivered = 0;\n        for (Subscription subscription : subscriptions) {\n            if (accepts(subscription.type(), event)) {\n                subscription.handler().accept(event);\n                delivered++;\n            }\n        }\n        return delivered;\n    }\n\n    /** At startup: the event classes that no subscribed handler would receive, in the order given. */\n    public List<Class<?>> unhandled(List<Class<?>> eventClasses) {\n        List<Class<?>> missing = new ArrayList<>();\n        for (Class<?> eventClass : eventClasses) {\n            boolean handled = false;\n            for (Subscription subscription : subscriptions) {\n                if (handles(subscription.type(), eventClass)) {\n                    handled = true;\n                }\n            }\n            if (!handled) {\n                missing.add(eventClass);\n            }\n        }\n        return missing;\n    }\n\n    /** Whether a handler subscribed to {@code type} receives this event. */\n    boolean accepts(Class<?> type, Object event) {\n        return type.isInstance(event);\n    }\n\n    /** Whether a handler subscribed to {@code type} would receive events of class {@code eventClass}. */\n    boolean handles(Class<?> type, Class<?> eventClass) {\n        return type.isAssignableFrom(eventClass);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> audit = new ArrayList<>();\n            EventBus bus = new EventBus();\n            bus.subscribe(Auditable.class, e -> audit.add(e.getClass().getSimpleName()));\n            bus.subscribe(RefundEvent.class, e -> { });\n            System.out.println(\"RefundIssued delivered to: \" + bus.publish(new RefundIssued()) + \" handlers\");\n            System.out.println(\"RefundRejected delivered to: \" + bus.publish(new RefundRejected()) + \" handlers\");\n            System.out.println(\"unmapped (null) delivered to: \" + bus.publish(null) + \" handlers\");\n            System.out.println(\"audit log: \" + audit);\n            List<Class<?>> known = List.of(RefundIssued.class, RefundRejected.class, ReportBuilt.class);\n            System.out.println(\"startup check, unhandled: \" + bus.unhandled(known).stream().map(Class::getSimpleName).toList());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    interface Auditable { }\n    static class RefundEvent { }\n    static class RefundIssued extends RefundEvent { }\n    static class RefundRejected extends RefundEvent implements Auditable { }\n    static class ReportBuilt { }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.Consumer;\n\n/**\n * Delivers events inside one service. A handler subscribes to a type, a class or an interface,\n * and receives every published event that belongs to that type.\n */\npublic class EventBus {\n\n    private record Subscription(Class<?> type, Consumer<Object> handler) {\n    }\n\n    private final List<Subscription> subscriptions = new ArrayList<>();\n\n    public <T> void subscribe(Class<T> type, Consumer<? super T> handler) {\n        subscriptions.add(new Subscription(type, event -> handler.accept(type.cast(event))));\n    }\n\n    /** Delivers the event to every handler whose type it belongs to, in subscription order; returns how many. */\n    public int publish(Object event) {\n        int delivered = 0;\n        for (Subscription subscription : subscriptions) {\n            if (accepts(subscription.type(), event)) {\n                subscription.handler().accept(event);\n                delivered++;\n            }\n        }\n        return delivered;\n    }\n\n    /** At startup: the event classes that no subscribed handler would receive, in the order given. */\n    public List<Class<?>> unhandled(List<Class<?>> eventClasses) {\n        List<Class<?>> missing = new ArrayList<>();\n        for (Class<?> eventClass : eventClasses) {\n            boolean handled = false;\n            for (Subscription subscription : subscriptions) {\n                if (handles(subscription.type(), eventClass)) {\n                    handled = true;\n                }\n            }\n            if (!handled) {\n                missing.add(eventClass);\n            }\n        }\n        return missing;\n    }\n\n    /** Whether a handler subscribed to {@code type} receives this event. */\n    boolean accepts(Class<?> type, Object event) {\n        // TODO: Decide from the event object. A message the decoder can't map arrives as null,\n        //       and publishing it must reach no handler rather than fail.\n        throw new IllegalStateException(\"TODO: accepts\");\n    }\n\n    /** Whether a handler subscribed to {@code type} would receive events of class {@code eventClass}. */\n    boolean handles(Class<?> type, Class<?> eventClass) {\n        // TODO: The same decision as accepts(), made from a class before any event exists, so the\n        //       startup check and publish() never disagree.\n        throw new IllegalStateException(\"TODO: handles\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> audit = new ArrayList<>();\n            EventBus bus = new EventBus();\n            bus.subscribe(Auditable.class, e -> audit.add(e.getClass().getSimpleName()));\n            bus.subscribe(RefundEvent.class, e -> { });\n            System.out.println(\"RefundIssued delivered to: \" + bus.publish(new RefundIssued()) + \" handlers\");\n            System.out.println(\"RefundRejected delivered to: \" + bus.publish(new RefundRejected()) + \" handlers\");\n            System.out.println(\"unmapped (null) delivered to: \" + bus.publish(null) + \" handlers\");\n            System.out.println(\"audit log: \" + audit);\n            List<Class<?>> known = List.of(RefundIssued.class, RefundRejected.class, ReportBuilt.class);\n            System.out.println(\"startup check, unhandled: \" + bus.unhandled(known).stream().map(Class::getSimpleName).toList());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    interface Auditable { }\n    static class RefundEvent { }\n    static class RefundIssued extends RefundEvent { }\n    static class RefundRejected extends RefundEvent implements Auditable { }\n    static class ReportBuilt { }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3ea5bed79f7ee79e34751872841e3d0073ad3662f7738716b68d4f4eeb9ce1b8",
+  "content_sha256": "07adc978cdfba3e58c03bd34eab6db591a27afaa47197728698df0e87eca5fe9",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.Consumer;\n\n/**\n * Delivers events inside one service. A handler subscribes to a type, a class or an interface,\n * and receives every published event that belongs to that type.\n */\npublic class EventBus {\n\n    private record Subscription(Class<?> type, Consumer<Object> handler) {\n    }\n\n    private final List<Subscription> subscriptions = new ArrayList<>();\n\n    public <T> void subscribe(Class<T> type, Consumer<? super T> handler) {\n        subscriptions.add(new Subscription(type, event -> handler.accept(type.cast(event))));\n    }\n\n    /** Delivers the event to every handler whose type it belongs to, in subscription order; returns how many. */\n    public int publish(Object event) {\n        int delivered = 0;\n        for (Subscription subscription : subscriptions) {\n            if (accepts(subscription.type(), event)) {\n                subscription.handler().accept(event);\n                delivered++;\n            }\n        }\n        return delivered;\n    }\n\n    /** At startup: the event classes that no subscribed handler would receive, in the order given. */\n    public List<Class<?>> unhandled(List<Class<?>> eventClasses) {\n        List<Class<?>> missing = new ArrayList<>();\n        for (Class<?> eventClass : eventClasses) {\n            boolean handled = false;\n            for (Subscription subscription : subscriptions) {\n                if (handles(subscription.type(), eventClass)) {\n                    handled = true;\n                }\n            }\n            if (!handled) {\n                missing.add(eventClass);\n            }\n        }\n        return missing;\n    }\n\n    /** Whether a handler subscribed to {@code type} receives this event. */\n    boolean accepts(Class<?> type, Object event) {\n        // TODO: Decide from the event object. A message the decoder can't map arrives as null,\n        //       and publishing it must reach no handler rather than fail.\n        throw new IllegalStateException(\"TODO: accepts\");\n    }\n\n    /** Whether a handler subscribed to {@code type} would receive events of class {@code eventClass}. */\n    boolean handles(Class<?> type, Class<?> eventClass) {\n        // TODO: The same decision as accepts(), made from a class before any event exists, so the\n        //       startup check and publish() never disagree.\n        throw new IllegalStateException(\"TODO: handles\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-01/practice-1/src/main/java/practice/EventBus.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/01-java-fundamentals/05-pattern-matching/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -152,6 +171,10 @@
     "concepts": [
       "instanceof is false for null, whatever the type, because null refers to no object.",
       "instanceof tests the class of the object at run time, and is true for that class's superclasses and interfaces; Class.isInstance is the same test with the type as a value."
-    ]
+    ],
+    "files": [
+      "practice/01-java-fundamentals/05-pattern-matching/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

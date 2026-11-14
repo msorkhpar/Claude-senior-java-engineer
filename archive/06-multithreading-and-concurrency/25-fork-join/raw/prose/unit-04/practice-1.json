@@ -53,6 +53,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Month-end interest accrual: every account balance, in cents, is adjusted in place. The bank has\n * a few million accounts, so the adjustment runs on a ForkJoinPool. The month-end report reads the\n * balances as soon as accrue() returns.\n */\npublic class Accrual {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator adjust;\n\n    /**\n     * @param pool      the pool the accrual runs in\n     * @param threshold the most balances one task adjusts by itself, on its own thread\n     * @param adjust    the new balance of one account, given its old balance\n     */\n    public Accrual(ForkJoinPool pool, int threshold, LongUnaryOperator adjust) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.adjust = adjust;\n    }\n\n    /** Adjusts every balance in place. The report reads them as soon as this returns. */\n    public void accrue(long[] balances) {\n        pool.invoke(new Adjust(balances, 0, balances.length));\n    }\n\n    /** Adjusts balances[from] to balances[to - 1]. */\n    final class Adjust extends RecursiveAction {\n        private final long[] balances;\n        private final int from, to;\n\n        Adjust(long[] balances, int from, int to) {\n            this.balances = balances;\n            this.from = from;\n            this.to = to;\n        }\n\n        /** Adjusts this task's balances one after another, on the current thread. */\n        void adjustHere() {\n            for (int i = from; i < to; i++) balances[i] = adjust.applyAsLong(balances[i]);\n        }\n\n        @Override\n        protected void compute() {\n            if (to - from <= threshold) {\n                adjustHere();\n                return;\n            }\n            int mid = (from + to) >>> 1;\n            invokeAll(new Adjust(balances, from, mid), new Adjust(balances, mid, to));\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.function.LongUnaryOperator;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            LongUnaryOperator onePercent = cents -> cents + cents / 100;\n            ForkJoinPool pool = new ForkJoinPool(3);\n            try {\n                long[] book = {10_000, 250_000, 0, 99_900, 1_000_000, 5_050, 70_000};\n                new Accrual(pool, 2, onePercent).accrue(book);\n                System.out.println(\"small book after accrual: \" + Arrays.toString(book));\n                long[] big = new long[20_000];\n                Arrays.fill(big, 300_000);\n                new Accrual(pool, 64, onePercent).accrue(big);\n                System.out.println(\"big book, lowest balance: \" + Arrays.stream(big).min().getAsLong());\n                System.out.println(\"big book, highest balance: \" + Arrays.stream(big).max().getAsLong());\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -65,6 +74,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Month-end interest accrual: every account balance, in cents, is adjusted in place. The bank has\n * a few million accounts, so the adjustment runs on a ForkJoinPool. The month-end report reads the\n * balances as soon as accrue() returns.\n */\npublic class Accrual {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator adjust;\n\n    /**\n     * @param pool      the pool the accrual runs in\n     * @param threshold the most balances one task adjusts by itself, on its own thread\n     * @param adjust    the new balance of one account, given its old balance\n     */\n    public Accrual(ForkJoinPool pool, int threshold, LongUnaryOperator adjust) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.adjust = adjust;\n    }\n\n    /** Adjusts every balance in place. The report reads them as soon as this returns. */\n    public void accrue(long[] balances) {\n        pool.invoke(new Adjust(balances, 0, balances.length));\n    }\n\n    /** Adjusts balances[from] to balances[to - 1]. */\n    final class Adjust extends RecursiveAction {\n        private final long[] balances;\n        private final int from, to;\n\n        Adjust(long[] balances, int from, int to) {\n            this.balances = balances;\n            this.from = from;\n            this.to = to;\n        }\n\n        /** Adjusts this task's balances one after another, on the current thread. */\n        void adjustHere() {\n            for (int i = from; i < to; i++) balances[i] = adjust.applyAsLong(balances[i]);\n        }\n\n        @Override\n        protected void compute() {\n            // TODO: Adjust this task's balances. A range of up to `threshold` balances is adjusted\n            //       right here; a longer one is shared with the pool's other workers. The report\n            //       reads the balances as soon as accrue() returns.\n            throw new IllegalStateException(\"TODO: compute\");\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.function.LongUnaryOperator;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            LongUnaryOperator onePercent = cents -> cents + cents / 100;\n            ForkJoinPool pool = new ForkJoinPool(3);\n            try {\n                long[] book = {10_000, 250_000, 0, 99_900, 1_000_000, 5_050, 70_000};\n                new Accrual(pool, 2, onePercent).accrue(book);\n                System.out.println(\"small book after accrual: \" + Arrays.toString(book));\n                long[] big = new long[20_000];\n                Arrays.fill(big, 300_000);\n                new Accrual(pool, 64, onePercent).accrue(big);\n                System.out.println(\"big book, lowest balance: \" + Arrays.stream(big).min().getAsLong());\n                System.out.println(\"big book, highest balance: \" + Arrays.stream(big).max().getAsLong());\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -72,8 +90,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -83,7 +101,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e759192d8617ee7798a3f27ed45165d8aad49f9801687f63a87a0dbe281dcf25",
+  "content_sha256": "c05cb0006f0aa91b3bd75897f804931d345416ee0916f74aa1009a3535fa496c",
   "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\nimport java.util.function.LongUnaryOperator;\n\n/**\n * Month-end interest accrual: every account balance, in cents, is adjusted in place. The bank has\n * a few million accounts, so the adjustment runs on a ForkJoinPool. The month-end report reads the\n * balances as soon as accrue() returns.\n */\npublic class Accrual {\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n    private final LongUnaryOperator adjust;\n\n    /**\n     * @param pool      the pool the accrual runs in\n     * @param threshold the most balances one task adjusts by itself, on its own thread\n     * @param adjust    the new balance of one account, given its old balance\n     */\n    public Accrual(ForkJoinPool pool, int threshold, LongUnaryOperator adjust) {\n        this.pool = pool;\n        this.threshold = threshold;\n        this.adjust = adjust;\n    }\n\n    /** Adjusts every balance in place. The report reads them as soon as this returns. */\n    public void accrue(long[] balances) {\n        pool.invoke(new Adjust(balances, 0, balances.length));\n    }\n\n    /** Adjusts balances[from] to balances[to - 1]. */\n    final class Adjust extends RecursiveAction {\n        private final long[] balances;\n        private final int from, to;\n\n        Adjust(long[] balances, int from, int to) {\n            this.balances = balances;\n            this.from = from;\n            this.to = to;\n        }\n\n        /** Adjusts this task's balances one after another, on the current thread. */\n        void adjustHere() {\n            for (int i = from; i < to; i++) balances[i] = adjust.applyAsLong(balances[i]);\n        }\n\n        @Override\n        protected void compute() {\n            // TODO: Adjust this task's balances. A range of up to `threshold` balances is adjusted\n            //       right here; a longer one is shared with the pool's other workers. The report\n            //       reads the balances as soon as accrue() returns.\n            throw new IllegalStateException(\"TODO: compute\");\n        }\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-1/src/main/java/practice/Accrual.java",
@@ -94,7 +112,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -140,6 +159,10 @@
       "Subtasks of an in-place action write disjoint ranges; an inclusive midpoint changes the boundary elements twice, the same ones every run.",
       "invokeAll(left, right) forks one task, runs the other on the current thread and waits for the first, so the two halves run at once and a task can also do work after its subtasks are done.",
       "A RecursiveAction's compute() must wait for its subtasks, as invokeAll does; forking them and returning lets invoke() return while the leaves are still writing."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
   }
 }

@@ -47,6 +47,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The nightly reconciliation. Each shard of the ledger is matched on a thread of its own, and the\n * report is due when the budget runs out, whether or not every shard has finished by then.\n */\npublic class ShardReport {\n\n    /** Matches one shard of the ledger, passing each matched amount, in cents, to {@code add}. */\n    public interface Shard {\n        void reconcile(LongConsumer add) throws InterruptedException;\n    }\n\n    /** The total of the shards that finished, and the indexes of the shards that didn't. */\n    public record Report(long totalCents, List<Integer> unfinished) {\n    }\n\n    public static Report run(List<Shard> shards, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        long[] subtotals = new long[shards.size()];           // one plain slot per shard\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < shards.size(); i++) {\n            int slot = i;\n            Shard shard = shards.get(i);\n            Thread t = new Thread(() -> {\n                try {\n                    shard.reconcile(amount -> subtotals[slot] += amount);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            }, \"shard-\" + i);\n            t.setDaemon(true);                                // an overrunning shard can't keep the JVM up\n            threads.add(t);\n        }\n        threads.forEach(Thread::start);\n        return collect(threads, subtotals, deadline);\n    }\n\n    /**\n     * Builds the report from the shards' threads and their subtotals, by the deadline (a\n     * {@link System#nanoTime()} value).\n     */\n    static Report collect(List<Thread> threads, long[] subtotals, long deadline) throws InterruptedException {\n        long total = 0;\n        List<Integer> unfinished = new ArrayList<>();\n        for (int i = 0; i < threads.size(); i++) {\n            if (threads.get(i).join(Duration.ofNanos(deadline - System.nanoTime()))) {\n                total += subtotals[i];\n            } else {\n                unfinished.add(i);\n            }\n        }\n        return new Report(total, unfinished);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.List;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            CountDownLatch stuck = new CountDownLatch(1);\n            try {\n                ShardReport.Shard quick = add -> {\n                    add.accept(1_200);\n                    add.accept(350);\n                };\n                ShardReport.Shard hanging = add -> {\n                    add.accept(8_000);\n                    stuck.await();\n                };\n                ShardReport.Shard small = add -> add.accept(75);\n                long started = System.nanoTime();\n                ShardReport.Report report = ShardReport.run(List.of(quick, hanging, small), Duration.ofSeconds(1));\n                long tookMs = (System.nanoTime() - started) / 1_000_000;\n                System.out.println(\"total cents: \" + report.totalCents());\n                System.out.println(\"unfinished shards: \" + report.unfinished());\n                System.out.println(\"ready within 2 s: \" + (tookMs < 2_000));\n            } finally {\n                stuck.countDown();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -59,6 +68,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The nightly reconciliation. Each shard of the ledger is matched on a thread of its own, and the\n * report is due when the budget runs out, whether or not every shard has finished by then.\n */\npublic class ShardReport {\n\n    /** Matches one shard of the ledger, passing each matched amount, in cents, to {@code add}. */\n    public interface Shard {\n        void reconcile(LongConsumer add) throws InterruptedException;\n    }\n\n    /** The total of the shards that finished, and the indexes of the shards that didn't. */\n    public record Report(long totalCents, List<Integer> unfinished) {\n    }\n\n    public static Report run(List<Shard> shards, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        long[] subtotals = new long[shards.size()];           // one plain slot per shard\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < shards.size(); i++) {\n            int slot = i;\n            Shard shard = shards.get(i);\n            Thread t = new Thread(() -> {\n                try {\n                    shard.reconcile(amount -> subtotals[slot] += amount);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            }, \"shard-\" + i);\n            t.setDaemon(true);                                // an overrunning shard can't keep the JVM up\n            threads.add(t);\n        }\n        threads.forEach(Thread::start);\n        return collect(threads, subtotals, deadline);\n    }\n\n    /**\n     * Builds the report from the shards' threads and their subtotals, by the deadline (a\n     * {@link System#nanoTime()} value).\n     */\n    static Report collect(List<Thread> threads, long[] subtotals, long deadline) throws InterruptedException {\n        // TODO: A shard that is still running when the deadline passes must not hold the report\n        //       up, and the report must not count anything from it: list it as unfinished.\n        //       Count the subtotal of every shard that finished.\n        throw new IllegalStateException(\"TODO: collect\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.time.Duration;\nimport java.util.List;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            CountDownLatch stuck = new CountDownLatch(1);\n            try {\n                ShardReport.Shard quick = add -> {\n                    add.accept(1_200);\n                    add.accept(350);\n                };\n                ShardReport.Shard hanging = add -> {\n                    add.accept(8_000);\n                    stuck.await();\n                };\n                ShardReport.Shard small = add -> add.accept(75);\n                long started = System.nanoTime();\n                ShardReport.Report report = ShardReport.run(List.of(quick, hanging, small), Duration.ofSeconds(1));\n                long tookMs = (System.nanoTime() - started) / 1_000_000;\n                System.out.println(\"total cents: \" + report.totalCents());\n                System.out.println(\"unfinished shards: \" + report.unfinished());\n                System.out.println(\"ready within 2 s: \" + (tookMs < 2_000));\n            } finally {\n                stuck.countDown();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -66,8 +84,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -77,7 +95,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d85ad6d87350dcb3f54dea5ad9e0d1172b5f18f4405efef0b9c1762d1fa0332d",
+  "content_sha256": "c5116362085329e55eeb5d2210c4f005840bf5bb49dede422abc7d23d94b9785",
   "starting_code": "package practice;\n\nimport java.time.Duration;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.LongConsumer;\n\n/**\n * The nightly reconciliation. Each shard of the ledger is matched on a thread of its own, and the\n * report is due when the budget runs out, whether or not every shard has finished by then.\n */\npublic class ShardReport {\n\n    /** Matches one shard of the ledger, passing each matched amount, in cents, to {@code add}. */\n    public interface Shard {\n        void reconcile(LongConsumer add) throws InterruptedException;\n    }\n\n    /** The total of the shards that finished, and the indexes of the shards that didn't. */\n    public record Report(long totalCents, List<Integer> unfinished) {\n    }\n\n    public static Report run(List<Shard> shards, Duration budget) throws InterruptedException {\n        long deadline = System.nanoTime() + budget.toNanos();\n        long[] subtotals = new long[shards.size()];           // one plain slot per shard\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < shards.size(); i++) {\n            int slot = i;\n            Shard shard = shards.get(i);\n            Thread t = new Thread(() -> {\n                try {\n                    shard.reconcile(amount -> subtotals[slot] += amount);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            }, \"shard-\" + i);\n            t.setDaemon(true);                                // an overrunning shard can't keep the JVM up\n            threads.add(t);\n        }\n        threads.forEach(Thread::start);\n        return collect(threads, subtotals, deadline);\n    }\n\n    /**\n     * Builds the report from the shards' threads and their subtotals, by the deadline (a\n     * {@link System#nanoTime()} value).\n     */\n    static Report collect(List<Thread> threads, long[] subtotals, long deadline) throws InterruptedException {\n        // TODO: A shard that is still running when the deadline passes must not hold the report\n        //       up, and the report must not count anything from it: list it as unfinished.\n        //       Count the subtotal of every shard that finished.\n        throw new IllegalStateException(\"TODO: collect\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-1/src/main/java/practice/ShardReport.java",
@@ -88,7 +106,8 @@
       "-q",
       "-f",
       "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -133,6 +152,10 @@
     "concepts": [
       "A thread's writes happen-before another thread's return from join only when the join returns because the thread ended; a join that timed out gives no edge.",
       "A read is guaranteed to see another thread's write only if the write happens-before it; without an edge the read is a data race and may return an older value."
-    ]
+    ],
+    "files": [
+      "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

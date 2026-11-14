@@ -47,6 +47,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\n/** Sends refunds to the payment gateway, one order at a time. */\npublic class Refunds {\n\n    /** The outcome of a step that can refuse: a value, or the reason it refused. */\n    public sealed interface Result<T> permits Ok, Err {}\n    public record Ok<T>(T value) implements Result<T> {}\n    public record Err<T>(String reason) implements Result<T> {}\n\n    public record Order(String id, long paidCents, long refundedCents) {}\n    public record Refund(String orderId, long cents, String gatewayRef) {}\n\n    /** Looks an order up; an unknown id is an Err with the reason. */\n    public interface Orders {\n        Result<Order> find(String orderId);\n    }\n\n    /** Pays money back; the bank may refuse, which is an Err with the reason. Returns the gateway's reference. */\n    public interface Gateway {\n        Result<String> send(String orderId, long cents);\n    }\n\n    private final Orders orders;\n    private final Gateway gateway;\n\n    public Refunds(Orders orders, Gateway gateway) {\n        this.orders = orders;\n        this.gateway = gateway;\n    }\n\n    /** How much of this order may still be refunded: an Err when the amount isn't allowed. */\n    static Result<Long> refundable(Order order, long cents) {\n        long left = order.paidCents() - order.refundedCents();\n        if (cents <= 0) return new Err<>(\"refund must be positive, was \" + cents);\n        if (cents > left) return new Err<>(\"only \" + left + \" cents left to refund on \" + order.id());\n        return new Ok<>(cents);\n    }\n\n    /**\n     * Refunds cents on the order: finds it, checks the amount, then sends it to the gateway.\n     * Every refusal comes back as an Err carrying the reason of the step that refused.\n     */\n    public Result<Refund> refund(String orderId, long cents) {\n        Order order;\n        switch (orders.find(orderId)) {\n            case Ok<Order> ok -> order = ok.value();\n            case Err<Order> err -> { return new Err<>(err.reason()); }\n        }\n        switch (refundable(order, cents)) {\n            case Ok<Long> ok -> { }\n            case Err<Long> err -> { return new Err<>(err.reason()); }\n        }\n        return switch (gateway.send(orderId, cents)) {\n            case Ok<String> ref -> new Ok<>(new Refund(orderId, cents, ref.value()));\n            case Err<String> err -> new Err<>(err.reason());\n        };\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Map<String, Refunds.Order> known = Map.of(\"OR-7001\", new Refunds.Order(\"OR-7001\", 12_000, 2_500));\n            Refunds.Orders store = id -> known.containsKey(id)\n                    ? new Refunds.Ok<>(known.get(id))\n                    : new Refunds.Err<>(\"no order with id \" + id);\n            List<String> sent = new ArrayList<>();\n            Refunds desk = new Refunds(store, (orderId, cents) -> {\n                sent.add(orderId + \":\" + cents);\n                return new Refunds.Ok<>(\"BANK-818\");\n            });\n            System.out.println(\"refund 3,000: \" + desk.refund(\"OR-7001\", 3_000));\n            System.out.println(\"refund 9,600: \" + desk.refund(\"OR-7001\", 9_600));\n            System.out.println(\"refund on a typo: \" + desk.refund(\"OR-7010\", 3_000));\n            Refunds refusingBank = new Refunds(store, (orderId, cents) -> new Refunds.Err<>(\"card expired\"));\n            System.out.println(\"refund the bank refuses: \" + refusingBank.refund(\"OR-7001\", 1_000));\n            System.out.println(\"sent to the gateway: \" + sent);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -59,6 +68,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\n/** Sends refunds to the payment gateway, one order at a time. */\npublic class Refunds {\n\n    /** The outcome of a step that can refuse: a value, or the reason it refused. */\n    public sealed interface Result<T> permits Ok, Err {}\n    public record Ok<T>(T value) implements Result<T> {}\n    public record Err<T>(String reason) implements Result<T> {}\n\n    public record Order(String id, long paidCents, long refundedCents) {}\n    public record Refund(String orderId, long cents, String gatewayRef) {}\n\n    /** Looks an order up; an unknown id is an Err with the reason. */\n    public interface Orders {\n        Result<Order> find(String orderId);\n    }\n\n    /** Pays money back; the bank may refuse, which is an Err with the reason. Returns the gateway's reference. */\n    public interface Gateway {\n        Result<String> send(String orderId, long cents);\n    }\n\n    private final Orders orders;\n    private final Gateway gateway;\n\n    public Refunds(Orders orders, Gateway gateway) {\n        this.orders = orders;\n        this.gateway = gateway;\n    }\n\n    /** How much of this order may still be refunded: an Err when the amount isn't allowed. */\n    static Result<Long> refundable(Order order, long cents) {\n        long left = order.paidCents() - order.refundedCents();\n        if (cents <= 0) return new Err<>(\"refund must be positive, was \" + cents);\n        if (cents > left) return new Err<>(\"only \" + left + \" cents left to refund on \" + order.id());\n        return new Ok<>(cents);\n    }\n\n    /**\n     * Refunds cents on the order: finds it, checks the amount, then sends it to the gateway.\n     * Every refusal comes back as an Err carrying the reason of the step that refused.\n     */\n    public Result<Refund> refund(String orderId, long cents) {\n        // TODO: find the order, check the amount, send it; return what happened.\n        throw new IllegalStateException(\"TODO: refund\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Map<String, Refunds.Order> known = Map.of(\"OR-7001\", new Refunds.Order(\"OR-7001\", 12_000, 2_500));\n            Refunds.Orders store = id -> known.containsKey(id)\n                    ? new Refunds.Ok<>(known.get(id))\n                    : new Refunds.Err<>(\"no order with id \" + id);\n            List<String> sent = new ArrayList<>();\n            Refunds desk = new Refunds(store, (orderId, cents) -> {\n                sent.add(orderId + \":\" + cents);\n                return new Refunds.Ok<>(\"BANK-818\");\n            });\n            System.out.println(\"refund 3,000: \" + desk.refund(\"OR-7001\", 3_000));\n            System.out.println(\"refund 9,600: \" + desk.refund(\"OR-7001\", 9_600));\n            System.out.println(\"refund on a typo: \" + desk.refund(\"OR-7010\", 3_000));\n            Refunds refusingBank = new Refunds(store, (orderId, cents) -> new Refunds.Err<>(\"card expired\"));\n            System.out.println(\"refund the bank refuses: \" + refusingBank.refund(\"OR-7001\", 1_000));\n            System.out.println(\"sent to the gateway: \" + sent);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -66,8 +84,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -77,7 +95,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5083fbab0cd1ef7b40ad3d6ff85b4469a89002769f6648f4b43ca53d03cdacf0",
+  "content_sha256": "4942027aecce63b85dc8b0368ed2ea992ffcb5a2a60a0eb9272d7d45ece7a401",
   "starting_code": "package practice;\n\n/** Sends refunds to the payment gateway, one order at a time. */\npublic class Refunds {\n\n    /** The outcome of a step that can refuse: a value, or the reason it refused. */\n    public sealed interface Result<T> permits Ok, Err {}\n    public record Ok<T>(T value) implements Result<T> {}\n    public record Err<T>(String reason) implements Result<T> {}\n\n    public record Order(String id, long paidCents, long refundedCents) {}\n    public record Refund(String orderId, long cents, String gatewayRef) {}\n\n    /** Looks an order up; an unknown id is an Err with the reason. */\n    public interface Orders {\n        Result<Order> find(String orderId);\n    }\n\n    /** Pays money back; the bank may refuse, which is an Err with the reason. Returns the gateway's reference. */\n    public interface Gateway {\n        Result<String> send(String orderId, long cents);\n    }\n\n    private final Orders orders;\n    private final Gateway gateway;\n\n    public Refunds(Orders orders, Gateway gateway) {\n        this.orders = orders;\n        this.gateway = gateway;\n    }\n\n    /** How much of this order may still be refunded: an Err when the amount isn't allowed. */\n    static Result<Long> refundable(Order order, long cents) {\n        long left = order.paidCents() - order.refundedCents();\n        if (cents <= 0) return new Err<>(\"refund must be positive, was \" + cents);\n        if (cents > left) return new Err<>(\"only \" + left + \" cents left to refund on \" + order.id());\n        return new Ok<>(cents);\n    }\n\n    /**\n     * Refunds cents on the order: finds it, checks the amount, then sends it to the gateway.\n     * Every refusal comes back as an Err carrying the reason of the step that refused.\n     */\n    public Result<Refund> refund(String orderId, long cents) {\n        // TODO: find the order, check the amount, send it; return what happened.\n        throw new IllegalStateException(\"TODO: refund\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-1/src/main/java/practice/Refunds.java",
@@ -88,7 +106,8 @@
       "-q",
       "-f",
       "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -137,6 +156,10 @@
     },
     "concepts": [
       "With a sealed Result each step returns an expected failure as a value, and every layer must pass it on by hand, keeping its reason and stopping before the next step."
-    ]
+    ],
+    "files": [
+      "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
   }
 }

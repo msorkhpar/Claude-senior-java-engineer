@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\n/**\n * The depot's shipment journal. Scanner worker threads call record() for every parcel event, all\n * at once, and a flusher copies contents() to disk every few seconds.\n */\npublic class ShipmentJournal {\n\n    /** One scanned parcel. Its getters can be slow: depot() looks the depot up in another service. */\n    public interface Event {\n        String parcel();\n\n        String depot();\n\n        int grams();\n    }\n\n    private final StringBuffer out = new StringBuffer();\n\n    /** Writes the event's line, {@code parcel=<parcel> depot=<depot> grams=<grams>} and a newline. */\n    public void record(Event e) {\n        StringBuilder line = new StringBuilder(64);\n        line.append(\"parcel=\").append(e.parcel()).append(\" depot=\").append(e.depot())\n                .append(\" grams=\").append(e.grams()).append('\\n');\n        out.append(line);\n    }\n\n    /** Everything recorded so far. */\n    public String contents() {\n        return out.toString();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ShipmentJournal journal = new ShipmentJournal();\n            SlowParcel slow = new SlowParcel();\n            AtomicReference<RuntimeException> failed = new AtomicReference<>();\n            Thread slowScanner = scanner(() -> journal.record(slow), failed);\n            slow.inLookup.await(2, TimeUnit.SECONDS);\n            Thread fastScanner = scanner(() -> journal.record(new Parcel(\"PL-0450\", \"WAW-1\", 380)), failed);\n            fastScanner.join(1_000);\n            boolean fastDone = !fastScanner.isAlive();\n            slow.answer.countDown();\n            slowScanner.join();\n            fastScanner.join();\n            if (failed.get() != null) throw failed.get();\n            System.out.println(\"quick event recorded during the slow lookup: \" + fastDone);\n            System.out.print(\"journal:\\n\" + journal.contents());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    record Parcel(String parcel, String depot, int grams) implements ShipmentJournal.Event { }\n\n    /** A parcel whose depot lookup waits until the answer is released. */\n    static class SlowParcel implements ShipmentJournal.Event {\n        final CountDownLatch inLookup = new CountDownLatch(1);\n        final CountDownLatch answer = new CountDownLatch(1);\n        @Override public String parcel() { return \"SE-3001\"; }\n        @Override public int grams() { return 1200; }\n        @Override public String depot() {\n            inLookup.countDown();\n            try {\n                answer.await(2, TimeUnit.SECONDS);\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n            return \"GOT-7\";\n        }\n    }\n\n    /** Starts a scanner thread; what it throws is kept for main to report. */\n    private static Thread scanner(Runnable work, AtomicReference<RuntimeException> failed) {\n        Thread t = new Thread(() -> {\n            try {\n                work.run();\n            } catch (RuntimeException e) {\n                failed.compareAndSet(null, e);\n            }\n        });\n        t.start();\n        return t;\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\n/**\n * The depot's shipment journal. Scanner worker threads call record() for every parcel event, all\n * at once, and a flusher copies contents() to disk every few seconds.\n */\npublic class ShipmentJournal {\n\n    /** One scanned parcel. Its getters can be slow: depot() looks the depot up in another service. */\n    public interface Event {\n        String parcel();\n\n        String depot();\n\n        int grams();\n    }\n\n    private final StringBuffer out = new StringBuffer();\n\n    /** Writes the event's line, {@code parcel=<parcel> depot=<depot> grams=<grams>} and a newline. */\n    public void record(Event e) {\n        // TODO: Many scanner threads call this at the same time, and depot() can take a while.\n        //       Every line in the journal must be one event's line, whole, and a slow event\n        //       must not hold up the other threads' records.\n        throw new IllegalStateException(\"TODO: record\");\n    }\n\n    /** Everything recorded so far. */\n    public String contents() {\n        return out.toString();\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ShipmentJournal journal = new ShipmentJournal();\n            SlowParcel slow = new SlowParcel();\n            AtomicReference<RuntimeException> failed = new AtomicReference<>();\n            Thread slowScanner = scanner(() -> journal.record(slow), failed);\n            slow.inLookup.await(2, TimeUnit.SECONDS);\n            Thread fastScanner = scanner(() -> journal.record(new Parcel(\"PL-0450\", \"WAW-1\", 380)), failed);\n            fastScanner.join(1_000);\n            boolean fastDone = !fastScanner.isAlive();\n            slow.answer.countDown();\n            slowScanner.join();\n            fastScanner.join();\n            if (failed.get() != null) throw failed.get();\n            System.out.println(\"quick event recorded during the slow lookup: \" + fastDone);\n            System.out.print(\"journal:\\n\" + journal.contents());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    record Parcel(String parcel, String depot, int grams) implements ShipmentJournal.Event { }\n\n    /** A parcel whose depot lookup waits until the answer is released. */\n    static class SlowParcel implements ShipmentJournal.Event {\n        final CountDownLatch inLookup = new CountDownLatch(1);\n        final CountDownLatch answer = new CountDownLatch(1);\n        @Override public String parcel() { return \"SE-3001\"; }\n        @Override public int grams() { return 1200; }\n        @Override public String depot() {\n            inLookup.countDown();\n            try {\n                answer.await(2, TimeUnit.SECONDS);\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n            return \"GOT-7\";\n        }\n    }\n\n    /** Starts a scanner thread; what it throws is kept for main to report. */\n    private static Thread scanner(Runnable work, AtomicReference<RuntimeException> failed) {\n        Thread t = new Thread(() -> {\n            try {\n                work.run();\n            } catch (RuntimeException e) {\n                failed.compareAndSet(null, e);\n            }\n        });\n        t.start();\n        return t;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f6f4076a388b69ebdf03c5f1a6af08980e08c0835519de43bcbce74fe8888adc",
+  "content_sha256": "d47066bf421f0424bacc3570cf59e3a0f347d98031f139f05b546d0befd1415b",
   "starting_code": "package practice;\n\n/**\n * The depot's shipment journal. Scanner worker threads call record() for every parcel event, all\n * at once, and a flusher copies contents() to disk every few seconds.\n */\npublic class ShipmentJournal {\n\n    /** One scanned parcel. Its getters can be slow: depot() looks the depot up in another service. */\n    public interface Event {\n        String parcel();\n\n        String depot();\n\n        int grams();\n    }\n\n    private final StringBuffer out = new StringBuffer();\n\n    /** Writes the event's line, {@code parcel=<parcel> depot=<depot> grams=<grams>} and a newline. */\n    public void record(Event e) {\n        // TODO: Many scanner threads call this at the same time, and depot() can take a while.\n        //       Every line in the journal must be one event's line, whole, and a slow event\n        //       must not hold up the other threads' records.\n        throw new IllegalStateException(\"TODO: record\");\n    }\n\n    /** Everything recorded so far. */\n    public String contents() {\n        return out.toString();\n    }\n}\n",
   "exercise": {
     "main_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/ShipmentJournal.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -130,6 +149,10 @@
       "StringBuffer makes each method call atomic, so a line written with several calls to a shared buffer can be interleaved with another thread's; building the line locally and appending it in one call keeps it whole.",
       "Where several calls on a shared object must stay together, the text is built before the lock is taken, so a slow part of one record doesn't hold up the other threads.",
       "One StringBuilder shared between threads, even a scratch builder cleared before each use, mixes or loses their text, and can throw ArrayIndexOutOfBoundsException."
-    ]
+    ],
+    "files": [
+      "practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/TryIt.java"
   }
 }

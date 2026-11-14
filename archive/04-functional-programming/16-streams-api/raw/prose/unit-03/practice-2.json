@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.stream.Collectors;\nimport java.util.stream.Stream;\n\n/**\n * Picks payments for the fraud team's review queue from the live payment feed. Every payment the\n * queue takes is scored by the risk service, which is slow and allows few calls per second.\n */\npublic class PaymentWatch {\n\n    public record Payment(String id, String account, long amountCents) {}\n\n    public record Assessment(Payment payment, int score) {}\n\n    /** The risk service: one remote call per payment. */\n    public interface RiskService {\n        Assessment assess(Payment payment);\n    }\n\n    private final RiskService risk;\n    private final long reviewFromCents;\n\n    public PaymentWatch(RiskService risk, long reviewFromCents) {\n        this.risk = risk;\n        this.reviewFromCents = reviewFromCents;\n    }\n\n    /** The sheet the reviewers see: one line per payment, \"id score\". */\n    public String reviewSheet(Stream<Payment> feed, int slots) {\n        return nextForReview(feed, slots).stream()\n                .map(a -> a.payment().id() + \" \" + a.score())\n                .collect(Collectors.joining(\"\\n\"));\n    }\n\n    /**\n     * The next {@code slots} payments of at least {@code reviewFromCents}, taken in the order they\n     * arrive on the feed, each assessed once, highest score first.\n     */\n    List<Assessment> nextForReview(Stream<Payment> feed, int slots) {\n        return feed.filter(p -> p.amountCents() >= reviewFromCents)\n                .limit(slots)\n                .map(risk::assess)\n                .sorted(Comparator.comparingInt(Assessment::score).reversed())\n                .toList();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.stream.Stream;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            int[] read = {0};\n            Stream<PaymentWatch.Payment> live = Stream.generate(() -> {\n                read[0]++;\n                if (read[0] > 10_000) throw new IllegalStateException(\"the feed was read past 10000 payments\");\n                long cents = read[0] % 3 == 0 ? 750_000 + read[0] * 1_000L : 9_900;\n                return new PaymentWatch.Payment(\"F-\" + read[0], \"acct-\" + read[0], cents);\n            });\n            int[] assessed = {0};\n            PaymentWatch watch = new PaymentWatch(payment -> {\n                assessed[0]++;\n                return new PaymentWatch.Assessment(payment, (int) (payment.amountCents() / 1_000 % 97));\n            }, 500_000);\n            System.out.println(\"review sheet:\");\n            System.out.println(watch.reviewSheet(live, 3));\n            System.out.println(\"payments read from the feed: \" + read[0]);\n            System.out.println(\"sent to the risk service: \" + assessed[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.stream.Collectors;\nimport java.util.stream.Stream;\n\n/**\n * Picks payments for the fraud team's review queue from the live payment feed. Every payment the\n * queue takes is scored by the risk service, which is slow and allows few calls per second.\n */\npublic class PaymentWatch {\n\n    public record Payment(String id, String account, long amountCents) {}\n\n    public record Assessment(Payment payment, int score) {}\n\n    /** The risk service: one remote call per payment. */\n    public interface RiskService {\n        Assessment assess(Payment payment);\n    }\n\n    private final RiskService risk;\n    private final long reviewFromCents;\n\n    public PaymentWatch(RiskService risk, long reviewFromCents) {\n        this.risk = risk;\n        this.reviewFromCents = reviewFromCents;\n    }\n\n    /** The sheet the reviewers see: one line per payment, \"id score\". */\n    public String reviewSheet(Stream<Payment> feed, int slots) {\n        return nextForReview(feed, slots).stream()\n                .map(a -> a.payment().id() + \" \" + a.score())\n                .collect(Collectors.joining(\"\\n\"));\n    }\n\n    /**\n     * The next {@code slots} payments of at least {@code reviewFromCents}, taken in the order they\n     * arrive on the feed, each assessed once, highest score first.\n     */\n    List<Assessment> nextForReview(Stream<Payment> feed, int slots) {\n        // TODO: Fill the review queue from the feed. The feed is live: it doesn't end while the\n        //       service runs. Every call to the risk service costs time and quota, so a payment\n        //       that doesn't go to the queue must not be assessed.\n        throw new IllegalStateException(\"TODO: nextForReview\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.stream.Stream;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            int[] read = {0};\n            Stream<PaymentWatch.Payment> live = Stream.generate(() -> {\n                read[0]++;\n                if (read[0] > 10_000) throw new IllegalStateException(\"the feed was read past 10000 payments\");\n                long cents = read[0] % 3 == 0 ? 750_000 + read[0] * 1_000L : 9_900;\n                return new PaymentWatch.Payment(\"F-\" + read[0], \"acct-\" + read[0], cents);\n            });\n            int[] assessed = {0};\n            PaymentWatch watch = new PaymentWatch(payment -> {\n                assessed[0]++;\n                return new PaymentWatch.Assessment(payment, (int) (payment.amountCents() / 1_000 % 97));\n            }, 500_000);\n            System.out.println(\"review sheet:\");\n            System.out.println(watch.reviewSheet(live, 3));\n            System.out.println(\"payments read from the feed: \" + read[0]);\n            System.out.println(\"sent to the risk service: \" + assessed[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "14d3178c0fed236ab439324a024a93b667e52b4cb87f7d9bd0aeb0fea9ae52cc",
+  "content_sha256": "9d88500e6f30013a406aa72ce55889fddb4684b104a3ff1945f72b14de701458",
   "starting_code": "package practice;\n\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.stream.Collectors;\nimport java.util.stream.Stream;\n\n/**\n * Picks payments for the fraud team's review queue from the live payment feed. Every payment the\n * queue takes is scored by the risk service, which is slow and allows few calls per second.\n */\npublic class PaymentWatch {\n\n    public record Payment(String id, String account, long amountCents) {}\n\n    public record Assessment(Payment payment, int score) {}\n\n    /** The risk service: one remote call per payment. */\n    public interface RiskService {\n        Assessment assess(Payment payment);\n    }\n\n    private final RiskService risk;\n    private final long reviewFromCents;\n\n    public PaymentWatch(RiskService risk, long reviewFromCents) {\n        this.risk = risk;\n        this.reviewFromCents = reviewFromCents;\n    }\n\n    /** The sheet the reviewers see: one line per payment, \"id score\". */\n    public String reviewSheet(Stream<Payment> feed, int slots) {\n        return nextForReview(feed, slots).stream()\n                .map(a -> a.payment().id() + \" \" + a.score())\n                .collect(Collectors.joining(\"\\n\"));\n    }\n\n    /**\n     * The next {@code slots} payments of at least {@code reviewFromCents}, taken in the order they\n     * arrive on the feed, each assessed once, highest score first.\n     */\n    List<Assessment> nextForReview(Stream<Payment> feed, int slots) {\n        // TODO: Fill the review queue from the feed. The feed is live: it doesn't end while the\n        //       service runs. Every call to the risk service costs time and quota, so a payment\n        //       that doesn't go to the queue must not be assessed.\n        throw new IllegalStateException(\"TODO: nextForReview\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-03/practice-2/src/main/java/practice/PaymentWatch.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/16-streams-api/prose/unit-03/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -129,6 +148,10 @@
     "concepts": [
       "The stream runs the stages in the order written, so an expensive map before a filter runs for every element, and a limit before a filter counts elements the filter drops.",
       "sorted buffers every element before it emits one, so a limit or findFirst after it doesn't stop the source and on an endless stream it never returns."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/16-streams-api/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/16-streams-api/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
   }
 }

@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\n\n/**\n * Collects audit events from one request thread into batches and hands each full batch to the\n * sender thread through the outbox. The sender takes batches from the outbox and ships them.\n */\npublic class AuditRecorder {\n\n    private final BlockingQueue<List<String>> outbox;\n    private final int batchSize;\n    private List<String> batch = new ArrayList<>();\n\n    public AuditRecorder(BlockingQueue<List<String>> outbox, int batchSize) {\n        this.outbox = outbox;\n        this.batchSize = batchSize;\n    }\n\n    /** Records one event; called only by the thread that owns this recorder. */\n    public void record(String event) throws InterruptedException {\n        batch.add(event);\n        if (batch.size() == batchSize) handOff();\n    }\n\n    /** Hands over the events recorded since the last batch, if there are any. Called on shutdown. */\n    public void flush() throws InterruptedException {\n        if (!batch.isEmpty()) handOff();\n    }\n\n    /** Puts the current batch on the outbox and gets ready to record the next one. */\n    void handOff() throws InterruptedException {\n        outbox.put(batch);\n        batch = new ArrayList<>(batchSize);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            BlockingQueue<List<String>> outbox = new LinkedBlockingQueue<>();\n            AuditRecorder recorder = new AuditRecorder(outbox, 2);\n            AtomicReference<RuntimeException> failure = new AtomicReference<>();\n            Thread request = new Thread(() -> {\n                try {\n                    for (String event : List.of(\"login:kim\", \"reset-password:kim\", \"view:payslip-4\", \"logout:kim\", \"login:lee\")) {\n                        recorder.record(event);\n                    }\n                    recorder.flush();\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                } catch (RuntimeException e) {\n                    failure.set(e);\n                }\n            }, \"request\");\n            request.start();\n            request.join(5_000);\n            if (failure.get() != null) throw failure.get();\n            System.out.println(\"batches in outbox: \" + outbox.size());\n            List<String> batch;\n            while ((batch = outbox.poll()) != null) {\n                System.out.println(\"batch: \" + batch);\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\n\n/**\n * Collects audit events from one request thread into batches and hands each full batch to the\n * sender thread through the outbox. The sender takes batches from the outbox and ships them.\n */\npublic class AuditRecorder {\n\n    private final BlockingQueue<List<String>> outbox;\n    private final int batchSize;\n    private List<String> batch = new ArrayList<>();\n\n    public AuditRecorder(BlockingQueue<List<String>> outbox, int batchSize) {\n        this.outbox = outbox;\n        this.batchSize = batchSize;\n    }\n\n    /** Records one event; called only by the thread that owns this recorder. */\n    public void record(String event) throws InterruptedException {\n        batch.add(event);\n        if (batch.size() == batchSize) handOff();\n    }\n\n    /** Hands over the events recorded since the last batch, if there are any. Called on shutdown. */\n    public void flush() throws InterruptedException {\n        if (!batch.isEmpty()) handOff();\n    }\n\n    /** Puts the current batch on the outbox and gets ready to record the next one. */\n    void handOff() throws InterruptedException {\n        // TODO: The sender ships each batch it takes from the outbox, while this recorder goes on\n        //       recording. Hand the current batch over, and be ready for the next event.\n        throw new IllegalStateException(\"TODO: handOff\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            BlockingQueue<List<String>> outbox = new LinkedBlockingQueue<>();\n            AuditRecorder recorder = new AuditRecorder(outbox, 2);\n            AtomicReference<RuntimeException> failure = new AtomicReference<>();\n            Thread request = new Thread(() -> {\n                try {\n                    for (String event : List.of(\"login:kim\", \"reset-password:kim\", \"view:payslip-4\", \"logout:kim\", \"login:lee\")) {\n                        recorder.record(event);\n                    }\n                    recorder.flush();\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                } catch (RuntimeException e) {\n                    failure.set(e);\n                }\n            }, \"request\");\n            request.start();\n            request.join(5_000);\n            if (failure.get() != null) throw failure.get();\n            System.out.println(\"batches in outbox: \" + outbox.size());\n            List<String> batch;\n            while ((batch = outbox.poll()) != null) {\n                System.out.println(\"batch: \" + batch);\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "af2e0b5bee7120f4b1eb91f6707dceaa25a07c95a46ff07165e880e5eee93c8a",
+  "content_sha256": "898c26ba14448414f22b66448c1449ca644d75ebcefa1236265d17f49721d192",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\n\n/**\n * Collects audit events from one request thread into batches and hands each full batch to the\n * sender thread through the outbox. The sender takes batches from the outbox and ships them.\n */\npublic class AuditRecorder {\n\n    private final BlockingQueue<List<String>> outbox;\n    private final int batchSize;\n    private List<String> batch = new ArrayList<>();\n\n    public AuditRecorder(BlockingQueue<List<String>> outbox, int batchSize) {\n        this.outbox = outbox;\n        this.batchSize = batchSize;\n    }\n\n    /** Records one event; called only by the thread that owns this recorder. */\n    public void record(String event) throws InterruptedException {\n        batch.add(event);\n        if (batch.size() == batchSize) handOff();\n    }\n\n    /** Hands over the events recorded since the last batch, if there are any. Called on shutdown. */\n    public void flush() throws InterruptedException {\n        if (!batch.isEmpty()) handOff();\n    }\n\n    /** Puts the current batch on the outbox and gets ready to record the next one. */\n    void handOff() throws InterruptedException {\n        // TODO: The sender ships each batch it takes from the outbox, while this recorder goes on\n        //       recording. Hand the current batch over, and be ready for the next event.\n        throw new IllegalStateException(\"TODO: handOff\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-1/src/main/java/practice/AuditRecorder.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -118,6 +137,10 @@
     },
     "concepts": [
       "The edge covers writes made before the release; data changed after a put, a countDown or a submit is shared with no edge, so the producer must not touch it again."
-    ]
+    ],
+    "files": [
+      "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
   }
 }

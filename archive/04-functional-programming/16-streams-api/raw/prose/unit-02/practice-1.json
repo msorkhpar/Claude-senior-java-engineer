@@ -55,6 +55,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.stream.Stream;\n\n/**\n * Counts the lines that contain \"ERROR\" in every log of a directory. The support team runs it\n * every few minutes from a long-lived service.\n */\npublic class LogScanner {\n\n    /** Opens a directory listing. Always use this, never Files.list directly. */\n    Stream<Path> openDir(Path dir) throws IOException {\n        return Files.list(dir);\n    }\n\n    /** Opens the lines of one log. Always use this, never Files.lines directly. */\n    Stream<String> openLog(Path log) throws IOException {\n        return Files.lines(log);\n    }\n\n    /** How many lines of all the logs in dir contain \"ERROR\". */\n    public long countErrors(Path dir) throws IOException {\n        long total = 0;\n        for (Path log : listLogs(dir)) {\n            total += errorsIn(log);\n        }\n        return total;\n    }\n\n    /** The files in dir whose names end in \".log\", sorted by name. */\n    List<Path> listLogs(Path dir) throws IOException {\n        try (Stream<Path> entries = openDir(dir)) {\n            return entries.filter(p -> p.getFileName().toString().endsWith(\".log\")).sorted().toList();\n        }\n    }\n\n    /** How many lines of this log contain \"ERROR\". */\n    long errorsIn(Path log) throws IOException {\n        try (Stream<String> lines = openLog(log)) {\n            return lines.filter(line -> line.contains(\"ERROR\")).count();\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.stream.Stream;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Path dir = Files.createTempDirectory(\"tryit-logs\");\n            try {\n                Files.write(dir.resolve(\"api.log\"), List.of(\"ERROR 502 from upstream\", \"INFO ok\", \"ERROR 502 from upstream\"));\n                Files.write(dir.resolve(\"auth.log\"), List.of(\"INFO login\", \"ERROR token expired\"));\n                Files.write(dir.resolve(\"readme.md\"), List.of(\"ERROR is just a word here\"));\n                Counting scanner = new Counting();\n                System.out.println(\"logs: \" + scanner.listLogs(dir).stream().map(Path::getFileName).toList());\n                System.out.println(\"errors today: \" + scanner.countErrors(dir));\n                System.out.println(\"opened: \" + scanner.opened);\n                System.out.println(\"still open after the scan: \" + scanner.open);\n            } finally {\n                try (Stream<Path> files = Files.list(dir)) {\n                    for (Path file : files.toList()) Files.delete(file);\n                }\n                Files.delete(dir);\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** Notes what the scanner opens, and what is still open. */\n    static class Counting extends LogScanner {\n        final List<String> opened = new ArrayList<>();\n        final List<String> open = new ArrayList<>();\n\n        @Override\n        Stream<Path> openDir(Path dir) throws IOException {\n            return watch(\"dir\", super.openDir(dir));\n        }\n\n        @Override\n        Stream<String> openLog(Path log) throws IOException {\n            return watch(log.getFileName().toString(), super.openLog(log));\n        }\n\n        private <T> Stream<T> watch(String name, Stream<T> stream) {\n            opened.add(name);\n            open.add(name);\n            return stream.onClose(() -> open.remove(name));\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,6 +76,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.stream.Stream;\n\n/**\n * Counts the lines that contain \"ERROR\" in every log of a directory. The support team runs it\n * every few minutes from a long-lived service.\n */\npublic class LogScanner {\n\n    /** Opens a directory listing. Always use this, never Files.list directly. */\n    Stream<Path> openDir(Path dir) throws IOException {\n        return Files.list(dir);\n    }\n\n    /** Opens the lines of one log. Always use this, never Files.lines directly. */\n    Stream<String> openLog(Path log) throws IOException {\n        return Files.lines(log);\n    }\n\n    /** How many lines of all the logs in dir contain \"ERROR\". */\n    public long countErrors(Path dir) throws IOException {\n        long total = 0;\n        for (Path log : listLogs(dir)) {\n            total += errorsIn(log);\n        }\n        return total;\n    }\n\n    /** The files in dir whose names end in \".log\", sorted by name. */\n    List<Path> listLogs(Path dir) throws IOException {\n        // TODO: List the directory through openDir and keep the \".log\" files, sorted by name.\n        //       This runs every few minutes for as long as the service is up.\n        throw new IllegalStateException(\"TODO: listLogs\");\n    }\n\n    /** How many lines of this log contain \"ERROR\". */\n    long errorsIn(Path log) throws IOException {\n        // TODO: Count this log's lines that contain \"ERROR\", reading it through openLog.\n        //       A log can fail halfway through reading; that failure goes to the caller.\n        throw new IllegalStateException(\"TODO: errorsIn\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.stream.Stream;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Path dir = Files.createTempDirectory(\"tryit-logs\");\n            try {\n                Files.write(dir.resolve(\"api.log\"), List.of(\"ERROR 502 from upstream\", \"INFO ok\", \"ERROR 502 from upstream\"));\n                Files.write(dir.resolve(\"auth.log\"), List.of(\"INFO login\", \"ERROR token expired\"));\n                Files.write(dir.resolve(\"readme.md\"), List.of(\"ERROR is just a word here\"));\n                Counting scanner = new Counting();\n                System.out.println(\"logs: \" + scanner.listLogs(dir).stream().map(Path::getFileName).toList());\n                System.out.println(\"errors today: \" + scanner.countErrors(dir));\n                System.out.println(\"opened: \" + scanner.opened);\n                System.out.println(\"still open after the scan: \" + scanner.open);\n            } finally {\n                try (Stream<Path> files = Files.list(dir)) {\n                    for (Path file : files.toList()) Files.delete(file);\n                }\n                Files.delete(dir);\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** Notes what the scanner opens, and what is still open. */\n    static class Counting extends LogScanner {\n        final List<String> opened = new ArrayList<>();\n        final List<String> open = new ArrayList<>();\n\n        @Override\n        Stream<Path> openDir(Path dir) throws IOException {\n            return watch(\"dir\", super.openDir(dir));\n        }\n\n        @Override\n        Stream<String> openLog(Path log) throws IOException {\n            return watch(log.getFileName().toString(), super.openLog(log));\n        }\n\n        private <T> Stream<T> watch(String name, Stream<T> stream) {\n            opened.add(name);\n            open.add(name);\n            return stream.onClose(() -> open.remove(name));\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +92,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,7 +103,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d4f7bd851d0f3683c6d212ddd28147f4037b33926a17e0f3944cba6d1fbdf856",
+  "content_sha256": "331079932b7202d149ce97a5b4e6c646050126d2646f0de238bbf1808c714ff7",
   "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.List;\nimport java.util.stream.Stream;\n\n/**\n * Counts the lines that contain \"ERROR\" in every log of a directory. The support team runs it\n * every few minutes from a long-lived service.\n */\npublic class LogScanner {\n\n    /** Opens a directory listing. Always use this, never Files.list directly. */\n    Stream<Path> openDir(Path dir) throws IOException {\n        return Files.list(dir);\n    }\n\n    /** Opens the lines of one log. Always use this, never Files.lines directly. */\n    Stream<String> openLog(Path log) throws IOException {\n        return Files.lines(log);\n    }\n\n    /** How many lines of all the logs in dir contain \"ERROR\". */\n    public long countErrors(Path dir) throws IOException {\n        long total = 0;\n        for (Path log : listLogs(dir)) {\n            total += errorsIn(log);\n        }\n        return total;\n    }\n\n    /** The files in dir whose names end in \".log\", sorted by name. */\n    List<Path> listLogs(Path dir) throws IOException {\n        // TODO: List the directory through openDir and keep the \".log\" files, sorted by name.\n        //       This runs every few minutes for as long as the service is up.\n        throw new IllegalStateException(\"TODO: listLogs\");\n    }\n\n    /** How many lines of this log contain \"ERROR\". */\n    long errorsIn(Path log) throws IOException {\n        // TODO: Count this log's lines that contain \"ERROR\", reading it through openLog.\n        //       A log can fail halfway through reading; that failure goes to the caller.\n        throw new IllegalStateException(\"TODO: errorsIn\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-02/practice-1/src/main/java/practice/LogScanner.java",
@@ -96,7 +114,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/16-streams-api/prose/unit-02/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -145,6 +164,10 @@
     },
     "concepts": [
       "A stream from Files.lines, Files.list or Files.walk keeps its file or directory open after the terminal operation, until close(); try-with-resources closes it even when reading fails."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/16-streams-api/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/16-streams-api/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
   }
 }

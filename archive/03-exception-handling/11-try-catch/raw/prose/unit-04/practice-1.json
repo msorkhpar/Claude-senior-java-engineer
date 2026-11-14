@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The writers one ingest run keeps open, one per partition. A writer is opened the first time a\n * row for its partition arrives, and stays open until the run is closed.\n */\npublic class PartitionWriters implements AutoCloseable {\n\n    /** Appends rows to one partition's file in the object store. */\n    public interface Writer extends AutoCloseable {\n        void write(String row) throws Exception;\n\n        @Override\n        void close() throws Exception;\n    }\n\n    /** Opens the writer for a partition. */\n    public interface Opener {\n        Writer open(String partition) throws Exception;\n    }\n\n    private final Opener opener;\n    private final Map<String, Writer> writers = new LinkedHashMap<>();\n\n    public PartitionWriters(Opener opener) {\n        this.opener = opener;\n    }\n\n    /** Appends a row to its partition, opening that partition's writer if this is its first row. */\n    public void write(String partition, String row) throws Exception {\n        Writer writer = writers.get(partition);\n        if (writer == null) {\n            writer = opener.open(partition);\n            writers.put(partition, writer);\n        }\n        writer.write(row);\n    }\n\n    /** The writers opened so far, in the order they were opened. */\n    List<Writer> opened() {\n        return new ArrayList<>(writers.values());\n    }\n\n    /** Ends the run: closes every writer it opened. */\n    @Override\n    public void close() throws Exception {\n        List<Writer> opened = opened();\n        Exception failure = null;\n        for (int i = opened.size() - 1; i >= 0; i--) {\n            try {\n                opened.get(i).close();\n            } catch (Exception e) {\n                if (failure == null) failure = e;\n                else failure.addSuppressed(e);\n            }\n        }\n        if (failure != null) throw failure;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> closed = new ArrayList<>();\n            Set<String> failing = Set.of(\"north/day-1\", \"south/day-1\");\n            PartitionWriters run = new PartitionWriters(partition -> new PartitionWriters.Writer() {\n                @Override public void write(String row) { }\n\n                @Override public void close() throws IOException {\n                    closed.add(partition);\n                    if (failing.contains(partition)) {\n                        throw new IOException(\"flush of \" + partition + \" failed\");\n                    }\n                }\n            });\n            run.write(\"north/day-1\", \"probe-2,4.5\");\n            run.write(\"east/day-1\", \"probe-8,6.25\");\n            run.write(\"north/day-1\", \"probe-3,4.0\");\n            run.write(\"south/day-1\", \"probe-11,9.75\");\n            try {\n                run.close();\n                System.out.println(\"run closed cleanly\");\n            } catch (IOException failed) {\n                System.out.println(\"thrown: \" + failed.getMessage());\n                for (Throwable other : failed.getSuppressed()) {\n                    System.out.println(\"suppressed: \" + other.getMessage());\n                }\n            }\n            System.out.println(\"closed, in order: \" + closed);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The writers one ingest run keeps open, one per partition. A writer is opened the first time a\n * row for its partition arrives, and stays open until the run is closed.\n */\npublic class PartitionWriters implements AutoCloseable {\n\n    /** Appends rows to one partition's file in the object store. */\n    public interface Writer extends AutoCloseable {\n        void write(String row) throws Exception;\n\n        @Override\n        void close() throws Exception;\n    }\n\n    /** Opens the writer for a partition. */\n    public interface Opener {\n        Writer open(String partition) throws Exception;\n    }\n\n    private final Opener opener;\n    private final Map<String, Writer> writers = new LinkedHashMap<>();\n\n    public PartitionWriters(Opener opener) {\n        this.opener = opener;\n    }\n\n    /** Appends a row to its partition, opening that partition's writer if this is its first row. */\n    public void write(String partition, String row) throws Exception {\n        Writer writer = writers.get(partition);\n        if (writer == null) {\n            writer = opener.open(partition);\n            writers.put(partition, writer);\n        }\n        writer.write(row);\n    }\n\n    /** The writers opened so far, in the order they were opened. */\n    List<Writer> opened() {\n        return new ArrayList<>(writers.values());\n    }\n\n    /** Ends the run: closes every writer it opened. */\n    @Override\n    public void close() throws Exception {\n        // TODO: Close every writer this run opened. The object store's writers can fail while\n        //       closing (the last flush happens there); whoever closes the run needs to learn\n        //       about it, with nothing left open and no failure lost.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<String> closed = new ArrayList<>();\n            Set<String> failing = Set.of(\"north/day-1\", \"south/day-1\");\n            PartitionWriters run = new PartitionWriters(partition -> new PartitionWriters.Writer() {\n                @Override public void write(String row) { }\n\n                @Override public void close() throws IOException {\n                    closed.add(partition);\n                    if (failing.contains(partition)) {\n                        throw new IOException(\"flush of \" + partition + \" failed\");\n                    }\n                }\n            });\n            run.write(\"north/day-1\", \"probe-2,4.5\");\n            run.write(\"east/day-1\", \"probe-8,6.25\");\n            run.write(\"north/day-1\", \"probe-3,4.0\");\n            run.write(\"south/day-1\", \"probe-11,9.75\");\n            try {\n                run.close();\n                System.out.println(\"run closed cleanly\");\n            } catch (IOException failed) {\n                System.out.println(\"thrown: \" + failed.getMessage());\n                for (Throwable other : failed.getSuppressed()) {\n                    System.out.println(\"suppressed: \" + other.getMessage());\n                }\n            }\n            System.out.println(\"closed, in order: \" + closed);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "52bdd4f03bffd4fcab945a5b165faeb33d00662d147c16f21e312e829d9cfe9a",
+  "content_sha256": "107d5e35a062e287ef6832feb16b556d5be0472090d942db7ee1ce4c45f2b025",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * The writers one ingest run keeps open, one per partition. A writer is opened the first time a\n * row for its partition arrives, and stays open until the run is closed.\n */\npublic class PartitionWriters implements AutoCloseable {\n\n    /** Appends rows to one partition's file in the object store. */\n    public interface Writer extends AutoCloseable {\n        void write(String row) throws Exception;\n\n        @Override\n        void close() throws Exception;\n    }\n\n    /** Opens the writer for a partition. */\n    public interface Opener {\n        Writer open(String partition) throws Exception;\n    }\n\n    private final Opener opener;\n    private final Map<String, Writer> writers = new LinkedHashMap<>();\n\n    public PartitionWriters(Opener opener) {\n        this.opener = opener;\n    }\n\n    /** Appends a row to its partition, opening that partition's writer if this is its first row. */\n    public void write(String partition, String row) throws Exception {\n        Writer writer = writers.get(partition);\n        if (writer == null) {\n            writer = opener.open(partition);\n            writers.put(partition, writer);\n        }\n        writer.write(row);\n    }\n\n    /** The writers opened so far, in the order they were opened. */\n    List<Writer> opened() {\n        return new ArrayList<>(writers.values());\n    }\n\n    /** Ends the run: closes every writer it opened. */\n    @Override\n    public void close() throws Exception {\n        // TODO: Close every writer this run opened. The object store's writers can fail while\n        //       closing (the last flush happens there); whoever closes the run needs to learn\n        //       about it, with nothing left open and no failure lost.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-1/src/main/java/practice/PartitionWriters.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -134,6 +153,10 @@
     "concepts": [
       "Code that closes several resources itself closes the newest first and keeps closing the others after one fails.",
       "When the body and a close() both throw, the body's exception is thrown and the close failure is attached to it as suppressed, where a close in finally would replace it."
-    ]
+    ],
+    "files": [
+      "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/03-exception-handling/11-try-catch/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
   }
 }

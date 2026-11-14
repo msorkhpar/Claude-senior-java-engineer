@@ -47,6 +47,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Admits work to the PDF render farm, which has a fixed number of renderers. Interactive previews\n * come from users looking at a screen; batch documents come from the nightly scheduler, which\n * retries anything refused a few minutes later.\n */\npublic class RenderAdmission {\n\n    private final Semaphore renderers;\n    private final long previewWaitMillis;\n\n    /** The renderers' semaphore must be fair: previews are served in the order they arrive. */\n    RenderAdmission(Semaphore renderers, long previewWaitMillis) {\n        this.renderers = renderers;\n        this.previewWaitMillis = previewWaitMillis;\n    }\n\n    public RenderAdmission(int renderers, long previewWaitMillis) {\n        this(new Semaphore(renderers, true), previewWaitMillis);\n    }\n\n    /** Renders a preview; false when no renderer could be had for it. */\n    public boolean preview(Runnable render) throws InterruptedException {\n        if (!admitPreview()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Renders a batch document; false when it was refused and the scheduler should retry. */\n    public boolean batch(Runnable render) throws InterruptedException {\n        if (!admitBatch()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Takes a renderer for a preview. True when one was taken. */\n    boolean admitPreview() throws InterruptedException {\n        return renderers.tryAcquire(previewWaitMillis, TimeUnit.MILLISECONDS);\n    }\n\n    /** Takes a renderer for a batch document. True when one was taken. */\n    boolean admitBatch() throws InterruptedException {\n        return renderers.tryAcquire(0, TimeUnit.SECONDS);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Semaphore renderers = new Semaphore(2, true);\n            RenderAdmission admission = new RenderAdmission(renderers, 200);\n            System.out.println(\"preview with free renderers: \" + admission.preview(() -> { }));\n            System.out.println(\"batch with free renderers: \" + admission.batch(() -> { }));\n            renderers.acquire(2);\n            try {\n                long started = System.nanoTime();\n                boolean batch = admission.batch(() -> { });\n                long batchMs = (System.nanoTime() - started) / 1_000_000;\n                System.out.println(\"batch while both renderers are busy: \" + batch + \", answered at once: \" + (batchMs < 100));\n                started = System.nanoTime();\n                boolean preview = admission.preview(() -> { });\n                long previewMs = (System.nanoTime() - started) / 1_000_000;\n                System.out.println(\"preview while both are busy: \" + preview + \", waited about 200 ms: \" + (previewMs >= 190 && previewMs < 1_000));\n            } finally {\n                renderers.release(2);\n            }\n            System.out.println(\"renderers free at the end: \" + renderers.availablePermits());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -59,6 +68,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Admits work to the PDF render farm, which has a fixed number of renderers. Interactive previews\n * come from users looking at a screen; batch documents come from the nightly scheduler, which\n * retries anything refused a few minutes later.\n */\npublic class RenderAdmission {\n\n    private final Semaphore renderers;\n    private final long previewWaitMillis;\n\n    /** The renderers' semaphore must be fair: previews are served in the order they arrive. */\n    RenderAdmission(Semaphore renderers, long previewWaitMillis) {\n        this.renderers = renderers;\n        this.previewWaitMillis = previewWaitMillis;\n    }\n\n    public RenderAdmission(int renderers, long previewWaitMillis) {\n        this(new Semaphore(renderers, true), previewWaitMillis);\n    }\n\n    /** Renders a preview; false when no renderer could be had for it. */\n    public boolean preview(Runnable render) throws InterruptedException {\n        if (!admitPreview()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Renders a batch document; false when it was refused and the scheduler should retry. */\n    public boolean batch(Runnable render) throws InterruptedException {\n        if (!admitBatch()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Takes a renderer for a preview. True when one was taken. */\n    boolean admitPreview() throws InterruptedException {\n        // TODO: A user is waiting for this preview. Give it a renderer if one is free, or comes\n        //       free within previewWaitMillis; after that, the user is better served by \"try again\".\n        throw new IllegalStateException(\"TODO: admitPreview\");\n    }\n\n    /** Takes a renderer for a batch document. True when one was taken. */\n    boolean admitBatch() throws InterruptedException {\n        // TODO: The scheduler will retry this document later, so it must never hold a thread here\n        //       waiting for a renderer, and it must never take a renderer a preview is queued for.\n        throw new IllegalStateException(\"TODO: admitBatch\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Semaphore renderers = new Semaphore(2, true);\n            RenderAdmission admission = new RenderAdmission(renderers, 200);\n            System.out.println(\"preview with free renderers: \" + admission.preview(() -> { }));\n            System.out.println(\"batch with free renderers: \" + admission.batch(() -> { }));\n            renderers.acquire(2);\n            try {\n                long started = System.nanoTime();\n                boolean batch = admission.batch(() -> { });\n                long batchMs = (System.nanoTime() - started) / 1_000_000;\n                System.out.println(\"batch while both renderers are busy: \" + batch + \", answered at once: \" + (batchMs < 100));\n                started = System.nanoTime();\n                boolean preview = admission.preview(() -> { });\n                long previewMs = (System.nanoTime() - started) / 1_000_000;\n                System.out.println(\"preview while both are busy: \" + preview + \", waited about 200 ms: \" + (previewMs >= 190 && previewMs < 1_000));\n            } finally {\n                renderers.release(2);\n            }\n            System.out.println(\"renderers free at the end: \" + renderers.availablePermits());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -66,8 +84,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -77,7 +95,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "efd5986c55fe10bc3caee248c9dcead86784c29a5ad3e432e7376cbbb4595c9d",
+  "content_sha256": "1483cb871844788d648d04ad8ce5867cd30adf1009e8457bc0d7c0367ad9b217",
   "starting_code": "package practice;\n\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Admits work to the PDF render farm, which has a fixed number of renderers. Interactive previews\n * come from users looking at a screen; batch documents come from the nightly scheduler, which\n * retries anything refused a few minutes later.\n */\npublic class RenderAdmission {\n\n    private final Semaphore renderers;\n    private final long previewWaitMillis;\n\n    /** The renderers' semaphore must be fair: previews are served in the order they arrive. */\n    RenderAdmission(Semaphore renderers, long previewWaitMillis) {\n        this.renderers = renderers;\n        this.previewWaitMillis = previewWaitMillis;\n    }\n\n    public RenderAdmission(int renderers, long previewWaitMillis) {\n        this(new Semaphore(renderers, true), previewWaitMillis);\n    }\n\n    /** Renders a preview; false when no renderer could be had for it. */\n    public boolean preview(Runnable render) throws InterruptedException {\n        if (!admitPreview()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Renders a batch document; false when it was refused and the scheduler should retry. */\n    public boolean batch(Runnable render) throws InterruptedException {\n        if (!admitBatch()) return false;\n        try {\n            render.run();\n            return true;\n        } finally {\n            renderers.release();\n        }\n    }\n\n    /** Takes a renderer for a preview. True when one was taken. */\n    boolean admitPreview() throws InterruptedException {\n        // TODO: A user is waiting for this preview. Give it a renderer if one is free, or comes\n        //       free within previewWaitMillis; after that, the user is better served by \"try again\".\n        throw new IllegalStateException(\"TODO: admitPreview\");\n    }\n\n    /** Takes a renderer for a batch document. True when one was taken. */\n    boolean admitBatch() throws InterruptedException {\n        // TODO: The scheduler will retry this document later, so it must never hold a thread here\n        //       waiting for a renderer, and it must never take a renderer a preview is queued for.\n        throw new IllegalStateException(\"TODO: admitBatch\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-2/src/main/java/practice/RenderAdmission.java",
@@ -88,7 +106,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -143,6 +162,10 @@
     "concepts": [
       "acquire() waits without bound, tryAcquire(timeout) waits a bounded time, tryAcquire() decides at once; checking availablePermits() before acquire() is a race.",
       "The untimed tryAcquire() takes a free permit even when threads are queued on a fair semaphore; tryAcquire(0, SECONDS) respects the queue."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-2/src/main/java/practice/TryIt.java"
   }
 }

@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\n\n/**\n * Finds the day's best-selling product: the one with the most units over all order lines. A busy\n * day has tens of millions of order lines, so the count runs on a ForkJoinPool.\n */\npublic class BestSeller {\n\n    /** A product and the units it sold. */\n    public record Top(long productId, long units) {}\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the count runs in\n     * @param threshold the most order lines one task counts by itself on its own thread\n     */\n    public BestSeller(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * The product with the most units sold, over every order line of the day. Order line i sold\n     * units[i] units of product productIds[i]; a product can appear on any number of lines. When\n     * two products sold the same number of units, the one with the smaller id wins. A day always\n     * has at least one order line.\n     */\n    public Top top(long[] productIds, int[] units) {\n        Map<Long, Long> sold = pool.invoke(new Count(productIds, units, 0, productIds.length));\n        Top best = null;\n        for (Map.Entry<Long, Long> e : sold.entrySet()) {\n            long id = e.getKey(), n = e.getValue();\n            if (best == null || n > best.units() || (n == best.units() && id < best.productId())) best = new Top(id, n);\n        }\n        return best;\n    }\n\n    /** Units sold per product on order lines from to to - 1. */\n    final class Count extends RecursiveTask<Map<Long, Long>> {\n        private final long[] productIds;\n        private final int[] units;\n        private final int from, to;\n\n        Count(long[] productIds, int[] units, int from, int to) {\n            this.productIds = productIds;\n            this.units = units;\n            this.from = from;\n            this.to = to;\n        }\n\n        @Override\n        protected Map<Long, Long> compute() {\n            if (to - from <= threshold) {\n                Map<Long, Long> sold = new HashMap<>();\n                for (int i = from; i < to; i++) sold.merge(productIds[i], (long) units[i], Long::sum);\n                return sold;\n            }\n            int mid = (from + to) >>> 1;\n            Count left = new Count(productIds, units, from, mid);\n            left.fork();\n            Map<Long, Long> sold = new Count(productIds, units, mid, to).compute();\n            left.join().forEach((id, n) -> sold.merge(id, n, Long::sum));\n            return sold;\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ForkJoinPool pool = new ForkJoinPool(3);\n            try {\n                BestSeller seller = new BestSeller(pool, 2);\n                long[] ids = {9_001, 9_002, 9_003, 9_002, 9_001, 9_003, 9_004};\n                int[] units = {5, 4, 2, 3, 2, 5, 6};\n                System.out.println(\"tie at 7 units: \" + seller.top(ids, units));\n                long[] spread = {7_310, 7_200, 7_420, 7_200, 7_530, 7_200, 7_640, 7_200};\n                int[] spreadUnits = {9, 4, 8, 4, 7, 4, 6, 4};\n                System.out.println(\"second on every line, first on the day: \" + seller.top(spread, spreadUnits));\n                System.out.println(\"one line: \" + seller.top(new long[] {4_444}, new int[] {12}));\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\n\n/**\n * Finds the day's best-selling product: the one with the most units over all order lines. A busy\n * day has tens of millions of order lines, so the count runs on a ForkJoinPool.\n */\npublic class BestSeller {\n\n    /** A product and the units it sold. */\n    public record Top(long productId, long units) {}\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the count runs in\n     * @param threshold the most order lines one task counts by itself on its own thread\n     */\n    public BestSeller(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * The product with the most units sold, over every order line of the day. Order line i sold\n     * units[i] units of product productIds[i]; a product can appear on any number of lines. When\n     * two products sold the same number of units, the one with the smaller id wins. A day always\n     * has at least one order line.\n     */\n    public Top top(long[] productIds, int[] units) {\n        // TODO: Count the day on the pool, with a RecursiveTask you write as a nested class here.\n        //       A task given up to `threshold` order lines counts them on its own thread; a longer\n        //       stretch is shared with the pool's other workers.\n        throw new IllegalStateException(\"TODO: top\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ForkJoinPool pool = new ForkJoinPool(3);\n            try {\n                BestSeller seller = new BestSeller(pool, 2);\n                long[] ids = {9_001, 9_002, 9_003, 9_002, 9_001, 9_003, 9_004};\n                int[] units = {5, 4, 2, 3, 2, 5, 6};\n                System.out.println(\"tie at 7 units: \" + seller.top(ids, units));\n                long[] spread = {7_310, 7_200, 7_420, 7_200, 7_530, 7_200, 7_640, 7_200};\n                int[] spreadUnits = {9, 4, 8, 4, 7, 4, 6, 4};\n                System.out.println(\"second on every line, first on the day: \" + seller.top(spread, spreadUnits));\n                System.out.println(\"one line: \" + seller.top(new long[] {4_444}, new int[] {12}));\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5fe0b5ab35a040106d5d1c432078a2a8a8c3a270be1170751fa1ba1c26167441",
+  "content_sha256": "403922558c6df9a60848bd3fbfccce8466620be2027fca4ef208ac8288f97729",
   "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\n\n/**\n * Finds the day's best-selling product: the one with the most units over all order lines. A busy\n * day has tens of millions of order lines, so the count runs on a ForkJoinPool.\n */\npublic class BestSeller {\n\n    /** A product and the units it sold. */\n    public record Top(long productId, long units) {}\n\n    private final ForkJoinPool pool;\n    private final int threshold;\n\n    /**\n     * @param pool      the pool the count runs in\n     * @param threshold the most order lines one task counts by itself on its own thread\n     */\n    public BestSeller(ForkJoinPool pool, int threshold) {\n        this.pool = pool;\n        this.threshold = threshold;\n    }\n\n    /**\n     * The product with the most units sold, over every order line of the day. Order line i sold\n     * units[i] units of product productIds[i]; a product can appear on any number of lines. When\n     * two products sold the same number of units, the one with the smaller id wins. A day always\n     * has at least one order line.\n     */\n    public Top top(long[] productIds, int[] units) {\n        // TODO: Count the day on the pool, with a RecursiveTask you write as a nested class here.\n        //       A task given up to `threshold` order lines counts them on its own thread; a longer\n        //       stretch is shared with the pool's other workers.\n        throw new IllegalStateException(\"TODO: top\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-2/src/main/java/practice/BestSeller.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -126,6 +145,10 @@
     },
     "concepts": [
       "The value a task returns must hold enough to combine with its sibling's so that any split gives the answer one task would: sets for a distinct count, sum and count for an average, every value's count for the most frequent one."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-2/src/main/java/practice/TryIt.java"
   }
 }

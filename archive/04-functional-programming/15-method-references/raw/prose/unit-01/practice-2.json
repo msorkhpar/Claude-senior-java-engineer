@@ -47,6 +47,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.function.IntSupplier;\nimport java.util.function.Supplier;\n\n/** Wires an API gateway's rate limiter and its nightly export to the gateway's settings. */\npublic class LimiterWiring {\n\n    public record Settings(int requestsPerSecond, String region) {}\n\n    /** The settings in force. An operator's reload replaces them with a new Settings object. */\n    public static final class SettingsHolder {\n        private volatile Settings current;\n\n        public Settings current() {\n            return current;\n        }\n\n        public void reload(Settings next) {\n            current = next;\n        }\n    }\n\n    /** Admits at most limit.getAsInt() requests per one-second window. */\n    public static final class RateLimiter {\n        private final IntSupplier limit;\n        private int admittedThisWindow;\n\n        RateLimiter(IntSupplier limit) {\n            this.limit = limit;\n        }\n\n        public synchronized boolean tryAdmit() {\n            if (admittedThisWindow >= limit.getAsInt()) return false;\n            admittedThisWindow++;\n            return true;\n        }\n\n        public synchronized void nextWindow() {\n            admittedThisWindow = 0;\n        }\n    }\n\n    /** Built once, when the gateway starts; possibly before the first settings are loaded. */\n    public static RateLimiter limiter(SettingsHolder holder) {\n        return new RateLimiter(liveLimit(holder));\n    }\n\n    /** Built when an export run starts; the run calls the supplier for every file header. */\n    public static Supplier<String> exportHeaderRegion(SettingsHolder holder) {\n        return regionAtStart(holder);\n    }\n\n    // The limit the rate limiter checks before every request. The limiter is built once, at\n    // startup, sometimes before the first settings are loaded, and must keep up with every\n    // reload after that.\n    static IntSupplier liveLimit(SettingsHolder holder) {\n        return () -> holder.current().requestsPerSecond();\n    }\n\n    // The region an export run writes into each file header. Every header of one run must name\n    // the region that was in force when the run started, even if an operator reloads mid-run.\n    static Supplier<String> regionAtStart(SettingsHolder holder) {\n        return holder.current()::region;\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.function.Supplier;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            LimiterWiring.SettingsHolder holder = new LimiterWiring.SettingsHolder();\n            LimiterWiring.RateLimiter limiter = LimiterWiring.limiter(holder);\n            holder.reload(new LimiterWiring.Settings(2, \"eu-west\"));\n            System.out.println(\"admitted of 6, limit 2: \" + admitted(limiter, 6));\n            holder.reload(new LimiterWiring.Settings(4, \"eu-west\"));\n            limiter.nextWindow();\n            System.out.println(\"admitted of 6 after reload to 4: \" + admitted(limiter, 6));\n            Supplier<String> region = LimiterWiring.exportHeaderRegion(holder);\n            System.out.println(\"header of file 1: \" + region.get());\n            holder.reload(new LimiterWiring.Settings(4, \"us-east\"));\n            System.out.println(\"header of file 2, after a reload: \" + region.get());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    private static int admitted(LimiterWiring.RateLimiter limiter, int attempts) {\n        int admitted = 0;\n        for (int i = 0; i < attempts; i++) {\n            if (limiter.tryAdmit()) admitted++;\n        }\n        return admitted;\n    }\n}\n"
         }
       ]
     },
@@ -59,6 +68,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.function.IntSupplier;\nimport java.util.function.Supplier;\n\n/** Wires an API gateway's rate limiter and its nightly export to the gateway's settings. */\npublic class LimiterWiring {\n\n    public record Settings(int requestsPerSecond, String region) {}\n\n    /** The settings in force. An operator's reload replaces them with a new Settings object. */\n    public static final class SettingsHolder {\n        private volatile Settings current;\n\n        public Settings current() {\n            return current;\n        }\n\n        public void reload(Settings next) {\n            current = next;\n        }\n    }\n\n    /** Admits at most limit.getAsInt() requests per one-second window. */\n    public static final class RateLimiter {\n        private final IntSupplier limit;\n        private int admittedThisWindow;\n\n        RateLimiter(IntSupplier limit) {\n            this.limit = limit;\n        }\n\n        public synchronized boolean tryAdmit() {\n            if (admittedThisWindow >= limit.getAsInt()) return false;\n            admittedThisWindow++;\n            return true;\n        }\n\n        public synchronized void nextWindow() {\n            admittedThisWindow = 0;\n        }\n    }\n\n    /** Built once, when the gateway starts; possibly before the first settings are loaded. */\n    public static RateLimiter limiter(SettingsHolder holder) {\n        return new RateLimiter(liveLimit(holder));\n    }\n\n    /** Built when an export run starts; the run calls the supplier for every file header. */\n    public static Supplier<String> exportHeaderRegion(SettingsHolder holder) {\n        return regionAtStart(holder);\n    }\n\n    // TODO: the limit the rate limiter checks before every request. The limiter is built once, at\n    // startup, sometimes before the first settings are loaded, and must keep up with every\n    // reload after that.\n    static IntSupplier liveLimit(SettingsHolder holder) {\n        throw new IllegalStateException(\"TODO: liveLimit\");\n    }\n\n    // TODO: the region an export run writes into each file header. Every header of one run must name\n    // the region that was in force when the run started, even if an operator reloads mid-run.\n    static Supplier<String> regionAtStart(SettingsHolder holder) {\n        throw new IllegalStateException(\"TODO: regionAtStart\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.function.Supplier;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            LimiterWiring.SettingsHolder holder = new LimiterWiring.SettingsHolder();\n            LimiterWiring.RateLimiter limiter = LimiterWiring.limiter(holder);\n            holder.reload(new LimiterWiring.Settings(2, \"eu-west\"));\n            System.out.println(\"admitted of 6, limit 2: \" + admitted(limiter, 6));\n            holder.reload(new LimiterWiring.Settings(4, \"eu-west\"));\n            limiter.nextWindow();\n            System.out.println(\"admitted of 6 after reload to 4: \" + admitted(limiter, 6));\n            Supplier<String> region = LimiterWiring.exportHeaderRegion(holder);\n            System.out.println(\"header of file 1: \" + region.get());\n            holder.reload(new LimiterWiring.Settings(4, \"us-east\"));\n            System.out.println(\"header of file 2, after a reload: \" + region.get());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    private static int admitted(LimiterWiring.RateLimiter limiter, int attempts) {\n        int admitted = 0;\n        for (int i = 0; i < attempts; i++) {\n            if (limiter.tryAdmit()) admitted++;\n        }\n        return admitted;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -66,8 +84,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 1,
+    "paras": 3,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -77,7 +95,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "98827649153bc90bfade4ae97eddaa2d32b2ba9de8be4d3b5ad3c390c0f2fd0c",
+  "content_sha256": "af7a83342370bb9e9787d803c82b14294656379cff24c511e3274f7966c28cba",
   "starting_code": "package practice;\n\nimport java.util.function.IntSupplier;\nimport java.util.function.Supplier;\n\n/** Wires an API gateway's rate limiter and its nightly export to the gateway's settings. */\npublic class LimiterWiring {\n\n    public record Settings(int requestsPerSecond, String region) {}\n\n    /** The settings in force. An operator's reload replaces them with a new Settings object. */\n    public static final class SettingsHolder {\n        private volatile Settings current;\n\n        public Settings current() {\n            return current;\n        }\n\n        public void reload(Settings next) {\n            current = next;\n        }\n    }\n\n    /** Admits at most limit.getAsInt() requests per one-second window. */\n    public static final class RateLimiter {\n        private final IntSupplier limit;\n        private int admittedThisWindow;\n\n        RateLimiter(IntSupplier limit) {\n            this.limit = limit;\n        }\n\n        public synchronized boolean tryAdmit() {\n            if (admittedThisWindow >= limit.getAsInt()) return false;\n            admittedThisWindow++;\n            return true;\n        }\n\n        public synchronized void nextWindow() {\n            admittedThisWindow = 0;\n        }\n    }\n\n    /** Built once, when the gateway starts; possibly before the first settings are loaded. */\n    public static RateLimiter limiter(SettingsHolder holder) {\n        return new RateLimiter(liveLimit(holder));\n    }\n\n    /** Built when an export run starts; the run calls the supplier for every file header. */\n    public static Supplier<String> exportHeaderRegion(SettingsHolder holder) {\n        return regionAtStart(holder);\n    }\n\n    // TODO: the limit the rate limiter checks before every request. The limiter is built once, at\n    // startup, sometimes before the first settings are loaded, and must keep up with every\n    // reload after that.\n    static IntSupplier liveLimit(SettingsHolder holder) {\n        throw new IllegalStateException(\"TODO: liveLimit\");\n    }\n\n    // TODO: the region an export run writes into each file header. Every header of one run must name\n    // the region that was in force when the run started, even if an operator reloads mid-run.\n    static Supplier<String> regionAtStart(SettingsHolder holder) {\n        throw new IllegalStateException(\"TODO: regionAtStart\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/15-method-references/prose/unit-01/practice-2/src/main/java/practice/LimiterWiring.java",
@@ -88,7 +106,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/15-method-references/prose/unit-01/practice-2/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -137,6 +156,10 @@
     },
     "concepts": [
       "A bound reference evaluates the expression before :: once, when the reference is created, while a lambda evaluates it on every call."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/15-method-references/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/15-method-references/prose/unit-01/practice-2/src/main/java/practice/TryIt.java"
   }
 }

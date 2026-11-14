@@ -54,6 +54,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.CompletionService;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorCompletionService;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The operations dashboard. Each panel runs its own query on the pool, and the screen shows a\n * panel as soon as its query has an answer.\n */\npublic class Dashboard {\n\n    /** Where panels appear. show() may be called from any thread. */\n    public interface Screen {\n        void show(String panel, String content);\n    }\n\n    private final ExecutorService pool;\n    private final Screen screen;\n\n    public Dashboard(ExecutorService pool, Screen screen) {\n        this.pool = pool;\n        this.screen = screen;\n    }\n\n    /**\n     * Runs every panel's query on the pool and shows each panel on the screen: its query's answer,\n     * or \"unavailable\" when the query failed. Returns once every panel is on the screen.\n     */\n    public void load(Map<String, Callable<String>> queries) throws InterruptedException {\n        CompletionService<String> answers = new ExecutorCompletionService<>(pool);\n        Map<Future<String>, String> panelOf = new HashMap<>();\n        for (Map.Entry<String, Callable<String>> q : queries.entrySet()) {\n            panelOf.put(answers.submit(q.getValue()), q.getKey());\n        }\n        for (int i = 0; i < panelOf.size(); i++) {\n            Future<String> answered = answers.take();\n            try {\n                screen.show(panelOf.get(answered), answered.get());\n            } catch (ExecutionException e) {\n                screen.show(panelOf.get(answered), \"unavailable\");\n            }\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.sql.SQLTimeoutException;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ExecutorService pool = Executors.newFixedThreadPool(3);\n            try {\n                Map<String, Callable<String>> queries = new LinkedHashMap<>();\n                queries.put(\"weekly-revenue\", () -> { Thread.sleep(400); return \"2.7M\"; });\n                queries.put(\"cache-hit-rate\", () -> { Thread.sleep(150); throw new SQLTimeoutException(\"metrics replica busy\"); });\n                queries.put(\"error-rate\", () -> \"1.1%\");\n                long start = System.nanoTime();\n                Dashboard.Screen screen = (panel, content) -> System.out.println(\n                        \"shown after \" + ((System.nanoTime() - start) / 100_000_000) * 100 + \"+ ms: \" + panel + \" = \" + content);\n                new Dashboard(pool, screen).load(queries);\n                System.out.println(\"load returned\");\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -66,6 +75,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\n\n/**\n * The operations dashboard. Each panel runs its own query on the pool, and the screen shows a\n * panel as soon as its query has an answer.\n */\npublic class Dashboard {\n\n    /** Where panels appear. show() may be called from any thread. */\n    public interface Screen {\n        void show(String panel, String content);\n    }\n\n    private final ExecutorService pool;\n    private final Screen screen;\n\n    public Dashboard(ExecutorService pool, Screen screen) {\n        this.pool = pool;\n        this.screen = screen;\n    }\n\n    /**\n     * Runs every panel's query on the pool and shows each panel on the screen: its query's answer,\n     * or \"unavailable\" when the query failed. Returns once every panel is on the screen.\n     */\n    public void load(Map<String, Callable<String>> queries) throws InterruptedException {\n        // TODO: Run the queries on the pool and put each panel on the screen as described above.\n        //       The panels of quick queries must not wait for the slow ones.\n        throw new IllegalStateException(\"TODO: load\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.sql.SQLTimeoutException;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ExecutorService pool = Executors.newFixedThreadPool(3);\n            try {\n                Map<String, Callable<String>> queries = new LinkedHashMap<>();\n                queries.put(\"weekly-revenue\", () -> { Thread.sleep(400); return \"2.7M\"; });\n                queries.put(\"cache-hit-rate\", () -> { Thread.sleep(150); throw new SQLTimeoutException(\"metrics replica busy\"); });\n                queries.put(\"error-rate\", () -> \"1.1%\");\n                long start = System.nanoTime();\n                Dashboard.Screen screen = (panel, content) -> System.out.println(\n                        \"shown after \" + ((System.nanoTime() - start) / 100_000_000) * 100 + \"+ ms: \" + panel + \" = \" + content);\n                new Dashboard(pool, screen).load(queries);\n                System.out.println(\"load returned\");\n            } finally {\n                pool.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -73,8 +91,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -84,7 +102,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "996ae3a60ed840b0c6731b70b2dc0973b343df5c6f122930608c21f15e2c1fde",
+  "content_sha256": "02b339df5a811dca850b4c2b0a6497cdd584aef50c1d53178042a82e25d18943",
   "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\n\n/**\n * The operations dashboard. Each panel runs its own query on the pool, and the screen shows a\n * panel as soon as its query has an answer.\n */\npublic class Dashboard {\n\n    /** Where panels appear. show() may be called from any thread. */\n    public interface Screen {\n        void show(String panel, String content);\n    }\n\n    private final ExecutorService pool;\n    private final Screen screen;\n\n    public Dashboard(ExecutorService pool, Screen screen) {\n        this.pool = pool;\n        this.screen = screen;\n    }\n\n    /**\n     * Runs every panel's query on the pool and shows each panel on the screen: its query's answer,\n     * or \"unavailable\" when the query failed. Returns once every panel is on the screen.\n     */\n    public void load(Map<String, Callable<String>> queries) throws InterruptedException {\n        // TODO: Run the queries on the pool and put each panel on the screen as described above.\n        //       The panels of quick queries must not wait for the slow ones.\n        throw new IllegalStateException(\"TODO: load\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-3/src/main/java/practice/Dashboard.java",
@@ -95,7 +113,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -134,6 +153,10 @@
     },
     "concepts": [
       "Reading futures in submission order waits for the slowest first; a CompletionService hands each future back as its task completes."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
   }
 }

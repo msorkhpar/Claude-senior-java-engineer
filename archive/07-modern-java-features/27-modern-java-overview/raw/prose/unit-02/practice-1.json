@@ -48,6 +48,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeMap;\nimport java.util.stream.Collectors;\n\n/**\n * The rules the sign-up endpoint checks before it creates an account. Domains are blocked while\n * the service runs; the audit export and the status page read the rules from other threads.\n */\npublic class SignupRules {\n\n    private final Set<String> reserved;\n    private final List<String> blockedDomains = new ArrayList<>();\n\n    /** @param reserved user names no customer may register, built once at startup */\n    public SignupRules(Set<String> reserved) {\n        this.reserved = Set.copyOf(reserved);\n    }\n\n    public synchronized void block(String domain) {\n        blockedDomains.add(domain);\n    }\n\n    public synchronized boolean isBlocked(String domain) {\n        return blockedDomains.contains(domain);\n    }\n\n    /**\n     * True when no customer may register {@code username}. The sign-up form may arrive without\n     * the field, and then {@code username} is null.\n     */\n    boolean isReserved(String username) {\n        return username != null && reserved.contains(username);\n    }\n\n    /**\n     * The blocked domains for the nightly audit export. The export takes its time writing them\n     * out while new blocks keep arriving, and it must write the list as it was when it asked.\n     */\n    synchronized List<String> blockedDomains() {\n        return List.copyOf(blockedDomains);\n    }\n\n    /**\n     * The limits as one \"name=value\" line per limit, joined with \"\\n\", for the status page.\n     * Monitoring compares the page after every restart with the one before it.\n     */\n    static String limitsReport(Map<String, Integer> limits) {\n        return new TreeMap<>(limits).entrySet().stream()\n                .map(limit -> limit.getKey() + \"=\" + limit.getValue())\n                .collect(Collectors.joining(\"\\n\"));\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SignupRules rules = new SignupRules(Set.of(\"admin\", \"support\", \"root\"));\n            System.out.println(\"'support' reserved: \" + rules.isReserved(\"support\"));\n            System.out.println(\"'sam.lee' reserved: \" + rules.isReserved(\"sam.lee\"));\n            System.out.println(\"no username field reserved: \" + rules.isReserved(null));\n            rules.block(\"spamhole.example\");\n            rules.block(\"burner.example\");\n            List<String> export = rules.blockedDomains();\n            rules.block(\"fakemail.example\");\n            System.out.println(\"export holds: \" + export);\n            System.out.println(\"report:\\n\" + SignupRules.limitsReport(Map.of(\"seats-max\", 10, \"api-keys\", 2, \"webhooks\", 5, \"domains\", 1)));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -60,6 +69,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The rules the sign-up endpoint checks before it creates an account. Domains are blocked while\n * the service runs; the audit export and the status page read the rules from other threads.\n */\npublic class SignupRules {\n\n    private final Set<String> reserved;\n    private final List<String> blockedDomains = new ArrayList<>();\n\n    /** @param reserved user names no customer may register, built once at startup */\n    public SignupRules(Set<String> reserved) {\n        this.reserved = Set.copyOf(reserved);\n    }\n\n    public synchronized void block(String domain) {\n        blockedDomains.add(domain);\n    }\n\n    public synchronized boolean isBlocked(String domain) {\n        return blockedDomains.contains(domain);\n    }\n\n    /**\n     * True when no customer may register {@code username}. The sign-up form may arrive without\n     * the field, and then {@code username} is null.\n     */\n    boolean isReserved(String username) {\n        // TODO: Answer from the reserved names given at startup. A request without the field\n        //       is not a reserved name; it is rejected later, by the form validation.\n        throw new IllegalStateException(\"TODO: isReserved\");\n    }\n\n    /**\n     * The blocked domains for the nightly audit export. The export takes its time writing them\n     * out while new blocks keep arriving, and it must write the list as it was when it asked.\n     */\n    synchronized List<String> blockedDomains() {\n        // TODO: Hand the export the blocked domains, in the order they were blocked. Blocks made\n        //       after this call must not show up in what the export writes, and the export must\n        //       not be able to change the rules through what it gets.\n        throw new IllegalStateException(\"TODO: blockedDomains\");\n    }\n\n    /**\n     * The limits as one \"name=value\" line per limit, joined with \"\\n\", for the status page.\n     * Monitoring compares the page after every restart with the one before it.\n     */\n    static String limitsReport(Map<String, Integer> limits) {\n        // TODO: One \"name=value\" line per limit, ordered by name, so that the same limits give\n        //       the same page after every restart.\n        throw new IllegalStateException(\"TODO: limitsReport\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SignupRules rules = new SignupRules(Set.of(\"admin\", \"support\", \"root\"));\n            System.out.println(\"'support' reserved: \" + rules.isReserved(\"support\"));\n            System.out.println(\"'sam.lee' reserved: \" + rules.isReserved(\"sam.lee\"));\n            System.out.println(\"no username field reserved: \" + rules.isReserved(null));\n            rules.block(\"spamhole.example\");\n            rules.block(\"burner.example\");\n            List<String> export = rules.blockedDomains();\n            rules.block(\"fakemail.example\");\n            System.out.println(\"export holds: \" + export);\n            System.out.println(\"report:\\n\" + SignupRules.limitsReport(Map.of(\"seats-max\", 10, \"api-keys\", 2, \"webhooks\", 5, \"domains\", 1)));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -67,8 +85,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 1,
+    "paras": 3,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -78,7 +96,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7170702ca8c24e220f950497a1231ed3aedcfeff77235703a190b750f6d66e3b",
+  "content_sha256": "13229b04ad8669c2499205455af8cebf91b65d8490947471ed2c256f2074b81d",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The rules the sign-up endpoint checks before it creates an account. Domains are blocked while\n * the service runs; the audit export and the status page read the rules from other threads.\n */\npublic class SignupRules {\n\n    private final Set<String> reserved;\n    private final List<String> blockedDomains = new ArrayList<>();\n\n    /** @param reserved user names no customer may register, built once at startup */\n    public SignupRules(Set<String> reserved) {\n        this.reserved = Set.copyOf(reserved);\n    }\n\n    public synchronized void block(String domain) {\n        blockedDomains.add(domain);\n    }\n\n    public synchronized boolean isBlocked(String domain) {\n        return blockedDomains.contains(domain);\n    }\n\n    /**\n     * True when no customer may register {@code username}. The sign-up form may arrive without\n     * the field, and then {@code username} is null.\n     */\n    boolean isReserved(String username) {\n        // TODO: Answer from the reserved names given at startup. A request without the field\n        //       is not a reserved name; it is rejected later, by the form validation.\n        throw new IllegalStateException(\"TODO: isReserved\");\n    }\n\n    /**\n     * The blocked domains for the nightly audit export. The export takes its time writing them\n     * out while new blocks keep arriving, and it must write the list as it was when it asked.\n     */\n    synchronized List<String> blockedDomains() {\n        // TODO: Hand the export the blocked domains, in the order they were blocked. Blocks made\n        //       after this call must not show up in what the export writes, and the export must\n        //       not be able to change the rules through what it gets.\n        throw new IllegalStateException(\"TODO: blockedDomains\");\n    }\n\n    /**\n     * The limits as one \"name=value\" line per limit, joined with \"\\n\", for the status page.\n     * Monitoring compares the page after every restart with the one before it.\n     */\n    static String limitsReport(Map<String, Integer> limits) {\n        // TODO: One \"name=value\" line per limit, ordered by name, so that the same limits give\n        //       the same page after every restart.\n        throw new IllegalStateException(\"TODO: limitsReport\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-1/src/main/java/practice/SignupRules.java",
@@ -89,7 +107,8 @@
       "-q",
       "-f",
       "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -145,6 +164,10 @@
       "List.copyOf takes a snapshot; Collections.unmodifiableList is a view that shows later changes to the list behind it.",
       "Collections from Set.of, List.of and Map.of throw NullPointerException on contains(null) or get(null), where HashSet answers false.",
       "Map.of and Set.of iteration order is unspecified and changes between JVM starts."
-    ]
+    ],
+    "files": [
+      "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
   }
 }

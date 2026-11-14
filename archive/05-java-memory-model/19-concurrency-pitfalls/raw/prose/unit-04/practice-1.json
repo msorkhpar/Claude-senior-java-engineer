@@ -59,6 +59,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.Executor;\n\n/**\n * The quoting desk. Its book of rates is not thread-safe and belongs to the desk's own thread:\n * every call into the book runs there, and nothing else synchronizes it. Quotes come from the\n * market-data adapters as futures, completed later on an adapter's thread, or already complete\n * when the adapter had the rate cached.\n */\npublic class FxDesk {\n\n    /** The desk's book of rates. Not thread-safe. */\n    public interface Book {\n        void apply(String pair, long micros);\n\n        /** The pair's rate in millionths, or null if it was never quoted. */\n        Long rate(String pair);\n    }\n\n    private final Executor deskThread;\n    private final Book book;\n\n    public FxDesk(Executor deskThread, Book book) {\n        this.deskThread = deskThread;\n        this.book = book;\n    }\n\n    /** Puts the quote into the book once it has arrived. Returns at once. */\n    public void onQuote(String pair, CompletableFuture<Long> quote) {\n        quote.thenAcceptAsync(micros -> book.apply(pair, micros), deskThread);\n    }\n\n    /** The book's current rate for the pair (null if never quoted), once the book has answered. */\n    public CompletableFuture<Long> rate(String pair) {\n        return CompletableFuture.supplyAsync(() -> book.rate(pair), deskThread);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ExecutorService desk = Executors.newSingleThreadExecutor(r -> new Thread(r, \"desk-loop\"));\n            try {\n                ThreadNamingBook book = new ThreadNamingBook();\n                FxDesk fx = new FxDesk(desk, book);\n                fx.onQuote(\"EUR/USD\", CompletableFuture.completedFuture(1_084_500L));\n                CompletableFuture<Long> later = new CompletableFuture<>();\n                fx.onQuote(\"USD/SEK\", later);\n                Thread adapter = new Thread(() -> later.complete(10_512_300L), \"adapter-3\");\n                adapter.start();\n                adapter.join(5_000);\n                System.out.println(\"EUR/USD: \" + fx.rate(\"EUR/USD\").get(5, TimeUnit.SECONDS));\n                System.out.println(\"USD/SEK: \" + fx.rate(\"USD/SEK\").get(5, TimeUnit.SECONDS));\n                System.out.println(\"GBP/PLN: \" + fx.rate(\"GBP/PLN\").get(5, TimeUnit.SECONDS));\n                book.calls.forEach(c -> System.out.println(\"book call: \" + c));\n            } finally {\n                desk.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static final class ThreadNamingBook implements FxDesk.Book {\n        final Map<String, Long> rates = new HashMap<>();\n        final List<String> calls = Collections.synchronizedList(new ArrayList<>());\n        @Override public void apply(String pair, long micros) {\n            calls.add(\"apply \" + pair + \" on \" + Thread.currentThread().getName());\n            rates.put(pair, micros);\n        }\n        @Override public Long rate(String pair) {\n            calls.add(\"rate \" + pair + \" on \" + Thread.currentThread().getName());\n            return rates.get(pair);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -71,6 +80,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.Executor;\n\n/**\n * The quoting desk. Its book of rates is not thread-safe and belongs to the desk's own thread:\n * every call into the book runs there, and nothing else synchronizes it. Quotes come from the\n * market-data adapters as futures, completed later on an adapter's thread, or already complete\n * when the adapter had the rate cached.\n */\npublic class FxDesk {\n\n    /** The desk's book of rates. Not thread-safe. */\n    public interface Book {\n        void apply(String pair, long micros);\n\n        /** The pair's rate in millionths, or null if it was never quoted. */\n        Long rate(String pair);\n    }\n\n    private final Executor deskThread;\n    private final Book book;\n\n    public FxDesk(Executor deskThread, Book book) {\n        this.deskThread = deskThread;\n        this.book = book;\n    }\n\n    /** Puts the quote into the book once it has arrived. Returns at once. */\n    public void onQuote(String pair, CompletableFuture<Long> quote) {\n        // TODO: Once the quote has arrived, apply it to the book. The book belongs to the desk's\n        //       thread, whether the quote is already here or arrives later on an adapter's thread.\n        throw new IllegalStateException(\"TODO: onQuote\");\n    }\n\n    /** The book's current rate for the pair (null if never quoted), once the book has answered. */\n    public CompletableFuture<Long> rate(String pair) {\n        // TODO: Answer from the book. The book belongs to the desk's thread, whoever asks.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            ExecutorService desk = Executors.newSingleThreadExecutor(r -> new Thread(r, \"desk-loop\"));\n            try {\n                ThreadNamingBook book = new ThreadNamingBook();\n                FxDesk fx = new FxDesk(desk, book);\n                fx.onQuote(\"EUR/USD\", CompletableFuture.completedFuture(1_084_500L));\n                CompletableFuture<Long> later = new CompletableFuture<>();\n                fx.onQuote(\"USD/SEK\", later);\n                Thread adapter = new Thread(() -> later.complete(10_512_300L), \"adapter-3\");\n                adapter.start();\n                adapter.join(5_000);\n                System.out.println(\"EUR/USD: \" + fx.rate(\"EUR/USD\").get(5, TimeUnit.SECONDS));\n                System.out.println(\"USD/SEK: \" + fx.rate(\"USD/SEK\").get(5, TimeUnit.SECONDS));\n                System.out.println(\"GBP/PLN: \" + fx.rate(\"GBP/PLN\").get(5, TimeUnit.SECONDS));\n                book.calls.forEach(c -> System.out.println(\"book call: \" + c));\n            } finally {\n                desk.shutdownNow();\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    static final class ThreadNamingBook implements FxDesk.Book {\n        final Map<String, Long> rates = new HashMap<>();\n        final List<String> calls = Collections.synchronizedList(new ArrayList<>());\n        @Override public void apply(String pair, long micros) {\n            calls.add(\"apply \" + pair + \" on \" + Thread.currentThread().getName());\n            rates.put(pair, micros);\n        }\n        @Override public Long rate(String pair) {\n            calls.add(\"rate \" + pair + \" on \" + Thread.currentThread().getName());\n            return rates.get(pair);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -78,8 +96,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 5,
-    "code": 1,
+    "paras": 6,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -89,7 +107,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "982f78fb5049aae6b2bccda37fd0bd42584b6b28556c98635fa0739f7d215b06",
+  "content_sha256": "a4d857e235a36f39aa1d8eddf9d65b091584384fd379c0b7e5c0a3d5b5442d37",
   "starting_code": "package practice;\n\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.Executor;\n\n/**\n * The quoting desk. Its book of rates is not thread-safe and belongs to the desk's own thread:\n * every call into the book runs there, and nothing else synchronizes it. Quotes come from the\n * market-data adapters as futures, completed later on an adapter's thread, or already complete\n * when the adapter had the rate cached.\n */\npublic class FxDesk {\n\n    /** The desk's book of rates. Not thread-safe. */\n    public interface Book {\n        void apply(String pair, long micros);\n\n        /** The pair's rate in millionths, or null if it was never quoted. */\n        Long rate(String pair);\n    }\n\n    private final Executor deskThread;\n    private final Book book;\n\n    public FxDesk(Executor deskThread, Book book) {\n        this.deskThread = deskThread;\n        this.book = book;\n    }\n\n    /** Puts the quote into the book once it has arrived. Returns at once. */\n    public void onQuote(String pair, CompletableFuture<Long> quote) {\n        // TODO: Once the quote has arrived, apply it to the book. The book belongs to the desk's\n        //       thread, whether the quote is already here or arrives later on an adapter's thread.\n        throw new IllegalStateException(\"TODO: onQuote\");\n    }\n\n    /** The book's current rate for the pair (null if never quoted), once the book has answered. */\n    public CompletableFuture<Long> rate(String pair) {\n        // TODO: Answer from the book. The book belongs to the desk's thread, whoever asks.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/main/java/practice/FxDesk.java",
@@ -100,7 +118,8 @@
       "-q",
       "-f",
       "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -155,6 +174,10 @@
     "concepts": [
       "A callback attached with a non-async method runs on the thread that completes the future, or at once on the attaching thread when the future is already complete, so state confined to an owner thread must be handed back through the owner's executor.",
       "Reads of confined state run on the owner thread too, not only writes."
-    ]
+    ],
+    "files": [
+      "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
   }
 }

@@ -56,6 +56,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\n/**\n * Counts latency samples per time window for canary analysis. Each sample is stamped with its\n * offset in milliseconds from the moment the rollout started, so a sample taken before the\n * rollout has a negative offset. Counts for recent windows live in a ring of slots.\n */\npublic class SampleWindows {\n\n    private final long windowMs;\n    private final long slowMs;\n    private final long[] total;\n    private final long[] slow;\n\n    public SampleWindows(long windowMs, int slots, long slowMs) {\n        this.windowMs = windowMs;\n        this.slowMs = slowMs;\n        this.total = new long[slots];\n        this.slow = new long[slots];\n    }\n\n    /** Records one sample taken {@code offsetMs} after the rollout started (negative: before). */\n    public void record(long offsetMs, long latencyMs) {\n        int s = slot(window(offsetMs));\n        total[s]++;\n        if (latencyMs >= slowMs) slow[s]++;\n    }\n\n    /** The percentage of slow samples in a window, or -1 if it has no samples. */\n    public int slowPercentOf(long window) {\n        int s = slot(window);\n        return total[s] == 0 ? -1 : slowPercent(slow[s], total[s]);\n    }\n\n    /**\n     * The window a sample falls in. Window 0 holds offsets 0 to windowMs - 1, window 1 the next\n     * windowMs milliseconds, and window -1 the windowMs milliseconds just before the rollout.\n     */\n    long window(long offsetMs) {\n        return Math.floorDiv(offsetMs, windowMs);\n    }\n\n    /**\n     * The slot that holds a window's counts: always 0 to slots - 1, and consecutive windows,\n     * on either side of the rollout, use consecutive slots, wrapping around at the end.\n     */\n    int slot(long window) {\n        return (int) Math.floorMod(window, (long) total.length);\n    }\n\n    /** The percentage of {@code slow} in {@code total}, rounded down; total is positive. */\n    static int slowPercent(long slow, long total) {\n        return (int) (slow * 100 / total);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SampleWindows windows = new SampleWindows(1_000, 4, 500);\n            System.out.println(\"window of -1 ms: \" + windows.window(-1));\n            System.out.println(\"slot of window -1: \" + windows.slot(-1));\n            windows.record(-300, 700);\n            windows.record(100, 650);\n            windows.record(400, 120);\n            windows.record(900, 80);\n            System.out.println(\"slow % before rollout (window -1): \" + windows.slowPercentOf(-1));\n            System.out.println(\"slow % first window (window 0): \" + windows.slowPercentOf(0));\n            System.out.println(\"slow % of 2 in 3: \" + SampleWindows.slowPercent(2, 3));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -68,6 +77,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\n/**\n * Counts latency samples per time window for canary analysis. Each sample is stamped with its\n * offset in milliseconds from the moment the rollout started, so a sample taken before the\n * rollout has a negative offset. Counts for recent windows live in a ring of slots.\n */\npublic class SampleWindows {\n\n    private final long windowMs;\n    private final long slowMs;\n    private final long[] total;\n    private final long[] slow;\n\n    public SampleWindows(long windowMs, int slots, long slowMs) {\n        this.windowMs = windowMs;\n        this.slowMs = slowMs;\n        this.total = new long[slots];\n        this.slow = new long[slots];\n    }\n\n    /** Records one sample taken {@code offsetMs} after the rollout started (negative: before). */\n    public void record(long offsetMs, long latencyMs) {\n        int s = slot(window(offsetMs));\n        total[s]++;\n        if (latencyMs >= slowMs) slow[s]++;\n    }\n\n    /** The percentage of slow samples in a window, or -1 if it has no samples. */\n    public int slowPercentOf(long window) {\n        int s = slot(window);\n        return total[s] == 0 ? -1 : slowPercent(slow[s], total[s]);\n    }\n\n    /**\n     * The window a sample falls in. Window 0 holds offsets 0 to windowMs - 1, window 1 the next\n     * windowMs milliseconds, and window -1 the windowMs milliseconds just before the rollout.\n     */\n    long window(long offsetMs) {\n        // TODO: Samples from just before the rollout must not be counted as the rollout's own.\n        throw new IllegalStateException(\"TODO: window\");\n    }\n\n    /**\n     * The slot that holds a window's counts: always 0 to slots - 1, and consecutive windows,\n     * on either side of the rollout, use consecutive slots, wrapping around at the end.\n     */\n    int slot(long window) {\n        // TODO: Windows before the rollout need a slot too.\n        throw new IllegalStateException(\"TODO: slot\");\n    }\n\n    /** The percentage of {@code slow} in {@code total}, rounded down; total is positive. */\n    static int slowPercent(long slow, long total) {\n        // TODO: The dashboard shows this percentage rounded down to a whole number.\n        throw new IllegalStateException(\"TODO: slowPercent\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            SampleWindows windows = new SampleWindows(1_000, 4, 500);\n            System.out.println(\"window of -1 ms: \" + windows.window(-1));\n            System.out.println(\"slot of window -1: \" + windows.slot(-1));\n            windows.record(-300, 700);\n            windows.record(100, 650);\n            windows.record(400, 120);\n            windows.record(900, 80);\n            System.out.println(\"slow % before rollout (window -1): \" + windows.slowPercentOf(-1));\n            System.out.println(\"slow % first window (window 0): \" + windows.slowPercentOf(0));\n            System.out.println(\"slow % of 2 in 3: \" + SampleWindows.slowPercent(2, 3));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -75,8 +93,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 1,
+    "paras": 5,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -86,7 +104,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "66c89d6a3af6cd93d219941644590eca2c1dfa7dd9f536226c8b87d882dca54b",
+  "content_sha256": "edb95cfac0db5d57276e069b86867d6fe0d618811b30ae851cf442f6afab0fe8",
   "starting_code": "package practice;\n\n/**\n * Counts latency samples per time window for canary analysis. Each sample is stamped with its\n * offset in milliseconds from the moment the rollout started, so a sample taken before the\n * rollout has a negative offset. Counts for recent windows live in a ring of slots.\n */\npublic class SampleWindows {\n\n    private final long windowMs;\n    private final long slowMs;\n    private final long[] total;\n    private final long[] slow;\n\n    public SampleWindows(long windowMs, int slots, long slowMs) {\n        this.windowMs = windowMs;\n        this.slowMs = slowMs;\n        this.total = new long[slots];\n        this.slow = new long[slots];\n    }\n\n    /** Records one sample taken {@code offsetMs} after the rollout started (negative: before). */\n    public void record(long offsetMs, long latencyMs) {\n        int s = slot(window(offsetMs));\n        total[s]++;\n        if (latencyMs >= slowMs) slow[s]++;\n    }\n\n    /** The percentage of slow samples in a window, or -1 if it has no samples. */\n    public int slowPercentOf(long window) {\n        int s = slot(window);\n        return total[s] == 0 ? -1 : slowPercent(slow[s], total[s]);\n    }\n\n    /**\n     * The window a sample falls in. Window 0 holds offsets 0 to windowMs - 1, window 1 the next\n     * windowMs milliseconds, and window -1 the windowMs milliseconds just before the rollout.\n     */\n    long window(long offsetMs) {\n        // TODO: Samples from just before the rollout must not be counted as the rollout's own.\n        throw new IllegalStateException(\"TODO: window\");\n    }\n\n    /**\n     * The slot that holds a window's counts: always 0 to slots - 1, and consecutive windows,\n     * on either side of the rollout, use consecutive slots, wrapping around at the end.\n     */\n    int slot(long window) {\n        // TODO: Windows before the rollout need a slot too.\n        throw new IllegalStateException(\"TODO: slot\");\n    }\n\n    /** The percentage of {@code slow} in {@code total}, rounded down; total is positive. */\n    static int slowPercent(long slow, long total) {\n        // TODO: The dashboard shows this percentage rounded down to a whole number.\n        throw new IllegalStateException(\"TODO: slowPercent\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/01-java-fundamentals/01-java-basics/prose/unit-04/practice-1/src/main/java/practice/SampleWindows.java",
@@ -97,7 +115,8 @@
       "-q",
       "-f",
       "practice/01-java-fundamentals/01-java-basics/prose/unit-04/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -143,6 +162,10 @@
       "Integer / discards the fraction, so a percentage computed as part / whole * 100 is 0 until part reaches whole; multiplying first keeps it.",
       "% takes the sign of the dividend, so a negative left operand gives a negative remainder and a negative index; Math.floorMod takes the divisor's sign.",
       "Integer / rounds toward zero, so a small negative offset falls in the same bucket as a small positive one; Math.floorDiv rounds toward negative infinity."
-    ]
+    ],
+    "files": [
+      "practice/01-java-fundamentals/01-java-basics/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/01-java-fundamentals/01-java-basics/prose/unit-04/practice-1/src/main/java/practice/TryIt.java"
   }
 }

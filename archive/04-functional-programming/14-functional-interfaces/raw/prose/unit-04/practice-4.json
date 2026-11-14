@@ -52,6 +52,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.function.Predicate;\n\n/** The issue tracker's search form. */\npublic class IssueSearch {\n\n    public enum Priority { LOW, MEDIUM, HIGH, URGENT }\n\n    public record Issue(int id, String assignee, Priority priority, Set<String> labels) {}\n\n    /**\n     * What the user filled in. An empty Optional is a field left blank; an empty label set means\n     * no label box was ticked.\n     */\n    public record Form(Optional<String> assignee, Optional<Priority> atLeast, Set<String> anyOfLabels) {}\n\n    public static List<Issue> search(List<Issue> issues, Form form) {\n        return issues.stream().filter(matching(form)).toList();\n    }\n\n    /** One predicate for the whole form: an issue must meet every field the user filled in. */\n    static Predicate<Issue> matching(Form form) {\n        List<Predicate<Issue>> criteria = new ArrayList<>();\n        form.assignee().ifPresent(name -> criteria.add(issue -> name.equals(issue.assignee())));\n        form.atLeast().ifPresent(level -> criteria.add(issue -> issue.priority().compareTo(level) >= 0));\n        if (!form.anyOfLabels().isEmpty()) {\n            criteria.add(anyLabel(form.anyOfLabels()));\n        }\n        return allOf(criteria);\n    }\n\n    /** An issue that carries at least one of these labels. */\n    static Predicate<Issue> anyLabel(Set<String> labels) {\n        return labels.stream()\n                .map(label -> (Predicate<Issue>) issue -> issue.labels().contains(label))\n                .reduce(issue -> false, Predicate::or);\n    }\n\n    /** An issue that meets every one of these criteria. */\n    static Predicate<Issue> allOf(List<Predicate<Issue>> criteria) {\n        return criteria.stream().reduce(issue -> true, Predicate::and);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<IssueSearch.Issue> board = List.of(\n                    new IssueSearch.Issue(1, \"Ana\", IssueSearch.Priority.URGENT, Set.of(\"api\")),\n                    new IssueSearch.Issue(2, \"Ben\", IssueSearch.Priority.LOW, Set.of(\"ui\", \"api\")),\n                    new IssueSearch.Issue(3, \"Ana\", IssueSearch.Priority.MEDIUM, Set.of(\"ui\")),\n                    new IssueSearch.Issue(4, \"Cy\", IssueSearch.Priority.HIGH, Set.of()));\n            System.out.println(\"blank form: \" + ids(board, Optional.empty(), Optional.empty(), Set.of()));\n            System.out.println(\"Ana: \" + ids(board, Optional.of(\"Ana\"), Optional.empty(), Set.of()));\n            System.out.println(\"HIGH or more: \" + ids(board, Optional.empty(), Optional.of(IssueSearch.Priority.HIGH), Set.of()));\n            System.out.println(\"labels ui or api: \" + ids(board, Optional.empty(), Optional.empty(), Set.of(\"ui\", \"api\")));\n            System.out.println(\"Ana, label ui: \" + ids(board, Optional.of(\"Ana\"), Optional.empty(), Set.of(\"ui\")));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    private static List<Integer> ids(List<IssueSearch.Issue> board, Optional<String> assignee,\n                                     Optional<IssueSearch.Priority> atLeast, Set<String> labels) {\n        return IssueSearch.search(board, new IssueSearch.Form(assignee, atLeast, labels)).stream()\n                .map(IssueSearch.Issue::id).toList();\n    }\n}\n"
         }
       ]
     },
@@ -64,6 +73,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.function.Predicate;\n\n/** The issue tracker's search form. */\npublic class IssueSearch {\n\n    public enum Priority { LOW, MEDIUM, HIGH, URGENT }\n\n    public record Issue(int id, String assignee, Priority priority, Set<String> labels) {}\n\n    /**\n     * What the user filled in. An empty Optional is a field left blank; an empty label set means\n     * no label box was ticked.\n     */\n    public record Form(Optional<String> assignee, Optional<Priority> atLeast, Set<String> anyOfLabels) {}\n\n    public static List<Issue> search(List<Issue> issues, Form form) {\n        return issues.stream().filter(matching(form)).toList();\n    }\n\n    /** One predicate for the whole form: an issue must meet every field the user filled in. */\n    static Predicate<Issue> matching(Form form) {\n        List<Predicate<Issue>> criteria = new ArrayList<>();\n        form.assignee().ifPresent(name -> criteria.add(issue -> name.equals(issue.assignee())));\n        form.atLeast().ifPresent(level -> criteria.add(issue -> issue.priority().compareTo(level) >= 0));\n        // TODO: Add the label criterion: the issue carries any one of the ticked labels.\n        return allOf(criteria);\n    }\n\n    /** An issue that carries at least one of these labels. */\n    static Predicate<Issue> anyLabel(Set<String> labels) {\n        // TODO: Build one predicate that holds when an issue carries at least one of the labels.\n        throw new IllegalStateException(\"TODO: anyLabel\");\n    }\n\n    /** An issue that meets every one of these criteria. */\n    static Predicate<Issue> allOf(List<Predicate<Issue>> criteria) {\n        // TODO: Combine the criteria into one predicate that holds when every one of them holds.\n        throw new IllegalStateException(\"TODO: allOf\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            List<IssueSearch.Issue> board = List.of(\n                    new IssueSearch.Issue(1, \"Ana\", IssueSearch.Priority.URGENT, Set.of(\"api\")),\n                    new IssueSearch.Issue(2, \"Ben\", IssueSearch.Priority.LOW, Set.of(\"ui\", \"api\")),\n                    new IssueSearch.Issue(3, \"Ana\", IssueSearch.Priority.MEDIUM, Set.of(\"ui\")),\n                    new IssueSearch.Issue(4, \"Cy\", IssueSearch.Priority.HIGH, Set.of()));\n            System.out.println(\"blank form: \" + ids(board, Optional.empty(), Optional.empty(), Set.of()));\n            System.out.println(\"Ana: \" + ids(board, Optional.of(\"Ana\"), Optional.empty(), Set.of()));\n            System.out.println(\"HIGH or more: \" + ids(board, Optional.empty(), Optional.of(IssueSearch.Priority.HIGH), Set.of()));\n            System.out.println(\"labels ui or api: \" + ids(board, Optional.empty(), Optional.empty(), Set.of(\"ui\", \"api\")));\n            System.out.println(\"Ana, label ui: \" + ids(board, Optional.of(\"Ana\"), Optional.empty(), Set.of(\"ui\")));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    private static List<Integer> ids(List<IssueSearch.Issue> board, Optional<String> assignee,\n                                     Optional<IssueSearch.Priority> atLeast, Set<String> labels) {\n        return IssueSearch.search(board, new IssueSearch.Form(assignee, atLeast, labels)).stream()\n                .map(IssueSearch.Issue::id).toList();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -71,8 +89,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -82,7 +100,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "84ef8d08e93117046c9725a7b598d0e8b643e16c3ce86a171c4ae514d5cd6a7d",
+  "content_sha256": "3f93831f957d26ebf561a68d17532758971ddc2a68b200599160cadb184424a6",
   "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.function.Predicate;\n\n/** The issue tracker's search form. */\npublic class IssueSearch {\n\n    public enum Priority { LOW, MEDIUM, HIGH, URGENT }\n\n    public record Issue(int id, String assignee, Priority priority, Set<String> labels) {}\n\n    /**\n     * What the user filled in. An empty Optional is a field left blank; an empty label set means\n     * no label box was ticked.\n     */\n    public record Form(Optional<String> assignee, Optional<Priority> atLeast, Set<String> anyOfLabels) {}\n\n    public static List<Issue> search(List<Issue> issues, Form form) {\n        return issues.stream().filter(matching(form)).toList();\n    }\n\n    /** One predicate for the whole form: an issue must meet every field the user filled in. */\n    static Predicate<Issue> matching(Form form) {\n        List<Predicate<Issue>> criteria = new ArrayList<>();\n        form.assignee().ifPresent(name -> criteria.add(issue -> name.equals(issue.assignee())));\n        form.atLeast().ifPresent(level -> criteria.add(issue -> issue.priority().compareTo(level) >= 0));\n        // TODO: Add the label criterion: the issue carries any one of the ticked labels.\n        return allOf(criteria);\n    }\n\n    /** An issue that carries at least one of these labels. */\n    static Predicate<Issue> anyLabel(Set<String> labels) {\n        // TODO: Build one predicate that holds when an issue carries at least one of the labels.\n        throw new IllegalStateException(\"TODO: anyLabel\");\n    }\n\n    /** An issue that meets every one of these criteria. */\n    static Predicate<Issue> allOf(List<Predicate<Issue>> criteria) {\n        // TODO: Combine the criteria into one predicate that holds when every one of them holds.\n        throw new IllegalStateException(\"TODO: allOf\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-04/practice-4/src/main/java/practice/IssueSearch.java",
@@ -93,7 +111,8 @@
       "-q",
       "-f",
       "practice/04-functional-programming/14-functional-interfaces/prose/unit-04/practice-4/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -143,6 +162,10 @@
     "concepts": [
       "An optional criterion whose field is empty is left out rather than reduced, because the or-reduction of nothing is x -> false and empties the result.",
       "Reducing a list of predicates starts from x -> true for and and from x -> false for or; the other identity, or orElse(x -> false) on an empty list, rejects or accepts everything."
-    ]
+    ],
+    "files": [
+      "practice/04-functional-programming/14-functional-interfaces/prose/unit-04/practice-4/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/04-functional-programming/14-functional-interfaces/prose/unit-04/practice-4/src/main/java/practice/TryIt.java"
   }
 }

@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.Instant;\nimport java.time.InstantSource;\nimport java.util.Map;\n\n/**\n * Exchange rates against the euro for card payments at checkout, from the treasury service.\n * Single-threaded: the payment worker that owns it is the only caller.\n */\npublic class ExchangeRates {\n\n    /** One call to the treasury service: today's rate of every currency it quotes. */\n    public interface Treasury {\n        Map<String, BigDecimal> allRates();\n    }\n\n    static final Duration MAX_AGE = Duration.ofMinutes(10);\n\n    private final Treasury treasury;\n    private final InstantSource clock;\n    private Map<String, BigDecimal> rates;\n    private Instant fetchedAt;\n\n    public ExchangeRates(Treasury treasury, InstantSource clock) {\n        this.treasury = treasury;\n        this.clock = clock;\n    }\n\n    /** The rate to convert a payment in this currency, such as \"USD\". */\n    public BigDecimal rate(String currency) {\n        Instant now = clock.instant();\n        if (rates == null || !now.isBefore(fetchedAt.plus(MAX_AGE))) {\n            rates = Map.copyOf(treasury.allRates());\n            fetchedAt = now;\n        }\n        return rates.get(currency);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.Instant;\nimport java.time.InstantSource;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Instant[] now = {Instant.parse(\"2026-09-02T09:30:00Z\")};\n            int[] calls = {0};\n            ExchangeRates.Treasury treasury = () -> {\n                calls[0]++;\n                return Map.of(\"CHF\", new BigDecimal(calls[0] == 1 ? \"0.9415\" : \"0.9388\"),\n                        \"SEK\", new BigDecimal(\"11.462\"));\n            };\n            InstantSource clock = () -> now[0];\n            ExchangeRates rates = new ExchangeRates(treasury, clock);\n            System.out.println(\"09:30 CHF: \" + rates.rate(\"CHF\"));\n            now[0] = now[0].plus(Duration.ofMinutes(6));\n            System.out.println(\"09:36 SEK: \" + rates.rate(\"SEK\"));\n            System.out.println(\"09:36 CHF: \" + rates.rate(\"CHF\"));\n            now[0] = now[0].plus(Duration.ofMinutes(5));\n            System.out.println(\"09:41 CHF: \" + rates.rate(\"CHF\"));\n            System.out.println(\"treasury calls: \" + calls[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.InstantSource;\nimport java.util.Map;\n\n/**\n * Exchange rates against the euro for card payments at checkout, from the treasury service.\n * Single-threaded: the payment worker that owns it is the only caller.\n */\npublic class ExchangeRates {\n\n    /** One call to the treasury service: today's rate of every currency it quotes. */\n    public interface Treasury {\n        Map<String, BigDecimal> allRates();\n    }\n\n    static final Duration MAX_AGE = Duration.ofMinutes(10);\n\n    private final Treasury treasury;\n    private final InstantSource clock;\n\n    public ExchangeRates(Treasury treasury, InstantSource clock) {\n        this.treasury = treasury;\n        this.clock = clock;\n    }\n\n    /** The rate to convert a payment in this currency, such as \"USD\". */\n    public BigDecimal rate(String currency) {\n        // TODO: Return the treasury's rate for this currency. A payment must never be converted\n        //       at a rate fetched more than MAX_AGE ago, and the treasury accepts at most one\n        //       call per MAX_AGE from this service. Read the time from clock.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.Instant;\nimport java.time.InstantSource;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Instant[] now = {Instant.parse(\"2026-09-02T09:30:00Z\")};\n            int[] calls = {0};\n            ExchangeRates.Treasury treasury = () -> {\n                calls[0]++;\n                return Map.of(\"CHF\", new BigDecimal(calls[0] == 1 ? \"0.9415\" : \"0.9388\"),\n                        \"SEK\", new BigDecimal(\"11.462\"));\n            };\n            InstantSource clock = () -> now[0];\n            ExchangeRates rates = new ExchangeRates(treasury, clock);\n            System.out.println(\"09:30 CHF: \" + rates.rate(\"CHF\"));\n            now[0] = now[0].plus(Duration.ofMinutes(6));\n            System.out.println(\"09:36 SEK: \" + rates.rate(\"SEK\"));\n            System.out.println(\"09:36 CHF: \" + rates.rate(\"CHF\"));\n            now[0] = now[0].plus(Duration.ofMinutes(5));\n            System.out.println(\"09:41 CHF: \" + rates.rate(\"CHF\"));\n            System.out.println(\"treasury calls: \" + calls[0]);\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "16d1d6831cc9a7b6e3bc8f2f25e1937160fa3944ac2f8f6a709d271bf50b98a3",
+  "content_sha256": "ae0e56d04629481c6122e313ea0ef717801883b4c8cebbd118d2d15a0567e613",
   "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.time.Duration;\nimport java.time.InstantSource;\nimport java.util.Map;\n\n/**\n * Exchange rates against the euro for card payments at checkout, from the treasury service.\n * Single-threaded: the payment worker that owns it is the only caller.\n */\npublic class ExchangeRates {\n\n    /** One call to the treasury service: today's rate of every currency it quotes. */\n    public interface Treasury {\n        Map<String, BigDecimal> allRates();\n    }\n\n    static final Duration MAX_AGE = Duration.ofMinutes(10);\n\n    private final Treasury treasury;\n    private final InstantSource clock;\n\n    public ExchangeRates(Treasury treasury, InstantSource clock) {\n        this.treasury = treasury;\n        this.clock = clock;\n    }\n\n    /** The rate to convert a payment in this currency, such as \"USD\". */\n    public BigDecimal rate(String currency) {\n        // TODO: Return the treasury's rate for this currency. A payment must never be converted\n        //       at a rate fetched more than MAX_AGE ago, and the treasury accepts at most one\n        //       call per MAX_AGE from this service. Read the time from clock.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-1/src/main/java/practice/ExchangeRates.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/08-principles/32-kiss-principle/prose/unit-01/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -143,6 +162,10 @@
       "When the whole list loads in one cheap call, one map and one load time, written only when the list is loaded, meet a maximum-age requirement with one call per period.",
       "Code that drops a stated requirement is not simpler but wrong: a memo that never reloads fails the same maximum-age check as the over-built cache.",
       "A cache that writes the time back on every hit counts its expiry from the last read, so an entry read more often than its time to live is never reloaded."
-    ]
+    ],
+    "files": [
+      "practice/08-principles/32-kiss-principle/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-1/src/main/java/practice/TryIt.java"
   }
 }

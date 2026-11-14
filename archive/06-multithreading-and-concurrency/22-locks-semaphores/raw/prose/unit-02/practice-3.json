@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\n\n/**\n * Hands out the GPU's hardware encoder sessions to transcoding jobs. The GPU runs a fixed number\n * of sessions at once; a 1080p job uses one, a 4K job several.\n */\npublic class EncoderSessions {\n\n    private final Semaphore sessions;\n\n    public EncoderSessions(int sessions) {\n        this.sessions = newSessions(sessions);\n    }\n\n    /** Creates the semaphore whose permits are the GPU's sessions. */\n    Semaphore newSessions(int count) {\n        return new Semaphore(count, true);\n    }\n\n    /** Waits until {@code n} sessions are free, and takes them for one job. */\n    public void reserve(int n) throws InterruptedException {\n        sessions.acquire(n);\n    }\n\n    /** Takes {@code n} sessions if the job can have them right now; false otherwise. */\n    public boolean tryReserve(int n) {\n        return sessions.tryAcquire(n);\n    }\n\n    /** Returns the {@code n} sessions a finished job reserved. */\n    public void giveBack(int n) {\n        sessions.release(n);\n    }\n\n    /** Sessions free right now, for the transcoder's gauge. */\n    public int free() {\n        return sessions.availablePermits();\n    }\n\n    /** Jobs waiting for sessions right now, for the transcoder's gauge. */\n    int waitingJobs() {\n        return sessions.getQueueLength();\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            EncoderSessions gpu = new EncoderSessions(6);\n            System.out.println(\"4K job, tryReserve(4): \" + gpu.tryReserve(4));\n            System.out.println(\"free after it: \" + gpu.free());\n            System.out.println(\"another 4K job, tryReserve(4): \" + gpu.tryReserve(4));\n            System.out.println(\"free after the refusal: \" + gpu.free());\n            Thread job = new Thread(() -> {\n                try {\n                    gpu.reserve(3);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            });\n            job.setDaemon(true);\n            job.start();\n            long until = System.nanoTime() + 2_000_000_000L;\n            while (gpu.waitingJobs() == 0 && job.isAlive() && System.nanoTime() < until) Thread.onSpinWait();\n            System.out.println(\"jobs waiting for 3 sessions: \" + gpu.waitingJobs());\n            gpu.giveBack(4);\n            job.join(3_000);\n            System.out.println(\"waiting job got its sessions: \" + !job.isAlive());\n            System.out.println(\"free at the end: \" + gpu.free());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\n\n/**\n * Hands out the GPU's hardware encoder sessions to transcoding jobs. The GPU runs a fixed number\n * of sessions at once; a 1080p job uses one, a 4K job several.\n */\npublic class EncoderSessions {\n\n    private final Semaphore sessions;\n\n    public EncoderSessions(int sessions) {\n        this.sessions = newSessions(sessions);\n    }\n\n    /** Creates the semaphore whose permits are the GPU's sessions. */\n    Semaphore newSessions(int count) {\n        // TODO: Jobs of different sizes share these sessions, and a 4K job that is waiting must\n        //       not be passed over again and again by 1080p jobs that arrive after it.\n        throw new IllegalStateException(\"TODO: newSessions\");\n    }\n\n    /** Waits until {@code n} sessions are free, and takes them for one job. */\n    public void reserve(int n) throws InterruptedException {\n        // TODO: Return once the job has its n sessions. While it waits, it must not keep sessions\n        //       other jobs could use, and a job cancelled while waiting leaves at once, holding none.\n        throw new IllegalStateException(\"TODO: reserve\");\n    }\n\n    /** Takes {@code n} sessions if the job can have them right now; false otherwise. */\n    public boolean tryReserve(int n) {\n        // TODO: The job either gets all n sessions now, or none of them.\n        throw new IllegalStateException(\"TODO: tryReserve\");\n    }\n\n    /** Returns the {@code n} sessions a finished job reserved. */\n    public void giveBack(int n) {\n        sessions.release(n);\n    }\n\n    /** Sessions free right now, for the transcoder's gauge. */\n    public int free() {\n        return sessions.availablePermits();\n    }\n\n    /** Jobs waiting for sessions right now, for the transcoder's gauge. */\n    int waitingJobs() {\n        return sessions.getQueueLength();\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) throws Exception {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            EncoderSessions gpu = new EncoderSessions(6);\n            System.out.println(\"4K job, tryReserve(4): \" + gpu.tryReserve(4));\n            System.out.println(\"free after it: \" + gpu.free());\n            System.out.println(\"another 4K job, tryReserve(4): \" + gpu.tryReserve(4));\n            System.out.println(\"free after the refusal: \" + gpu.free());\n            Thread job = new Thread(() -> {\n                try {\n                    gpu.reserve(3);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            });\n            job.setDaemon(true);\n            job.start();\n            long until = System.nanoTime() + 2_000_000_000L;\n            while (gpu.waitingJobs() == 0 && job.isAlive() && System.nanoTime() < until) Thread.onSpinWait();\n            System.out.println(\"jobs waiting for 3 sessions: \" + gpu.waitingJobs());\n            gpu.giveBack(4);\n            job.join(3_000);\n            System.out.println(\"waiting job got its sessions: \" + !job.isAlive());\n            System.out.println(\"free at the end: \" + gpu.free());\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ea700b78d4eee8b1e3116800dc9cb99559d20fde82c073b4e3741024be1080f8",
+  "content_sha256": "bd306dd75a68cf576504106b05d017f3c7914fcf02b2eeb5c4480c4d00f41166",
   "starting_code": "package practice;\n\nimport java.util.concurrent.Semaphore;\n\n/**\n * Hands out the GPU's hardware encoder sessions to transcoding jobs. The GPU runs a fixed number\n * of sessions at once; a 1080p job uses one, a 4K job several.\n */\npublic class EncoderSessions {\n\n    private final Semaphore sessions;\n\n    public EncoderSessions(int sessions) {\n        this.sessions = newSessions(sessions);\n    }\n\n    /** Creates the semaphore whose permits are the GPU's sessions. */\n    Semaphore newSessions(int count) {\n        // TODO: Jobs of different sizes share these sessions, and a 4K job that is waiting must\n        //       not be passed over again and again by 1080p jobs that arrive after it.\n        throw new IllegalStateException(\"TODO: newSessions\");\n    }\n\n    /** Waits until {@code n} sessions are free, and takes them for one job. */\n    public void reserve(int n) throws InterruptedException {\n        // TODO: Return once the job has its n sessions. While it waits, it must not keep sessions\n        //       other jobs could use, and a job cancelled while waiting leaves at once, holding none.\n        throw new IllegalStateException(\"TODO: reserve\");\n    }\n\n    /** Takes {@code n} sessions if the job can have them right now; false otherwise. */\n    public boolean tryReserve(int n) {\n        // TODO: The job either gets all n sessions now, or none of them.\n        throw new IllegalStateException(\"TODO: tryReserve\");\n    }\n\n    /** Returns the {@code n} sessions a finished job reserved. */\n    public void giveBack(int n) {\n        sessions.release(n);\n    }\n\n    /** Sessions free right now, for the transcoder's gauge. */\n    public int free() {\n        return sessions.availablePermits();\n    }\n\n    /** Jobs waiting for sessions right now, for the transcoder's gauge. */\n    int waitingJobs() {\n        return sessions.getQueueLength();\n    }\n}\n",
   "exercise": {
     "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-3/src/main/java/practice/EncoderSessions.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-3/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -139,6 +158,10 @@
     "concepts": [
       "acquire(n) and tryAcquire(n) take all n permits together or none, including when interrupted, so a waiting job never holds part of what another needs.",
       "On a non-fair semaphore a waiting acquire(n) can be overtaken by smaller requests; a fair one queues them behind it."
-    ]
+    ],
+    "files": [
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-3/src/main/java/practice/TryIt.java"
   }
 }

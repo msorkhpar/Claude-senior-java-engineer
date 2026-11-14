@@ -51,6 +51,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.List;\n\npublic final class Shipping {\n\n    private Shipping() {\n    }\n\n    /** A kind of parcel. Other teams add kinds of their own, in their own modules. */\n    public interface Parcel {\n        /** Postage before any insurance, in cents. */\n        long baseCents();\n\n        /** Days from handing the parcel over to delivery. */\n        int transitDays();\n    }\n\n    /** A parcel whose declared value is insured in transit. */\n    public interface Insured extends Parcel {\n        long declaredValueCents();\n    }\n\n    /** Letters go by post: 2 days. */\n    public record Letter(int grams) implements Parcel {\n        public long baseCents() {\n            return 85 + (grams / 20) * 10L;\n        }\n\n        public int transitDays() {\n            return 2;\n        }\n    }\n\n    /** Boxes go by road: 4 days, always insured. */\n    public record Box(int grams, long declaredValueCents) implements Insured {\n        public long baseCents() {\n            return 450 + (grams / 1000) * 120L;\n        }\n\n        public int transitDays() {\n            return 4;\n        }\n    }\n\n    public static final class Manifest {\n\n        /**\n         * The postage for everything on the manifest: each parcel's base postage, plus 2 % of the\n         * declared value of each insured parcel, rounded up to the next cent.\n         */\n        long totalCents(List<? extends Parcel> parcels) {\n            long total = 0;\n            for (Parcel p : parcels) {\n                total += p.baseCents();\n                if (p instanceof Insured i) {\n                    total += (i.declaredValueCents() * 2 + 99) / 100;\n                }\n            }\n            return total;\n        }\n\n        /** The day the last parcel on the manifest is delivered, when all leave on {@code shipped}. */\n        LocalDate deliveredBy(LocalDate shipped, List<? extends Parcel> parcels) {\n            int days = 0;\n            for (Parcel p : parcels) {\n                days = Math.max(days, p.transitDays());\n            }\n            return shipped.plusDays(days);\n        }\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Shipping.Manifest manifest = new Shipping.Manifest();\n            List<Shipping.Parcel> van = List.of(new Shipping.Letter(70), new Shipping.Box(4_200, 8_050), new Pallet(5_500, 120_000));\n            System.out.println(\"letter of 70 g base: \" + new Shipping.Letter(70).baseCents());\n            System.out.println(\"box of 4,200 g base: \" + new Shipping.Box(4_200, 8_050).baseCents());\n            System.out.println(\"total postage: \" + manifest.totalCents(van) + \" cents\");\n            System.out.println(\"delivered by: \" + manifest.deliveredBy(LocalDate.of(2027, 9, 6), van));\n            System.out.println(\"letters only, delivered by: \" + manifest.deliveredBy(LocalDate.of(2027, 9, 6), List.of(new Shipping.Letter(20))));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** A parcel kind written after Manifest: insured, eight days by rail. */\n    record Pallet(long baseCents, long declaredValueCents) implements Shipping.Insured {\n        public int transitDays() { return 8; }\n    }\n}\n"
         }
       ]
     },
@@ -63,6 +72,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.List;\n\npublic final class Shipping {\n\n    private Shipping() {\n    }\n\n    /** A kind of parcel. Other teams add kinds of their own, in their own modules. */\n    public interface Parcel {\n        /** Postage before any insurance, in cents. */\n        long baseCents();\n\n        /** Days from handing the parcel over to delivery. */\n        int transitDays();\n    }\n\n    /** A parcel whose declared value is insured in transit. */\n    public interface Insured extends Parcel {\n        long declaredValueCents();\n    }\n\n    /** Letters go by post: 2 days. */\n    public record Letter(int grams) implements Parcel {\n        public long baseCents() {\n            return 85 + (grams / 20) * 10L;\n        }\n\n        public int transitDays() {\n            return 2;\n        }\n    }\n\n    /** Boxes go by road: 4 days, always insured. */\n    public record Box(int grams, long declaredValueCents) implements Insured {\n        public long baseCents() {\n            return 450 + (grams / 1000) * 120L;\n        }\n\n        public int transitDays() {\n            return 4;\n        }\n    }\n\n    public static final class Manifest {\n\n        /**\n         * The postage for everything on the manifest: each parcel's base postage, plus 2 % of the\n         * declared value of each insured parcel, rounded up to the next cent.\n         */\n        long totalCents(List<? extends Parcel> parcels) {\n            throw new IllegalStateException(\"TODO: total postage, insurance included\");\n        }\n\n        /** The day the last parcel on the manifest is delivered, when all leave on {@code shipped}. */\n        LocalDate deliveredBy(LocalDate shipped, List<? extends Parcel> parcels) {\n            throw new IllegalStateException(\"TODO: delivery date of the last parcel\");\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.List;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Shipping.Manifest manifest = new Shipping.Manifest();\n            List<Shipping.Parcel> van = List.of(new Shipping.Letter(70), new Shipping.Box(4_200, 8_050), new Pallet(5_500, 120_000));\n            System.out.println(\"letter of 70 g base: \" + new Shipping.Letter(70).baseCents());\n            System.out.println(\"box of 4,200 g base: \" + new Shipping.Box(4_200, 8_050).baseCents());\n            System.out.println(\"total postage: \" + manifest.totalCents(van) + \" cents\");\n            System.out.println(\"delivered by: \" + manifest.deliveredBy(LocalDate.of(2027, 9, 6), van));\n            System.out.println(\"letters only, delivered by: \" + manifest.deliveredBy(LocalDate.of(2027, 9, 6), List.of(new Shipping.Letter(20))));\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    /** A parcel kind written after Manifest: insured, eight days by rail. */\n    record Pallet(long baseCents, long declaredValueCents) implements Shipping.Insured {\n        public int transitDays() { return 8; }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -70,8 +88,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -81,7 +99,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2540592c0f46190e5dbebfe0a2023496254b06725d1666b8efae254519046fce",
+  "content_sha256": "6c06a9e3ff775ba22aa6c0b04db248e0b9054b13478cb973067c59f5a469d91c",
   "starting_code": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.List;\n\npublic final class Shipping {\n\n    private Shipping() {\n    }\n\n    /** A kind of parcel. Other teams add kinds of their own, in their own modules. */\n    public interface Parcel {\n        /** Postage before any insurance, in cents. */\n        long baseCents();\n\n        /** Days from handing the parcel over to delivery. */\n        int transitDays();\n    }\n\n    /** A parcel whose declared value is insured in transit. */\n    public interface Insured extends Parcel {\n        long declaredValueCents();\n    }\n\n    /** Letters go by post: 2 days. */\n    public record Letter(int grams) implements Parcel {\n        public long baseCents() {\n            return 85 + (grams / 20) * 10L;\n        }\n\n        public int transitDays() {\n            return 2;\n        }\n    }\n\n    /** Boxes go by road: 4 days, always insured. */\n    public record Box(int grams, long declaredValueCents) implements Insured {\n        public long baseCents() {\n            return 450 + (grams / 1000) * 120L;\n        }\n\n        public int transitDays() {\n            return 4;\n        }\n    }\n\n    public static final class Manifest {\n\n        /**\n         * The postage for everything on the manifest: each parcel's base postage, plus 2 % of the\n         * declared value of each insured parcel, rounded up to the next cent.\n         */\n        long totalCents(List<? extends Parcel> parcels) {\n            throw new IllegalStateException(\"TODO: total postage, insurance included\");\n        }\n\n        /** The day the last parcel on the manifest is delivered, when all leave on {@code shipped}. */\n        LocalDate deliveredBy(LocalDate shipped, List<? extends Parcel> parcels) {\n            throw new IllegalStateException(\"TODO: delivery date of the last parcel\");\n        }\n    }\n}\n",
   "exercise": {
     "main_path": "practice/08-principles/31-solid-principles/prose/unit-02/practice-1/src/main/java/practice/Shipping.java",
@@ -92,7 +110,8 @@
       "-q",
       "-f",
       "practice/08-principles/31-solid-principles/prose/unit-02/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -142,6 +161,10 @@
     "concepts": [
       "With the behaviour on each type behind an interface, a new type is one new class that javac refuses until every operation is written, and callers run it from their unchanged class files.",
       "A type check copied into several methods compiles when one copy misses a new type; a fallback branch answers wrongly without a sound and a throwing branch fails only when its path runs."
-    ]
+    ],
+    "files": [
+      "practice/08-principles/31-solid-principles/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/08-principles/31-solid-principles/prose/unit-02/practice-1/src/main/java/practice/TryIt.java"
   }
 }

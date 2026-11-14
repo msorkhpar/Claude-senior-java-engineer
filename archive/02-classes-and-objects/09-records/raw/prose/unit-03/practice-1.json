@@ -43,6 +43,15 @@
           "type": "code",
           "lang": "java",
           "text": "package practice;\n\nimport java.lang.reflect.Constructor;\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.lang.reflect.RecordComponent;\nimport java.util.Map;\n\n/** Turns one imported row (column name to value) into an object of the requested type. */\npublic final class RowMapper {\n\n    private RowMapper() {\n    }\n\n    /** Builds an object of {@code type} from one row of the import. */\n    public static <T> T map(Class<T> type, Map<String, ?> row) {\n        try {\n            return type.isRecord() ? toRecord(type, row) : toBean(type, row);\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(\"cannot map a row to \" + type.getName(), e);\n        }\n    }\n\n    /** Beans: the no-arg constructor, then every instance field set from the column of its name. */\n    static <T> T toBean(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        Constructor<T> noArg = type.getDeclaredConstructor();\n        noArg.setAccessible(true);\n        T bean = noArg.newInstance();\n        for (Field field : type.getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) {\n                continue;\n            }\n            field.setAccessible(true);\n            field.set(bean, row.get(field.getName()));\n        }\n        return bean;\n    }\n\n    /**\n     * Records: TODO. Build a record of {@code type} from the row. Every check the record makes on\n     * its values must still run on imported rows.\n     */\n    static <T> T toRecord(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        RecordComponent[] components = type.getRecordComponents();\n        Class<?>[] types = new Class<?>[components.length];\n        Object[] values = new Object[components.length];\n        for (int i = 0; i < components.length; i++) {\n            types[i] = components[i].getType();\n            values[i] = row.get(components[i].getName());\n        }\n        Constructor<T> canonical = type.getDeclaredConstructor(types);\n        canonical.setAccessible(true);\n        return canonical.newInstance(values);\n    }\n}\n"
+        },
+        {
+          "type": "para",
+          "text": "File: src/main/java/practice/TryIt.java"
+        },
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Map<String, Object> meterRow = new LinkedHashMap<>();\n            meterRow.put(\"kwh\", 1_284.5);\n            meterRow.put(\"_sourceLine\", 77);\n            meterRow.put(\"meterId\", \"MTR-310\");\n            meterRow.put(\"smart\", true);\n            System.out.println(\"meter: \" + RowMapper.map(Meter.class, meterRow));\n            Map<String, Object> palletRow = new LinkedHashMap<>();\n            palletRow.put(\"warehouse\", \"Lille\");\n            palletRow.put(\"label\", \"PAL-66\");\n            palletRow.put(\"layers\", 5);\n            System.out.println(\"pallet: \" + RowMapper.map(Pallet.class, palletRow));\n            palletRow.put(\"layers\", -1);\n            try {\n                RowMapper.map(Pallet.class, palletRow);\n                System.out.println(\"pallet with -1 layers: mapped\");\n            } catch (RuntimeException refused) {\n                Throwable reason = refused;\n                while (reason.getCause() != null) {\n                    reason = reason.getCause();\n                }\n                System.out.println(\"pallet with -1 layers: refused, \" + reason.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    record Meter(String meterId, double kwh, boolean smart) {\n    }\n\n    record Pallet(String label, int layers, String warehouse) {\n        Pallet {\n            if (layers < 1) {\n                throw new IllegalArgumentException(\"layers must be at least 1, was \" + layers);\n            }\n        }\n    }\n}\n"
         }
       ]
     },
@@ -55,6 +64,15 @@
       "type": "code",
       "lang": "java",
       "text": "package practice;\n\nimport java.lang.reflect.Constructor;\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.Map;\n\n/** Turns one imported row (column name to value) into an object of the requested type. */\npublic final class RowMapper {\n\n    private RowMapper() {\n    }\n\n    /** Builds an object of {@code type} from one row of the import. */\n    public static <T> T map(Class<T> type, Map<String, ?> row) {\n        try {\n            return type.isRecord() ? toRecord(type, row) : toBean(type, row);\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(\"cannot map a row to \" + type.getName(), e);\n        }\n    }\n\n    /** Beans: the no-arg constructor, then every instance field set from the column of its name. */\n    static <T> T toBean(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        Constructor<T> noArg = type.getDeclaredConstructor();\n        noArg.setAccessible(true);\n        T bean = noArg.newInstance();\n        for (Field field : type.getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) {\n                continue;\n            }\n            field.setAccessible(true);\n            field.set(bean, row.get(field.getName()));\n        }\n        return bean;\n    }\n\n    /**\n     * Records: TODO. Build a record of {@code type} from the row. Every check the record makes on\n     * its values must still run on imported rows.\n     */\n    static <T> T toRecord(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        throw new IllegalStateException(\"TODO: build a record from the row\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "File: src/main/java/practice/TryIt.java"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.logging.ConsoleHandler;\nimport java.util.logging.Level;\nimport java.util.logging.Logger;\n\n/** Run executes this file. Change the calls in main and see what prints. Submit grades. */\npublic class TryIt {\n    /** Held here, so the JDK's own exit notice stays off: a logger nothing holds can be dropped. */\n    private static final Logger JDK_EXIT = Logger.getLogger(\"java.lang.Runtime\");\n\n    public static void main(String[] args) {\n        // Turn the logger up, so the log lines of your code show under the printed lines.\n        System.setProperty(\"java.util.logging.SimpleFormatter.format\", \"%4$s %5$s%n\");\n        // Only this handler prints, and it leaves out the JDK's own detail.\n        Logger root = Logger.getLogger(\"\");\n        for (java.util.logging.Handler before : root.getHandlers()) {\n            root.removeHandler(before);\n        }\n        ConsoleHandler handler = new ConsoleHandler();\n        handler.setLevel(Level.ALL);\n        handler.setFilter(entry -> !String.valueOf(entry.getLoggerName()).matches(\"(java|javax|jdk|sun|com\\\\.sun)\\\\..*\"));\n        root.setLevel(Level.ALL);\n        root.addHandler(handler);\n        JDK_EXIT.setLevel(Level.OFF);\n\n        // A stand-in for the collaborator, like the one the tests use for the first main case.\n        try {\n            Map<String, Object> meterRow = new LinkedHashMap<>();\n            meterRow.put(\"kwh\", 1_284.5);\n            meterRow.put(\"_sourceLine\", 77);\n            meterRow.put(\"meterId\", \"MTR-310\");\n            meterRow.put(\"smart\", true);\n            System.out.println(\"meter: \" + RowMapper.map(Meter.class, meterRow));\n            Map<String, Object> palletRow = new LinkedHashMap<>();\n            palletRow.put(\"warehouse\", \"Lille\");\n            palletRow.put(\"label\", \"PAL-66\");\n            palletRow.put(\"layers\", 5);\n            System.out.println(\"pallet: \" + RowMapper.map(Pallet.class, palletRow));\n            palletRow.put(\"layers\", -1);\n            try {\n                RowMapper.map(Pallet.class, palletRow);\n                System.out.println(\"pallet with -1 layers: mapped\");\n            } catch (RuntimeException refused) {\n                Throwable reason = refused;\n                while (reason.getCause() != null) {\n                    reason = reason.getCause();\n                }\n                System.out.println(\"pallet with -1 layers: refused, \" + reason.getMessage());\n            }\n        } catch (RuntimeException stopped) {\n            // A method you have not finished, or a bug, stops here with its message, not a build error.\n            System.out.println(\"Run stopped: \" + stopped);\n        }\n    }\n\n    record Meter(String meterId, double kwh, boolean smart) {\n    }\n\n    record Pallet(String label, int layers, String warehouse) {\n        Pallet {\n            if (layers < 1) {\n                throw new IllegalArgumentException(\"layers must be at least 1, was \" + layers);\n            }\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -62,8 +80,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 1,
+    "paras": 4,
+    "code": 2,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -73,7 +91,7 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0b9e1983e820afbab0f3dcee502ee5bac663c5f03d994686d91eb49f18faf7b6",
+  "content_sha256": "e1193675070d60674d22ec9e0d8984dd19ff812885f152b1229c4ab39791d540",
   "starting_code": "package practice;\n\nimport java.lang.reflect.Constructor;\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.Map;\n\n/** Turns one imported row (column name to value) into an object of the requested type. */\npublic final class RowMapper {\n\n    private RowMapper() {\n    }\n\n    /** Builds an object of {@code type} from one row of the import. */\n    public static <T> T map(Class<T> type, Map<String, ?> row) {\n        try {\n            return type.isRecord() ? toRecord(type, row) : toBean(type, row);\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(\"cannot map a row to \" + type.getName(), e);\n        }\n    }\n\n    /** Beans: the no-arg constructor, then every instance field set from the column of its name. */\n    static <T> T toBean(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        Constructor<T> noArg = type.getDeclaredConstructor();\n        noArg.setAccessible(true);\n        T bean = noArg.newInstance();\n        for (Field field : type.getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) {\n                continue;\n            }\n            field.setAccessible(true);\n            field.set(bean, row.get(field.getName()));\n        }\n        return bean;\n    }\n\n    /**\n     * Records: TODO. Build a record of {@code type} from the row. Every check the record makes on\n     * its values must still run on imported rows.\n     */\n    static <T> T toRecord(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        throw new IllegalStateException(\"TODO: build a record from the row\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-1/src/main/java/practice/RowMapper.java",
@@ -84,7 +102,8 @@
       "-q",
       "-f",
       "practice/02-classes-and-objects/09-records/prose/unit-03/practice-1/pom.xml",
-      "compile"
+      "compile",
+      "exec:java"
     ],
     "test_command": [
       "mvn",
@@ -128,6 +147,10 @@
     },
     "concepts": [
       "A record is built from outside through its canonical constructor, whose parameters getRecordComponents() lists by name and type in header order, so the record's checks run."
-    ]
+    ],
+    "files": [
+      "practice/02-classes-and-objects/09-records/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
+    ],
+    "try_file": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-1/src/main/java/practice/TryIt.java"
   }
 }
