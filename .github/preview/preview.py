@@ -41,7 +41,10 @@ with plain `python3` and no sibling; split, the copy would be several files and 
 `page.js` and `page.css` are copied as they are. ⛔ A server-only part is REMOVED, not hidden,
 and a note stands in its place. ⛔ No page holds an owner or a repository name: `PREVIEW_JS`
 builds the links at run time from `location` on a `<owner>.github.io/<repo>/` page, and
-builds nothing anywhere else.
+builds nothing anywhere else. ⭐ The one exception is the host's: a site that serves the
+pages on another address (a custom domain) may add `<meta name="studyforge:repository"
+content="https://github.com/<owner>/<repo>">` to them, and the script uses it first. ⛔ The
+preview itself never writes that tag, and a value of any other shape is ignored.
 
 ## ⛔ No directory starts with a dot
 
@@ -84,6 +87,10 @@ RUN_LINK = "data-preview-run"
 
 #: The attribute that marks a source link the script points at the source viewer.
 SOURCE_LINK = "data-code-path"
+
+#: ⭐ The `<meta name>` a HOST may add to name the repository, for an address the script cannot
+#: read one from (a custom domain). ⛔ The preview never writes it: only whoever serves the pages.
+HOST_HINT = "studyforge:repository"
 
 #: ⭐ An empty icon, so a browser does not ask a static host for a `favicon.ico` it does not have.
 NO_ICON = "data:,"
@@ -193,8 +200,10 @@ PREVIEW_JS = """\
 /* The read-only preview: the links that need the repository, built from where this page is served.
 
    A project page is served at https://<owner>.github.io/<repo>/, so the owner is the host's first
-   label and the repository is the path's first segment. Anywhere else nothing is built and the
-   text stays as it is, without a link. Nothing here makes a request. */
+   label and the repository is the path's first segment. A host that serves the pages elsewhere
+   (a custom domain) may name the repository in <meta name="@HINT@">, read first and only when it
+   is exactly https://github.com/<owner>/<repo>. Otherwise nothing is built and the text stays as
+   it is, without a link. Nothing here makes a request. */
 (function () {
   'use strict';
 
@@ -213,12 +222,23 @@ PREVIEW_JS = """\
     return 'https://github.com/' + labels[0] + '/' + first;
   }
 
+  function hinted(content) {
+    var text = String(content || '');
+    var prefix = 'https://github.com/';
+    if (text.indexOf(prefix) !== 0) { return null; }
+    var parts = text.slice(prefix.length).split('/');
+    if (parts.length !== 2 || !LABEL.test(parts[0]) || !LABEL.test(parts[1])) { return null; }
+    return prefix + parts[0] + '/' + parts[1];
+  }
+
   function plain(link) {
     link.replaceWith(document.createTextNode(link.textContent));
   }
 
-  window.studyforgePreview = { repository: repository };
-  var base = repository(window.location.hostname, window.location.pathname);
+  window.studyforgePreview = { repository: repository, hinted: hinted };
+  var hint = document.querySelector('meta[name="@HINT@"]');
+  var base = (hint && hinted(hint.getAttribute('content'))) ||
+    repository(window.location.hostname, window.location.pathname);
   if (base) {
     [].slice.call(document.querySelectorAll('[data-preview-repo]')).forEach(function (span) {
       span.textContent = base + '.git';
@@ -237,7 +257,7 @@ PREVIEW_JS = """\
     link.href = base + '/blob/main/' + path.split('/').map(encodeURIComponent).join('/');
   });
 }());
-""".replace("@ANCHOR@", RUN_ANCHOR)
+""".replace("@ANCHOR@", RUN_ANCHOR).replace("@HINT@", HOST_HINT)
 
 _PLAYER = re.compile(r'<footer id="player"[^>]*>.*?</footer>\s*', re.DOTALL)
 _NARRATOR = re.compile(r'<audio id="narrator"[^>]*></audio>\s*')
